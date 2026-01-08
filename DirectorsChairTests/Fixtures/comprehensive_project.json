@@ -1,0 +1,321 @@
+{
+  "name": "Comprehensive Test Project",
+  "description": "A feature film about space exploration",
+  "director": "Jane Director",
+  "production_company": "Test Studios",
+  "genre": "Sci-Fi",
+  "project_type": "Motion Film",
+  "target_duration": "120 minutes",
+  "budget": "$5,000,000",
+  "start_date": "2026-02-01",
+  "end_date": "2026-08-31",
+  "status": "Pre-production",
+  "project_notes": "Test project with comprehensive data for validation",
+  "project_icon": "assets/images/project_icon.png",
+  "languages": ["English", "Spanish"],
+  "characters": [
+    {
+      "name": "Captain Sarah Chen",
+      "role": "Protagonist",
+      "color": "#4A90E2",
+      "text_color": "#FFFFFF",
+      "avatar": "assets/images/characters/sarah_avatar.png",
+      "about": "Experienced space captain with a mysterious past",
+      "gender": "female",
+      "voice": "Samantha",
+      "height_cm": 170.0,
+      "weight_kg": 65.0,
+      "build": "Athletic",
+      "age": 35,
+      "hair_color": "#2C1810",
+      "hair_style": "Short, Practical",
+      "hair_length": "Short",
+      "eye_color": "#654321",
+      "eye_color_description": "Brown",
+      "eye_shape": "Almond",
+      "skin_tone": "#D4A574",
+      "ethnicity": "Asian",
+      "distinguishing_features": "Scar above left eyebrow",
+      "facial_structure": "Oval",
+      "base_image": "assets/images/characters/sarah_base.png",
+      "base_image_prompt": "Portrait of a confident Asian female space captain, 35 years old, short practical hair, brown almond-shaped eyes, athletic build, wearing futuristic uniform",
+      "image_front": "assets/images/characters/sarah_front.png",
+      "image_three_quarter_left": "assets/images/characters/sarah_3q_left.png",
+      "image_three_quarter_right": "assets/images/characters/sarah_3q_right.png",
+      "image_profile_left": "assets/images/characters/sarah_profile_left.png",
+      "image_profile_right": "assets/images/characters/sarah_profile_right.png",
+      "openness": 75,
+      "conscientiousness": 85,
+      "extraversion": 60,
+      "agreeableness": 70,
+      "neuroticism": 30,
+      "courage": 90,
+      "intelligence": 85,
+      "empathy": 75,
+      "ambition": 80,
+      "loyalty": 95,
+      "honesty": 90,
+      "humor": 55,
+      "creativity": 70,
+      "discipline": 85,
+      "confidence": 88,
+      "optimism": 65,
+      "pessimism": 20,
+      "aggression": 25,
+      "patience": 75,
+      "impulsiveness": 30,
+      "selfishness": 15,
+      "generosity": 80,
+      "stubbornness": 60,
+      "flexibility": 70,
+      "charisma": 75,
+      "biography_backstory": "Born on Mars Colony 7, Sarah always dreamed of exploring the outer reaches of space. After graduating top of her class at the Solar Academy, she quickly rose through the ranks.",
+      "biography_occupation": "Space Captain, Solar Fleet",
+      "biography_education": "PhD in Astrophysics, Solar Academy",
+      "biography_family": "Estranged from Earth-based family",
+      "biography_goals": "To discover habitable worlds beyond our solar system",
+      "biography_fears": "Failing her crew, losing control",
+      "biography_secrets": "Witnessed something unexplainable during her first deep space mission",
+      "relationships": [
+        {
+          "character_name": "Dr. Marcus Rivera",
+          "relationship_type": "colleague",
+          "description": "Trusted science officer and friend"
+        }
+      ],
+      "costumes": [
+        {
+          "name": "Standard Uniform",
+          "description": "Navy blue uniform with captain's insignia",
+          "image_front": "assets/images/costumes/sarah_uniform_front.png",
+          "image_three_quarter_left": null,
+          "image_three_quarter_right": null,
+          "image_profile": null,
+          "transformation_prompt": "Navy blue space uniform with captain's insignia",
+          "created_at": "2026-01-08T12:00:00"
+        }
+      ],
+      "character_arc": "Learns to trust her instincts and embrace the unknown"
+    },
+    {
+      "name": "Dr. Marcus Rivera",
+      "role": "Supporting",
+      "color": "#50C878",
+      "text_color": "#FFFFFF",
+      "avatar": null,
+      "about": "Brilliant scientist with a passion for xenobiology",
+      "gender": "male",
+      "voice": "Alex",
+      "height_cm": 178.0,
+      "weight_kg": 75.0,
+      "build": "Average",
+      "age": 42,
+      "hair_color": "#3D3D3D",
+      "hair_style": "Medium, Curly",
+      "hair_length": "Medium",
+      "eye_color": "#0E1F1F",
+      "eye_color_description": "Dark Brown",
+      "eye_shape": "Round",
+      "skin_tone": "#C68642",
+      "ethnicity": "Hispanic",
+      "distinguishing_features": "Wire-frame glasses",
+      "facial_structure": "Square",
+      "openness": 95,
+      "conscientiousness": 80,
+      "extraversion": 45,
+      "agreeableness": 85,
+      "neuroticism": 40,
+      "courage": 65,
+      "intelligence": 95,
+      "empathy": 80,
+      "biography_backstory": "Grew up in Buenos Aires, fascinated by microscopic life",
+      "biography_occupation": "Chief Science Officer",
+      "biography_education": "Multiple PhDs in Biology and Chemistry"
+    }
+  ],
+  "props": [
+    {
+      "name": "Neural Interface Helmet",
+      "category": "Technology",
+      "description": "Advanced helmet for ship control",
+      "notes": "Critical for navigation sequences",
+      "image_path": "assets/props/neural_helmet.png",
+      "reference_urls": []
+    }
+  ],
+  "costumes": [
+    {
+      "name": "Standard Crew Uniform",
+      "character": null,
+      "image": "assets/costumes/standard_uniform.png",
+      "notes": "Blue jumpsuit with patches"
+    }
+  ],
+  "lighting": [
+    {
+      "name": "Bridge Main Lights",
+      "type": "LED Panel",
+      "color": "#4A90E2",
+      "intensity": 0.8,
+      "position": "Overhead",
+      "notes": "Cool blue lighting for bridge scenes"
+    }
+  ],
+  "effects": [
+    {
+      "name": "Hyperdrive Effect",
+      "category": "VFX",
+      "params": {
+        "type": "particle_system",
+        "duration": 3.0
+      },
+      "notes": "Star streaking effect"
+    }
+  ],
+  "locations": [
+    {
+      "name": "Ship Bridge",
+      "description": "The main command center of the spacecraft",
+      "location_type": "Interior",
+      "notes": "Primary filming location"
+    }
+  ],
+  "sequences": [
+    {
+      "name": "Act 1 - Departure",
+      "scenes": [
+        {
+          "name": "Scene 1 - Launch Preparation",
+          "description": "The crew prepares for their historic journey",
+          "notes": "High energy, lots of technical dialogue",
+          "dialogues": [
+            {
+              "character": "Captain Sarah Chen",
+              "text": "All systems check. Are we ready for departure?",
+              "tags": ["commanding", "confident"],
+              "costumes": ["Standard Uniform"],
+              "effects": [],
+              "chronology_number": 1,
+              "global_chronology_number": 1,
+              "audio_file_path": null,
+              "manual_duration": null
+            },
+            {
+              "character": "Dr. Marcus Rivera",
+              "text": "All biological containment fields are stable, Captain. We're green across the board.",
+              "tags": ["technical", "reassuring"],
+              "costumes": [],
+              "effects": [],
+              "chronology_number": 2,
+              "global_chronology_number": 2,
+              "audio_file_path": null,
+              "manual_duration": null
+            },
+            {
+              "character": "Captain Sarah Chen",
+              "text": "Excellent. Initiate launch sequence.",
+              "tags": ["decisive"],
+              "costumes": [],
+              "effects": ["Hyperdrive Effect"],
+              "chronology_number": 3,
+              "global_chronology_number": 3,
+              "audio_file_path": null,
+              "manual_duration": 2.5
+            }
+          ],
+          "actions": [
+            {
+              "description": "Sarah activates the main control panel",
+              "chronology_number": 4
+            }
+          ],
+          "narrations": [
+            {
+              "text": "The ship hummed to life as the crew prepared for their journey into the unknown.",
+              "chronology_number": 0
+            }
+          ],
+          "scene_notes": [],
+          "sound_notes": [
+            {
+              "description": "Low rumble of engines",
+              "chronology_number": 5,
+              "sound_type": "background"
+            }
+          ],
+          "shots": [],
+          "location_images": [],
+          "location_context": null,
+          "stage": {},
+          "props": ["Neural Interface Helmet"],
+          "location": "Ship Bridge",
+          "primary_character": "Captain Sarah Chen",
+          "production_status": "Planning",
+          "style_override": null,
+          "scene_overview_image": null,
+          "scene_emotional_analysis": {
+            "emotions": {
+              "excitement": 0.8,
+              "tension": 0.6,
+              "hope": 0.7
+            }
+          },
+          "scene_overview_prompt": "A futuristic ship bridge with crew preparing for launch",
+          "scene_overview_summary": "The crew conducts final checks before launching on their historic deep space mission."
+        }
+      ]
+    }
+  ],
+  "beats": [
+    {
+      "id": "beat_001",
+      "title": "The Discovery",
+      "description": "Captain finds an anomalous signal",
+      "image_path": "assets/beats/discovery.png",
+      "position_x": 100,
+      "position_y": 100,
+      "width": 200,
+      "height": 150
+    }
+  ],
+  "schedule_items": [],
+  "film_styles": [],
+  "default_film_style": null,
+  "cast_members": [
+    {
+      "name": "Emily Stone",
+      "role": "Captain Sarah Chen",
+      "contact": "emily@testactors.com",
+      "notes": "Available all dates"
+    }
+  ],
+  "crew_members": [
+    {
+      "name": "John Cameraman",
+      "department": "Camera",
+      "position": "Director of Photography",
+      "contact": "john@testcrew.com"
+    }
+  ],
+  "teams": [],
+  "equipment_library": [
+    {
+      "name": "ARRI Alexa Mini",
+      "category": "Camera",
+      "quantity": 2,
+      "notes": "Primary cameras"
+    }
+  ],
+  "overview_poster_paths": ["assets/images/poster_v1.png", "assets/images/poster_v2.png"],
+  "overview_poster_current_index": 0,
+  "overview_poster_custom": false,
+  "overview_summary": "An epic space exploration tale following Captain Sarah Chen and her crew as they venture beyond known space.",
+  "overview_summary_generated_at": "2026-01-08T12:00:00",
+  "overview_tagline": "Beyond the stars, beyond the known.",
+  "overview_logline": "When a mysterious signal is detected from the edge of explored space, a veteran captain must lead her crew on a dangerous mission that will test their courage, loyalty, and humanity.",
+  "overview_mood_analysis": {
+    "primary_mood": "adventurous",
+    "secondary_moods": ["mysterious", "hopeful"],
+    "tone": "epic"
+  }
+}
