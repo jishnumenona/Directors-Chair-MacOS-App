@@ -52,7 +52,7 @@ public struct Project: Codable, Identifiable, Hashable {
     public var equipmentLibrary: [EquipmentItem]
 
     // MARK: - User Management
-    public var userManager: ProjectUserManager
+    public var userManager: ProjectUserManager?
 
     // MARK: - Budget
     public var projectBudget: ProjectBudget?
@@ -99,7 +99,7 @@ public struct Project: Codable, Identifiable, Hashable {
         crewMembers: [CrewMember] = [],
         teams: [Team] = [],
         equipmentLibrary: [EquipmentItem] = [],
-        userManager: ProjectUserManager = ProjectUserManager(),
+        userManager: ProjectUserManager? = nil,
         projectBudget: ProjectBudget? = nil,
         overviewPosterPath: String? = nil,
         overviewPosterPaths: [String] = [],

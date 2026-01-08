@@ -83,18 +83,18 @@ public struct Character: Codable, Identifiable, Hashable {
     public var costumeTransformationPrompt: String?
 
     // MARK: - Costume/Attire
-    public var costume: String  // Costume/clothing description for AI
-    public var backgroundSetting: String  // Background/location description
+    public var costume: String?  // Costume/clothing description for AI
+    public var backgroundSetting: String?  // Background/location description
 
     // Multiple Costumes System
-    public var costumes: [CharacterCostume]
-    public var activeCostumeIndex: Int
+    public var costumes: [CharacterCostume]?
+    public var activeCostumeIndex: Int?
 
     // AI Generation prompts
-    public var imagePrompts: [String: String]  // Maps angle field name to generation prompt
+    public var imagePrompts: [String: String]?  // Maps angle field name to generation prompt
 
     // Image annotations
-    public var imageAnnotations: [String: [[String: String]]]
+    public var imageAnnotations: [String: [[String: String]]]?
 
     // MARK: - Overview / Character Sheet
     public var overviewPortrait: String?  // AI-generated portrait for overview
@@ -105,38 +105,38 @@ public struct Character: Codable, Identifiable, Hashable {
 
     // MARK: - AI Calibration Metadata
     public var traitsLastCalibrated: Date?  // When AI last calibrated traits
-    public var traitsConfidenceScore: Double  // AI's confidence (0-100)
+    public var traitsConfidenceScore: Double?  // AI's confidence (0-100)
     public var traitsDataSources: [String]  // Scene IDs used for calibration
-    public var traitsAiReasoning: String  // AI's explanation of trait assignments
-    public var traitsAiRanges: [String: [Double]]  // AI-suggested trait ranges (min, max)
+    public var traitsAiReasoning: String?  // AI's explanation of trait assignments
+    public var traitsAiRanges: [String: [Double]]?  // AI-suggested trait ranges (min, max)
 
     // MARK: - Biography (11 fields)
-    public var fullName: String  // Full legal name
-    public var nickname: String  // Nickname or alias
-    public var occupation: String  // Job or profession
-    public var affiliation: String  // Organization, group, faction
-    public var backgroundStory: String  // Character's past
+    public var fullName: String?  // Full legal name
+    public var nickname: String?  // Nickname or alias
+    public var occupation: String?  // Job or profession
+    public var affiliation: String?  // Organization, group, faction
+    public var backgroundStory: String?  // Character's past
 
     // Motivations & Goals
-    public var primaryGoal: String  // Main objective
-    public var secondaryGoal: String  // Secondary objective
-    public var hiddenMotivation: String  // Secret desire
+    public var primaryGoal: String?  // Main objective
+    public var secondaryGoal: String?  // Secondary objective
+    public var hiddenMotivation: String?  // Secret desire
 
     // Fears & Weaknesses
-    public var primaryFear: String  // What character is most afraid of
-    public var weakness: String  // Physical, emotional, or strategic weakness
-    public var flaw: String  // Personality flaw or defect
+    public var primaryFear: String?  // What character is most afraid of
+    public var weakness: String?  // Physical, emotional, or strategic weakness
+    public var flaw: String?  // Personality flaw or defect
 
     // Character Development
-    public var characterArcNotes: String  // Notes on character's development
+    public var characterArcNotes: String?  // Notes on character's development
 
     // MARK: - Relationships
-    public var relationships: [String: String]  // character_name: relationship_description
+    public var relationships: [String: String]?  // character_name: relationship_description
 
     // MARK: - Story Timeline
     public var firstAppearanceSceneId: String?
     public var lastAppearanceSceneId: String?
-    public var sceneAppearances: [String]  // All scene IDs
+    public var sceneAppearances: [String]?  // All scene IDs
     public var totalDialogueLines: Int
     public var totalScreenTimeSeconds: Double
 
@@ -197,36 +197,36 @@ public struct Character: Codable, Identifiable, Hashable {
         costumeImageThreeQuarterRight: String? = nil,
         costumeImageProfile: String? = nil,
         costumeTransformationPrompt: String? = nil,
-        costume: String = "",
-        backgroundSetting: String = "",
-        costumes: [CharacterCostume] = [],
-        activeCostumeIndex: Int = 0,
-        imagePrompts: [String: String] = [:],
-        imageAnnotations: [String: [[String: String]]] = [:],
+        costume: String? = nil,
+        backgroundSetting: String? = nil,
+        costumes: [CharacterCostume]? = nil,
+        activeCostumeIndex: Int? = nil,
+        imagePrompts: [String: String]? = nil,
+        imageAnnotations: [String: [[String: String]]]? = nil,
         overviewPortrait: String? = nil,
         overviewHtml: String? = nil,
         traits: [String: Double] = Self.defaultTraits(),
         traitsLastCalibrated: Date? = nil,
-        traitsConfidenceScore: Double = 0.0,
+        traitsConfidenceScore: Double? = nil,
         traitsDataSources: [String] = [],
-        traitsAiReasoning: String = "",
-        traitsAiRanges: [String: [Double]] = [:],
-        fullName: String = "",
-        nickname: String = "",
-        occupation: String = "",
-        affiliation: String = "",
-        backgroundStory: String = "",
-        primaryGoal: String = "",
-        secondaryGoal: String = "",
-        hiddenMotivation: String = "",
-        primaryFear: String = "",
-        weakness: String = "",
-        flaw: String = "",
-        characterArcNotes: String = "",
-        relationships: [String: String] = [:],
+        traitsAiReasoning: String? = nil,
+        traitsAiRanges: [String: [Double]]? = nil,
+        fullName: String? = nil,
+        nickname: String? = nil,
+        occupation: String? = nil,
+        affiliation: String? = nil,
+        backgroundStory: String? = nil,
+        primaryGoal: String? = nil,
+        secondaryGoal: String? = nil,
+        hiddenMotivation: String? = nil,
+        primaryFear: String? = nil,
+        weakness: String? = nil,
+        flaw: String? = nil,
+        characterArcNotes: String? = nil,
+        relationships: [String: String]? = nil,
         firstAppearanceSceneId: String? = nil,
         lastAppearanceSceneId: String? = nil,
-        sceneAppearances: [String] = [],
+        sceneAppearances: [String]? = nil,
         totalDialogueLines: Int = 0,
         totalScreenTimeSeconds: Double = 0.0,
         createdAt: Date = Date(),

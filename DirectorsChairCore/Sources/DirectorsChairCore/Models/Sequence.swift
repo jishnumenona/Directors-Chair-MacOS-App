@@ -9,13 +9,13 @@ public struct Sequence: Codable, Identifiable, Hashable {
     public var id: String { name }
 
     public var name: String
-    public var description: String
+    public var description: String?
     public var scenes: [Scene]
     public var location: String?  // Location name reference
 
     public init(
         name: String,
-        description: String = "",
+        description: String? = nil,
         scenes: [Scene] = [],
         location: String? = nil
     ) {
