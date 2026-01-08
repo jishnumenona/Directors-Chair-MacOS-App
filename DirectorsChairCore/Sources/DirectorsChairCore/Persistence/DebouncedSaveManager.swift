@@ -112,7 +112,7 @@ public class DebouncedSaveManager: ObservableObject {
 
     /// Execute the debounced save
     private func executeSave() async {
-        guard let (project, url) = pendingSave else {
+        guard let (_, url) = pendingSave else {
             return
         }
 
