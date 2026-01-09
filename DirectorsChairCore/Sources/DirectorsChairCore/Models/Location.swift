@@ -118,4 +118,49 @@ public struct Location: Codable, Identifiable, Hashable {
         case cinematographyDefaults = "cinematography_defaults"
         case attributes
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Core identity
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+
+        // Hierarchy & Organization
+        parentLocation = try container.decodeIfPresent(String.self, forKey: .parentLocation)
+        locationType = try container.decodeIfPresent(String.self, forKey: .locationType) ?? "mixed"
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+
+        // Geographic Information
+        address = try container.decodeIfPresent(String.self, forKey: .address) ?? ""
+        gpsCoordinates = try container.decodeIfPresent(String.self, forKey: .gpsCoordinates) ?? ""
+
+        // Images
+        images = try container.decodeIfPresent([String].self, forKey: .images) ?? []
+        primaryImage = try container.decodeIfPresent(String.self, forKey: .primaryImage)
+        referenceImages = try container.decodeIfPresent([String].self, forKey: .referenceImages) ?? []
+
+        // Floor Plan
+        floorPlanData = try container.decodeIfPresent([String: String].self, forKey: .floorPlanData)
+        floorPlanImage = try container.decodeIfPresent(String.self, forKey: .floorPlanImage)
+        dimensions = try container.decodeIfPresent([String: Double].self, forKey: .dimensions)
+
+        // Virtual Cinematography
+        cinemaSceneData = try container.decodeIfPresent([String: String].self, forKey: .cinemaSceneData)
+        cinemaBackgroundImage = try container.decodeIfPresent(String.self, forKey: .cinemaBackgroundImage)
+        cinemaReferenceImage = try container.decodeIfPresent(String.self, forKey: .cinemaReferenceImage)
+        cinemaFloorPlanImage = try container.decodeIfPresent(String.self, forKey: .cinemaFloorPlanImage)
+        cinemaEnvironmentVariations = try container.decodeIfPresent([[String: String]].self, forKey: .cinemaEnvironmentVariations) ?? []
+
+        // Style & Atmosphere
+        styleAttributes = try container.decodeIfPresent([String: String].self, forKey: .styleAttributes) ?? [:]
+        cinematographyDefaults = try container.decodeIfPresent([String: String].self, forKey: .cinematographyDefaults) ?? [:]
+
+        // Legacy Support
+        attributes = try container.decodeIfPresent([String: String].self, forKey: .attributes) ?? [:]
+    }
 }
