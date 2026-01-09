@@ -192,9 +192,9 @@ public struct FilmStyle: Codable, Identifiable, Hashable {
     public var referenceImages: [String]  // Relative paths
 
     // Metadata
-    public var createdAt: Date
-    public var updatedAt: Date
-    public var author: String
+    public var createdAt: Date?
+    public var updatedAt: Date?
+    public var author: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -213,9 +213,9 @@ public struct FilmStyle: Codable, Identifiable, Hashable {
         aiStylePrompt: String = "",
         negativePrompt: String = "",
         referenceImages: [String] = [],
-        createdAt: Date = Date(),
-        updatedAt: Date = Date(),
-        author: String = "User"
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil,
+        author: String? = nil
     ) {
         self.id = id
         self.name = name

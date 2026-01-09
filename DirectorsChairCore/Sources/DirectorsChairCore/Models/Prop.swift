@@ -19,38 +19,38 @@ public struct Prop: Codable, Identifiable, Hashable {
     public var tags: [String]  // fragile, period-piece, hero-prop, etc.
 
     // MARK: - Acquisition
-    public var acquisitionType: String  // "Own", "Rental", "Purchase", "Build", "Borrow"
-    public var source: String  // Vendor/shop name or owner
-    public var acquisitionCost: Double
+    public var acquisitionType: String?  // "Own", "Rental", "Purchase", "Build", "Borrow"
+    public var source: String?  // Vendor/shop name or owner
+    public var acquisitionCost: Double?
     public var rentalDailyRate: Double?  // For rentals
     public var rentalStartDate: String?  // ISO date
     public var rentalEndDate: String?  // ISO date
     public var purchaseDate: String?  // ISO date for purchased items
     public var returnDate: String?  // For borrowed/rented items
-    public var depositAmount: Double  // Security deposit
+    public var depositAmount: Double?  // Security deposit
 
     // MARK: - Inventory
-    public var quantity: Int  // How many we have
-    public var quantityHero: Int  // Hero versions (pristine for close-ups)
-    public var quantityStunt: Int  // Stunt versions (breakable, can be damaged)
-    public var storageLocation: String  // Where it's stored
+    public var quantity: Int?  // How many we have
+    public var quantityHero: Int?  // Hero versions (pristine for close-ups)
+    public var quantityStunt: Int?  // Stunt versions (breakable, can be damaged)
+    public var storageLocation: String?  // Where it's stored
     public var barcodeId: String?  // Barcode for tracking
 
     // MARK: - Continuity
-    public var continuityStates: [PropContinuityState]  // States across scenes
-    public var continuityNotes: String  // General continuity notes
-    public var continuityCritical: Bool  // Flag for props requiring strict tracking
+    public var continuityStates: [PropContinuityState]?  // States across scenes
+    public var continuityNotes: String?  // General continuity notes
+    public var continuityCritical: Bool?  // Flag for props requiring strict tracking
 
     // MARK: - Crew Assignment
     public var propsMasterId: String?  // Crew member ID responsible
-    public var propsMasterName: String  // Name for display
+    public var propsMasterName: String?  // Name for display
 
     // MARK: - Fabrication (for built props)
-    public var requiresFabrication: Bool
+    public var requiresFabrication: Bool?
     public var fabrication: PropFabrication?
 
     // MARK: - Scene Usage
-    public var sceneNames: [String]  // Which scenes use this prop
+    public var sceneNames: [String]?  // Which scenes use this prop
     public var firstAppearanceScene: String?  // First scene it appears
     public var lastAppearanceScene: String?  // Last scene it appears
 
@@ -64,11 +64,11 @@ public struct Prop: Codable, Identifiable, Hashable {
     public var safetyNotes: String  // Safety considerations
 
     // MARK: - Status
-    public var status: String  // "Available", "In Use", "Damaged", "Lost", "Returned"
+    public var status: String?  // "Available", "In Use", "Damaged", "Lost", "Returned"
 
     // MARK: - Metadata
-    public var createdDate: String
-    public var modifiedDate: String
+    public var createdDate: String?
+    public var modifiedDate: String?
 
     public init(
         id: String = "prop_\(UUID().uuidString.prefix(12))",
@@ -78,28 +78,28 @@ public struct Prop: Codable, Identifiable, Hashable {
         detailedSpecs: String = "",
         category: String = "",
         tags: [String] = [],
-        acquisitionType: String = "Own",
-        source: String = "",
-        acquisitionCost: Double = 0.0,
+        acquisitionType: String? = nil,
+        source: String? = nil,
+        acquisitionCost: Double? = nil,
         rentalDailyRate: Double? = nil,
         rentalStartDate: String? = nil,
         rentalEndDate: String? = nil,
         purchaseDate: String? = nil,
         returnDate: String? = nil,
-        depositAmount: Double = 0.0,
-        quantity: Int = 1,
-        quantityHero: Int = 0,
-        quantityStunt: Int = 0,
-        storageLocation: String = "",
+        depositAmount: Double? = nil,
+        quantity: Int? = nil,
+        quantityHero: Int? = nil,
+        quantityStunt: Int? = nil,
+        storageLocation: String? = nil,
         barcodeId: String? = nil,
-        continuityStates: [PropContinuityState] = [],
-        continuityNotes: String = "",
-        continuityCritical: Bool = false,
+        continuityStates: [PropContinuityState]? = nil,
+        continuityNotes: String? = nil,
+        continuityCritical: Bool? = nil,
         propsMasterId: String? = nil,
-        propsMasterName: String = "",
-        requiresFabrication: Bool = false,
+        propsMasterName: String? = nil,
+        requiresFabrication: Bool? = nil,
         fabrication: PropFabrication? = nil,
-        sceneNames: [String] = [],
+        sceneNames: [String]? = nil,
         firstAppearanceScene: String? = nil,
         lastAppearanceScene: String? = nil,
         referencePhotos: [String] = [],
@@ -107,9 +107,9 @@ public struct Prop: Codable, Identifiable, Hashable {
         notes: String = "",
         handlingInstructions: String = "",
         safetyNotes: String = "",
-        status: String = "Available",
-        createdDate: String = ISO8601DateFormatter().string(from: Date()),
-        modifiedDate: String = ISO8601DateFormatter().string(from: Date())
+        status: String? = nil,
+        createdDate: String? = nil,
+        modifiedDate: String? = nil
     ) {
         self.id = id
         self.name = name

@@ -137,13 +137,13 @@ public struct Character: Codable, Identifiable, Hashable {
     public var firstAppearanceSceneId: String?
     public var lastAppearanceSceneId: String?
     public var sceneAppearances: [String]?  // All scene IDs
-    public var totalDialogueLines: Int
-    public var totalScreenTimeSeconds: Double
+    public var totalDialogueLines: Int?
+    public var totalScreenTimeSeconds: Double?
 
     // MARK: - Metadata
-    public var createdAt: Date
-    public var updatedAt: Date
-    public var version: Int
+    public var createdAt: Date?
+    public var updatedAt: Date?
+    public var version: Int?
 
     // MARK: - Initialization
     public init(
@@ -227,11 +227,11 @@ public struct Character: Codable, Identifiable, Hashable {
         firstAppearanceSceneId: String? = nil,
         lastAppearanceSceneId: String? = nil,
         sceneAppearances: [String]? = nil,
-        totalDialogueLines: Int = 0,
-        totalScreenTimeSeconds: Double = 0.0,
-        createdAt: Date = Date(),
-        updatedAt: Date = Date(),
-        version: Int = 1
+        totalDialogueLines: Int? = nil,
+        totalScreenTimeSeconds: Double? = nil,
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil,
+        version: Int? = nil
     ) {
         self.characterId = characterId
         self.name = name
