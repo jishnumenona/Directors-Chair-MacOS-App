@@ -193,4 +193,56 @@ public struct Prop: Codable, Identifiable, Hashable {
         case createdDate = "created_date"
         case modifiedDate = "modified_date"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to auto-generate missing fields for Python JSON compatibility
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Auto-generate ID if missing (Python props don't have IDs)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "prop_\(UUID().uuidString.prefix(12))"
+
+        // Required fields with defaults for Python compatibility
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        detailedSpecs = try container.decodeIfPresent(String.self, forKey: .detailedSpecs) ?? ""
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        referencePhotos = try container.decodeIfPresent([String].self, forKey: .referencePhotos) ?? []
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        handlingInstructions = try container.decodeIfPresent(String.self, forKey: .handlingInstructions) ?? ""
+        safetyNotes = try container.decodeIfPresent(String.self, forKey: .safetyNotes) ?? ""
+
+        // Optional fields
+        thumbnail = try container.decodeIfPresent(String.self, forKey: .thumbnail)
+        acquisitionType = try container.decodeIfPresent(String.self, forKey: .acquisitionType)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        acquisitionCost = try container.decodeIfPresent(Double.self, forKey: .acquisitionCost)
+        rentalDailyRate = try container.decodeIfPresent(Double.self, forKey: .rentalDailyRate)
+        rentalStartDate = try container.decodeIfPresent(String.self, forKey: .rentalStartDate)
+        rentalEndDate = try container.decodeIfPresent(String.self, forKey: .rentalEndDate)
+        purchaseDate = try container.decodeIfPresent(String.self, forKey: .purchaseDate)
+        returnDate = try container.decodeIfPresent(String.self, forKey: .returnDate)
+        depositAmount = try container.decodeIfPresent(Double.self, forKey: .depositAmount)
+        quantity = try container.decodeIfPresent(Int.self, forKey: .quantity)
+        quantityHero = try container.decodeIfPresent(Int.self, forKey: .quantityHero)
+        quantityStunt = try container.decodeIfPresent(Int.self, forKey: .quantityStunt)
+        storageLocation = try container.decodeIfPresent(String.self, forKey: .storageLocation)
+        barcodeId = try container.decodeIfPresent(String.self, forKey: .barcodeId)
+        continuityStates = try container.decodeIfPresent([PropContinuityState].self, forKey: .continuityStates)
+        continuityNotes = try container.decodeIfPresent(String.self, forKey: .continuityNotes)
+        continuityCritical = try container.decodeIfPresent(Bool.self, forKey: .continuityCritical)
+        propsMasterId = try container.decodeIfPresent(String.self, forKey: .propsMasterId)
+        propsMasterName = try container.decodeIfPresent(String.self, forKey: .propsMasterName)
+        requiresFabrication = try container.decodeIfPresent(Bool.self, forKey: .requiresFabrication)
+        fabrication = try container.decodeIfPresent(PropFabrication.self, forKey: .fabrication)
+        sceneNames = try container.decodeIfPresent([String].self, forKey: .sceneNames)
+        firstAppearanceScene = try container.decodeIfPresent(String.self, forKey: .firstAppearanceScene)
+        lastAppearanceScene = try container.decodeIfPresent(String.self, forKey: .lastAppearanceScene)
+        receiptPath = try container.decodeIfPresent(String.self, forKey: .receiptPath)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate)
+        modifiedDate = try container.decodeIfPresent(String.self, forKey: .modifiedDate)
+    }
 }
