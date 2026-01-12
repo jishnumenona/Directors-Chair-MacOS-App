@@ -35,4 +35,18 @@ public struct Note: Codable, Identifiable, Hashable {
         case title
         case metadata
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Provide defaults for all fields
+        content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+        noteType = try container.decodeIfPresent(String.self, forKey: .noteType) ?? "text"
+        chronologyNumber = try container.decodeIfPresent(Int.self, forKey: .chronologyNumber) ?? 0
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+    }
 }

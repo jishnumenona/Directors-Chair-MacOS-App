@@ -51,4 +51,26 @@ public struct Dialogue: Codable, Identifiable, Hashable {
         case audioFilePath = "audio_file_path"
         case manualDuration = "manual_duration"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Required fields
+        character = try container.decodeIfPresent(String.self, forKey: .character) ?? ""
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        chronologyNumber = try container.decodeIfPresent(Int.self, forKey: .chronologyNumber) ?? 0
+        globalChronologyNumber = try container.decodeIfPresent(Int.self, forKey: .globalChronologyNumber) ?? 0
+
+        // Optional arrays - provide empty defaults
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        costumes = try container.decodeIfPresent([String].self, forKey: .costumes) ?? []
+        effects = try container.decodeIfPresent([String].self, forKey: .effects) ?? []
+
+        // Optional fields
+        audioFilePath = try container.decodeIfPresent(String.self, forKey: .audioFilePath)
+        manualDuration = try container.decodeIfPresent(Double.self, forKey: .manualDuration)
+    }
 }

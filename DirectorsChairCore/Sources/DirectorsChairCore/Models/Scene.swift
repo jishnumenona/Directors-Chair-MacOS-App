@@ -108,4 +108,42 @@ public struct Scene: Codable, Identifiable, Hashable {
         case sceneOverviewPrompt = "scene_overview_prompt"
         case sceneOverviewSummary = "scene_overview_summary"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Required fields
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+
+        // Scene items - provide empty arrays
+        dialogues = try container.decodeIfPresent([Dialogue].self, forKey: .dialogues) ?? []
+        actions = try container.decodeIfPresent([Action].self, forKey: .actions) ?? []
+        narrations = try container.decodeIfPresent([Narration].self, forKey: .narrations) ?? []
+        sceneNotes = try container.decodeIfPresent([Note].self, forKey: .sceneNotes) ?? []
+        soundNotes = try container.decodeIfPresent([SoundNote].self, forKey: .soundNotes) ?? []
+        shots = try container.decodeIfPresent([Shot].self, forKey: .shots) ?? []
+        locationImages = try container.decodeIfPresent([SceneLocationImage].self, forKey: .locationImages) ?? []
+
+        // Location & Context
+        locationContext = try container.decodeIfPresent([String: String].self, forKey: .locationContext)
+        stage = try container.decodeIfPresent([String: String].self, forKey: .stage) ?? [:]
+        props = try container.decodeIfPresent([String].self, forKey: .props) ?? []
+        location = try container.decodeIfPresent(String.self, forKey: .location)
+        primaryCharacter = try container.decodeIfPresent(String.self, forKey: .primaryCharacter)
+
+        // Production
+        productionStatus = try container.decodeIfPresent(String.self, forKey: .productionStatus) ?? "Planning"
+        styleOverride = try container.decodeIfPresent(String.self, forKey: .styleOverride)
+
+        // Scene Overview
+        sceneOverviewImage = try container.decodeIfPresent(String.self, forKey: .sceneOverviewImage)
+        sceneEmotionalAnalysis = try container.decodeIfPresent([String: Double].self, forKey: .sceneEmotionalAnalysis)
+        sceneOverviewPrompt = try container.decodeIfPresent(String.self, forKey: .sceneOverviewPrompt)
+        sceneOverviewSummary = try container.decodeIfPresent(String.self, forKey: .sceneOverviewSummary)
+    }
 }

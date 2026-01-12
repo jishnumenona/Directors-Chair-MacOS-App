@@ -71,4 +71,37 @@ public struct SoundNote: Codable, Identifiable, Hashable {
         case timestampStart = "timestamp_start"
         case timestampEnd = "timestamp_end"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Required fields with defaults
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        soundType = try container.decodeIfPresent(String.self, forKey: .soundType) ?? "ambient"
+        chronologyNumber = try container.decodeIfPresent(Int.self, forKey: .chronologyNumber) ?? 0
+
+        let vol = try container.decodeIfPresent(Int.self, forKey: .volume) ?? 100
+        volume = max(0, min(100, vol))  // Clamp 0-100
+
+        loop = try container.decodeIfPresent(Bool.self, forKey: .loop) ?? false
+
+        let fadeIn = try container.decodeIfPresent(Double.self, forKey: .fadeInDuration) ?? 0.0
+        fadeInDuration = max(0.0, fadeIn)
+
+        let fadeOut = try container.decodeIfPresent(Double.self, forKey: .fadeOutDuration) ?? 0.0
+        fadeOutDuration = max(0.0, fadeOut)
+
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+
+        // Optional fields
+        audioFilePath = try container.decodeIfPresent(String.self, forKey: .audioFilePath)
+        startTime = try container.decodeIfPresent(Double.self, forKey: .startTime)
+        endTime = try container.decodeIfPresent(Double.self, forKey: .endTime)
+        referenceUrl = try container.decodeIfPresent(String.self, forKey: .referenceUrl)
+        timestampStart = try container.decodeIfPresent(String.self, forKey: .timestampStart)
+        timestampEnd = try container.decodeIfPresent(String.self, forKey: .timestampEnd)
+    }
 }

@@ -51,4 +51,26 @@ public struct Action: Codable, Identifiable, Hashable {
         case globalChronologyNumber = "global_chronology_number"
         case characters
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Required fields
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        chronologyNumber = try container.decodeIfPresent(Int.self, forKey: .chronologyNumber) ?? 0
+        globalChronologyNumber = try container.decodeIfPresent(Int.self, forKey: .globalChronologyNumber) ?? 0
+
+        // Optional arrays - provide empty defaults
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        costumes = try container.decodeIfPresent([String].self, forKey: .costumes) ?? []
+        effects = try container.decodeIfPresent([String].self, forKey: .effects) ?? []
+        characters = try container.decodeIfPresent([String].self, forKey: .characters) ?? []
+
+        // Optional strings - provide empty defaults
+        color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
+        textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? ""
+    }
 }

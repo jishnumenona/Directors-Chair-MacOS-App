@@ -31,4 +31,16 @@ public struct Costume: Codable, Identifiable, Hashable {
         case image
         case notes
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        name = try container.decode(String.self, forKey: .name)
+        character = try container.decodeIfPresent(String.self, forKey: .character)
+        image = try container.decodeIfPresent(String.self, forKey: .image)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+    }
 }

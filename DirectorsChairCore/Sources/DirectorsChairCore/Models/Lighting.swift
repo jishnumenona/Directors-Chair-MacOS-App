@@ -39,4 +39,18 @@ public struct Lighting: Codable, Identifiable, Hashable {
         case position
         case notes
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        name = try container.decode(String.self, forKey: .name)
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? "Spot"
+        color = try container.decodeIfPresent(String.self, forKey: .color) ?? "#ffffff"
+        intensity = try container.decodeIfPresent(Double.self, forKey: .intensity) ?? 1.0
+        position = try container.decodeIfPresent(String.self, forKey: .position) ?? "Front"
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+    }
 }

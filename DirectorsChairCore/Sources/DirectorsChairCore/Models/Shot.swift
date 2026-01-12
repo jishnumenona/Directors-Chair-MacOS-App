@@ -60,4 +60,23 @@ public struct Shot: Codable, Identifiable, Hashable {
         case duration
         case styleOverride = "style_override"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        shotId = try container.decodeIfPresent(Int.self, forKey: .shotId) ?? 0
+        itemChronology = try container.decodeIfPresent(Int.self, forKey: .itemChronology) ?? 0
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Planning"
+        cameraAngle = try container.decodeIfPresent(String.self, forKey: .cameraAngle) ?? "Medium"
+        lensMm = try container.decodeIfPresent(Int.self, forKey: .lensMm) ?? 50
+        aperture = try container.decodeIfPresent(String.self, forKey: .aperture) ?? "f/2.8"
+        shotType = try container.decodeIfPresent(String.self, forKey: .shotType) ?? "Standard"
+        movement = try container.decodeIfPresent(String.self, forKey: .movement) ?? "Static"
+        duration = try container.decodeIfPresent(Double.self, forKey: .duration)
+        styleOverride = try container.decodeIfPresent(String.self, forKey: .styleOverride)
+    }
 }
