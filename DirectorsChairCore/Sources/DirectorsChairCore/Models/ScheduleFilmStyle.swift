@@ -296,4 +296,42 @@ public struct FilmStyle: Codable, Identifiable, Hashable {
         case updatedAt = "updated_at"
         case author
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Core identity
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Style"
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        isPreset = try container.decodeIfPresent(Bool.self, forKey: .isPreset) ?? false
+
+        // Visual characteristics
+        renderingStyle = try container.decodeIfPresent(String.self, forKey: .renderingStyle) ?? "realistic"
+        textureQuality = try container.decodeIfPresent(String.self, forKey: .textureQuality) ?? "smooth"
+        colorPalette = try container.decodeIfPresent([String].self, forKey: .colorPalette) ?? []
+        colorGrading = try container.decodeIfPresent(String.self, forKey: .colorGrading) ?? "neutral"
+        contrastLevel = try container.decodeIfPresent(String.self, forKey: .contrastLevel) ?? "medium"
+
+        // Technical parameters
+        filmGrain = try container.decodeIfPresent(Bool.self, forKey: .filmGrain) ?? false
+        vignette = try container.decodeIfPresent(Bool.self, forKey: .vignette) ?? false
+        lensDistortion = try container.decodeIfPresent(String.self, forKey: .lensDistortion) ?? "none"
+        chromaticAberration = try container.decodeIfPresent(Bool.self, forKey: .chromaticAberration) ?? false
+
+        // AI generation hints
+        aiStylePrompt = try container.decodeIfPresent(String.self, forKey: .aiStylePrompt) ?? ""
+        negativePrompt = try container.decodeIfPresent(String.self, forKey: .negativePrompt) ?? ""
+
+        // Reference
+        referenceImages = try container.decodeIfPresent([String].self, forKey: .referenceImages) ?? []
+
+        // Metadata
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+    }
 }

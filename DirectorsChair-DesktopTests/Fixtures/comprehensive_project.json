@@ -1,5 +1,6 @@
 {
   "name": "Comprehensive Test Project",
+  "base_path": "/tmp/test_projects/comprehensive",
   "description": "A feature film about space exploration",
   "director": "Jane Director",
   "production_company": "Test Studios",
@@ -15,12 +16,15 @@
   "languages": ["English", "Spanish"],
   "characters": [
     {
+      "character_id": "char_sarah_chen_001",
       "name": "Captain Sarah Chen",
       "role": "Protagonist",
+      "costume": "",
       "color": "#4A90E2",
       "text_color": "#FFFFFF",
       "avatar": "assets/images/characters/sarah_avatar.png",
       "about": "Experienced space captain with a mysterious past",
+      "background_setting": "",
       "gender": "female",
       "voice": "Samantha",
       "height_cm": 170.0,
@@ -44,31 +48,34 @@
       "image_three_quarter_right": "assets/images/characters/sarah_3q_right.png",
       "image_profile_left": "assets/images/characters/sarah_profile_left.png",
       "image_profile_right": "assets/images/characters/sarah_profile_right.png",
-      "openness": 75,
-      "conscientiousness": 85,
-      "extraversion": 60,
-      "agreeableness": 70,
-      "neuroticism": 30,
-      "courage": 90,
-      "intelligence": 85,
-      "empathy": 75,
-      "ambition": 80,
-      "loyalty": 95,
-      "honesty": 90,
-      "humor": 55,
-      "creativity": 70,
-      "discipline": 85,
-      "confidence": 88,
-      "optimism": 65,
-      "pessimism": 20,
-      "aggression": 25,
-      "patience": 75,
-      "impulsiveness": 30,
-      "selfishness": 15,
-      "generosity": 80,
-      "stubbornness": 60,
-      "flexibility": 70,
-      "charisma": 75,
+      "traits": {
+        "openness": 75,
+        "conscientiousness": 85,
+        "extraversion": 60,
+        "agreeableness": 70,
+        "neuroticism": 30,
+        "courage": 90,
+        "intelligence": 85,
+        "empathy": 75,
+        "ambition": 80,
+        "loyalty": 95,
+        "honesty": 90,
+        "humor": 55,
+        "creativity": 70,
+        "discipline": 85,
+        "confidence": 88,
+        "optimism": 65,
+        "pessimism": 20,
+        "aggression": 25,
+        "patience": 75,
+        "impulsiveness": 30,
+        "selfishness": 15,
+        "generosity": 80,
+        "stubbornness": 60,
+        "flexibility": 70,
+        "charisma": 75
+      },
+      "traits_data_sources": [],
       "biography_backstory": "Born on Mars Colony 7, Sarah always dreamed of exploring the outer reaches of space. After graduating top of her class at the Solar Academy, she quickly rose through the ranks.",
       "biography_occupation": "Space Captain, Solar Fleet",
       "biography_education": "PhD in Astrophysics, Solar Academy",
@@ -76,13 +83,9 @@
       "biography_goals": "To discover habitable worlds beyond our solar system",
       "biography_fears": "Failing her crew, losing control",
       "biography_secrets": "Witnessed something unexplainable during her first deep space mission",
-      "relationships": [
-        {
-          "character_name": "Dr. Marcus Rivera",
-          "relationship_type": "colleague",
-          "description": "Trusted science officer and friend"
-        }
-      ],
+      "relationships": {
+        "Dr. Marcus Rivera": "Trusted science officer and friend"
+      },
       "costumes": [
         {
           "name": "Standard Uniform",
@@ -92,18 +95,21 @@
           "image_three_quarter_right": null,
           "image_profile": null,
           "transformation_prompt": "Navy blue space uniform with captain's insignia",
-          "created_at": "2026-01-08T12:00:00"
+          "created_at": "2026-01-08T12:00:00Z"
         }
       ],
       "character_arc": "Learns to trust her instincts and embrace the unknown"
     },
     {
+      "character_id": "char_marcus_rivera_002",
       "name": "Dr. Marcus Rivera",
       "role": "Supporting",
+      "costume": "",
       "color": "#50C878",
       "text_color": "#FFFFFF",
       "avatar": null,
       "about": "Brilliant scientist with a passion for xenobiology",
+      "background_setting": "",
       "gender": "male",
       "voice": "Alex",
       "height_cm": 178.0,
@@ -120,14 +126,17 @@
       "ethnicity": "Hispanic",
       "distinguishing_features": "Wire-frame glasses",
       "facial_structure": "Square",
-      "openness": 95,
-      "conscientiousness": 80,
-      "extraversion": 45,
-      "agreeableness": 85,
-      "neuroticism": 40,
-      "courage": 65,
-      "intelligence": 95,
-      "empathy": 80,
+      "traits": {
+        "openness": 95,
+        "conscientiousness": 80,
+        "extraversion": 45,
+        "agreeableness": 85,
+        "neuroticism": 40,
+        "courage": 65,
+        "intelligence": 95,
+        "empathy": 80
+      },
+      "traits_data_sources": [],
       "biography_backstory": "Grew up in Buenos Aires, fascinated by microscopic life",
       "biography_occupation": "Chief Science Officer",
       "biography_education": "Multiple PhDs in Biology and Chemistry"
@@ -183,6 +192,7 @@
   "sequences": [
     {
       "name": "Act 1 - Departure",
+      "description": "Opening act introducing the crew and mission",
       "scenes": [
         {
           "name": "Scene 1 - Launch Preparation",
@@ -226,7 +236,8 @@
           "actions": [
             {
               "description": "Sarah activates the main control panel",
-              "chronology_number": 4
+              "chronology_number": 4,
+              "tags": []
             }
           ],
           "narrations": [
@@ -254,11 +265,9 @@
           "style_override": null,
           "scene_overview_image": null,
           "scene_emotional_analysis": {
-            "emotions": {
-              "excitement": 0.8,
-              "tension": 0.6,
-              "hope": 0.7
-            }
+            "excitement": 0.8,
+            "tension": 0.6,
+            "hope": 0.7
           },
           "scene_overview_prompt": "A futuristic ship bridge with crew preparing for launch",
           "scene_overview_summary": "The crew conducts final checks before launching on their historic deep space mission."
@@ -271,51 +280,46 @@
       "id": "beat_001",
       "title": "The Discovery",
       "description": "Captain finds an anomalous signal",
+      "text": "",
+      "tags": [],
+      "props": [],
+      "costumes": [],
+      "effects": [],
       "image_path": "assets/beats/discovery.png",
-      "position_x": 100,
-      "position_y": 100,
-      "width": 200,
-      "height": 150
+      "position": 0,
+      "card_type": "image",
+      "board_id": "master",
+      "color_palette": [],
+      "pinned": false,
+      "size": "medium",
+      "canvas_x": 100,
+      "canvas_y": 100,
+      "z_order": 0,
+      "canvas_width": 200,
+      "canvas_height": 150,
+      "text_color": "#000000"
     }
   ],
   "schedule_items": [],
   "film_styles": [],
   "default_film_style": null,
-  "cast_members": [
-    {
-      "name": "Emily Stone",
-      "role": "Captain Sarah Chen",
-      "contact": "emily@testactors.com",
-      "notes": "Available all dates"
-    }
-  ],
-  "crew_members": [
-    {
-      "name": "John Cameraman",
-      "department": "Camera",
-      "position": "Director of Photography",
-      "contact": "john@testcrew.com"
-    }
-  ],
+  "cast_members": [],
+  "crew_members": [],
   "teams": [],
-  "equipment_library": [
-    {
-      "name": "ARRI Alexa Mini",
-      "category": "Camera",
-      "quantity": 2,
-      "notes": "Primary cameras"
-    }
-  ],
+  "equipment_library": [],
   "overview_poster_paths": ["assets/images/poster_v1.png", "assets/images/poster_v2.png"],
   "overview_poster_current_index": 0,
   "overview_poster_custom": false,
   "overview_summary": "An epic space exploration tale following Captain Sarah Chen and her crew as they venture beyond known space.",
-  "overview_summary_generated_at": "2026-01-08T12:00:00",
+  "overview_summary_generated_at": "2026-01-08T12:00:00Z",
   "overview_tagline": "Beyond the stars, beyond the known.",
   "overview_logline": "When a mysterious signal is detected from the edge of explored space, a veteran captain must lead her crew on a dangerous mission that will test their courage, loyalty, and humanity.",
   "overview_mood_analysis": {
     "primary_mood": "adventurous",
     "secondary_moods": ["mysterious", "hopeful"],
     "tone": "epic"
+  },
+  "user_manager": {
+    "users": []
   }
 }

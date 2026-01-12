@@ -197,6 +197,70 @@ public struct Project: Codable, Identifiable, Hashable {
         case overviewLogline = "overview_logline"
         case overviewMoodAnalysis = "overview_mood_analysis"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Core identity (required)
+        name = try container.decode(String.self, forKey: .name)
+        basePath = try container.decodeIfPresent(String.self, forKey: .basePath) ?? ""
+
+        // Project metadata with defaults
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        director = try container.decodeIfPresent(String.self, forKey: .director) ?? ""
+        productionCompany = try container.decodeIfPresent(String.self, forKey: .productionCompany) ?? ""
+        genre = try container.decodeIfPresent(String.self, forKey: .genre) ?? ""
+        projectType = try container.decodeIfPresent(String.self, forKey: .projectType) ?? "Skit"
+        targetDuration = try container.decodeIfPresent(String.self, forKey: .targetDuration) ?? ""
+        budget = try container.decodeIfPresent(String.self, forKey: .budget) ?? ""
+        startDate = try container.decodeIfPresent(String.self, forKey: .startDate) ?? ""
+        endDate = try container.decodeIfPresent(String.self, forKey: .endDate) ?? ""
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Pre-production"
+        projectNotes = try container.decodeIfPresent(String.self, forKey: .projectNotes) ?? ""
+        projectIcon = try container.decodeIfPresent(String.self, forKey: .projectIcon) ?? ""
+        languages = try container.decodeIfPresent([String].self, forKey: .languages) ?? ["English"]
+
+        // Project data arrays
+        characters = try container.decodeIfPresent([Character].self, forKey: .characters) ?? []
+        props = try container.decodeIfPresent([Prop].self, forKey: .props) ?? []
+        costumes = try container.decodeIfPresent([Costume].self, forKey: .costumes) ?? []
+        lighting = try container.decodeIfPresent([Lighting].self, forKey: .lighting) ?? []
+        effects = try container.decodeIfPresent([EffectDef].self, forKey: .effects) ?? []
+        locations = try container.decodeIfPresent([Location].self, forKey: .locations) ?? []
+        sequences = try container.decodeIfPresent([Sequence].self, forKey: .sequences) ?? []
+        beats = try container.decodeIfPresent([VisionCard].self, forKey: .beats) ?? []
+
+        // Production planning
+        scheduleItems = try container.decodeIfPresent([ScheduleItem].self, forKey: .scheduleItems) ?? []
+
+        // Film styles
+        filmStyles = try container.decodeIfPresent([FilmStyle].self, forKey: .filmStyles) ?? []
+        defaultFilmStyle = try container.decodeIfPresent(String.self, forKey: .defaultFilmStyle)
+
+        // Cast, crew, teams, equipment
+        castMembers = try container.decodeIfPresent([CastMember].self, forKey: .castMembers) ?? []
+        crewMembers = try container.decodeIfPresent([CrewMember].self, forKey: .crewMembers) ?? []
+        teams = try container.decodeIfPresent([Team].self, forKey: .teams) ?? []
+        equipmentLibrary = try container.decodeIfPresent([EquipmentItem].self, forKey: .equipmentLibrary) ?? []
+
+        // User management and budget
+        userManager = try container.decodeIfPresent(ProjectUserManager.self, forKey: .userManager)
+        projectBudget = try container.decodeIfPresent(ProjectBudget.self, forKey: .projectBudget)
+
+        // Project overview
+        overviewPosterPath = try container.decodeIfPresent(String.self, forKey: .overviewPosterPath)
+        overviewPosterPaths = try container.decodeIfPresent([String].self, forKey: .overviewPosterPaths) ?? []
+        overviewPosterCurrentIndex = try container.decodeIfPresent(Int.self, forKey: .overviewPosterCurrentIndex) ?? 0
+        overviewPosterCustom = try container.decodeIfPresent(Bool.self, forKey: .overviewPosterCustom) ?? false
+        overviewSummary = try container.decodeIfPresent(String.self, forKey: .overviewSummary) ?? ""
+        overviewSummaryGeneratedAt = try container.decodeIfPresent(String.self, forKey: .overviewSummaryGeneratedAt)
+        overviewTagline = try container.decodeIfPresent(String.self, forKey: .overviewTagline) ?? ""
+        overviewLogline = try container.decodeIfPresent(String.self, forKey: .overviewLogline) ?? ""
+        overviewMoodAnalysis = try container.decodeIfPresent([String: Double].self, forKey: .overviewMoodAnalysis)
+    }
 }
 
 // MARK: - ProjectUserManager
@@ -207,5 +271,17 @@ public struct ProjectUserManager: Codable, Hashable {
 
     public init(users: [String] = []) {
         self.users = users
+    }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        users = try container.decodeIfPresent([String].self, forKey: .users) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case users
     }
 }

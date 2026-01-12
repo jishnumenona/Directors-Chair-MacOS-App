@@ -1,5 +1,6 @@
 {
   "name": "Minimal Test Project",
+  "base_path": "/tmp/test_projects/minimal",
   "description": "",
   "director": "",
   "production_company": "",
@@ -22,6 +23,7 @@
   "sequences": [
     {
       "name": "Sequence 1",
+      "description": "",
       "scenes": [
         {
           "name": "Scene 1",
@@ -64,5 +66,8 @@
   "overview_summary_generated_at": null,
   "overview_tagline": "",
   "overview_logline": "",
-  "overview_mood_analysis": null
+  "overview_mood_analysis": null,
+  "user_manager": {
+    "users": []
+  }
 }

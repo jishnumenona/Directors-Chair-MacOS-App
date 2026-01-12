@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F61A4F042F10463000C641A8 /* DirectorsChairCore in Frameworks */ = {isa = PBXBuildFile; productRef = F61A4F032F10463000C641A8 /* DirectorsChairCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		F61A4EDA2F0F64C700C641A8 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,6 +33,17 @@
 		F61A4EE32F0F64C700C641A8 /* DirectorsChair-DesktopUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "DirectorsChair-DesktopUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F61A4F0F2F104E3400C641A8 /* Exceptions for "DirectorsChair-DesktopTests" folder in "DirectorsChair-Desktop" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Fixtures/comprehensive_project.json,
+				Fixtures/minimal_project.json,
+			);
+			target = F61A4EC72F0F64C500C641A8 /* DirectorsChair-Desktop */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F61A4ECA2F0F64C500C641A8 /* DirectorsChair-Desktop */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -37,6 +52,9 @@
 		};
 		F61A4EDC2F0F64C700C641A8 /* DirectorsChair-DesktopTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F61A4F0F2F104E3400C641A8 /* Exceptions for "DirectorsChair-DesktopTests" folder in "DirectorsChair-Desktop" target */,
+			);
 			path = "DirectorsChair-DesktopTests";
 			sourceTree = "<group>";
 		};
@@ -52,6 +70,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F61A4F042F10463000C641A8 /* DirectorsChairCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +97,7 @@
 				F61A4ECA2F0F64C500C641A8 /* DirectorsChair-Desktop */,
 				F61A4EDC2F0F64C700C641A8 /* DirectorsChair-DesktopTests */,
 				F61A4EE62F0F64C700C641A8 /* DirectorsChair-DesktopUITests */,
+				F61A4EFF2F103AEF00C641A8 /* Frameworks */,
 				F61A4EC92F0F64C500C641A8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +110,13 @@
 				F61A4EE32F0F64C700C641A8 /* DirectorsChair-DesktopUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		F61A4EFF2F103AEF00C641A8 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +139,7 @@
 			);
 			name = "DirectorsChair-Desktop";
 			packageProductDependencies = (
+				F61A4F032F10463000C641A8 /* DirectorsChairCore */,
 			);
 			productName = "DirectorsChair-Desktop";
 			productReference = F61A4EC82F0F64C500C641A8 /* DirectorsChair-Desktop.app */;
@@ -195,6 +223,9 @@
 			);
 			mainGroup = F61A4EBF2F0F64C500C641A8;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F61A4F022F10458C00C641A8 /* XCLocalSwiftPackageReference "DirectorsChairCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F61A4EC92F0F64C500C641A8 /* Products */;
 			projectDirPath = "";
@@ -541,6 +572,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		F61A4F022F10458C00C641A8 /* XCLocalSwiftPackageReference "DirectorsChairCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = DirectorsChairCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F61A4F032F10463000C641A8 /* DirectorsChairCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F61A4F022F10458C00C641A8 /* XCLocalSwiftPackageReference "DirectorsChairCore" */;
+			productName = DirectorsChairCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F61A4EC02F0F64C500C641A8 /* Project object */;
 }
