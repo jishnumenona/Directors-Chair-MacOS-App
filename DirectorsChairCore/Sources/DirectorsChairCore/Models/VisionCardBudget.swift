@@ -131,6 +131,57 @@ public struct VisionCard: Codable, Identifiable, Hashable {
         case canvasHeight = "canvas_height"
         case textColor = "text_color"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to auto-generate ID and provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Auto-generate ID if missing
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+
+        // Core fields with defaults
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        character = try container.decodeIfPresent(String.self, forKey: .character)
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+
+        // Arrays with empty defaults
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        props = try container.decodeIfPresent([String].self, forKey: .props) ?? []
+        costumes = try container.decodeIfPresent([String].self, forKey: .costumes) ?? []
+        effects = try container.decodeIfPresent([String].self, forKey: .effects) ?? []
+
+        // Media fields
+        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
+        videoUrl = try container.decodeIfPresent(String.self, forKey: .videoUrl)
+
+        // Scene references
+        sequenceName = try container.decodeIfPresent(String.self, forKey: .sequenceName)
+        sceneName = try container.decodeIfPresent(String.self, forKey: .sceneName)
+        position = try container.decodeIfPresent(Int.self, forKey: .position) ?? 0
+
+        // Vision board fields
+        cardType = try container.decodeIfPresent(String.self, forKey: .cardType) ?? "image"
+        boardId = try container.decodeIfPresent(String.self, forKey: .boardId) ?? "master"
+        colorPalette = try container.decodeIfPresent([String].self, forKey: .colorPalette) ?? []
+        sourceUrl = try container.decodeIfPresent(String.self, forKey: .sourceUrl)
+        credit = try container.decodeIfPresent(String.self, forKey: .credit)
+        pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        size = try container.decodeIfPresent(String.self, forKey: .size) ?? "medium"
+        department = try container.decodeIfPresent(String.self, forKey: .department)
+
+        // Canvas positioning
+        canvasX = try container.decodeIfPresent(Double.self, forKey: .canvasX)
+        canvasY = try container.decodeIfPresent(Double.self, forKey: .canvasY)
+        zOrder = try container.decodeIfPresent(Double.self, forKey: .zOrder) ?? 0
+        canvasWidth = try container.decodeIfPresent(Double.self, forKey: .canvasWidth)
+        canvasHeight = try container.decodeIfPresent(Double.self, forKey: .canvasHeight)
+
+        // Text card specific
+        textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"
+    }
 }
 
 // MARK: - BudgetCategory
@@ -169,6 +220,19 @@ public struct BudgetCategory: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case name, allocated, spent, description
         case isCustom = "is_custom"
+    }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        name = try container.decode(String.self, forKey: .name)
+        allocated = try container.decodeIfPresent(Double.self, forKey: .allocated) ?? 0.0
+        spent = try container.decodeIfPresent(Double.self, forKey: .spent) ?? 0.0
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        isCustom = try container.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
     }
 }
 
@@ -218,6 +282,33 @@ public struct Expense: Codable, Identifiable, Hashable {
         case shotId = "shot_id"
         case receiptPath = "receipt_path"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to auto-generate ID and provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Auto-generate ID if missing
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+
+        // Date with default
+        let defaultDate: String = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.string(from: Date())
+        }()
+        date = try container.decodeIfPresent(String.self, forKey: .date) ?? defaultDate
+
+        // All other fields with defaults
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0.0
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        vendor = try container.decodeIfPresent(String.self, forKey: .vendor) ?? ""
+        sceneId = try container.decodeIfPresent(String.self, forKey: .sceneId)
+        shotId = try container.decodeIfPresent(String.self, forKey: .shotId)
+        receiptPath = try container.decodeIfPresent(String.self, forKey: .receiptPath)
+    }
 }
 
 // MARK: - ProjectBudget
@@ -261,5 +352,19 @@ public struct ProjectBudget: Codable, Hashable {
         case currency
         case aiBudgetLimit = "ai_budget_limit"
         case aiProductionEstimates = "ai_production_estimates"
+    }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        categories = try container.decodeIfPresent([BudgetCategory].self, forKey: .categories) ?? []
+        expenses = try container.decodeIfPresent([Expense].self, forKey: .expenses) ?? []
+        totalBudget = try container.decodeIfPresent(Double.self, forKey: .totalBudget) ?? 0.0
+        currency = try container.decodeIfPresent(String.self, forKey: .currency) ?? "USD"
+        aiBudgetLimit = try container.decodeIfPresent(Double.self, forKey: .aiBudgetLimit) ?? 0.0
+        aiProductionEstimates = try container.decodeIfPresent([String: Double].self, forKey: .aiProductionEstimates)
     }
 }
