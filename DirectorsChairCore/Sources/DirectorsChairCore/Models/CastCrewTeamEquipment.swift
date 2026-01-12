@@ -161,6 +161,50 @@ public struct CastMember: Codable, Identifiable, Hashable {
         case createdDate = "created_date"
         case modifiedDate = "modified_date"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to auto-generate ID and provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Auto-generate ID if missing
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "cast_\(UUID().uuidString.prefix(12))"
+
+        // All fields with defaults
+        actorName = try container.decodeIfPresent(String.self, forKey: .actorName) ?? ""
+        characterName = try container.decodeIfPresent(String.self, forKey: .characterName) ?? ""
+        characterDescription = try container.decodeIfPresent(String.self, forKey: .characterDescription) ?? ""
+        email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
+        phone = try container.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        address = try container.decodeIfPresent(String.self, forKey: .address) ?? ""
+        emergencyContactName = try container.decodeIfPresent(String.self, forKey: .emergencyContactName) ?? ""
+        emergencyContactPhone = try container.decodeIfPresent(String.self, forKey: .emergencyContactPhone) ?? ""
+        emergencyContactRelationship = try container.decodeIfPresent(String.self, forKey: .emergencyContactRelationship) ?? ""
+        roleType = try container.decodeIfPresent(String.self, forKey: .roleType) ?? "Principal"
+        unionStatus = try container.decodeIfPresent(String.self, forKey: .unionStatus) ?? "Non-Union"
+        availabilityNotes = try container.decodeIfPresent(String.self, forKey: .availabilityNotes) ?? ""
+        dailyRate = try container.decodeIfPresent(Double.self, forKey: .dailyRate) ?? 0.0
+        overtimeRate = try container.decodeIfPresent(Double.self, forKey: .overtimeRate) ?? 0.0
+        height = try container.decodeIfPresent(String.self, forKey: .height) ?? ""
+        hairColor = try container.decodeIfPresent(String.self, forKey: .hairColor) ?? ""
+        eyeColor = try container.decodeIfPresent(String.self, forKey: .eyeColor) ?? ""
+        wardrobeSize = try container.decodeIfPresent(String.self, forKey: .wardrobeSize) ?? ""
+        wardrobeNotes = try container.decodeIfPresent(String.self, forKey: .wardrobeNotes) ?? ""
+        specialRequirements = try container.decodeIfPresent(String.self, forKey: .specialRequirements) ?? ""
+        photoPath = try container.decodeIfPresent(String.self, forKey: .photoPath) ?? ""
+        agentName = try container.decodeIfPresent(String.self, forKey: .agentName) ?? ""
+        agentCompany = try container.decodeIfPresent(String.self, forKey: .agentCompany) ?? ""
+        agentPhone = try container.decodeIfPresent(String.self, forKey: .agentPhone) ?? ""
+        agentEmail = try container.decodeIfPresent(String.self, forKey: .agentEmail) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        contractSigned = try container.decodeIfPresent(Bool.self, forKey: .contractSigned) ?? false
+        contractNotes = try container.decodeIfPresent(String.self, forKey: .contractNotes) ?? ""
+        contractManagedExternally = try container.decodeIfPresent(Bool.self, forKey: .contractManagedExternally) ?? false
+        externalManagementSystem = try container.decodeIfPresent(String.self, forKey: .externalManagementSystem) ?? ""
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
+        modifiedDate = try container.decodeIfPresent(String.self, forKey: .modifiedDate) ?? ISO8601DateFormatter().string(from: Date())
+    }
 }
 
 // MARK: - CrewMember
@@ -292,6 +336,43 @@ public struct CrewMember: Codable, Identifiable, Hashable {
         case createdDate = "created_date"
         case modifiedDate = "modified_date"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to auto-generate ID and provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Auto-generate ID if missing
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "crew_\(UUID().uuidString.prefix(12))"
+
+        // All fields with defaults
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        role = try container.decodeIfPresent(String.self, forKey: .role) ?? ""
+        department = try container.decodeIfPresent(String.self, forKey: .department) ?? "Production"
+        email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
+        phone = try container.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        emergencyContact = try container.decodeIfPresent(String.self, forKey: .emergencyContact) ?? ""
+        emergencyPhone = try container.decodeIfPresent(String.self, forKey: .emergencyPhone) ?? ""
+        employmentType = try container.decodeIfPresent(String.self, forKey: .employmentType) ?? "Freelance"
+        dailyRate = try container.decodeIfPresent(Double.self, forKey: .dailyRate) ?? 0.0
+        overtimeRate = try container.decodeIfPresent(Double.self, forKey: .overtimeRate) ?? 0.0
+        kitFee = try container.decodeIfPresent(Double.self, forKey: .kitFee) ?? 0.0
+        availabilityNotes = try container.decodeIfPresent(String.self, forKey: .availabilityNotes) ?? ""
+        startDate = try container.decodeIfPresent(String.self, forKey: .startDate)
+        endDate = try container.decodeIfPresent(String.self, forKey: .endDate)
+        skills = try container.decodeIfPresent([String].self, forKey: .skills) ?? []
+        equipmentOwned = try container.decodeIfPresent([String].self, forKey: .equipmentOwned) ?? []
+        certifications = try container.decodeIfPresent(String.self, forKey: .certifications) ?? ""
+        photoPath = try container.decodeIfPresent(String.self, forKey: .photoPath) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        contractSigned = try container.decodeIfPresent(Bool.self, forKey: .contractSigned) ?? false
+        w9Received = try container.decodeIfPresent(Bool.self, forKey: .w9Received) ?? false
+        contractManagedExternally = try container.decodeIfPresent(Bool.self, forKey: .contractManagedExternally) ?? false
+        externalManagementSystem = try container.decodeIfPresent(String.self, forKey: .externalManagementSystem) ?? ""
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
+        modifiedDate = try container.decodeIfPresent(String.self, forKey: .modifiedDate) ?? ISO8601DateFormatter().string(from: Date())
+    }
 }
 
 // MARK: - Team
@@ -352,6 +433,27 @@ public struct Team: Codable, Identifiable, Hashable {
         case notes
         case createdDate = "created_date"
         case modifiedDate = "modified_date"
+    }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to auto-generate ID and provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Auto-generate ID if missing
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "team_\(UUID().uuidString.prefix(12))"
+
+        // All fields with defaults
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        teamType = try container.decodeIfPresent(String.self, forKey: .teamType) ?? "Shooting Unit"
+        castMemberIds = try container.decodeIfPresent([String].self, forKey: .castMemberIds) ?? []
+        crewMemberIds = try container.decodeIfPresent([String].self, forKey: .crewMemberIds) ?? []
+        teamLeadId = try container.decodeIfPresent(String.self, forKey: .teamLeadId)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
+        modifiedDate = try container.decodeIfPresent(String.self, forKey: .modifiedDate) ?? ISO8601DateFormatter().string(from: Date())
     }
 }
 
@@ -487,5 +589,43 @@ public struct EquipmentItem: Codable, Identifiable, Hashable {
         case externalManagementSystem = "external_management_system"
         case createdDate = "created_date"
         case modifiedDate = "modified_date"
+    }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to auto-generate ID and provide defaults for missing fields
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Auto-generate ID if missing
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "equip_\(UUID().uuidString.prefix(12))"
+
+        // All fields with defaults
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? "Camera"
+        subcategory = try container.decodeIfPresent(String.self, forKey: .subcategory) ?? ""
+        manufacturer = try container.decodeIfPresent(String.self, forKey: .manufacturer) ?? ""
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        quantityOwned = try container.decodeIfPresent(Int.self, forKey: .quantityOwned) ?? 0
+        quantityAvailable = try container.decodeIfPresent(Int.self, forKey: .quantityAvailable) ?? 0
+        isRental = try container.decodeIfPresent(Bool.self, forKey: .isRental) ?? false
+        rentalCompany = try container.decodeIfPresent(String.self, forKey: .rentalCompany) ?? ""
+        rentalDailyRate = try container.decodeIfPresent(Double.self, forKey: .rentalDailyRate) ?? 0.0
+        rentalWeeklyRate = try container.decodeIfPresent(Double.self, forKey: .rentalWeeklyRate) ?? 0.0
+        specs = try container.decodeIfPresent([String: String].self, forKey: .specs) ?? [:]
+        serialNumber = try container.decodeIfPresent(String.self, forKey: .serialNumber) ?? ""
+        purchaseDate = try container.decodeIfPresent(String.self, forKey: .purchaseDate)
+        lastMaintenanceDate = try container.decodeIfPresent(String.self, forKey: .lastMaintenanceDate)
+        nextMaintenanceDue = try container.decodeIfPresent(String.self, forKey: .nextMaintenanceDue)
+        condition = try container.decodeIfPresent(String.self, forKey: .condition) ?? "Good"
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        storageLocation = try container.decodeIfPresent(String.self, forKey: .storageLocation) ?? ""
+        responsibleCrewMemberId = try container.decodeIfPresent(String.self, forKey: .responsibleCrewMemberId)
+        responsibleCrewMemberName = try container.decodeIfPresent(String.self, forKey: .responsibleCrewMemberName) ?? ""
+        rentalManagedExternally = try container.decodeIfPresent(Bool.self, forKey: .rentalManagedExternally) ?? false
+        externalManagementSystem = try container.decodeIfPresent(String.self, forKey: .externalManagementSystem) ?? ""
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
+        modifiedDate = try container.decodeIfPresent(String.self, forKey: .modifiedDate) ?? ISO8601DateFormatter().string(from: Date())
     }
 }
