@@ -132,4 +132,39 @@ public struct SceneLocationImage: Codable, Identifiable, Hashable {
         case imageHeight = "image_height"
         case createdDate = "created_date"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "scene_loc_img_\(UUID().uuidString.prefix(12))"
+        sceneId = try container.decodeIfPresent(String.self, forKey: .sceneId) ?? ""
+        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath) ?? ""
+        locationName = try container.decodeIfPresent(String.self, forKey: .locationName) ?? ""
+        locationType = try container.decodeIfPresent(String.self, forKey: .locationType) ?? ""
+        indoorOutdoor = try container.decodeIfPresent(String.self, forKey: .indoorOutdoor) ?? "Indoor"
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        cameraAngle = try container.decodeIfPresent(String.self, forKey: .cameraAngle) ?? "Medium"
+        lensMm = try container.decodeIfPresent(Int.self, forKey: .lensMm) ?? 35
+        aperture = try container.decodeIfPresent(String.self, forKey: .aperture) ?? "f/2.8"
+        timeOfDay = try container.decodeIfPresent(String.self, forKey: .timeOfDay) ?? "Day"
+        weather = try container.decodeIfPresent(String.self, forKey: .weather) ?? "Clear"
+        lightingStyle = try container.decodeIfPresent(String.self, forKey: .lightingStyle) ?? "Natural"
+        colorTemperature = try container.decodeIfPresent(String.self, forKey: .colorTemperature) ?? "5600K Daylight"
+        aspectRatio = try container.decodeIfPresent(String.self, forKey: .aspectRatio) ?? "16:9"
+        colorGrading = try container.decodeIfPresent(String.self, forKey: .colorGrading) ?? "Cinematic"
+        depthOfField = try container.decodeIfPresent(String.self, forKey: .depthOfField) ?? "Medium"
+        fullPrompt = try container.decodeIfPresent(String.self, forKey: .fullPrompt) ?? ""
+        negativePrompt = try container.decodeIfPresent(String.self, forKey: .negativePrompt) ?? ""
+        modelUsed = try container.decodeIfPresent(String.self, forKey: .modelUsed) ?? "imagen-3.0-generate-002"
+        generationTimestamp = try container.decodeIfPresent(String.self, forKey: .generationTimestamp) ?? ISO8601DateFormatter().string(from: Date())
+        userNotes = try container.decodeIfPresent(String.self, forKey: .userNotes) ?? ""
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        fileSizeBytes = try container.decodeIfPresent(Int.self, forKey: .fileSizeBytes) ?? 0
+        imageWidth = try container.decodeIfPresent(Int.self, forKey: .imageWidth) ?? 0
+        imageHeight = try container.decodeIfPresent(Int.self, forKey: .imageHeight) ?? 0
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
+    }
 }

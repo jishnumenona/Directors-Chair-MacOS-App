@@ -51,4 +51,20 @@ public struct CharacterCostume: Codable, Identifiable, Hashable {
         case transformationPrompt = "transformation_prompt"
         case createdAt = "created_at"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        imageFront = try container.decodeIfPresent(String.self, forKey: .imageFront)
+        imageThreeQuarterLeft = try container.decodeIfPresent(String.self, forKey: .imageThreeQuarterLeft)
+        imageThreeQuarterRight = try container.decodeIfPresent(String.self, forKey: .imageThreeQuarterRight)
+        imageProfile = try container.decodeIfPresent(String.self, forKey: .imageProfile)
+        transformationPrompt = try container.decodeIfPresent(String.self, forKey: .transformationPrompt)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+    }
 }

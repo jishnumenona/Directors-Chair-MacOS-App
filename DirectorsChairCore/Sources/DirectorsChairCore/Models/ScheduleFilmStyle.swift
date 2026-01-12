@@ -159,6 +159,45 @@ public struct ScheduleItem: Codable, Identifiable, Hashable {
         case createdBy = "created_by"
         case color
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "sched_\(UUID().uuidString.prefix(12))"
+        sceneId = try container.decodeIfPresent(String.self, forKey: .sceneId)
+        sceneName = try container.decodeIfPresent(String.self, forKey: .sceneName) ?? ""
+        sequenceName = try container.decodeIfPresent(String.self, forKey: .sequenceName) ?? ""
+        shotIds = try container.decodeIfPresent([String].self, forKey: .shotIds) ?? []
+        shootDate = try container.decodeIfPresent(String.self, forKey: .shootDate)
+        timeSlot = try container.decodeIfPresent(String.self, forKey: .timeSlot) ?? "Full Day"
+        estimatedDurationHours = try container.decodeIfPresent(Double.self, forKey: .estimatedDurationHours) ?? 4.0
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Planned"
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        locationAddress = try container.decodeIfPresent(String.self, forKey: .locationAddress) ?? ""
+        locationGps = try container.decodeIfPresent(String.self, forKey: .locationGps) ?? ""
+        requiredActors = try container.decodeIfPresent([String].self, forKey: .requiredActors) ?? []
+        requiredCrew = try container.decodeIfPresent([String].self, forKey: .requiredCrew) ?? []
+        requiredEquipment = try container.decodeIfPresent([String].self, forKey: .requiredEquipment) ?? []
+        requiredProps = try container.decodeIfPresent([String].self, forKey: .requiredProps) ?? []
+        productionNotes = try container.decodeIfPresent(String.self, forKey: .productionNotes) ?? ""
+        callTime = try container.decodeIfPresent(String.self, forKey: .callTime)
+        wrapTime = try container.decodeIfPresent(String.self, forKey: .wrapTime)
+        weatherRequirements = try container.decodeIfPresent(String.self, forKey: .weatherRequirements) ?? ""
+        backupPlan = try container.decodeIfPresent(String.self, forKey: .backupPlan) ?? ""
+        specialRequirements = try container.decodeIfPresent(String.self, forKey: .specialRequirements) ?? ""
+        estimatedCost = try container.decodeIfPresent(Double.self, forKey: .estimatedCost) ?? 0.0
+        actualCost = try container.decodeIfPresent(Double.self, forKey: .actualCost)
+        completionPercentage = try container.decodeIfPresent(Int.self, forKey: .completionPercentage) ?? 0
+        priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 3
+        dependsOn = try container.decodeIfPresent([String].self, forKey: .dependsOn) ?? []
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
+        modifiedDate = try container.decodeIfPresent(String.self, forKey: .modifiedDate) ?? ISO8601DateFormatter().string(from: Date())
+        createdBy = try container.decodeIfPresent(String.self, forKey: .createdBy) ?? ""
+        color = try container.decodeIfPresent(String.self, forKey: .color)
+    }
 }
 
 // MARK: - FilmStyle

@@ -41,4 +41,19 @@ public struct PropContinuityState: Codable, Identifiable, Hashable {
         case notes
         case createdDate = "created_date"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "cont_\(UUID().uuidString.prefix(12))"
+        sceneName = try container.decodeIfPresent(String.self, forKey: .sceneName) ?? ""
+        condition = try container.decodeIfPresent(String.self, forKey: .condition) ?? "Pristine"
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        referencePhotos = try container.decodeIfPresent([String].self, forKey: .referencePhotos) ?? []
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
+    }
 }

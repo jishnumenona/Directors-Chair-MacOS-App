@@ -49,4 +49,21 @@ public struct PropFabrication: Codable, Hashable {
         case builderAssigned = "builder_assigned"
         case completionStatus = "completion_status"
     }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    /// Custom decoder to provide defaults for fields missing in Python JSON
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        materialsNeeded = try container.decodeIfPresent([String].self, forKey: .materialsNeeded) ?? []
+        dimensions = try container.decodeIfPresent(String.self, forKey: .dimensions) ?? ""
+        weight = try container.decodeIfPresent(String.self, forKey: .weight) ?? ""
+        constructionNotes = try container.decodeIfPresent(String.self, forKey: .constructionNotes) ?? ""
+        referenceImages = try container.decodeIfPresent([String].self, forKey: .referenceImages) ?? []
+        blueprintsPath = try container.decodeIfPresent(String.self, forKey: .blueprintsPath)
+        estimatedBuildTime = try container.decodeIfPresent(String.self, forKey: .estimatedBuildTime) ?? ""
+        builderAssigned = try container.decodeIfPresent(String.self, forKey: .builderAssigned) ?? ""
+        completionStatus = try container.decodeIfPresent(String.self, forKey: .completionStatus) ?? "Not Started"
+    }
 }
