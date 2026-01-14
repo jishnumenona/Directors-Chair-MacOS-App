@@ -4,6 +4,96 @@ This log tracks cross-agent dependencies, API changes, and integration events. A
 
 ---
 
+## [2026-01-14T12:00:00Z] Phase 8D Complete - View Integration
+
+**By:** Agent 1 (Architect)
+**Branch:** integration
+**Commit:** f0ce26d
+
+### Phase 8D: View Integration - COMPLETE ✓
+
+**Summary:**
+Integrated all agent-built views into main app structure, replacing placeholders with real implementations from DirectorsChairViews and DirectorsChairProduction packages.
+
+**Integrated Views (7 major views):**
+
+1. **BubbleView** (Agent 2) - Dialogue editing interface
+   - Initialization: `Binding<Project>` + optional projectBasePath
+   - Full scene list sidebar + dialogue bubble cards
+
+2. **StoryDesignView** (Agent 2) - Character design
+   - Initialization: `Binding<Project>`
+   - Biography, Physical, Personality, Relationships tabs
+
+3. **TimelineView** (Agent 4) - Timeline visualization
+   - Integrated into TimelineContainer with TimelineViewModel
+   - Global view of all sequences/scenes
+   - Click handlers navigate to Bubble view
+   - Auto-refresh on project changes
+
+4. **VisionBoardView** (Agent 2) - Vision board canvas
+   - Initialization: `visionCards` array + `onCardsChanged` callback
+   - Marks project as dirty on changes
+
+5. **CinematographyView** (Agent 2) - Shot list & cinematography
+   - Initialization: `shots` array + `onShotsChanged` callback
+   - Marks project as dirty on changes
+
+6. **ScheduleView** (Agent 2) - Production schedule
+   - Initialization: `ScheduleViewModel(scheduleItems)`
+   - Monthly/Weekly/Daily calendar views
+
+7. **CastCrewView** (Agent 2) - Cast & crew management
+   - Initialization: `CastCrewViewModel(castMembers, crewMembers, teams, equipment)`
+   - Tabbed interface with statistics
+
+8. **BudgetView** (Agent 2) - Budget tracking
+   - Initialization: `BudgetViewModel(budget)`
+   - Category tracking with charts
+
+**Architecture Updates:**
+
+- **Module Imports:** Added DirectorsChairViews, DirectorsChairProduction
+- **CentralViewStack:** Replaced placeholders with real view initializations
+- **TimelineContainer:** Full TimelineViewModel integration with segment click handling
+- **State Flow:** Views bind to projectViewModel.project, changes trigger isDirty
+- **Navigation:** Timeline clicks navigate to scenes in Bubble view
+
+**AppCoordinator Updates:**
+
+- Added `.budget` to AppView enum (11 total views)
+- Added "dollarsign.circle" icon for Budget view
+- Updated view routing system
+
+**ViewCommands Updates:**
+
+- Added Budget navigation (⌘9)
+- Shifted Story Design to ⌘0
+- Shifted Settings to ⌘- (minus key)
+
+**Placeholder Removal:**
+
+- ✅ Removed: Bubble, VisionBoard, ShotList, Schedule, CastCrew, StoryDesign placeholders
+- 🔲 Kept: ProjectOverview, Scenes, Assets, Settings (Phase 8E)
+
+**Statistics:**
+
+- 7 major views integrated
+- ~15,000 LOC of agent code now accessible
+- All Agent 2, 3, 4 implementations integrated
+- 3 files changed, 67 insertions(+), 50 deletions(-)
+
+**Success Criteria:** ✓ All met
+- All existing views load in main window
+- Navigation between views works smoothly
+- State flows correctly between coordinator and views
+- View models properly integrated with ProjectViewModel
+- No compilation errors
+
+**Next:** Phase 8E - Project Management Views (ProjectOverview, Scenes, Assets, Settings)
+
+---
+
 ## [2026-01-14T10:00:00Z] Phase 8C Complete - Menu Bar & Commands
 
 **By:** Agent 1 (Architect)
