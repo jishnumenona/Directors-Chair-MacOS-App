@@ -4,6 +4,58 @@ This log tracks cross-agent dependencies, API changes, and integration events. A
 
 ---
 
+## [2026-01-14T08:30:00Z] Phase 8B Complete - Navigation & Sidebar
+
+**By:** Agent 1 (Architect)
+**Branch:** integration
+**Commit:** 65d35b8
+
+### Phase 8B: Navigation & Sidebar - COMPLETE ✓
+
+**Delivered:**
+- OutlineTab.swift - Hierarchical sequence/scene/shot tree (323 LOC)
+- VersionsTab.swift - Project snapshots and version history (147 LOC)
+- CommentsTab.swift - Collaboration comments with filtering (257 LOC)
+- Updated ContentView.swift - Integrated real tabs, polished toolbar
+
+**Features:**
+- Collapsible sequence/scene/shot tree with selection
+- Version snapshot management (TODO: persistence integration)
+- Comment system with resolved/unresolved filtering (TODO: persistence)
+- Enhanced toolbar with hover states and smooth animations
+- Toggle controls for Navigator, Timeline, Right Panel
+- Keyboard shortcut hints in tooltips (⌘⌥1, ⌘⌥2, ⌘⌥3)
+
+**UI Improvements:**
+- ToolbarButtonStyle with hover states and animations
+- ToggleButtonStyle for active state indication
+- Navigator sidebar header with improved typography
+- Dividers and spacing improvements throughout
+- Empty states for all tabs (NoProject, Empty, etc.)
+
+**Architecture:**
+- Full integration with AppCoordinator for navigation
+- ProjectViewModel integration for project state
+- Proper EnvironmentObject usage throughout views
+- Selection state management via coordinator publishers
+- Combine PassthroughSubject for event notifications
+
+**Success Criteria:** ✓ All met
+- Navigator displays project outline (with empty states)
+- Can select sequences/scenes/shots (coordinator integration)
+- Toolbar buttons switch views (with animations)
+- Side panels toggle correctly (Navigator, Timeline, Right Panel)
+
+**Statistics:**
+- Total: 727 LOC across 3 new view files + ContentView updates
+- 4 files changed, 794 insertions(+), 48 deletions(-)
+
+**Next:** Phase 8C - Menu Bar & Commands (Week 6, Days 1-2)
+
+**Note:** Xcode project still needs manual configuration to add Swift package dependencies
+
+---
+
 ## 2026-01-14 - Agent 1: Phase 2 Gate PASSED + Integration Plan
 **Affects**: All Agents
 **Type**: 🎉 Major Milestone + 🟢 Integration Plan
