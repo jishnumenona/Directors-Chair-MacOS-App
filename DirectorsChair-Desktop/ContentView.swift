@@ -55,16 +55,16 @@ struct CentralViewStack: View {
         Group {
             switch coordinator.selectedView {
             case .overview:
-                ProjectOverviewPlaceholder()
+                ProjectOverviewView()
             case .bubble:
                 BubbleView(
                     project: $projectViewModel.project,
                     projectBasePath: projectViewModel.projectPath
                 )
             case .scenes:
-                ScenesPlaceholder()
+                ScenesListView()
             case .assets:
-                AssetsPlaceholder()
+                AssetsView()
             case .visionBoard:
                 VisionBoardView(
                     cards: projectViewModel.project.visionCards,
@@ -99,7 +99,7 @@ struct CentralViewStack: View {
             case .storyDesign:
                 StoryDesignView(project: $projectViewModel.project)
             case .settings:
-                SettingsPlaceholder()
+                ProjectSettingsView()
             }
         }
         .animation(.easeInOut(duration: 0.2), value: coordinator.selectedView)
