@@ -8,6 +8,8 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairViews
+import DirectorsChairProduction
 
 struct ContentView: View {
     @EnvironmentObject var coordinator: AppCoordinator
@@ -55,21 +57,47 @@ struct CentralViewStack: View {
             case .overview:
                 ProjectOverviewPlaceholder()
             case .bubble:
-                BubblePlaceholder()
+                BubbleView(
+                    project: $projectViewModel.project,
+                    projectBasePath: projectViewModel.projectPath
+                )
             case .scenes:
                 ScenesPlaceholder()
             case .assets:
                 AssetsPlaceholder()
             case .visionBoard:
-                VisionBoardPlaceholder()
+                VisionBoardView(
+                    cards: projectViewModel.project.visionCards,
+                    onCardsChanged: { cards in
+                        projectViewModel.project.visionCards = cards
+                        projectViewModel.isDirty = true
+                    }
+                )
             case .shotList:
-                ShotListPlaceholder()
+                CinematographyView(
+                    shots: projectViewModel.project.shots,
+                    onShotsChanged: { shots in
+                        projectViewModel.project.shots = shots
+                        projectViewModel.isDirty = true
+                    }
+                )
             case .schedule:
-                SchedulePlaceholder()
+                ScheduleView(viewModel: ScheduleViewModel(
+                    scheduleItems: projectViewModel.project.scheduleItems
+                ))
             case .castCrew:
-                CastCrewPlaceholder()
+                CastCrewView(viewModel: CastCrewViewModel(
+                    castMembers: projectViewModel.project.castMembers,
+                    crewMembers: projectViewModel.project.crewMembers,
+                    teams: projectViewModel.project.teams,
+                    equipment: projectViewModel.project.equipment
+                ))
+            case .budget:
+                BudgetView(viewModel: BudgetViewModel(
+                    budget: projectViewModel.project.budget
+                ))
             case .storyDesign:
-                StoryDesignPlaceholder()
+                StoryDesignView(project: $projectViewModel.project)
             case .settings:
                 SettingsPlaceholder()
             }
@@ -260,16 +288,34 @@ enum NavigatorTab: String, CaseIterable, Identifiable {
 // MARK: - Timeline Container
 
 struct TimelineContainer: View {
+    @EnvironmentObject var coordinator: AppCoordinator
+    @EnvironmentObject var projectViewModel: ProjectViewModel
+    @StateObject private var timelineViewModel = TimelineViewModel()
+
     var body: some View {
-        VStack {
-            Text("Timeline View")
-                .font(.headline)
-            Text("TODO: Integrate Agent 4's TimelineView")
-                .font(.caption)
-                .foregroundColor(.secondary)
+        TimelineView(viewModel: timelineViewModel) { segment in
+            // Handle segment click - navigate to the appropriate scene
+            if let sceneName = segment.sceneName {
+                // Find scene by name and select it
+                if let scene = projectViewModel.allScenes.first(where: { $0.name == sceneName }) {
+                    coordinator.selectScene(scene)
+                    // Navigate to bubble view
+                    coordinator.navigateTo(.bubble)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+        .onAppear {
+            // Set project and show global timeline view
+            timelineViewModel.setProject(projectViewModel.project)
+            timelineViewModel.showGlobal()
+        }
+        .onChange(of: projectViewModel.project.sequences) { _ in
+            // Reload timeline when project changes
+            timelineViewModel.setProject(projectViewModel.project)
+            timelineViewModel.refresh()
+        }
     }
 }
 
@@ -278,12 +324,6 @@ struct TimelineContainer: View {
 struct ProjectOverviewPlaceholder: View {
     var body: some View {
         PlaceholderView(title: "Project Overview", description: "Project pitch and overview information")
-    }
-}
-
-struct BubblePlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Bubble View", description: "TODO: Integrate Agent 2's BubbleView")
     }
 }
 
@@ -296,36 +336,6 @@ struct ScenesPlaceholder: View {
 struct AssetsPlaceholder: View {
     var body: some View {
         PlaceholderView(title: "Assets", description: "Media library and asset management")
-    }
-}
-
-struct VisionBoardPlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Vision Board", description: "TODO: Integrate Agent 2's VisionBoardView")
-    }
-}
-
-struct ShotListPlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Shot List", description: "TODO: Integrate Agent 2's CinematographyView")
-    }
-}
-
-struct SchedulePlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Schedule", description: "TODO: Integrate Agent 2's ScheduleView")
-    }
-}
-
-struct CastCrewPlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Cast & Crew", description: "TODO: Integrate Agent 2's CastCrewView")
-    }
-}
-
-struct StoryDesignPlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Story Design", description: "TODO: Integrate Agent 2's StoryDesignView")
     }
 }
 

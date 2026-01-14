@@ -57,17 +57,22 @@ struct ViewCommands: Commands {
                 }
                 .keyboardShortcut("8", modifiers: .command)
 
+                Button("Budget") {
+                    coordinator.navigateTo(.budget)
+                }
+                .keyboardShortcut("9", modifiers: .command)
+
                 Divider()
 
                 Button("Story Design") {
                     coordinator.navigateTo(.storyDesign)
                 }
-                .keyboardShortcut("9", modifiers: .command)
+                .keyboardShortcut("0", modifiers: .command)
 
                 Button("Project Settings") {
                     coordinator.navigateTo(.settings)
                 }
-                .keyboardShortcut("0", modifiers: .command)
+                .keyboardShortcut("-", modifiers: .command)
             }
 
             Divider()

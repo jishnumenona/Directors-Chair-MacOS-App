@@ -157,6 +157,7 @@ enum AppView: String, CaseIterable, Identifiable {
     case shotList = "Shot List"
     case schedule = "Schedule"
     case castCrew = "Cast & Crew"
+    case budget = "Budget"
     case storyDesign = "Story Design"
     case settings = "Settings"
 
@@ -173,6 +174,7 @@ enum AppView: String, CaseIterable, Identifiable {
         case .shotList: return "camera"
         case .schedule: return "calendar"
         case .castCrew: return "person.3"
+        case .budget: return "dollarsign.circle"
         case .storyDesign: return "book"
         case .settings: return "gear"
         }
