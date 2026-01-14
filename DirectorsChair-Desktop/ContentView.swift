@@ -107,12 +107,7 @@ struct CentralViewStack: View {
                     }
                 )
             case .shotList:
-                // TODO: Shots are stored in scenes, not at project level
-                // Need to create adapter to flatten/unflatten shots from all scenes
-                PlaceholderView(
-                    title: "Shot List",
-                    description: "Cinematography view needs architectural rework - shots are stored in scenes"
-                )
+                CinematographyViewAdapter()
             case .schedule:
                 ScheduleView(viewModel: ScheduleViewModel(
                     scheduleItems: projectViewModel.project.scheduleItems
@@ -402,6 +397,45 @@ struct PlaceholderView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+    }
+}
+
+// MARK: - Cinematography View Adapter
+
+/// Adapter view that integrates CinematographyView with scene-based shot storage
+struct CinematographyViewAdapter: View {
+    @EnvironmentObject var projectViewModel: ProjectViewModel
+    @State private var shotsAdapter: ShotsAdapter?
+
+    var body: some View {
+        Group {
+            if let adapter = shotsAdapter {
+                CinematographyView(
+                    shots: adapter.allShots,
+                    onShotsChanged: { updatedShots in
+                        adapter.updateShots(updatedShots)
+                    }
+                )
+            } else {
+                ProgressView("Loading...")
+            }
+        }
+        .onAppear {
+            // Initialize adapter with actual project and callback
+            if shotsAdapter == nil {
+                shotsAdapter = ShotsAdapter(
+                    project: projectViewModel.project,
+                    onShotsChanged: { updatedProject in
+                        projectViewModel.project = updatedProject
+                        projectViewModel.isDirty = true
+                    }
+                )
+            }
+        }
+        .onChange(of: projectViewModel.project.sequences) { _ in
+            // Refresh when project changes externally
+            shotsAdapter?.refresh(from: projectViewModel.project)
+        }
     }
 }
 
