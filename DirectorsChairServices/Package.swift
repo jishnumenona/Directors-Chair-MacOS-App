@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 5.9
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -11,14 +11,20 @@ let package = Package(
     products: [
         .library(
             name: "DirectorsChairServices",
-            targets: ["DirectorsChairServices"]),
+            targets: ["DirectorsChairServices"]
+        ),
+    ],
+    dependencies: [
+        .package(path: "../DirectorsChairCore")
     ],
     targets: [
         .target(
             name: "DirectorsChairServices",
-            dependencies: []),
+            dependencies: ["DirectorsChairCore"]
+        ),
         .testTarget(
             name: "DirectorsChairServicesTests",
-            dependencies: ["DirectorsChairServices"]),
+            dependencies: ["DirectorsChairServices"]
+        ),
     ]
 )
