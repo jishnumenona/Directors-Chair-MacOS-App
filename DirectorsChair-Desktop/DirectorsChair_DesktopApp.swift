@@ -27,7 +27,15 @@ struct DirectorsChair_DesktopApp: App {
                 .frame(minWidth: 1200, minHeight: 800)
         }
         .commands {
-            // TODO: Add app commands in Phase 8C
+            // Phase 8C: Menu Bar & Commands
+            FileCommands()
+                .environmentObject(projectViewModel)
+
+            ViewCommands()
+                .environmentObject(coordinator)
+
+            ExportCommands()
+                .environmentObject(projectViewModel)
         }
 
         #if os(macOS)
