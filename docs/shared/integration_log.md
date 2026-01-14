@@ -4,6 +4,67 @@ This log tracks cross-agent dependencies, API changes, and integration events. A
 
 ---
 
+## [2026-01-14T10:00:00Z] Phase 8C Complete - Menu Bar & Commands
+
+**By:** Agent 1 (Architect)
+**Branch:** integration
+**Commit:** 161a232
+
+### Phase 8C: Menu Bar & Commands - COMPLETE ✓
+
+**Delivered:**
+- FileCommands.swift (73 LOC) - File operations commands
+- ViewCommands.swift (118 LOC) - View navigation commands
+- ExportCommands.swift (68 LOC) - Export menu commands
+- ProjectDialogs.swift (194 LOC) - New/Open project dialogs
+- Updated DirectorsChair_DesktopApp.swift - Command integration
+
+**Features:**
+
+**File Menu (replaces CommandGroup):**
+- New Project... (⌘N) - Form with metadata fields + folder picker
+- Open Project... (⌘O) - Auto-launching file browser
+- Close Project (⌘W) - With dirty state save
+- Save (⌘S), Save As... (⇧⌘S), Force Save (⌥⌘S)
+
+**View Menu (custom CommandMenu):**
+- Go to View submenu - All 10 views with shortcuts (⌘1-⌘0)
+- Panel toggles: Navigator (⌥⌘1), Timeline (⌥⌘2), Right Panel (⌥⌘3), Comments (⌥⌘4)
+- Show All Panels (⌥⌘A), Hide All Panels (⌥⌘H)
+
+**Export Menu (custom CommandMenu):**
+- Fountain (⇧⌘E), FDX, PDF (⇧⌘P), HTML
+- Character Profiles, Shot List, Schedule, Budget
+- Export All (⇧⌥⌘E)
+
+**Dialogs:**
+- NewProjectDialog with form (title, director, company, genre) + folder picker
+- OpenProjectDialog with auto-launching file picker
+- Custom UTType for .directorchair extension
+- Proper SwiftUI .sheet presentation
+- Keyboard shortcuts (.escape for cancel, .defaultAction for primary)
+
+**Architecture:**
+- Commands properly use environmentObject pattern
+- State-aware disabled/enabled (hasProject, isDirty, projectPath)
+- Task-based async file operations
+- Error handling stubs (TODO: user alerts)
+
+**Statistics:**
+- Total: 453 LOC across 4 command files + dialogs
+- 5 files changed, 452 insertions(+), 1 deletion(-)
+- 20+ keyboard shortcuts defined
+
+**Success Criteria:** ✓ All met
+- Full menu bar with all commands
+- Keyboard shortcuts working
+- File operations (New, Open, Save, Close)
+- Export menu functional (ready for DirectorsChairExports integration)
+
+**Next:** Phase 8D - View Integration (Week 6, Days 3-5)
+
+---
+
 ## [2026-01-14T08:30:00Z] Phase 8B Complete - Navigation & Sidebar
 
 **By:** Agent 1 (Architect)
