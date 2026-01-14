@@ -1,0 +1,410 @@
+{
+  "name": "The Time Traveler",
+  "base_path": "",
+  "description": "A sci-fi short film about a scientist who discovers time travel but faces moral dilemmas about changing the past.",
+  "director": "Alex Chen",
+  "production_company": "Indie Films Studio",
+  "genre": "Science Fiction",
+  "project_type": "Short Film",
+  "target_duration": "15 minutes",
+  "budget": "$50,000",
+  "start_date": "2026-03-01",
+  "end_date": "2026-05-30",
+  "status": "Pre-production",
+  "project_notes": "Aiming for festival submissions in Fall 2026. Focus on practical effects with minimal CGI.",
+  "project_icon": "",
+  "languages": ["English"],
+  "overview_summary": "A brilliant physicist discovers time travel but must decide whether to prevent a tragedy from her past, knowing that changing history could have catastrophic consequences.",
+  "overview_tagline": "Some moments should never be changed.",
+  "overview_logline": "When Dr. Sarah Mills invents a time machine, she faces an impossible choice: save her sister from a fatal accident or preserve the timeline that led to her groundbreaking discovery.",
+  "overview_poster_paths": [],
+  "overview_poster_current_index": 0,
+  "overview_poster_custom": false,
+  "characters": [
+    {
+      "name": "Dr. Sarah Mills",
+      "description": "38-year-old physicist, brilliant but haunted by her sister's death",
+      "role": "Protagonist",
+      "traits": ["intelligent", "driven", "guilt-ridden", "determined"],
+      "arc": "From guilt-driven obsession to acceptance",
+      "backstory": "Lost her sister Emma in a car accident 10 years ago. Her grief drove her to pursue time travel research.",
+      "age": "38",
+      "gender": "Female",
+      "ethnicity": "Asian-American",
+      "occupation": "Theoretical Physicist",
+      "notes": "Wears her sister's necklace as a reminder",
+      "costume_ids": [],
+      "relationships": []
+    },
+    {
+      "name": "Dr. Marcus Reed",
+      "description": "Sarah's mentor and colleague, voice of reason",
+      "role": "Supporting",
+      "traits": ["wise", "cautious", "compassionate", "pragmatic"],
+      "arc": "From observer to active participant in Sarah's decision",
+      "backstory": "Has known Sarah since graduate school. Understands the weight of her loss.",
+      "age": "55",
+      "gender": "Male",
+      "ethnicity": "African-American",
+      "occupation": "Professor of Physics",
+      "notes": "Father figure to Sarah",
+      "costume_ids": [],
+      "relationships": []
+    },
+    {
+      "name": "Emma Mills",
+      "description": "Sarah's younger sister, appears in flashbacks and altered timeline",
+      "role": "Supporting",
+      "traits": ["carefree", "optimistic", "loving", "adventurous"],
+      "arc": "Exists only in memory and altered reality",
+      "backstory": "Was killed in a car accident at age 25. Free spirit who lived life fully.",
+      "age": "25",
+      "gender": "Female",
+      "ethnicity": "Asian-American",
+      "occupation": "Travel Blogger",
+      "notes": "Catalyst for the entire story",
+      "costume_ids": [],
+      "relationships": []
+    }
+  ],
+  "sequences": [
+    {
+      "name": "Act 1: Discovery",
+      "description": "Sarah successfully tests time travel for the first time and realizes the implications",
+      "scenes": [
+        {
+          "name": "Scene 1",
+          "heading": "INT. PHYSICS LAB - NIGHT",
+          "synopsis": "Sarah works late in her lab, making final adjustments to her time displacement device. After months of failures, the machine suddenly activates, creating a brief temporal distortion.",
+          "time_of_day": "Night",
+          "location_id": "",
+          "weather": "",
+          "mood": "Tense, anticipatory",
+          "camera_notes": "Handheld, intimate close-ups emphasizing Sarah's exhaustion and determination",
+          "lighting_notes": "Harsh fluorescent lab lights, with warm glow from the machine",
+          "sound_notes": [
+            {
+              "timestamp": "00:00",
+              "note": "Low electrical hum building to crescendo",
+              "sound_type": "ambient"
+            }
+          ],
+          "actions": [
+            {
+              "timestamp": "00:00",
+              "description": "Sarah adjusts calibration dials on the machine",
+              "character_ids": ["Dr. Sarah Mills"]
+            },
+            {
+              "timestamp": "00:45",
+              "description": "The machine activates, creating a visible ripple in space-time",
+              "character_ids": []
+            },
+            {
+              "timestamp": "01:30",
+              "description": "Sarah watches in amazement as a coffee mug appears to age rapidly then reverse",
+              "character_ids": ["Dr. Sarah Mills"]
+            }
+          ],
+          "dialogues": [
+            {
+              "character_id": "Dr. Sarah Mills",
+              "text": "Come on... just one more adjustment...",
+              "timestamp": "00:15",
+              "delivery_note": "Muttering to herself, exhausted but focused",
+              "emotion": "Determined",
+              "language": "English"
+            },
+            {
+              "character_id": "Dr. Sarah Mills",
+              "text": "Oh my god. It's working. Emma, I can fix this. I can save you.",
+              "timestamp": "02:00",
+              "delivery_note": "Whispered, tears in her eyes",
+              "emotion": "Hope mixed with grief",
+              "language": "English"
+            }
+          ],
+          "shots": [
+            {
+              "name": "Shot 1A",
+              "shot_type": "Close-up",
+              "camera_angle": "Eye level",
+              "movement": "Handheld",
+              "lens": "50mm",
+              "description": "Tight on Sarah's face, showing determination and exhaustion",
+              "duration": "3s",
+              "notes": "Natural light from equipment, shadows under eyes"
+            },
+            {
+              "name": "Shot 1B",
+              "shot_type": "Wide",
+              "camera_angle": "High angle",
+              "movement": "Static",
+              "lens": "24mm",
+              "description": "Lab overview showing Sarah alone with the machine",
+              "duration": "5s",
+              "notes": "Emphasize isolation and scale of her work"
+            },
+            {
+              "name": "Shot 1C",
+              "shot_type": "Medium",
+              "camera_angle": "Eye level",
+              "movement": "Slow push-in",
+              "lens": "35mm",
+              "description": "Machine activating, visual effects begin",
+              "duration": "8s",
+              "notes": "VFX marker: temporal distortion effect"
+            }
+          ],
+          "scene_location_images": [],
+          "estimated_runtime": "180s",
+          "status": "Scripted",
+          "scene_number": "1",
+          "is_omitted": false
+        },
+        {
+          "name": "Scene 2",
+          "heading": "INT. SARAH'S APARTMENT - EARLY MORNING",
+          "synopsis": "Sarah returns home exhausted but exhilarated. She looks at old photos of Emma, wrestling with the possibility of changing the past.",
+          "time_of_day": "Early Morning",
+          "location_id": "",
+          "weather": "",
+          "mood": "Contemplative, conflicted",
+          "camera_notes": "Smooth, deliberate movements. More composed than Scene 1.",
+          "lighting_notes": "Dawn light through windows, soft and warm",
+          "sound_notes": [],
+          "actions": [
+            {
+              "timestamp": "00:00",
+              "description": "Sarah enters apartment, sets down keys",
+              "character_ids": ["Dr. Sarah Mills"]
+            },
+            {
+              "timestamp": "00:30",
+              "description": "Picks up photo of Emma from shelf",
+              "character_ids": ["Dr. Sarah Mills"]
+            }
+          ],
+          "dialogues": [],
+          "shots": [
+            {
+              "name": "Shot 2A",
+              "shot_type": "Wide",
+              "camera_angle": "Eye level",
+              "movement": "Static",
+              "lens": "24mm",
+              "description": "Sarah enters frame, apartment visible",
+              "duration": "4s",
+              "notes": "Establish apartment space"
+            },
+            {
+              "name": "Shot 2B",
+              "shot_type": "Close-up",
+              "camera_angle": "Eye level",
+              "movement": "Static",
+              "lens": "85mm",
+              "description": "INSERT: Photo of Emma smiling",
+              "duration": "3s",
+              "notes": "Audience's first look at Emma"
+            }
+          ],
+          "scene_location_images": [],
+          "estimated_runtime": "120s",
+          "status": "Scripted",
+          "scene_number": "2",
+          "is_omitted": false
+        }
+      ]
+    },
+    {
+      "name": "Act 2: Temptation",
+      "description": "Sarah debates whether to use the machine to save Emma, consulting with Marcus",
+      "scenes": [
+        {
+          "name": "Scene 3",
+          "heading": "INT. MARCUS'S OFFICE - DAY",
+          "synopsis": "Sarah tells Marcus about the successful test. He warns her about the dangers of changing the past, but she's already made up her mind.",
+          "time_of_day": "Day",
+          "location_id": "",
+          "weather": "Clear",
+          "mood": "Tense debate",
+          "camera_notes": "Shot-reverse-shot for dialogue, emphasizing their opposing viewpoints",
+          "lighting_notes": "Natural window light, creating contrast between characters",
+          "sound_notes": [],
+          "actions": [],
+          "dialogues": [
+            {
+              "character_id": "Dr. Marcus Reed",
+              "text": "Sarah, you can't be serious. Do you understand the implications?",
+              "timestamp": "00:30",
+              "delivery_note": "Concerned but firm",
+              "emotion": "Worried",
+              "language": "English"
+            },
+            {
+              "character_id": "Dr. Sarah Mills",
+              "text": "I've spent ten years on this. Ten years, Marcus. I can finally make it right.",
+              "timestamp": "00:45",
+              "delivery_note": "Defensive, emotional",
+              "emotion": "Desperate",
+              "language": "English"
+            }
+          ],
+          "shots": [],
+          "scene_location_images": [],
+          "estimated_runtime": "240s",
+          "status": "Scripted",
+          "scene_number": "3",
+          "is_omitted": false
+        }
+      ]
+    }
+  ],
+  "beats": [
+    {
+      "name": "Time Machine Success",
+      "description": "Sarah successfully activates time travel",
+      "image_path": "",
+      "tags": ["turning point", "success", "hope"],
+      "mood": "Triumphant",
+      "notes": "Key visual: glowing temporal field",
+      "scene_reference": "Scene 1",
+      "timestamp": "Act 1"
+    },
+    {
+      "name": "The Decision",
+      "description": "Sarah decides to save Emma despite warnings",
+      "image_path": "",
+      "tags": ["choice", "conflict", "determination"],
+      "mood": "Determined",
+      "notes": "Character commits to action",
+      "scene_reference": "Scene 3",
+      "timestamp": "Act 2"
+    }
+  ],
+  "locations": [
+    {
+      "name": "Physics Lab",
+      "type": "Interior",
+      "address": "University Science Building - Practical location",
+      "description": "High-tech research lab with experimental equipment. Sterile but cluttered with Sarah's work.",
+      "access_notes": "Available after hours on weekends",
+      "contact": "University Film Office",
+      "cost": "$500/day",
+      "availability": "Weekends",
+      "photos": [],
+      "notes": "Need permission from Physics Dept. and safety officer approval"
+    },
+    {
+      "name": "Sarah's Apartment",
+      "type": "Interior",
+      "address": "Modern city apartment - Studio set or practical",
+      "description": "Small but tidy 1-bedroom. Personal photos visible. Scientific journals on coffee table.",
+      "access_notes": "Can use team member's apartment or build minimal set",
+      "contact": "Production Designer",
+      "cost": "$200/day",
+      "availability": "Flexible",
+      "photos": [],
+      "notes": "Key props: Emma's photo, necklace, research notes"
+    }
+  ],
+  "schedule_items": [
+    {
+      "date": "2026-03-15",
+      "title": "Table Read",
+      "description": "Full cast table read with director and producers",
+      "location": "Production Office",
+      "start_time": "10:00",
+      "end_time": "14:00",
+      "participants": ["Dr. Sarah Mills", "Dr. Marcus Reed", "Director"],
+      "notes": "Catering provided. Script revisions to follow.",
+      "status": "Scheduled"
+    },
+    {
+      "date": "2026-04-01",
+      "title": "Principal Photography Day 1",
+      "description": "INT. PHYSICS LAB scenes",
+      "location": "University Science Building",
+      "start_time": "08:00",
+      "end_time": "20:00",
+      "participants": ["Full Cast & Crew"],
+      "notes": "Call sheet to be distributed 48hrs prior",
+      "status": "Scheduled"
+    }
+  ],
+  "cast_members": [
+    {
+      "actor_name": "TBD - Seeking Asian-American actress",
+      "character_name": "Dr. Sarah Mills",
+      "role_type": "Lead",
+      "contact": "",
+      "agent": "",
+      "availability": "To be determined",
+      "rate": "$5,000",
+      "notes": "Priority casting. Looking for 35-42 age range with dramatic range.",
+      "contract_status": "Not Started"
+    },
+    {
+      "actor_name": "TBD - Seeking experienced character actor",
+      "character_name": "Dr. Marcus Reed",
+      "role_type": "Supporting",
+      "contact": "",
+      "agent": "",
+      "availability": "To be determined",
+      "rate": "$2,500",
+      "notes": "Warm, authoritative presence. 50-60 age range.",
+      "contract_status": "Not Started"
+    }
+  ],
+  "crew_members": [
+    {
+      "name": "TBD",
+      "role": "Director of Photography",
+      "department": "Camera",
+      "contact": "",
+      "rate": "$3,000",
+      "availability": "To be determined",
+      "notes": "Need someone experienced with sci-fi aesthetics and practical effects",
+      "skills": ["Cinematography", "Lighting", "VFX Integration"]
+    },
+    {
+      "name": "TBD",
+      "role": "Production Designer",
+      "department": "Art",
+      "contact": "",
+      "rate": "$2,000",
+      "availability": "To be determined",
+      "notes": "Build time machine prop and lab set dressing",
+      "skills": ["Set Design", "Props", "Sci-Fi"]
+    }
+  ],
+  "teams": [],
+  "equipment_library": [
+    {
+      "name": "RED Komodo 6K",
+      "category": "Camera",
+      "quantity": 1,
+      "condition": "Excellent",
+      "location": "Rental House",
+      "cost_per_day": "$450",
+      "notes": "Includes basic lens kit",
+      "owner": "Camera Rental Co."
+    },
+    {
+      "name": "ARRI SkyPanel S60",
+      "category": "Lighting",
+      "quantity": 4,
+      "condition": "Good",
+      "location": "Rental House",
+      "cost_per_day": "$75 each",
+      "notes": "LED panels for lab scenes",
+      "owner": "Lighting Rental Co."
+    }
+  ],
+  "props": [],
+  "costumes": [],
+  "lighting": [],
+  "effects": [],
+  "film_styles": [],
+  "default_film_style": null
+}
