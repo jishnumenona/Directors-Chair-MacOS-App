@@ -13,10 +13,13 @@ let package = Package(
             name: "DirectorsChairProduction",
             targets: ["DirectorsChairProduction"]),
     ],
+    dependencies: [
+        .package(path: "../DirectorsChairCore"),
+    ],
     targets: [
         .target(
             name: "DirectorsChairProduction",
-            dependencies: []),
+            dependencies: ["DirectorsChairCore"]),
         .testTarget(
             name: "DirectorsChairProductionTests",
             dependencies: ["DirectorsChairProduction"]),
