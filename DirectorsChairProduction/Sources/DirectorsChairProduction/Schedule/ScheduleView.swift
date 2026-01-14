@@ -1029,8 +1029,8 @@ struct ScheduleItemEditorSheet: View {
                 estimatedDurationHours: duration,
                 status: status,
                 location: location,
-                callTime: callTime.isEmpty ? nil : callTime,
-                productionNotes: productionNotes
+                productionNotes: productionNotes,
+                callTime: callTime.isEmpty ? nil : callTime
             )
             viewModel.addScheduleItem(newItem)
         }
