@@ -84,59 +84,123 @@ struct AppToolbar: View {
     @EnvironmentObject var coordinator: AppCoordinator
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 0) {
             // View Selection (Radio Button Group)
-            ForEach(AppView.allCases) { view in
-                Button(action: {
-                    coordinator.navigateTo(view)
-                }) {
-                    Label(view.rawValue, systemImage: view.icon)
-                        .labelStyle(.iconOnly)
-                        .frame(width: 32, height: 32)
+            HStack(spacing: 4) {
+                ForEach(AppView.allCases) { view in
+                    Button(action: {
+                        coordinator.navigateTo(view)
+                    }) {
+                        Label(view.rawValue, systemImage: view.icon)
+                            .labelStyle(.iconOnly)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == view))
+                    .help(view.rawValue)
                 }
-                .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == view))
-                .help(view.rawValue)
             }
+            .padding(.leading, 12)
 
             Spacer()
 
             // Toggle Controls
-            Button(action: {
-                coordinator.toggleNavigator()
-            }) {
-                Image(systemName: "sidebar.left")
-            }
-            .help("Toggle Navigator")
+            HStack(spacing: 8) {
+                Divider()
+                    .frame(height: 20)
 
-            Button(action: {
-                coordinator.toggleTimeline()
-            }) {
-                Image(systemName: "waveform")
+                Button(action: {
+                    coordinator.toggleNavigator()
+                }) {
+                    Image(systemName: "sidebar.left")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingNavigator))
+                .help("Toggle Navigator (⌘⌥1)")
+
+                Button(action: {
+                    coordinator.toggleTimeline()
+                }) {
+                    Image(systemName: "waveform")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingTimeline))
+                .help("Toggle Timeline (⌘⌥2)")
+
+                Button(action: {
+                    coordinator.toggleRightPanel()
+                }) {
+                    Image(systemName: "sidebar.right")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingRightPanel))
+                .help("Toggle Right Panel (⌘⌥3)")
             }
-            .help("Toggle Timeline")
+            .padding(.trailing, 12)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(nsColor: .separatorColor)),
+            alignment: .bottom
+        )
     }
 }
 
-// MARK: - Toolbar Button Style
+// MARK: - Toolbar Button Styles
 
 struct ToolbarButtonStyle: ButtonStyle {
     let isSelected: Bool
+    @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+                    .fill(
+                        isSelected
+                            ? Color.accentColor.opacity(0.2)
+                            : (isHovered ? Color.gray.opacity(0.1) : Color.clear)
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+                    .stroke(
+                        isSelected ? Color.accentColor : Color.clear,
+                        lineWidth: isSelected ? 1.5 : 0
+                    )
             )
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: isSelected)
+            .animation(.easeInOut(duration: 0.1), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+struct ToggleButtonStyle: ButtonStyle {
+    let isActive: Bool
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundColor(isActive ? .accentColor : .secondary)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(
+                        isActive
+                            ? Color.accentColor.opacity(0.15)
+                            : (isHovered ? Color.gray.opacity(0.1) : Color.clear)
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: isActive)
+            .animation(.easeInOut(duration: 0.1), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
     }
 }
 
@@ -147,6 +211,17 @@ struct NavigatorSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Navigator")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
             // Tab Selector
             Picker("Navigator", selection: $selectedTab) {
                 ForEach(NavigatorTab.allCases) { tab in
@@ -154,7 +229,8 @@ struct NavigatorSidebar: View {
                 }
             }
             .pickerStyle(.segmented)
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
 
             Divider()
 
@@ -162,11 +238,11 @@ struct NavigatorSidebar: View {
             Group {
                 switch selectedTab {
                 case .outline:
-                    OutlineTabPlaceholder()
+                    OutlineTab()
                 case .versions:
-                    VersionsTabPlaceholder()
+                    VersionsTab()
                 case .comments:
-                    CommentsTabPlaceholder()
+                    CommentsTab()
                 }
             }
         }
@@ -259,23 +335,6 @@ struct SettingsPlaceholder: View {
     }
 }
 
-struct OutlineTabPlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Outline", description: "Sequences, scenes, and shots tree")
-    }
-}
-
-struct VersionsTabPlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Versions", description: "Project snapshots and version history")
-    }
-}
-
-struct CommentsTabPlaceholder: View {
-    var body: some View {
-        PlaceholderView(title: "Comments", description: "Collaboration comments and feedback")
-    }
-}
 
 // MARK: - Generic Placeholder View
 
