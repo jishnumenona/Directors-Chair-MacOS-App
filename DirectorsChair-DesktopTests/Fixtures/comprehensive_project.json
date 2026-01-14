@@ -76,13 +76,9 @@
         "charisma": 75
       },
       "traits_data_sources": [],
-      "biography_backstory": "Born on Mars Colony 7, Sarah always dreamed of exploring the outer reaches of space. After graduating top of her class at the Solar Academy, she quickly rose through the ranks.",
-      "biography_occupation": "Space Captain, Solar Fleet",
-      "biography_education": "PhD in Astrophysics, Solar Academy",
-      "biography_family": "Estranged from Earth-based family",
-      "biography_goals": "To discover habitable worlds beyond our solar system",
-      "biography_fears": "Failing her crew, losing control",
-      "biography_secrets": "Witnessed something unexplainable during her first deep space mission",
+      "background_story": "Born on Mars Colony 7, Sarah always dreamed of exploring the outer reaches of space. After graduating top of her class at the Solar Academy, she quickly rose through the ranks.",
+      "occupation": "Space Captain, Solar Fleet",
+      "education": "PhD in Astrophysics, Solar Academy",
       "relationships": {
         "Dr. Marcus Rivera": "Trusted science officer and friend"
       },
@@ -137,9 +133,9 @@
         "empathy": 80
       },
       "traits_data_sources": [],
-      "biography_backstory": "Grew up in Buenos Aires, fascinated by microscopic life",
-      "biography_occupation": "Chief Science Officer",
-      "biography_education": "Multiple PhDs in Biology and Chemistry"
+      "background_story": "Grew up in Buenos Aires, fascinated by microscopic life",
+      "occupation": "Chief Science Officer",
+      "education": "Multiple PhDs in Biology and Chemistry"
     }
   ],
   "props": [
@@ -315,9 +311,10 @@
   "overview_tagline": "Beyond the stars, beyond the known.",
   "overview_logline": "When a mysterious signal is detected from the edge of explored space, a veteran captain must lead her crew on a dangerous mission that will test their courage, loyalty, and humanity.",
   "overview_mood_analysis": {
-    "primary_mood": "adventurous",
-    "secondary_moods": ["mysterious", "hopeful"],
-    "tone": "epic"
+    "adventurous": 0.8,
+    "mysterious": 0.6,
+    "hopeful": 0.7,
+    "epic": 0.9
   },
   "user_manager": {
     "users": []
