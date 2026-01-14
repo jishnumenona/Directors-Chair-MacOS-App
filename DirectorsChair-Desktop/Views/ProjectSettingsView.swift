@@ -62,27 +62,27 @@ struct ProjectSettingsView: View {
     }
 
     private var hasChanges: Bool {
-        title != projectViewModel.project.title ||
+        title != projectViewModel.project.name ||
         director != projectViewModel.project.director ||
         productionCompany != projectViewModel.project.productionCompany ||
         genre != (projectViewModel.project.genre ?? "") ||
-        logline != (projectViewModel.project.logline ?? "")
+        logline != (projectViewModel.project.overviewLogline ?? "")
     }
 
     private func loadFromProject() {
-        title = projectViewModel.project.title
+        title = projectViewModel.project.name
         director = projectViewModel.project.director
         productionCompany = projectViewModel.project.productionCompany
         genre = projectViewModel.project.genre ?? ""
-        logline = projectViewModel.project.logline ?? ""
+        logline = projectViewModel.project.overviewLogline ?? ""
     }
 
     private func saveToProject() {
-        projectViewModel.project.title = title
+        projectViewModel.project.name = title
         projectViewModel.project.director = director
         projectViewModel.project.productionCompany = productionCompany
         projectViewModel.project.genre = genre.isEmpty ? nil : genre
-        projectViewModel.project.logline = logline.isEmpty ? nil : logline
+        projectViewModel.project.overviewLogline = logline.isEmpty ? nil : logline
         projectViewModel.isDirty = true
     }
 }
@@ -157,7 +157,7 @@ struct ProjectInformationSection: View {
                 InfoRow(label: "Sequences", value: "\(projectViewModel.sequences.count)")
                 InfoRow(label: "Scenes", value: "\(projectViewModel.allScenes.count)")
                 InfoRow(label: "Characters", value: "\(projectViewModel.characters.count)")
-                InfoRow(label: "Shots", value: "\(projectViewModel.project.shots.count)")
+                InfoRow(label: "Shots", value: "\(projectViewModel.allShots.count)")
             }
             .padding(16)
             .background(Color(nsColor: .controlBackgroundColor))

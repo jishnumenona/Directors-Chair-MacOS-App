@@ -16,30 +16,63 @@ struct ContentView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
 
     var body: some View {
-        NavigationSplitView(
-            columnVisibility: .constant(coordinator.showingNavigator ? .all : .detailOnly)
-        ) {
-            // Left Sidebar - Navigator
-            NavigatorSidebar()
-                .frame(minWidth: 250, idealWidth: 300, maxWidth: 400)
-                .background(Color(nsColor: .controlBackgroundColor))
-        } detail: {
-            // Main Content Area
-            VStack(spacing: 0) {
-                // Top Toolbar
-                AppToolbar()
+        ZStack {
+            NavigationSplitView(
+                columnVisibility: .constant(coordinator.showingNavigator ? .all : .detailOnly)
+            ) {
+                // Left Sidebar - Navigator
+                NavigatorSidebar()
+                    .frame(minWidth: 250, idealWidth: 300, maxWidth: 400)
+                    .background(Color(nsColor: .controlBackgroundColor))
+            } detail: {
+                // Main Content Area
+                VStack(spacing: 0) {
+                    // Top Toolbar
+                    AppToolbar()
 
-                // Central View Stack
-                CentralViewStack()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Central View Stack
+                    CentralViewStack()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Bottom Timeline (collapsible)
-                if coordinator.showingTimeline {
-                    Divider()
-                    TimelineContainer()
-                        .frame(height: 200)
+                    // Bottom Timeline (collapsible)
+                    if coordinator.showingTimeline {
+                        Divider()
+                        TimelineContainer()
+                            .frame(height: 200)
+                    }
                 }
             }
+
+            // Loading overlay
+            if projectViewModel.isLoading {
+                LoadingOverlay()
+            }
+        }
+        .errorAlert($projectViewModel.errorAlert)
+    }
+}
+
+// MARK: - Loading Overlay
+
+struct LoadingOverlay: View {
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .progressViewStyle(.circular)
+
+                Text("Loading...")
+                    .font(.headline)
+                    .foregroundColor(.white)
+            }
+            .padding(32)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(12)
+            .shadow(radius: 20)
         }
     }
 }
@@ -67,19 +100,18 @@ struct CentralViewStack: View {
                 AssetsView()
             case .visionBoard:
                 VisionBoardView(
-                    cards: projectViewModel.project.visionCards,
+                    cards: projectViewModel.project.beats,
                     onCardsChanged: { cards in
-                        projectViewModel.project.visionCards = cards
+                        projectViewModel.project.beats = cards
                         projectViewModel.isDirty = true
                     }
                 )
             case .shotList:
-                CinematographyView(
-                    shots: projectViewModel.project.shots,
-                    onShotsChanged: { shots in
-                        projectViewModel.project.shots = shots
-                        projectViewModel.isDirty = true
-                    }
+                // TODO: Shots are stored in scenes, not at project level
+                // Need to create adapter to flatten/unflatten shots from all scenes
+                PlaceholderView(
+                    title: "Shot List",
+                    description: "Cinematography view needs architectural rework - shots are stored in scenes"
                 )
             case .schedule:
                 ScheduleView(viewModel: ScheduleViewModel(
@@ -90,11 +122,11 @@ struct CentralViewStack: View {
                     castMembers: projectViewModel.project.castMembers,
                     crewMembers: projectViewModel.project.crewMembers,
                     teams: projectViewModel.project.teams,
-                    equipment: projectViewModel.project.equipment
+                    equipment: projectViewModel.project.equipmentLibrary
                 ))
             case .budget:
                 BudgetView(viewModel: BudgetViewModel(
-                    budget: projectViewModel.project.budget
+                    budget: projectViewModel.project.projectBudget
                 ))
             case .storyDesign:
                 StoryDesignView(project: $projectViewModel.project)

@@ -52,7 +52,7 @@ struct ProjectHeaderSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(project.title)
+            Text(project.name)
                 .font(.system(size: 32, weight: .bold))
 
             HStack(spacing: 16) {
@@ -103,16 +103,16 @@ struct ProjectPitchSection: View {
 
             if isEditing {
                 TextEditor(text: Binding(
-                    get: { project.pitch ?? "" },
-                    set: { project.pitch = $0 }
+                    get: { project.description },
+                    set: { project.description = $0 }
                 ))
                 .frame(minHeight: 150)
                 .padding(8)
                 .background(Color(nsColor: .controlBackgroundColor))
                 .cornerRadius(8)
             } else {
-                if let pitch = project.pitch, !pitch.isEmpty {
-                    Text(pitch)
+                if !project.description.isEmpty {
+                    Text(project.description)
                         .font(.body)
                         .foregroundColor(.primary)
                 } else {
@@ -165,15 +165,15 @@ struct ProjectStatisticsSection: View {
 
                 StatCard(
                     icon: "camera.fill",
-                    title: "Shots",
-                    value: "\(projectViewModel.project.shots.count)",
+                    title: "Beats",
+                    value: "\(projectViewModel.project.beats.count)",
                     color: .orange
                 )
 
                 StatCard(
                     icon: "square.grid.2x2",
-                    title: "Vision Cards",
-                    value: "\(projectViewModel.project.visionCards.count)",
+                    title: "Locations",
+                    value: "\(projectViewModel.project.locations.count)",
                     color: .pink
                 )
 

@@ -90,7 +90,7 @@ struct NewProjectDialog: View {
     private func createProject() {
         projectViewModel.createNew()
         projectViewModel.updateMetadata(
-            title: projectTitle,
+            name: projectTitle,
             director: director,
             productionCompany: productionCompany,
             genre: genre

@@ -32,6 +32,12 @@ class ProjectViewModel: ObservableObject {
     /// Whether a project is currently loaded
     @Published var hasProject: Bool
 
+    /// Error alert for user-facing errors
+    @Published var errorAlert: ErrorAlert?
+
+    /// Loading state for async operations
+    @Published var isLoading = false
+
     // MARK: - Private Properties
 
     private let persistence: ProjectPersistence
@@ -87,28 +93,48 @@ class ProjectViewModel: ObservableObject {
 
     /// Load project from file path
     func load(from path: URL) async throws {
-        let loadedProject = try await persistence.load(from: path)
-        project = loadedProject
-        projectPath = path
-        isDirty = false
-        lastSaved = Date()
-        hasProject = true
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let loadedProject = try await persistence.load(from: path)
+            project = loadedProject
+            projectPath = path
+            isDirty = false
+            lastSaved = Date()
+            hasProject = true
+        } catch {
+            errorAlert = ErrorAlert(
+                error: error,
+                title: "Failed to Load Project"
+            )
+            throw error
+        }
     }
 
     /// Save current project
     func save() async {
         guard let path = projectPath else {
             // No path set - need to show save dialog first
+            errorAlert = ErrorAlert(
+                title: "Cannot Save",
+                message: "No save location set. Use Save As to choose a location."
+            )
             return
         }
+
+        isLoading = true
+        defer { isLoading = false }
 
         do {
             try await persistence.save(project, to: path)
             isDirty = false
             lastSaved = Date()
         } catch {
-            print("Failed to save project: \(error)")
-            // TODO: Show error alert to user
+            errorAlert = ErrorAlert(
+                error: error,
+                title: "Failed to Save Project"
+            )
         }
     }
 
@@ -168,13 +194,13 @@ class ProjectViewModel: ObservableObject {
 
     /// Update project metadata
     func updateMetadata(
-        title: String? = nil,
+        name: String? = nil,
         director: String? = nil,
         productionCompany: String? = nil,
         genre: String? = nil
     ) {
-        if let title = title {
-            project.title = title
+        if let name = name {
+            project.name = name
         }
         if let director = director {
             project.director = director
@@ -195,6 +221,11 @@ class ProjectViewModel: ObservableObject {
         project.sequences.flatMap { $0.scenes }
     }
 
+    /// Get all shots across all scenes
+    var allShots: [Shot] {
+        allScenes.flatMap { $0.shots }
+    }
+
     /// Get all characters in the project
     var characters: [Character] {
         project.characters
@@ -212,26 +243,47 @@ extension Project {
     /// Create an empty project with default structure
     static func empty() -> Project {
         Project(
-            id: UUID().uuidString,
-            title: "Untitled Project",
+            name: "Untitled Project",
+            basePath: "",
+            description: "",
             director: "",
             productionCompany: "",
-            sequences: [],
+            genre: "",
+            projectType: "Skit",
+            targetDuration: "",
+            budget: "",
+            startDate: "",
+            endDate: "",
+            status: "Pre-production",
+            projectNotes: "",
+            projectIcon: "",
+            languages: ["English"],
             characters: [],
             props: [],
             costumes: [],
             lighting: [],
             effects: [],
             locations: [],
-            shots: [],
-            visionCards: [],
-            budget: ProjectBudget(id: UUID().uuidString, categories: []),
-            filmStyle: nil,
+            sequences: [],
+            beats: [],
             scheduleItems: [],
+            filmStyles: [],
+            defaultFilmStyle: nil,
             castMembers: [],
             crewMembers: [],
             teams: [],
-            equipment: []
+            equipmentLibrary: [],
+            userManager: nil,
+            projectBudget: nil,
+            overviewPosterPath: nil,
+            overviewPosterPaths: [],
+            overviewPosterCurrentIndex: 0,
+            overviewPosterCustom: false,
+            overviewSummary: "",
+            overviewSummaryGeneratedAt: nil,
+            overviewTagline: "",
+            overviewLogline: "",
+            overviewMoodAnalysis: nil
         )
     }
 }
