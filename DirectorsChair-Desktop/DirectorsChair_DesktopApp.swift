@@ -19,7 +19,7 @@ struct DirectorsChair_DesktopApp: App {
         _projectViewModel = StateObject(wrappedValue: ProjectViewModel())
     }
 
-    var body: some Scene {
+    var body: some SwiftUI.Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(coordinator)
