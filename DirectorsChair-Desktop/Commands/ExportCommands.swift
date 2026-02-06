@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct ExportCommands: Commands {
-    @EnvironmentObject var projectViewModel: ProjectViewModel
+    @FocusedValue(\.projectViewModel) var projectViewModel: ProjectViewModel?
 
     var body: some Commands {
         CommandMenu("Export") {
@@ -17,45 +17,45 @@ struct ExportCommands: Commands {
                 // TODO: Implement Fountain export using DirectorsChairExports
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as Final Draft (FDX)...") {
                 // TODO: Implement FDX export using DirectorsChairExports
             }
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as PDF...") {
                 // TODO: Implement PDF export using DirectorsChairExports
             }
             .keyboardShortcut("p", modifiers: [.command, .shift])
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as HTML...") {
                 // TODO: Implement HTML export using DirectorsChairExports
             }
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Divider()
 
             Button("Export Character Profiles...") {
                 // TODO: Implement character profile export
             }
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Button("Export Shot List...") {
                 // TODO: Implement shot list export
             }
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Button("Export Schedule...") {
                 // TODO: Implement schedule export
             }
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Button("Export Budget...") {
                 // TODO: Implement budget export
             }
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Divider()
 
@@ -63,7 +63,7 @@ struct ExportCommands: Commands {
                 // TODO: Implement batch export
             }
             .keyboardShortcut("e", modifiers: [.command, .option, .shift])
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
         }
     }
 }

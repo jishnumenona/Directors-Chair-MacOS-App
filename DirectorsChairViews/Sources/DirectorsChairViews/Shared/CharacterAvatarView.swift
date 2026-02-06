@@ -5,6 +5,16 @@
 import SwiftUI
 import DirectorsChairCore
 
+/// Shared cache for character avatar images to avoid redundant disk reads
+final class AvatarImageCache {
+    static let shared = AvatarImageCache()
+    private let cache = NSCache<NSString, NSImage>()
+    private init() { cache.countLimit = 50 }
+
+    func image(forKey key: String) -> NSImage? { cache.object(forKey: key as NSString) }
+    func setImage(_ image: NSImage, forKey key: String) { cache.setObject(image, forKey: key as NSString) }
+}
+
 /// Displays a character's avatar as a circular image or initials fallback
 public struct CharacterAvatarView: View {
     let character: Character?
@@ -52,6 +62,12 @@ public struct CharacterAvatarView: View {
         .onChange(of: character?.avatar) { _, _ in
             loadAvatar()
         }
+        .onChange(of: character?.baseImage) { _, _ in
+            loadAvatar()
+        }
+        .onChange(of: character?.imageFront) { _, _ in
+            loadAvatar()
+        }
     }
 
     private var initials: String {
@@ -64,19 +80,48 @@ public struct CharacterAvatarView: View {
         return "?"
     }
 
+    /// Load avatar with fallback priority: avatar > baseImage > imageFront
+    /// Uses shared cache and async disk loading to avoid blocking the main thread
     private func loadAvatar() {
-        guard let avatarPath = character?.avatar,
-              !avatarPath.isEmpty,
-              let basePath = projectBasePath else {
+        guard let basePath = projectBasePath else {
             avatarImage = nil
             return
         }
 
-        let fullPath = basePath.appendingPathComponent(avatarPath)
-        if let image = NSImage(contentsOf: fullPath) {
-            avatarImage = image
+        // Determine which relative path to use (priority chain)
+        let relativePath: String?
+        if let avatarPath = character?.avatar, !avatarPath.isEmpty {
+            relativePath = avatarPath
+        } else if let baseImagePath = character?.baseImage, !baseImagePath.isEmpty {
+            relativePath = baseImagePath
+        } else if let frontPath = character?.imageFront, !frontPath.isEmpty {
+            relativePath = frontPath
         } else {
+            relativePath = nil
+        }
+
+        guard let path = relativePath else {
             avatarImage = nil
+            return
+        }
+
+        let fullPath = basePath.appendingPathComponent(path)
+        let cacheKey = fullPath.path
+
+        // Check shared cache first (instant)
+        if let cached = AvatarImageCache.shared.image(forKey: cacheKey) {
+            avatarImage = cached
+            return
+        }
+
+        // Load from disk asynchronously
+        Task.detached(priority: .utility) {
+            guard let image = NSImage(contentsOf: fullPath) else {
+                await MainActor.run { avatarImage = nil }
+                return
+            }
+            AvatarImageCache.shared.setImage(image, forKey: cacheKey)
+            await MainActor.run { avatarImage = image }
         }
     }
 }

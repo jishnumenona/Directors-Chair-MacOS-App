@@ -62,13 +62,17 @@ public struct VisionBoardCanvas: View {
                 // TODO: Add rubber-band selection
             }
             .offset(x: viewModel.canvasOffset.x, y: viewModel.canvasOffset.y)
-            .gesture(panGesture)
-            .gesture(magnificationGesture)
+            // Use simultaneousGesture to not block other event handlers
+            .simultaneousGesture(panGesture)
+            .simultaneousGesture(magnificationGesture)
+            // Use high priority gesture for tap to not interfere with parent views
             .onTapGesture {
                 // Click on empty space clears selection
                 viewModel.clearSelection()
             }
             .clipped()
+            // Limit hit testing to actual visible content
+            .contentShape(Rectangle())
             .onAppear {
                 viewSize = geometry.size
                 // Center the canvas initially

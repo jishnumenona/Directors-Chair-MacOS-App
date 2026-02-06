@@ -78,9 +78,14 @@ public actor ProjectPersistence {
     ///   - url: The URL where the project.json file should be saved
     /// - Throws: ProjectError if encoding or writing fails
     public func save(_ project: Project, to url: URL) async throws {
-        // Create backup if enabled and file exists
+        // Create backup if enabled and file exists (non-fatal)
         if enableBackups && FileManager.default.fileExists(atPath: url.path) {
-            try await createBackup(of: url)
+            do {
+                try await createBackup(of: url)
+            } catch {
+                // Backup failure is non-fatal - log warning and continue
+                print("Warning: Failed to create backup: \(error.localizedDescription)")
+            }
         }
 
         do {
@@ -90,9 +95,14 @@ public actor ProjectPersistence {
             // Perform atomic write using temporary file
             try await atomicWrite(data: data, to: url)
 
-            // Rotate backups if needed
+            // Rotate backups if needed (non-fatal)
             if enableBackups {
-                try await rotateBackups(for: url)
+                do {
+                    try await rotateBackups(for: url)
+                } catch {
+                    // Rotation failure is non-fatal - log warning
+                    print("Warning: Failed to rotate backups: \(error.localizedDescription)")
+                }
             }
         } catch let error as EncodingError {
             throw ProjectError.encodingFailed(error)

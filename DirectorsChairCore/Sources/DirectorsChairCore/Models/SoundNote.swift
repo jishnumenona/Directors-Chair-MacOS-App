@@ -6,8 +6,9 @@ import Foundation
 
 /// Represents a sound note in a scene (background sounds, music, SFX)
 public struct SoundNote: Codable, Identifiable, Hashable {
-    public var id: String { "\(chronologyNumber)-sound" }
+    public var id: String { uuid }
 
+    public var uuid: String  // Unique identifier
     public var description: String  // Text description of the sound
     public var soundType: String  // "ambient", "music", "effects", "dialogue_sfx"
     public var chronologyNumber: Int  // Order in scene
@@ -22,8 +23,11 @@ public struct SoundNote: Codable, Identifiable, Hashable {
     public var referenceUrl: String?  // Reference URL (e.g., YouTube)
     public var timestampStart: String?  // Start timestamp (e.g., "01:23")
     public var timestampEnd: String?  // End timestamp
+    public var parentDialogueId: String?  // ID of parent dialogue if connected as sub-bubble
+    public var manualStartTime: Double?  // User-specified timeline position override (seconds)
 
     public init(
+        uuid: String = UUID().uuidString,
         description: String = "",
         soundType: String = "ambient",
         chronologyNumber: Int = 0,
@@ -37,8 +41,11 @@ public struct SoundNote: Codable, Identifiable, Hashable {
         tags: [String] = [],
         referenceUrl: String? = nil,
         timestampStart: String? = nil,
-        timestampEnd: String? = nil
+        timestampEnd: String? = nil,
+        parentDialogueId: String? = nil,
+        manualStartTime: Double? = nil
     ) {
+        self.uuid = uuid
         self.description = description
         self.soundType = soundType
         self.chronologyNumber = chronologyNumber
@@ -53,9 +60,12 @@ public struct SoundNote: Codable, Identifiable, Hashable {
         self.referenceUrl = referenceUrl
         self.timestampStart = timestampStart
         self.timestampEnd = timestampEnd
+        self.parentDialogueId = parentDialogueId
+        self.manualStartTime = manualStartTime
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case description
         case soundType = "sound_type"
         case chronologyNumber = "chronology_number"
@@ -70,6 +80,8 @@ public struct SoundNote: Codable, Identifiable, Hashable {
         case referenceUrl = "reference_url"
         case timestampStart = "timestamp_start"
         case timestampEnd = "timestamp_end"
+        case parentDialogueId = "parent_dialogue_id"
+        case manualStartTime = "manual_start_time"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -77,6 +89,9 @@ public struct SoundNote: Codable, Identifiable, Hashable {
     /// Custom decoder to provide defaults for fields missing in Python JSON
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Generate UUID if not present
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
 
         // Required fields with defaults
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
@@ -103,5 +118,9 @@ public struct SoundNote: Codable, Identifiable, Hashable {
         referenceUrl = try container.decodeIfPresent(String.self, forKey: .referenceUrl)
         timestampStart = try container.decodeIfPresent(String.self, forKey: .timestampStart)
         timestampEnd = try container.decodeIfPresent(String.self, forKey: .timestampEnd)
+
+        // Parent dialogue connection
+        parentDialogueId = try container.decodeIfPresent(String.self, forKey: .parentDialogueId)
+        manualStartTime = try container.decodeIfPresent(Double.self, forKey: .manualStartTime)
     }
 }

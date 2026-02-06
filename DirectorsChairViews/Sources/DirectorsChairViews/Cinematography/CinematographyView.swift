@@ -5,6 +5,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 
 // MARK: - Cinematography View
 
@@ -13,21 +14,38 @@ public struct CinematographyView: View {
 
     @StateObject private var viewModel: CinematographyViewModel
 
+    /// Scene context for shot preview generation
+    let scene: DCScene?
+    let characters: [Character]
+    let projectBasePath: URL?
+
     /// Callback when shots change (for persistence)
     public var onShotsChanged: (([Shot]) -> Void)?
+
+    /// Initial shot ID to select when view appears or changes
+    public var initialSelectedShotId: Int?
 
     // MARK: - State
 
     @State private var showingDeleteAlert: Bool = false
     @State private var shotToDelete: String?
+    @State private var lastAppliedShotId: Int?
 
     // MARK: - Init
 
     public init(
         shots: [Shot] = [],
+        scene: DCScene? = nil,
+        characters: [Character] = [],
+        projectBasePath: URL? = nil,
+        initialSelectedShotId: Int? = nil,
         onShotsChanged: (([Shot]) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: CinematographyViewModel(shots: shots))
+        self.scene = scene
+        self.characters = characters
+        self.projectBasePath = projectBasePath
+        self.initialSelectedShotId = initialSelectedShotId
         self.onShotsChanged = onShotsChanged
     }
 
@@ -73,6 +91,19 @@ public struct CinematographyView: View {
         }
         .onAppear {
             viewModel.onShotsChanged = onShotsChanged
+            applyInitialSelection()
+        }
+        .onChange(of: initialSelectedShotId) { _, newValue in
+            applyInitialSelection()
+        }
+    }
+
+    /// Apply initial shot selection if it's different from the last applied
+    private func applyInitialSelection() {
+        guard let shotId = initialSelectedShotId, shotId != lastAppliedShotId else { return }
+        if let shot = viewModel.shots.first(where: { $0.shotId == shotId }) {
+            viewModel.selectedShotId = shot.id
+            lastAppliedShotId = shotId
         }
     }
 
@@ -334,8 +365,27 @@ public struct CinematographyView: View {
         if let shot = viewModel.selectedShot {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // Shot header
+                    // Shot header - shown first
                     shotDetailHeader(shot)
+
+                    // Shot Preview - Main section
+                    ShotPreviewSection(
+                        shot: shot,
+                        scene: scene,
+                        characters: characters,
+                        projectBasePath: projectBasePath,
+                        onPreviewGenerated: { imagePath in
+                            updateShotField(shot) { $0.previewImage = imagePath }
+                        }
+                    )
+
+                    // Description (Click to edit)
+                    InlineDescriptionEditor(
+                        description: shot.description,
+                        onDescriptionChange: { newDescription in
+                            updateShotField(shot) { $0.description = newDescription }
+                        }
+                    )
 
                     Divider()
 
@@ -344,22 +394,27 @@ public struct CinematographyView: View {
 
                     Divider()
 
-                    // Description
-                    if !shot.description.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Description")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            Text(shot.description)
-                                .font(.body)
-                                .foregroundColor(.gray)
+                    // Reference Media
+                    ReferenceMediaSection(
+                        media: shot.referenceMedia,
+                        shotId: shot.shotId,
+                        projectBasePath: projectBasePath,
+                        onMediaAdded: { newMedia in
+                            updateShotField(shot) { $0.referenceMedia.append(newMedia) }
+                        },
+                        onMediaRemoved: { mediaId in
+                            updateShotField(shot) { $0.referenceMedia.removeAll { $0.id == mediaId } }
+                        },
+                        onUseAsPreview: { imagePath in
+                            updateShotField(shot) { $0.previewImage = imagePath }
                         }
-                    }
+                    )
 
                     Spacer()
                 }
                 .padding(24)
             }
+            .id(shot.id)  // Force entire scroll view to recreate when shot changes
         } else {
             VStack {
                 Image(systemName: "film")
@@ -414,47 +469,84 @@ public struct CinematographyView: View {
 
     @ViewBuilder
     private func shotCameraSettings(_ shot: Shot) -> some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible())
-        ], spacing: 16) {
-            CameraSettingCard(
+        VStack(alignment: .leading, spacing: 20) {
+            // Camera Angle
+            ChipSelector(
                 icon: "camera.viewfinder",
                 title: "Camera Angle",
-                value: shot.cameraAngle
+                options: CameraAngleOptions.angles,
+                selectedValue: shot.cameraAngle,
+                onSelect: { newValue in
+                    updateShotField(shot) { $0.cameraAngle = newValue }
+                },
+                descriptions: cameraAngleDescriptions
             )
 
-            CameraSettingCard(
-                icon: "circle.dotted",
-                title: "Lens",
-                value: shot.lensMm != nil ? "\(shot.lensMm!)mm" : "—"
-            )
-
-            CameraSettingCard(
-                icon: "camera.aperture",
-                title: "Aperture",
-                value: shot.aperture
-            )
-
-            CameraSettingCard(
+            // Shot Type
+            ChipSelector(
                 icon: "rectangle.expand.vertical",
                 title: "Shot Type",
-                value: shot.shotType
+                options: CameraAngleOptions.shotTypes,
+                selectedValue: shot.shotType,
+                onSelect: { newValue in
+                    updateShotField(shot) { $0.shotType = newValue }
+                },
+                descriptions: shotTypeDescriptions
             )
 
-            CameraSettingCard(
+            // Movement
+            ChipSelector(
                 icon: "arrow.left.and.right",
                 title: "Movement",
-                value: shot.movement
+                options: CameraAngleOptions.movements,
+                selectedValue: shot.movement,
+                onSelect: { newValue in
+                    updateShotField(shot) { $0.movement = newValue }
+                },
+                descriptions: movementDescriptions
             )
 
-            CameraSettingCard(
-                icon: "clock",
-                title: "Duration",
-                value: shot.duration != nil ? "\(String(format: "%.1f", shot.duration!))s" : "—"
-            )
+            // Lens & Aperture Row
+            HStack(alignment: .top, spacing: 24) {
+                LensSelector(
+                    icon: "circle.dotted",
+                    title: "Lens",
+                    options: CameraAngleOptions.commonLenses,
+                    selectedValue: shot.lensMm,
+                    onSelect: { newValue in
+                        updateShotField(shot) { $0.lensMm = newValue }
+                    },
+                    descriptions: lensDescriptions
+                )
+
+                ApertureSelector(
+                    icon: "camera.aperture",
+                    title: "Aperture",
+                    options: CameraAngleOptions.commonApertures,
+                    selectedValue: shot.aperture,
+                    onSelect: { newValue in
+                        updateShotField(shot) { $0.aperture = newValue }
+                    },
+                    descriptions: apertureDescriptions
+                )
+
+                DurationEditor(
+                    icon: "clock",
+                    title: "Duration",
+                    value: shot.duration,
+                    onValueChange: { newValue in
+                        updateShotField(shot) { $0.duration = newValue }
+                    }
+                )
+            }
         }
+    }
+
+    /// Helper to update a single field of a shot
+    private func updateShotField(_ shot: Shot, update: (inout Shot) -> Void) {
+        var updatedShot = shot
+        update(&updatedShot)
+        viewModel.updateShot(updatedShot)
     }
 
     // MARK: - Storyboard View
@@ -725,7 +817,762 @@ private struct ShotStatusBadge: View {
     }
 }
 
-// MARK: - Camera Setting Card
+// MARK: - Shot Preview Section
+
+private struct ShotPreviewSection: View {
+    let shot: Shot
+    let scene: DCScene?
+    let characters: [Character]
+    let projectBasePath: URL?
+    let onPreviewGenerated: (String) -> Void
+
+    @State private var isGenerating = false
+    @State private var previewImage: NSImage?
+    @State private var errorMessage: String?
+    @State private var showingError = false
+    @State private var showingPromptEditor = false
+    @State private var showingFullSizePreview = false
+    @State private var editablePrompt: String = ""
+    @State private var lastUsedPrompt: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Preview container
+            ZStack {
+                // Background
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(hex: "#1A1A1A"))
+
+                if let image = previewImage {
+                    // Display preview image
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 280)
+                        .clipped()
+                        .cornerRadius(12)
+                } else if isGenerating {
+                    // Loading state
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+
+                        Text("Generating shot preview...")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+
+                        Text(buildPromptSummary())
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray.opacity(0.6))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .padding(.horizontal, 40)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 280)
+                } else {
+                    // Empty state with generate button
+                    VStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(Color(hex: "#2A2A2A"))
+                                .frame(width: 72, height: 72)
+
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 28))
+                                .foregroundColor(.gray)
+                        }
+
+                        VStack(spacing: 6) {
+                            Text("Shot Preview")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white.opacity(0.9))
+
+                            Text("Generate a preview based on shot settings")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                        }
+
+                        HStack(spacing: 12) {
+                            Button(action: { openPromptEditor() }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "text.badge.plus")
+                                        .font(.system(size: 12))
+                                    Text("Edit Prompt")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: "#3A3A3A"))
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button(action: { generateWithDefaultPrompt() }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "wand.and.stars")
+                                        .font(.system(size: 12))
+                                    Text("Generate")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 280)
+                }
+
+                // Overlay buttons (when image exists)
+                if previewImage != nil && !isGenerating {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            // View full size button
+                            Button(action: { showingFullSizePreview = true }) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(8)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("View full size")
+
+                            // Edit prompt button
+                            Button(action: { openPromptEditor() }) {
+                                Image(systemName: "text.badge.plus")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(8)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Edit prompt")
+
+                            // Download button
+                            Button(action: { downloadPreviewImage() }) {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(8)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Download image")
+
+                            // Regenerate button
+                            Button(action: { generateWithDefaultPrompt() }) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(8)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Regenerate preview")
+                        }
+                        .padding(12)
+                        Spacer()
+                    }
+                }
+            }
+            .frame(height: 280)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
+            )
+
+            // Shot info pills and prompt info
+            HStack(spacing: 8) {
+                ShotInfoPill(icon: "camera.viewfinder", text: shot.cameraAngle)
+                ShotInfoPill(icon: "circle.dotted", text: shot.lensMm != nil ? "\(shot.lensMm!)mm" : "—")
+                ShotInfoPill(icon: "rectangle.expand.vertical", text: shot.shotType)
+                ShotInfoPill(icon: "arrow.left.and.right", text: shot.movement)
+
+                Spacer()
+
+                // Show prompt button if we have a last used prompt
+                if !lastUsedPrompt.isEmpty {
+                    Button(action: { openPromptEditor() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 9))
+                            Text("View Prompt")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(.accentColor.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("View or edit the prompt used for this preview")
+                }
+
+                if scene != nil {
+                    Text("Scene: \(scene!.name)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray.opacity(0.6))
+                }
+            }
+        }
+        .onAppear {
+            loadExistingPreview()
+            loadSavedPrompt()
+        }
+        .onChange(of: shot.previewImage) { _, newPath in
+            if let path = newPath {
+                loadPreviewImage(from: path)
+            }
+        }
+        .alert("Preview Generation Failed", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage ?? "Unknown error")
+        }
+        .sheet(isPresented: $showingPromptEditor) {
+            PromptEditorSheet(
+                prompt: $editablePrompt,
+                isPresented: $showingPromptEditor,
+                onGenerate: { customPrompt in
+                    generatePreview(with: customPrompt)
+                }
+            )
+        }
+        .sheet(isPresented: $showingFullSizePreview) {
+            ShotPreviewFullSizeSheet(
+                image: previewImage,
+                shotId: shot.shotId,
+                isPresented: $showingFullSizePreview,
+                onDownload: { downloadPreviewImage() }
+            )
+        }
+    }
+
+    // MARK: - Prompt Editor
+
+    private func openPromptEditor() {
+        editablePrompt = lastUsedPrompt.isEmpty ? buildPrompt() : lastUsedPrompt
+        showingPromptEditor = true
+    }
+
+    private func generateWithDefaultPrompt() {
+        let prompt = buildPrompt()
+        generatePreview(with: prompt)
+    }
+
+    // MARK: - Download Preview Image
+
+    private func downloadPreviewImage() {
+        guard let image = previewImage else { return }
+
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.png, .jpeg]
+        savePanel.nameFieldStringValue = "shot_\(shot.shotId)_preview.png"
+        savePanel.title = "Save Shot Preview"
+        savePanel.message = "Choose a location to save the preview image"
+
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                // Determine format based on extension
+                let ext = url.pathExtension.lowercased()
+
+                if let tiffData = image.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData) {
+
+                    let imageData: Data?
+                    if ext == "jpg" || ext == "jpeg" {
+                        imageData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+                    } else {
+                        imageData = bitmap.representation(using: .png, properties: [:])
+                    }
+
+                    if let data = imageData {
+                        do {
+                            try data.write(to: url)
+                        } catch {
+                            print("Error saving image: \(error)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Load Existing Preview
+
+    private func loadExistingPreview() {
+        guard let imagePath = shot.previewImage,
+              let basePath = projectBasePath else { return }
+
+        let fullPath = basePath.deletingLastPathComponent().appendingPathComponent(imagePath)
+        if let image = NSImage(contentsOf: fullPath) {
+            previewImage = image
+        }
+    }
+
+    private func loadPreviewImage(from relativePath: String) {
+        guard let basePath = projectBasePath else { return }
+        let fullPath = basePath.deletingLastPathComponent().appendingPathComponent(relativePath)
+        if let image = NSImage(contentsOf: fullPath) {
+            previewImage = image
+        }
+    }
+
+    private func loadSavedPrompt() {
+        guard let basePath = projectBasePath else { return }
+        let projectDir = basePath.deletingLastPathComponent()
+        let shotDir = projectDir
+            .appendingPathComponent("assets")
+            .appendingPathComponent("shots")
+            .appendingPathComponent("shot_\(shot.shotId)")
+        let promptFile = shotDir.appendingPathComponent("prompt.txt")
+
+        if let savedPrompt = try? String(contentsOf: promptFile, encoding: .utf8) {
+            lastUsedPrompt = savedPrompt
+        }
+    }
+
+    // MARK: - Generate Preview
+
+    private func generatePreview(with prompt: String) {
+        isGenerating = true
+        errorMessage = nil
+        lastUsedPrompt = prompt
+
+        Task {
+            do {
+                let aiClient = AIServiceClient.shared
+
+                guard await aiClient.testConnection() else {
+                    await MainActor.run {
+                        errorMessage = "Could not connect to AI server. Please ensure the AI Proxy server is running."
+                        showingError = true
+                        isGenerating = false
+                    }
+                    return
+                }
+
+                let request = ImageGenerationRequest(
+                    prompt: prompt,
+                    provider: .googleImagen,
+                    aspectRatio: "16:9",
+                    numberOfImages: 1
+                )
+
+                let response = try await aiClient.generateImage(request)
+
+                guard let imageData = response.images.first else {
+                    throw AIClientError.invalidResponse("No image generated")
+                }
+
+                // Save to project directory with proper structure
+                guard let basePath = projectBasePath else {
+                    throw AIClientError.invalidResponse("No project path")
+                }
+
+                let projectDir = basePath.deletingLastPathComponent()
+
+                // Create shot-specific directory: assets/shots/shot_{id}/
+                let shotDir = projectDir
+                    .appendingPathComponent("assets")
+                    .appendingPathComponent("shots")
+                    .appendingPathComponent("shot_\(shot.shotId)")
+
+                if !FileManager.default.fileExists(atPath: shotDir.path) {
+                    try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+                }
+
+                // Generate timestamped filename
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+                let timestamp = dateFormatter.string(from: Date())
+                let imageFilename = "preview_\(timestamp).png"
+                let promptFilename = "prompt.txt"
+
+                // Save the image
+                let imagePath = shotDir.appendingPathComponent(imageFilename)
+                try imageData.write(to: imagePath)
+
+                // Save the prompt
+                let promptPath = shotDir.appendingPathComponent(promptFilename)
+                try prompt.write(to: promptPath, atomically: true, encoding: .utf8)
+
+                // Also save prompt history
+                let historyFilename = "prompt_\(timestamp).txt"
+                let historyPath = shotDir.appendingPathComponent(historyFilename)
+                try prompt.write(to: historyPath, atomically: true, encoding: .utf8)
+
+                // Update the "current" symlink/reference (save as latest.png too)
+                let latestPath = shotDir.appendingPathComponent("latest.png")
+                if FileManager.default.fileExists(atPath: latestPath.path) {
+                    try FileManager.default.removeItem(at: latestPath)
+                }
+                try imageData.write(to: latestPath)
+
+                let relativePath = "assets/shots/shot_\(shot.shotId)/latest.png"
+
+                await MainActor.run {
+                    if let image = NSImage(data: imageData) {
+                        previewImage = image
+                    }
+                    onPreviewGenerated(relativePath)
+                    isGenerating = false
+                }
+
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                    isGenerating = false
+                }
+            }
+        }
+    }
+
+    // MARK: - Build Prompt
+
+    private func buildPrompt() -> String {
+        var parts: [String] = []
+
+        // Base cinematic instruction
+        parts.append("Cinematic film still, professional cinematography")
+
+        // Shot type and framing
+        parts.append("\(shot.shotType) shot")
+
+        // Camera angle
+        parts.append("\(shot.cameraAngle) angle")
+
+        // Lens characteristics
+        if let lens = shot.lensMm {
+            if lens <= 24 {
+                parts.append("wide angle lens, expansive view")
+            } else if lens >= 85 {
+                parts.append("telephoto lens, compressed perspective, shallow depth of field")
+            } else if lens >= 50 {
+                parts.append("natural perspective, cinematic depth")
+            }
+        }
+
+        // Aperture / depth of field
+        if shot.aperture.contains("1.") || shot.aperture.contains("2.") {
+            parts.append("shallow depth of field, bokeh background")
+        } else if shot.aperture.contains("8") || shot.aperture.contains("11") || shot.aperture.contains("16") {
+            parts.append("deep focus, sharp throughout")
+        }
+
+        // Movement hint
+        if shot.movement != "Static" {
+            parts.append("sense of \(shot.movement.lowercased()) movement")
+        }
+
+        // Shot description
+        if !shot.description.isEmpty {
+            parts.append(shot.description)
+        }
+
+        // Scene context
+        if let scene = scene {
+            // Location
+            if let location = scene.location, !location.isEmpty {
+                parts.append("set in \(location)")
+            }
+
+            // Scene description
+            if !scene.description.isEmpty {
+                parts.append(scene.description.prefix(150).description)
+            }
+
+            // Characters in scene
+            let sceneCharacters = getCharactersInScene(scene)
+            if !sceneCharacters.isEmpty {
+                let charDescriptions = sceneCharacters.prefix(2).map { char -> String in
+                    var desc = char.name
+                    let physicalDesc = buildCharacterDescription(char)
+                    if !physicalDesc.isEmpty {
+                        desc += " (\(physicalDesc.prefix(50)))"
+                    }
+                    return desc
+                }
+                parts.append("featuring \(charDescriptions.joined(separator: " and "))")
+            }
+
+            // Sample dialogue for mood
+            if let firstDialogue = scene.dialogues.first, !firstDialogue.text.isEmpty {
+                parts.append("mood: \"\(firstDialogue.text.prefix(80))...\"")
+            }
+        }
+
+        // Style
+        parts.append("dramatic lighting, film grain, cinematic color grading, 35mm film aesthetic")
+
+        return parts.joined(separator: ". ")
+    }
+
+    private func buildPromptSummary() -> String {
+        var summary: [String] = []
+        summary.append("\(shot.shotType) • \(shot.cameraAngle)")
+        if let scene = scene {
+            summary.append(scene.name)
+        }
+        return summary.joined(separator: " • ")
+    }
+
+    private func getCharactersInScene(_ scene: DCScene) -> [Character] {
+        let characterNames = Set(scene.dialogues.map { $0.character })
+        return characters.filter { characterNames.contains($0.name) }
+    }
+
+    /// Build a brief physical description from character attributes
+    private func buildCharacterDescription(_ char: Character) -> String {
+        var parts: [String] = []
+
+        // Use about field if available
+        if !char.about.isEmpty {
+            return char.about
+        }
+
+        // Otherwise build from physical attributes
+        if char.age > 0 {
+            parts.append("\(char.age) year old")
+        }
+
+        if !char.gender.isEmpty && char.gender != "neutral" {
+            parts.append(char.gender)
+        }
+
+        if !char.build.isEmpty && char.build != "Average" {
+            parts.append(char.build.lowercased())
+        }
+
+        if !char.hairColor.isEmpty && !char.hairColor.hasPrefix("#") {
+            parts.append("\(char.hairColor) hair")
+        } else if !char.hairStyle.isEmpty {
+            parts.append("\(char.hairStyle) hair")
+        }
+
+        if !char.distinguishingFeatures.isEmpty {
+            parts.append(char.distinguishingFeatures)
+        }
+
+        return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Prompt Editor Sheet
+
+private struct PromptEditorSheet: View {
+    @Binding var prompt: String
+    @Binding var isPresented: Bool
+    let onGenerate: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Shot Preview Prompt")
+                    .font(.headline)
+                    .foregroundColor(.white)
+
+                Spacer()
+
+                Button {
+                    isPresented = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            .background(Color(hex: "#1E1E1E"))
+
+            Divider()
+
+            // Prompt editor
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Edit the prompt below to customize the generated image:")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+
+                TextEditor(text: $prompt)
+                    .font(.system(size: 13, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+                    .background(Color(hex: "#1A1A1A"))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
+                    )
+                    .frame(minHeight: 200)
+
+                // Tips
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tips:")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.gray)
+
+                    Group {
+                        Label("Be specific about camera angles, lighting, and mood", systemImage: "lightbulb")
+                        Label("Include character descriptions for better results", systemImage: "person")
+                        Label("Add style keywords like 'cinematic', 'film noir', '35mm'", systemImage: "film")
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray.opacity(0.7))
+                }
+                .padding(.top, 8)
+            }
+            .padding()
+
+            Divider()
+
+            // Footer
+            HStack {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button {
+                    isPresented = false
+                    onGenerate(prompt)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wand.and.stars")
+                        Text("Generate with Prompt")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .background(Color(hex: "#1E1E1E"))
+        }
+        .frame(width: 600, height: 480)
+        .background(Color(hex: "#252525"))
+    }
+}
+
+// MARK: - Shot Preview Full Size Sheet
+
+private struct ShotPreviewFullSizeSheet: View {
+    let image: NSImage?
+    let shotId: Int
+    @Binding var isPresented: Bool
+    let onDownload: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Shot #\(shotId) Preview")
+                    .font(.headline)
+                    .foregroundColor(.white)
+
+                Spacer()
+
+                Button {
+                    isPresented = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            .background(Color(hex: "#1E1E1E"))
+
+            Divider()
+
+            // Image
+            if let image = image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+            } else {
+                VStack {
+                    Image(systemName: "photo")
+                        .font(.system(size: 48))
+                        .foregroundColor(.gray)
+                    Text("No preview available")
+                        .foregroundColor(.gray)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(hex: "#1A1A1A"))
+            }
+
+            Divider()
+
+            // Footer
+            HStack {
+                if let image = image {
+                    Text("\(Int(image.size.width)) × \(Int(image.size.height))")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                Button(action: onDownload) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle")
+                        Text("Download")
+                    }
+                }
+
+                Button("Done") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            .background(Color(hex: "#1E1E1E"))
+        }
+        .frame(width: 900, height: 650)
+        .background(Color(hex: "#252525"))
+    }
+}
+
+// MARK: - Shot Info Pill
+
+private struct ShotInfoPill: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(text)
+                .font(.system(size: 10))
+        }
+        .foregroundColor(.gray)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(hex: "#2A2A2A"))
+        .cornerRadius(4)
+    }
+}
+
+// MARK: - Camera Setting Card (Read-only, kept for reference)
 
 private struct CameraSettingCard: View {
     let icon: String
@@ -752,6 +1599,1073 @@ private struct CameraSettingCard: View {
         .background(Color(hex: "#2A2A2A"))
         .cornerRadius(8)
     }
+}
+
+// MARK: - Shot Attribute Descriptions
+
+/// Descriptions for camera angles to help users choose
+private let cameraAngleDescriptions: [String: String] = [
+    "Eye Level": "Natural, neutral perspective at subject's eye height. Creates relatability and connection.",
+    "Low": "Camera looks up at subject. Conveys power, dominance, or heroism.",
+    "High": "Camera looks down on subject. Suggests vulnerability, weakness, or insignificance.",
+    "Dutch": "Tilted camera angle. Creates unease, tension, or psychological disturbance.",
+    "Bird's Eye": "Directly overhead view. Provides god-like perspective, shows spatial relationships.",
+    "Worm's Eye": "Extreme low angle from ground. Dramatic effect, makes subjects appear monumental.",
+    "POV": "Point of view shot. Shows exactly what character sees, creates immersion."
+]
+
+/// Descriptions for shot types to help users choose
+private let shotTypeDescriptions: [String: String] = [
+    "ECU": "Extreme Close-Up — Single feature (eyes, hands). Intense focus, heightens emotion.",
+    "CU": "Close-Up — Face fills frame. Shows emotion and reaction, creates intimacy.",
+    "MCU": "Medium Close-Up — Chest up. Intimate but not too personal, great for dialogue.",
+    "MS": "Medium Shot — Waist up. Standard conversational framing, shows body language.",
+    "MWS": "Medium Wide Shot — Subject from knees up. Balances character and environment.",
+    "WS": "Wide Shot — Shows full body with environment. Establishes setting and character's place in it.",
+    "EWS": "Extreme Wide Shot — Establishes vast environment, subject appears tiny. Great for landscapes.",
+    "OTS": "Over The Shoulder — Shows subject from behind another character. Creates intimacy in dialogue.",
+    "2S": "Two Shot — Two subjects in frame. Shows relationship and interaction between characters.",
+    "3S": "Three Shot — Three subjects in frame. Shows group dynamics while maintaining focus.",
+    "Group": "Group Shot — Multiple subjects. Establishes group dynamics and relationships.",
+    "Insert": "Insert Shot — Detail shot of object or action. Draws attention to important story elements.",
+    "Cutaway": "Cutaway — Shot of something outside main action. Provides context or parallel action.",
+    "POV": "Point of View — Shows exactly what character sees. Creates immersion and subjectivity.",
+    "Reaction": "Reaction Shot — Character's response to events. Essential for emotional impact."
+]
+
+/// Descriptions for camera movements to help users choose
+private let movementDescriptions: [String: String] = [
+    "Static": "No camera movement. Stable, observational, lets action unfold naturally.",
+    "Pan Left": "Horizontal rotation left. Follows action or reveals environment to the left.",
+    "Pan Right": "Horizontal rotation right. Follows action or reveals environment to the right.",
+    "Tilt Up": "Vertical rotation upward. Reveals height, follows upward movement, shows scale.",
+    "Tilt Down": "Vertical rotation downward. Focuses attention, moves down to subject.",
+    "Dolly In": "Camera moves toward subject. Increases intensity, draws viewer in emotionally.",
+    "Dolly Out": "Camera moves away from subject. Creates distance, reveals context.",
+    "Dolly Left": "Camera slides left. Reveals new elements, follows lateral action.",
+    "Dolly Right": "Camera slides right. Reveals new elements, follows lateral action.",
+    "Tracking": "Camera follows alongside subject. Creates energy, keeps pace with action.",
+    "Crane Up": "Camera rises vertically. Reveals scope, often used for dramatic endings.",
+    "Crane Down": "Camera descends vertically. Focuses attention, moves into scene.",
+    "Handheld": "Deliberate camera shake. Creates urgency, documentary feel, tension.",
+    "Steadicam": "Smooth handheld movement. Fluid following shots, dreamlike quality.",
+    "Zoom In": "Lens zooms closer. Quick focus shift, can feel voyeuristic or dramatic.",
+    "Zoom Out": "Lens zooms wider. Reveals context, can create isolation effect.",
+    "Push In": "Slow move toward subject. Builds tension, focuses attention gradually.",
+    "Pull Out": "Slow move away from subject. Reveals surprise, shows isolation.",
+    "Arc Left": "Camera moves in curved path left around subject. Dynamic reveal, adds dimension.",
+    "Arc Right": "Camera moves in curved path right around subject. Dynamic reveal, adds dimension.",
+    "Whip Pan": "Very fast pan. Creates energy, shows passage of time, transitions scenes."
+]
+
+/// Descriptions for lens focal lengths
+private let lensDescriptions: [Int: String] = [
+    16: "Ultra wide — Dramatic distortion, vast environments, claustrophobic interiors",
+    24: "Wide angle — Expansive view, slight distortion, great for landscapes and interiors",
+    28: "Moderate wide — Natural wide view, minimal distortion, versatile storytelling lens",
+    35: "Classic cinema — Natural perspective, slight width, the 'director's lens'",
+    50: "Standard — Closest to human vision, neutral and natural look",
+    85: "Portrait — Flattering compression, beautiful bokeh, ideal for close-ups",
+    100: "Short telephoto — Compressed perspective, intimate feel, great for dialogue",
+    135: "Telephoto — Strong compression, isolates subject, cinematic depth",
+    200: "Long telephoto — Extreme compression, voyeuristic feel, dramatic isolation"
+]
+
+/// Descriptions for aperture values
+private let apertureDescriptions: [String: String] = [
+    "f/1.2": "Extremely shallow depth — Dreamy, romantic, razor-thin focus plane",
+    "f/1.4": "Very shallow depth — Beautiful bokeh, subject isolation, low light capable",
+    "f/1.8": "Shallow depth — Soft backgrounds, subject emphasis, intimate feel",
+    "f/2": "Moderately shallow — Good separation, natural look, versatile",
+    "f/2.8": "Standard cinema — Classic look, manageable focus, professional standard",
+    "f/4": "Moderate depth — More in focus, easier to shoot, good for movement",
+    "f/5.6": "Medium depth — Balanced sharpness, good for group shots",
+    "f/8": "Deep focus — Most of frame sharp, documentary style, landscape work",
+    "f/11": "Very deep focus — Nearly everything sharp, detailed environments",
+    "f/16": "Maximum depth — Everything in focus, architectural, maximum detail"
+]
+
+// MARK: - Chip Selector (Modern pill-style selector)
+
+private struct ChipSelector: View {
+    let icon: String
+    let title: String
+    let options: [String]
+    let selectedValue: String
+    let onSelect: (String) -> Void
+    var descriptions: [String: String] = [:]
+
+    @State private var hoveredOption: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header with tooltip
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(.accentColor)
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray)
+
+                // Tooltip appears here, next to title
+                if let hovered = hoveredOption, let desc = descriptions[hovered] {
+                    Text("— \(desc)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+
+            // Chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(options, id: \.self) { option in
+                        ChipButton(
+                            label: option,
+                            isSelected: option == selectedValue,
+                            isHoveredBinding: Binding(
+                                get: { hoveredOption == option },
+                                set: { if $0 { hoveredOption = option } else if hoveredOption == option { hoveredOption = nil } }
+                            ),
+                            onTap: { onSelect(option) }
+                        )
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+        }
+    }
+}
+
+private struct ChipButton: View {
+    let label: String
+    let isSelected: Bool
+    @Binding var isHoveredBinding: Bool
+    let onTap: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            Text(label)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? Color.accentColor : Color(hex: "#3A3A3A"))
+                        .overlay(
+                            Capsule()
+                                .stroke(isHovered && !isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+                        )
+                )
+                .foregroundColor(isSelected ? .white : .gray)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            isHoveredBinding = hovering
+        }
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .animation(.easeInOut(duration: 0.1), value: isHovered)
+    }
+}
+
+// MARK: - Lens Selector (Compact number chips)
+
+private struct LensSelector: View {
+    let icon: String
+    let title: String
+    let options: [Int]
+    let selectedValue: Int?
+    let onSelect: (Int) -> Void
+    var descriptions: [Int: String] = [:]
+
+    @State private var hoveredLens: Int?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header with tooltip
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(.accentColor)
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray)
+
+                if let hovered = hoveredLens, let desc = descriptions[hovered] {
+                    Text("— \(desc)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+
+            // Lens chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(options, id: \.self) { lens in
+                        LensChip(
+                            value: lens,
+                            isSelected: lens == selectedValue,
+                            isHoveredBinding: Binding(
+                                get: { hoveredLens == lens },
+                                set: { if $0 { hoveredLens = lens } else if hoveredLens == lens { hoveredLens = nil } }
+                            ),
+                            onTap: { onSelect(lens) }
+                        )
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 180)
+    }
+}
+
+private struct LensChip: View {
+    let value: Int
+    let isSelected: Bool
+    @Binding var isHoveredBinding: Bool
+    let onTap: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            Text("\(value)")
+                .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .rounded))
+                .frame(width: 36, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isSelected ? Color.accentColor : Color(hex: "#3A3A3A"))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(isHovered && !isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+                        )
+                )
+                .foregroundColor(isSelected ? .white : .gray)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            isHoveredBinding = hovering
+        }
+    }
+}
+
+// MARK: - Aperture Selector (f-stop chips)
+
+private struct ApertureSelector: View {
+    let icon: String
+    let title: String
+    let options: [String]
+    let selectedValue: String
+    let onSelect: (String) -> Void
+    var descriptions: [String: String] = [:]
+
+    @State private var hoveredAperture: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header with tooltip
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(.accentColor)
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray)
+
+                if let hovered = hoveredAperture, let desc = descriptions[hovered] {
+                    Text("— \(desc)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+
+            // Aperture chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(options, id: \.self) { aperture in
+                        ApertureChip(
+                            value: aperture,
+                            isSelected: aperture == selectedValue,
+                            isHoveredBinding: Binding(
+                                get: { hoveredAperture == aperture },
+                                set: { if $0 { hoveredAperture = aperture } else if hoveredAperture == aperture { hoveredAperture = nil } }
+                            ),
+                            onTap: { onSelect(aperture) }
+                        )
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 200)
+    }
+}
+
+private struct ApertureChip: View {
+    let value: String
+    let isSelected: Bool
+    @Binding var isHoveredBinding: Bool
+    let onTap: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            Text(value)
+                .font(.system(size: 10, weight: isSelected ? .bold : .medium, design: .monospaced))
+                .frame(minWidth: 36, minHeight: 28, maxHeight: 28)
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isSelected ? Color.accentColor : Color(hex: "#3A3A3A"))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(isHovered && !isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+                        )
+                )
+                .foregroundColor(isSelected ? .white : .gray)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            isHoveredBinding = hovering
+        }
+    }
+}
+
+// MARK: - Duration Editor (Stepper style)
+
+private struct DurationEditor: View {
+    let icon: String
+    let title: String
+    let value: Double?
+    let onValueChange: (Double?) -> Void
+
+    @State private var displayValue: Double = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(.accentColor)
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray)
+            }
+
+            // Duration control
+            HStack(spacing: 0) {
+                // Decrease button
+                Button {
+                    let newValue = max(0.5, displayValue - 0.5)
+                    displayValue = newValue
+                    onValueChange(newValue)
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 28, height: 28)
+                        .background(Color(hex: "#3A3A3A"))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .cornerRadius(6, corners: [.topLeft, .bottomLeft])
+
+                // Value display
+                Text(String(format: "%.1fs", displayValue))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .frame(width: 50, height: 28)
+                    .background(Color(hex: "#2A2A2A"))
+                    .foregroundColor(.white)
+
+                // Increase button
+                Button {
+                    let newValue = displayValue + 0.5
+                    displayValue = newValue
+                    onValueChange(newValue)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 28, height: 28)
+                        .background(Color(hex: "#3A3A3A"))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .cornerRadius(6, corners: [.topRight, .bottomRight])
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(hex: "#4A4A4A"), lineWidth: 1)
+            )
+        }
+        .onAppear {
+            displayValue = value ?? 2.0
+        }
+        .onChange(of: value) { _, newValue in
+            displayValue = newValue ?? 2.0
+        }
+    }
+}
+
+// MARK: - Inline Description Editor
+
+private struct InlineDescriptionEditor: View {
+    let description: String
+    let onDescriptionChange: (String) -> Void
+
+    @State private var isEditing = false
+    @State private var editText = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: 12))
+                        .foregroundColor(.accentColor)
+                    Text("Description")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                if isEditing {
+                    Button("Done") {
+                        commitEdit()
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.accentColor)
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Content
+            if isEditing {
+                TextEditor(text: $editText)
+                    .font(.system(size: 14))
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+                    .frame(minHeight: 100)
+                    .background(Color(hex: "#1E1E1E"))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.accentColor, lineWidth: 1)
+                    )
+                    .focused($isFocused)
+            } else {
+                // Click to edit
+                Text(description.isEmpty ? "Click to add a description..." : description)
+                    .font(.system(size: 14))
+                    .foregroundColor(description.isEmpty ? .gray.opacity(0.5) : .white.opacity(0.9))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color(hex: "#2A2A2A"))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editText = description
+                        isEditing = true
+                        isFocused = true
+                    }
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.iBeam.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+            }
+        }
+    }
+
+    private func commitEdit() {
+        if editText != description {
+            onDescriptionChange(editText)
+        }
+        isEditing = false
+    }
+}
+
+// MARK: - Reference Media Section
+
+private struct ReferenceMediaSection: View {
+    let media: [ReferenceMedia]
+    let shotId: Int
+    let projectBasePath: URL?
+    let onMediaAdded: (ReferenceMedia) -> Void
+    let onMediaRemoved: (String) -> Void
+    let onUseAsPreview: (String) -> Void
+
+    @State private var isDraggingOver = false
+    @State private var showingFilePicker = false
+    @State private var selectedMedia: ReferenceMedia?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack(spacing: 6) {
+                Image(systemName: "photo.on.rectangle")
+                    .font(.system(size: 12))
+                    .foregroundColor(.accentColor)
+                Text("Reference Images")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray)
+
+                if !media.isEmpty {
+                    Text("·")
+                        .foregroundColor(.gray.opacity(0.5))
+                    Text("\(media.count)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray.opacity(0.6))
+                }
+
+                Spacer()
+
+                // Add button in header
+                Button(action: { showingFilePicker = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Add")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Media grid or empty state
+            if media.isEmpty {
+                // Empty state with drop zone
+                ReferenceDropZone(
+                    isDraggingOver: $isDraggingOver,
+                    onTap: { showingFilePicker = true },
+                    onDrop: handleDrop
+                )
+            } else {
+                // Scrollable grid of larger thumbnails
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(media) { item in
+                            ReferenceMediaCard(
+                                media: item,
+                                onRemove: { onMediaRemoved(item.id) },
+                                onTap: { selectedMedia = item },
+                                onUseAsPreview: item.type == .image ? {
+                                    useReferenceAsPreview(item)
+                                } : nil
+                            )
+                        }
+
+                        // Add more button
+                        AddMoreButton(
+                            isDraggingOver: $isDraggingOver,
+                            onTap: { showingFilePicker = true },
+                            onDrop: handleDrop
+                        )
+                    }
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showingFilePicker,
+            allowedContentTypes: [.image, .movie, .video],
+            allowsMultipleSelection: true
+        ) { result in
+            handleFileImport(result)
+        }
+        .sheet(item: $selectedMedia) { media in
+            ReferenceMediaPreviewSheet(
+                media: media,
+                isPresented: Binding(
+                    get: { selectedMedia != nil },
+                    set: { if !$0 { selectedMedia = nil } }
+                ),
+                onUseAsPreview: media.type == .image ? {
+                    useReferenceAsPreview(media)
+                    selectedMedia = nil
+                } : nil
+            )
+        }
+    }
+
+    /// Copy reference image to shot preview location and use it as the preview
+    private func useReferenceAsPreview(_ media: ReferenceMedia) {
+        guard let basePath = projectBasePath else { return }
+
+        let projectDir = basePath.deletingLastPathComponent()
+        let shotDir = projectDir
+            .appendingPathComponent("assets")
+            .appendingPathComponent("shots")
+            .appendingPathComponent("shot_\(shotId)")
+
+        do {
+            // Create directory if needed
+            if !FileManager.default.fileExists(atPath: shotDir.path) {
+                try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+            }
+
+            // Copy the reference image
+            let sourceURL = URL(fileURLWithPath: media.path)
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+            let timestamp = dateFormatter.string(from: Date())
+
+            // Save with timestamp for history
+            let ext = sourceURL.pathExtension.isEmpty ? "png" : sourceURL.pathExtension
+            let historyFilename = "preview_\(timestamp)_ref.\(ext)"
+            let historyPath = shotDir.appendingPathComponent(historyFilename)
+
+            // Copy to history
+            if FileManager.default.fileExists(atPath: historyPath.path) {
+                try FileManager.default.removeItem(at: historyPath)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: historyPath)
+
+            // Also copy as latest.png
+            let latestPath = shotDir.appendingPathComponent("latest.png")
+            if FileManager.default.fileExists(atPath: latestPath.path) {
+                try FileManager.default.removeItem(at: latestPath)
+            }
+
+            // Load and save as PNG to ensure format consistency
+            if let image = NSImage(contentsOf: sourceURL),
+               let tiffData = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmap.representation(using: .png, properties: [:]) {
+                try pngData.write(to: latestPath)
+            } else {
+                // Fallback: just copy the file
+                try FileManager.default.copyItem(at: sourceURL, to: latestPath)
+            }
+
+            // Save a note that this was from a reference
+            let promptPath = shotDir.appendingPathComponent("prompt.txt")
+            let note = "[Reference Image]\nUsed reference image: \(media.caption)\nOriginal path: \(media.path)\nDate: \(Date())"
+            try note.write(to: promptPath, atomically: true, encoding: .utf8)
+
+            let relativePath = "assets/shots/shot_\(shotId)/latest.png"
+            onUseAsPreview(relativePath)
+
+        } catch {
+            print("Error copying reference to preview: \(error)")
+        }
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadItem(forTypeIdentifier: "public.image", options: nil) { item, _ in
+                    if let url = item as? URL {
+                        DispatchQueue.main.async {
+                            addMedia(from: url, type: .image)
+                        }
+                    }
+                }
+                return true
+            } else if provider.hasItemConformingToTypeIdentifier("public.movie") {
+                provider.loadItem(forTypeIdentifier: "public.movie", options: nil) { item, _ in
+                    if let url = item as? URL {
+                        DispatchQueue.main.async {
+                            addMedia(from: url, type: .video)
+                        }
+                    }
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else { return }
+
+        for url in urls {
+            let ext = url.pathExtension.lowercased()
+            let type: ReferenceMedia.MediaType = ["mp4", "mov", "m4v", "avi"].contains(ext) ? .video : .image
+            addMedia(from: url, type: type)
+        }
+    }
+
+    private func addMedia(from url: URL, type: ReferenceMedia.MediaType) {
+        let media = ReferenceMedia(
+            type: type,
+            path: url.path,
+            caption: url.lastPathComponent
+        )
+        onMediaAdded(media)
+    }
+}
+
+// MARK: - Reference Drop Zone (Empty State)
+
+private struct ReferenceDropZone: View {
+    @Binding var isDraggingOver: Bool
+    let onTap: () -> Void
+    let onDrop: ([NSItemProvider]) -> Bool
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                Image(systemName: "photo.badge.plus")
+                    .font(.system(size: 24))
+                    .foregroundColor(isDraggingOver ? .accentColor : .gray.opacity(0.5))
+
+                Text("Drop images or click to add")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 100)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(hex: isDraggingOver ? "#2A2A2A" : "#1E1E1E"))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(
+                                isDraggingOver ? Color.accentColor : Color(hex: "#3A3A3A"),
+                                style: StrokeStyle(lineWidth: 1, dash: [6, 3])
+                            )
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .onDrop(of: [.image, .movie], isTargeted: $isDraggingOver, perform: onDrop)
+    }
+}
+
+// MARK: - Reference Media Card (Larger Thumbnail)
+
+private struct ReferenceMediaCard: View {
+    let media: ReferenceMedia
+    let onRemove: () -> Void
+    let onTap: () -> Void
+    let onUseAsPreview: (() -> Void)?
+
+    @State private var isHovered = false
+    @State private var thumbnailImage: NSImage?
+
+    private let cardWidth: CGFloat = 160
+    private let cardHeight: CGFloat = 100
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            // Main content
+            Button(action: onTap) {
+                ZStack {
+                    if let image = thumbnailImage {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Color(hex: "#2A2A2A")
+                        VStack(spacing: 6) {
+                            Image(systemName: media.type == .video ? "play.rectangle.fill" : "photo")
+                                .font(.system(size: 28))
+                                .foregroundColor(.gray.opacity(0.4))
+                            Text(media.caption)
+                                .font(.system(size: 9))
+                                .foregroundColor(.gray.opacity(0.5))
+                                .lineLimit(1)
+                        }
+                    }
+
+                    // Video overlay
+                    if media.type == .video && thumbnailImage != nil {
+                        Color.black.opacity(0.3)
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.white.opacity(0.9))
+                    }
+
+                    // Hover overlay with action buttons
+                    if isHovered && thumbnailImage != nil {
+                        Color.black.opacity(0.4)
+
+                        // Use as Preview button (for images only)
+                        if onUseAsPreview != nil {
+                            VStack(spacing: 8) {
+                                Button(action: { onUseAsPreview?() }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "photo.badge.checkmark")
+                                            .font(.system(size: 11))
+                                        Text("Use as Preview")
+                                            .font(.system(size: 10, weight: .medium))
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.accentColor)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+
+                                Text("Click to view")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                        } else {
+                            Image(systemName: "eye")
+                                .font(.system(size: 20))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                    }
+                }
+                .frame(width: cardWidth, height: cardHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(isHovered ? 0.3 : 0.1), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            // Remove button
+            if isHovered {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white, Color.black.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .offset(x: 6, y: -6)
+            }
+        }
+        .onHover { isHovered = $0 }
+        .onAppear { loadThumbnail() }
+        .help("Click to view full size")
+    }
+
+    private func loadThumbnail() {
+        guard media.type == .image else { return }
+        let url = URL(fileURLWithPath: media.path)
+        if let image = NSImage(contentsOf: url) {
+            thumbnailImage = image
+        }
+    }
+}
+
+// MARK: - Add More Button
+
+private struct AddMoreButton: View {
+    @Binding var isDraggingOver: Bool
+    let onTap: () -> Void
+    let onDrop: ([NSItemProvider]) -> Bool
+
+    @State private var isHovered = false
+
+    private let cardHeight: CGFloat = 100
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 6) {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 24))
+                Text("Add")
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(isHovered || isDraggingOver ? .white : .gray)
+            .frame(width: 80, height: cardHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(hex: isHovered || isDraggingOver ? "#3A3A3A" : "#2A2A2A"))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(
+                                isDraggingOver ? Color.accentColor : Color.white.opacity(0.1),
+                                style: StrokeStyle(lineWidth: 1, dash: [4, 2])
+                            )
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .onDrop(of: [.image, .movie], isTargeted: $isDraggingOver, perform: onDrop)
+    }
+}
+
+// MARK: - Reference Media Preview Sheet
+
+private struct ReferenceMediaPreviewSheet: View {
+    let media: ReferenceMedia
+    @Binding var isPresented: Bool
+    let onUseAsPreview: (() -> Void)?
+
+    @State private var image: NSImage?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reference Image")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    Text(media.caption)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                Button {
+                    isPresented = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            .background(Color(hex: "#1E1E1E"))
+
+            Divider()
+
+            // Image preview
+            if let image = image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+            } else {
+                VStack(spacing: 12) {
+                    if media.type == .video {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.gray)
+                        Text("Video preview not available")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    } else {
+                        ProgressView()
+                        Text("Loading...")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(hex: "#1A1A1A"))
+            }
+
+            Divider()
+
+            // Footer with file info and actions
+            HStack {
+                if let image = image {
+                    Text("\(Int(image.size.width)) × \(Int(image.size.height))")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                // Use as Preview button (prominent)
+                if let onUseAsPreview = onUseAsPreview {
+                    Button(action: onUseAsPreview) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "photo.badge.checkmark")
+                                .font(.system(size: 12))
+                            Text("Use as Shot Preview")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                Button("Open in Finder") {
+                    NSWorkspace.shared.selectFile(media.path, inFileViewerRootedAtPath: "")
+                }
+                .font(.caption)
+
+                Button("Done") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            .background(Color(hex: "#1E1E1E"))
+        }
+        .frame(width: 800, height: 600)
+        .background(Color(hex: "#252525"))
+        .onAppear {
+            loadImage()
+        }
+    }
+
+    private func loadImage() {
+        guard media.type == .image else { return }
+        let url = URL(fileURLWithPath: media.path)
+        if let loadedImage = NSImage(contentsOf: url) {
+            image = loadedImage
+        }
+    }
+}
+
+// MARK: - Corner Radius Extension
+
+private extension View {
+    func cornerRadius(_ radius: CGFloat, corners: RectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+private struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: RectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        let tl = corners.contains(.topLeft) ? radius : 0
+        let tr = corners.contains(.topRight) ? radius : 0
+        let bl = corners.contains(.bottomLeft) ? radius : 0
+        let br = corners.contains(.bottomRight) ? radius : 0
+
+        path.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
+        path.addArc(center: CGPoint(x: rect.maxX - tr, y: rect.minY + tr), radius: tr, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
+        path.addArc(center: CGPoint(x: rect.maxX - br, y: rect.maxY - br), radius: br, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
+        path.addArc(center: CGPoint(x: rect.minX + bl, y: rect.maxY - bl), radius: bl, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
+        path.addArc(center: CGPoint(x: rect.minX + tl, y: rect.minY + tl), radius: tl, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+
+        return path
+    }
+}
+
+private struct RectCorner: OptionSet {
+    let rawValue: Int
+
+    static let topLeft = RectCorner(rawValue: 1 << 0)
+    static let topRight = RectCorner(rawValue: 1 << 1)
+    static let bottomLeft = RectCorner(rawValue: 1 << 2)
+    static let bottomRight = RectCorner(rawValue: 1 << 3)
+    static let allCorners: RectCorner = [.topLeft, .topRight, .bottomLeft, .bottomRight]
 }
 
 // MARK: - Storyboard Card

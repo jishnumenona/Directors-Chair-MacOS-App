@@ -15,6 +15,12 @@ import DirectorsChairCore
 /// Replaces Python's Project QObject with auto-save
 @MainActor
 class ProjectViewModel: ObservableObject {
+    // MARK: - UserDefaults Keys
+
+    private enum UserDefaultsKeys {
+        static let lastProjectPath = "lastProjectPath"
+    }
+
     // MARK: - Published Properties
 
     /// Current project
@@ -27,7 +33,12 @@ class ProjectViewModel: ObservableObject {
     @Published var lastSaved: Date?
 
     /// Current project file path
-    @Published var projectPath: URL?
+    @Published var projectPath: URL? {
+        didSet {
+            // Save to UserDefaults whenever project path changes
+            saveLastProjectPath()
+        }
+    }
 
     /// Whether a project is currently loaded
     @Published var hasProject: Bool
@@ -55,40 +66,120 @@ class ProjectViewModel: ObservableObject {
         setupAutoSave()
     }
 
+    // MARK: - Last Project Persistence
+
+    /// Save the current project path to UserDefaults
+    private func saveLastProjectPath() {
+        if let path = projectPath {
+            UserDefaults.standard.set(path.path, forKey: UserDefaultsKeys.lastProjectPath)
+        } else {
+            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastProjectPath)
+        }
+    }
+
+    /// Get the last opened project path from UserDefaults
+    static func getLastProjectPath() -> URL? {
+        guard let pathString = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastProjectPath) else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: pathString)
+        // Verify file still exists
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return url
+    }
+
+    /// Restore the last opened project on app launch
+    func restoreLastProject() async {
+        guard let lastPath = Self.getLastProjectPath() else {
+            return
+        }
+
+        do {
+            try await load(from: lastPath)
+        } catch {
+            // Failed to load last project - clear the saved path
+            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastProjectPath)
+        }
+    }
+
     // MARK: - Auto-Save Setup
 
     private func setupAutoSave() {
-        // Watch for project changes and mark as dirty
+        // Watch for project changes and trigger auto-save
         $project
             .dropFirst() // Skip initial value
-            .sink { [weak self] _ in
-                self?.isDirty = true
-                Task { @MainActor in
-                    await self?.autoSaveManager.requestSave()
-                }
-            }
-            .store(in: &cancellables)
+            .sink { [weak self] project in
+                guard let self = self else { return }
 
-        // Subscribe to auto-save manager's save events
-        autoSaveManager.$shouldSave
-            .filter { $0 } // Only when shouldSave is true
-            .sink { [weak self] _ in
+                // Defer property changes to avoid publishing during view updates
                 Task { @MainActor in
-                    await self?.save()
+                    self.isDirty = true
+
+                    // Request auto-save if we have a project path and it's writable
+                    if let path = self.projectPath, self.isWritable(url: path) {
+                        self.autoSaveManager.requestSave(project: project, to: path)
+                    }
                 }
             }
             .store(in: &cancellables)
     }
 
+    /// Check if a file location is writable
+    private func isWritable(url: URL) -> Bool {
+        let parentDir = url.deletingLastPathComponent()
+        return FileManager.default.isWritableFile(atPath: parentDir.path)
+    }
+
     // MARK: - Project Operations
 
-    /// Create a new empty project
+    /// Create a new empty project with default name
     func createNew() {
-        project = Project.empty()
-        projectPath = nil
-        isDirty = false
-        lastSaved = nil
-        hasProject = true
+        createNew(named: "Untitled Project")
+    }
+
+    /// Create a new project with a specific name
+    /// Automatically creates directory structure in ~/Directors Chair/{ProjectName}/
+    func createNew(named projectName: String) {
+        // Generate unique name if project already exists
+        let uniqueName = ProjectDirectoryManager.uniqueProjectName(baseName: projectName)
+
+        do {
+            // Create project directory structure
+            let projectDir = try ProjectDirectoryManager.createProjectDirectory(named: uniqueName)
+            let projectFileURL = ProjectDirectoryManager.projectFileURL(in: projectDir)
+
+            // Create new project with the name and base path
+            var newProject = Project.empty()
+            newProject.name = uniqueName
+            newProject.basePath = projectDir.path
+
+            // Set project state
+            project = newProject
+            projectPath = projectFileURL
+            isDirty = true
+            lastSaved = nil
+            hasProject = true
+
+            // Auto-save the new project immediately
+            Task {
+                await save()
+            }
+        } catch {
+            // Fallback to in-memory project if directory creation fails
+            errorAlert = ErrorAlert(
+                title: "Failed to Create Project Directory",
+                message: "Could not create project folder: \(error.localizedDescription). Project will be created in memory - use Save As to choose a location."
+            )
+
+            project = Project.empty()
+            project.name = uniqueName
+            projectPath = nil
+            isDirty = false
+            lastSaved = nil
+            hasProject = true
+        }
     }
 
     /// Load project from file path
@@ -103,6 +194,14 @@ class ProjectViewModel: ObservableObject {
             isDirty = false
             lastSaved = Date()
             hasProject = true
+
+            // Warn if location is read-only
+            if !isWritable(url: path) {
+                errorAlert = ErrorAlert(
+                    title: "Read-Only Location",
+                    message: "This project is in a read-only location. Changes cannot be auto-saved. Use 'Save As' to save to a writable location."
+                )
+            }
         } catch {
             errorAlert = ErrorAlert(
                 error: error,
@@ -119,6 +218,15 @@ class ProjectViewModel: ObservableObject {
             errorAlert = ErrorAlert(
                 title: "Cannot Save",
                 message: "No save location set. Use Save As to choose a location."
+            )
+            return
+        }
+
+        // Check if location is writable
+        guard isWritable(url: path) else {
+            errorAlert = ErrorAlert(
+                title: "Cannot Save",
+                message: "This project is in a read-only location. Use 'Save As' to save to a writable location."
             )
             return
         }
@@ -144,6 +252,19 @@ class ProjectViewModel: ObservableObject {
         projectPath = path
         isDirty = false
         lastSaved = Date()
+    }
+
+    /// Save silently without showing loading indicator (for frequent background saves like timeline drag)
+    func saveSilently() async {
+        guard let path = projectPath, isWritable(url: path) else { return }
+        do {
+            try await persistence.save(project, to: path)
+            isDirty = false
+            lastSaved = Date()
+        } catch {
+            // Silent save failures are non-critical; log but don't show alert
+            print("[ProjectViewModel] Silent save failed: \(error.localizedDescription)")
+        }
     }
 
     /// Force immediate save (flush pending)
@@ -177,6 +298,20 @@ class ProjectViewModel: ObservableObject {
     /// Remove a sequence from the project
     func removeSequence(_ sequence: DirectorsChairCore.Sequence) {
         project.sequences.removeAll { $0.id == sequence.id }
+        isDirty = true
+    }
+
+    /// Remove a scene from a specific sequence
+    func removeScene(_ scene: DirectorsChairCore.Scene, fromSequenceId sequenceId: String) {
+        guard let index = project.sequences.firstIndex(where: { $0.id == sequenceId }) else { return }
+        project.sequences[index].scenes.removeAll { $0.id == scene.id }
+        isDirty = true
+    }
+
+    /// Add a scene to a specific sequence
+    func addScene(_ scene: DirectorsChairCore.Scene, toSequenceId sequenceId: String) {
+        guard let index = project.sequences.firstIndex(where: { $0.id == sequenceId }) else { return }
+        project.sequences[index].scenes.append(scene)
         isDirty = true
     }
 
@@ -240,9 +375,62 @@ class ProjectViewModel: ObservableObject {
 // MARK: - Project Extension
 
 extension Project {
-    /// Create an empty project with default structure
+    /// Create an empty project with default structure and sample content
+    /// Includes a sample character, sequence, scene, dialogue, and shot
+    /// so users understand the app's structure
     static func empty() -> Project {
-        Project(
+        // Create a sample character
+        let sampleCharacter = Character(
+            characterId: "sample_alex",
+            name: "Alex",
+            role: "Protagonist",
+            color: "#3498db",
+            textColor: "#FFFFFF",
+            about: "The main character of your story. Edit or replace this sample character.",
+            gender: "neutral",
+            age: 30
+        )
+
+        // Create a sample dialogue
+        let sampleDialogue = Dialogue(
+            uuid: UUID().uuidString,
+            character: "Alex",
+            text: "This is a sample dialogue line. Click to edit or add new dialogue.",
+            tags: ["sample"],
+            chronologyNumber: 1,
+            globalChronologyNumber: 1
+        )
+
+        // Create a sample shot
+        let sampleShot = Shot(
+            shotId: 1,
+            itemChronology: 1,
+            description: "Medium shot of Alex speaking. This is a sample shot to demonstrate shot planning.",
+            status: "Planning",
+            cameraAngle: "Medium",
+            lensMm: 50,
+            aperture: "f/2.8",
+            shotType: "Standard",
+            movement: "Static"
+        )
+
+        // Create a sample scene with the dialogue and shot
+        let sampleScene = DirectorsChairCore.Scene(
+            name: "Scene 1 - Introduction",
+            description: "This is a sample scene to help you get started. Edit or replace it with your own scenes.",
+            dialogues: [sampleDialogue],
+            shots: [sampleShot],
+            productionStatus: "Planning"
+        )
+
+        // Create a sample sequence with the scene
+        let sampleSequence = DirectorsChairCore.Sequence(
+            name: "Act 1 - Opening",
+            description: "This is a sample sequence (act). Organize your scenes into sequences to structure your story.",
+            scenes: [sampleScene]
+        )
+
+        return Project(
             name: "Untitled Project",
             basePath: "",
             description: "",
@@ -258,13 +446,13 @@ extension Project {
             projectNotes: "",
             projectIcon: "",
             languages: ["English"],
-            characters: [],
+            characters: [sampleCharacter],
             props: [],
             costumes: [],
             lighting: [],
             effects: [],
             locations: [],
-            sequences: [],
+            sequences: [sampleSequence],
             beats: [],
             scheduleItems: [],
             filmStyles: [],

@@ -1,141 +1,186 @@
 // DirectorsChairViews/Sources/DirectorsChairViews/Bubble/NarrationBubbleCard.swift
 //
-// Narration bubble card for displaying narration/voiceover text
+// Compact inline narration card for voiceover text
 
 import SwiftUI
 import DirectorsChairCore
 
-/// Narration bubble card - displays narration/voiceover text
-///
-/// Shows:
-/// - Narration icon
-/// - Text content
-/// - Tags
-/// - Chronology number
-/// - Characters mentioned
 public struct NarrationBubbleCard: View {
     let narration: Narration
     let isSelected: Bool
+    let characters: [Character]
 
     var onTap: (() -> Void)?
     var onEdit: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onTextChanged: ((String) -> Void)?
+    var onChronologyChanged: ((Int) -> Void)?
+    var onEditModeStarted: (() -> Void)?
+
+    let startInEditMode: Bool
+
+    @State private var isHovered: Bool = false
+    @State private var isEditing: Bool = false
+    @State private var editedText: String = ""
+    @State private var isEditingIndex: Bool = false
+    @State private var editedIndex: String = ""
+    @FocusState private var textFieldFocused: Bool
+    @FocusState private var indexFieldFocused: Bool
+
+    private let accentColor = Color(red: 0.6, green: 0.4, blue: 0.8)
 
     public init(
         narration: Narration,
         isSelected: Bool = false,
+        startInEditMode: Bool = false,
+        characters: [Character] = [],
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
-        onDelete: (() -> Void)? = nil
+        onDelete: (() -> Void)? = nil,
+        onTextChanged: ((String) -> Void)? = nil,
+        onChronologyChanged: ((Int) -> Void)? = nil,
+        onEditModeStarted: (() -> Void)? = nil
     ) {
         self.narration = narration
         self.isSelected = isSelected
+        self.startInEditMode = startInEditMode
+        self.characters = characters
         self.onTap = onTap
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.onTextChanged = onTextChanged
+        self.onChronologyChanged = onChronologyChanged
+        self.onEditModeStarted = onEditModeStarted
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Header
-            HStack {
-                Text("#\(narration.chronologyNumber)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 6)
+        HStack(spacing: 6) {
+            // Index badge - editable on double-click
+            if isEditingIndex {
+                TextField("", text: $editedIndex)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .textFieldStyle(.plain)
+                    .frame(width: 30)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.3))
+                    .background(accentColor.opacity(0.8))
                     .cornerRadius(4)
+                    .focused($indexFieldFocused)
+                    .onSubmit {
+                        commitIndexEdit()
+                    }
+                    .onChange(of: indexFieldFocused) { _, focused in
+                        if !focused {
+                            commitIndexEdit()
+                        }
+                    }
+            } else {
+                Text("#\(narration.chronologyNumber)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(accentColor.opacity(0.6))
+                    .cornerRadius(4)
+                    .onTapGesture(count: 2) {
+                        startIndexEditing()
+                    }
+            }
 
-                Image(systemName: "mic.fill")
-                    .font(.caption)
-                    .foregroundColor(.purple)
+            // Narration icon (microphone for voice-over)
+            Image(systemName: "mic.fill")
+                .font(.system(size: 10))
+                .foregroundColor(accentColor)
 
-                Text("NARRATION")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.purple)
+            // Inline editable text with @ mention support
+            if isEditing {
+                CharacterMentionTextField(
+                    text: $editedText,
+                    placeholder: "Narration text...",
+                    characters: characters,
+                    font: .system(size: 12).italic(),
+                    foregroundColor: accentColor.opacity(0.9),
+                    onSubmit: { commitEdit() }
+                )
+                .focused($textFieldFocused)
+                .onChange(of: textFieldFocused) { _, focused in
+                    if !focused {
+                        commitEdit()
+                    }
+                }
+            } else {
+                Text(narration.text.isEmpty ? "Narration..." : narration.text)
+                    .font(.system(size: 12))
+                    .italic()
+                    .foregroundColor(narration.text.isEmpty ? .gray : accentColor.opacity(0.9))
+                    .onTapGesture(count: 2) {
+                        startEditing()
+                    }
+            }
 
-                Spacer()
-
+            if isHovered && !isEditing {
                 Button(action: { onEdit?() }) {
-                    Text("Edit")
-                        .font(.caption)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9))
+                        .foregroundColor(accentColor.opacity(0.6))
                 }
                 .buttonStyle(.plain)
             }
-
-            // Narration text
-            Text(narration.text)
-                .font(.body)
-                .italic()
-                .foregroundColor(.primary)
-                .multilineTextAlignment(.leading)
-
-            // Characters mentioned
-            if !narration.characters.isEmpty {
-                HStack {
-                    Image(systemName: "person.2.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(narration.characters.joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            // Tags
-            if !narration.tags.isEmpty {
-                TagsStackView(tags: narration.tags)
-            }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.purple.opacity(0.15))
-        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(accentColor.opacity(0.12))
+        .cornerRadius(12)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(isSelected ? Color.accentColor : Color.purple.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .onTapGesture {
-            onTap?()
-        }
+        .fixedSize(horizontal: !isEditing, vertical: false)
+        .frame(minWidth: isEditing ? 200 : nil)
+        .onHover { isHovered = $0 }
+        .onTapGesture { onTap?() }
         .contextMenu {
-            Button("Edit Narration") {
-                onEdit?()
-            }
+            Button("Edit") { onEdit?() }
             Divider()
-            Button("Delete", role: .destructive) {
-                onDelete?()
+            Button("Delete", role: .destructive) { onDelete?() }
+        }
+        .onAppear {
+            if startInEditMode {
+                startEditing()
+                onEditModeStarted?()
             }
         }
     }
-}
 
-#Preview {
-    VStack(spacing: 20) {
-        NarrationBubbleCard(
-            narration: Narration(
-                text: "Meanwhile, across town, a storm was brewing...",
-                tags: ["transition", "mood"],
-                chronologyNumber: 4,
-                characters: []
-            ),
-            isSelected: false
-        )
-
-        NarrationBubbleCard(
-            narration: Narration(
-                text: "Three years later, John would look back on this moment as the turning point.",
-                tags: ["time-skip", "foreshadowing"],
-                chronologyNumber: 10,
-                characters: ["John"]
-            ),
-            isSelected: true
-        )
+    private func startEditing() {
+        editedText = narration.text
+        isEditing = true
+        textFieldFocused = true
     }
-    .padding()
+
+    private func commitEdit() {
+        if isEditing {
+            isEditing = false
+            if editedText != narration.text {
+                onTextChanged?(editedText)
+            }
+        }
+    }
+
+    private func startIndexEditing() {
+        editedIndex = "\(narration.chronologyNumber)"
+        isEditingIndex = true
+        indexFieldFocused = true
+    }
+
+    private func commitIndexEdit() {
+        if isEditingIndex {
+            isEditingIndex = false
+            if let newIndex = Int(editedIndex), newIndex != narration.chronologyNumber, newIndex > 0 {
+                onChronologyChanged?(newIndex)
+            }
+        }
+    }
 }

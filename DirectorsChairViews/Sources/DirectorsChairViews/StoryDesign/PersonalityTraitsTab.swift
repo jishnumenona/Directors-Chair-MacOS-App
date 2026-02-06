@@ -32,78 +32,83 @@ public struct PersonalityTraitsTab: View {
     }
 
     public var body: some View {
-        HSplitView {
-            // Left: Radar chart visualization
-            VStack {
-                Text("Personality Profile")
-                    .font(.headline)
-                    .padding(.top)
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // Left: Radar chart visualization
+                VStack {
+                    Text("Personality Profile")
+                        .font(.headline)
+                        .padding(.top)
 
-                TraitsRadarChart(traits: character.traits)
-                    .frame(minWidth: 300, minHeight: 300)
+                    TraitsRadarChart(traits: character.traits)
+                        .frame(minWidth: 300, minHeight: 300)
+                        .padding()
+
+                    // AI Calibration info
+                    if let confidence = character.traitsConfidenceScore {
+                        HStack {
+                            Text("AI Confidence:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text("\(Int(confidence))%")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(confidence >= 70 ? .green : .orange)
+                        }
+                    }
+
+                    // Action buttons
+                    HStack {
+                        Button("Analyze from Script") {
+                            onAnalyzeFromScript?()
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("Reset to Defaults") {
+                            onResetToDefaults?()
+                        }
+                    }
                     .padding()
 
-                // AI Calibration info
-                if let confidence = character.traitsConfidenceScore {
-                    HStack {
-                        Text("AI Confidence:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("\(Int(confidence))%")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(confidence >= 70 ? .green : .orange)
-                    }
+                    Spacer()
                 }
+                .frame(width: min(400, geometry.size.width * 0.4))
+                .background(Color(NSColor.controlBackgroundColor))
 
-                // Action buttons
-                HStack {
-                    Button("Analyze from Script") {
-                        onAnalyzeFromScript?()
-                    }
-                    .buttonStyle(.borderedProminent)
+                Divider()
 
-                    Button("Reset to Defaults") {
-                        onResetToDefaults?()
-                    }
-                }
-                .padding()
+                // Right: Trait sliders
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Category picker
+                        Picker("Category", selection: $selectedCategory) {
+                            ForEach(TraitCategory.allCases, id: \.self) { category in
+                                Text(category.displayName).tag(category)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.bottom)
 
-                Spacer()
-            }
-            .frame(minWidth: 350)
-            .background(Color(NSColor.controlBackgroundColor))
+                        // Traits for selected category
+                        ForEach(selectedCategory.traits, id: \.self) { traitName in
+                            TraitSliderRow(
+                                traitName: traitName,
+                                value: traitBinding(for: traitName)
+                            )
+                        }
 
-            // Right: Trait sliders
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Category picker
-                    Picker("Category", selection: $selectedCategory) {
-                        ForEach(TraitCategory.allCases, id: \.self) { category in
-                            Text(category.displayName).tag(category)
+                        // AI reasoning (if available)
+                        if let reasoning = character.traitsAiReasoning, !reasoning.isEmpty {
+                            GroupBox("AI Analysis") {
+                                Text(reasoning)
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.bottom)
-
-                    // Traits for selected category
-                    ForEach(selectedCategory.traits, id: \.self) { traitName in
-                        TraitSliderRow(
-                            traitName: traitName,
-                            value: traitBinding(for: traitName)
-                        )
-                    }
-
-                    // AI reasoning (if available)
-                    if let reasoning = character.traitsAiReasoning, !reasoning.isEmpty {
-                        GroupBox("AI Analysis") {
-                            Text(reasoning)
-                                .font(.body)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                    .padding()
                 }
-                .padding()
+                .frame(maxWidth: .infinity)
             }
         }
     }

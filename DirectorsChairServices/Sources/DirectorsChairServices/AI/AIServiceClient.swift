@@ -230,11 +230,11 @@ public actor AIServiceClient {
     
     /// Initialize with custom configuration
     /// - Parameters:
-    ///   - baseURL: AI Proxy server URL (default: http://localhost:8002)
+    ///   - baseURL: AI Proxy server URL (default: http://165.22.172.244:8002)
     ///   - timeout: Request timeout in seconds (default: 120)
     ///   - projectName: Current project name for usage tracking
     public init(
-        baseURL: String = "http://localhost:8002",
+        baseURL: String = "http://165.22.172.244:8002",
         timeout: TimeInterval = 120,
         projectName: String = ""
     ) {

@@ -3,11 +3,26 @@
 //  DirectorsChair-Desktop
 //
 //  Phase 8E: Project Management
-//  Scene list with filtering and search
+//  Scene list with filtering, search, and connections
 //
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairViews
+
+// MARK: - Scene Tab
+
+enum SceneViewTab: String, CaseIterable {
+    case scenes = "Scenes"
+    case connections = "Connections"
+
+    var icon: String {
+        switch self {
+        case .scenes: return "film.stack"
+        case .connections: return "link"
+        }
+    }
+}
 
 struct ScenesListView: View {
     @EnvironmentObject var coordinator: AppCoordinator
@@ -16,7 +31,69 @@ struct ScenesListView: View {
     @State private var searchText = ""
     @State private var selectedSequenceFilter: String? = nil
 
+    /// Scene tab state bridged to coordinator for navigation history
+    private var selectedTab: SceneViewTab {
+        get { SceneViewTab(rawValue: coordinator.selectedSceneTab) ?? .scenes }
+        nonmutating set { coordinator.selectedSceneTab = newValue.rawValue }
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            // Tab Picker
+            tabPicker
+
+            Divider()
+
+            // Tab Content
+            switch selectedTab {
+            case .scenes:
+                scenesListContent
+            case .connections:
+                connectionsContent
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    // MARK: - Tab Picker
+
+    private var tabPicker: some View {
+        HStack {
+            ForEach(SceneViewTab.allCases, id: \.self) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                        Text(tab.rawValue)
+                    }
+                    .font(.subheadline)
+                    .fontWeight(selectedTab == tab ? .semibold : .regular)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(selectedTab == tab ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .foregroundColor(selectedTab == tab ? .accentColor : .primary)
+                }
+                .buttonStyle(.plain)
+                .overlay(alignment: .bottom) {
+                    if selectedTab == tab {
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(height: 2)
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    // MARK: - Scenes List Content
+
+    private var scenesListContent: some View {
         VStack(spacing: 0) {
             // Toolbar
             ScenesToolbar(
@@ -44,9 +121,66 @@ struct ScenesListView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .textBackgroundColor))
     }
+
+    // MARK: - Connections Content
+
+    private var connectionsContent: some View {
+        VStack(spacing: 0) {
+            // Connection view - uses coordinator.selectedScene from navigator panel
+            if let scene = coordinator.selectedScene {
+                SceneConnectionView(
+                    dialogues: scene.dialogues,
+                    actions: scene.actions,
+                    narrations: scene.narrations,
+                    shots: scene.shots,
+                    characters: projectViewModel.characters,
+                    projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                    onShotsChanged: { updatedShots in
+                        updateShotsForScene(scene, updatedShots: updatedShots)
+                    },
+                    onShotDoubleClicked: { shot in
+                        coordinator.selectShot(shot)
+                    },
+                    onScriptItemDoubleClicked: { scriptItem in
+                        coordinator.selectScene(scene)
+                        coordinator.highlightBubbleItem(
+                            id: scriptItem.id,
+                            type: scriptItem.itemType.rawValue.lowercased(),
+                            sceneName: scene.name
+                        )
+                        coordinator.navigateTo(.bubble)
+                    }
+                )
+            } else {
+                // Prompt to select a scene from navigator
+                VStack(spacing: 16) {
+                    Image(systemName: "link.circle")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+
+                    Text("Select a Scene")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+
+                    Text("Select a scene from the Navigator panel to manage shot connections")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            }
+        }
+        .onAppear {
+            // Auto-select first scene if none selected
+            if coordinator.selectedScene == nil {
+                coordinator.selectedScene = projectViewModel.allScenes.first
+            }
+        }
+    }
+
+    // MARK: - Helpers
 
     private var filteredScenes: [DirectorsChairCore.Scene] {
         var scenes = projectViewModel.allScenes
@@ -64,12 +198,29 @@ struct ScenesListView: View {
         if !searchText.isEmpty {
             scenes = scenes.filter { scene in
                 scene.name.localizedCaseInsensitiveContains(searchText) ||
-                scene.heading.localizedCaseInsensitiveContains(searchText) ||
-                scene.synopsis.localizedCaseInsensitiveContains(searchText)
+                scene.description.localizedCaseInsensitiveContains(searchText) ||
+                scene.notes.localizedCaseInsensitiveContains(searchText)
             }
         }
 
         return scenes
+    }
+
+    private func updateShotsForScene(_ scene: DirectorsChairCore.Scene, updatedShots: [Shot]) {
+        // Find and update the scene in the project
+        for seqIndex in projectViewModel.project.sequences.indices {
+            if let sceneIndex = projectViewModel.project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+                projectViewModel.project.sequences[seqIndex].scenes[sceneIndex].shots = updatedShots
+                projectViewModel.isDirty = true
+
+                // Update the coordinator's selected scene reference
+                coordinator.selectedScene = projectViewModel.project.sequences[seqIndex].scenes[sceneIndex]
+
+                // Notify other views
+                coordinator.notifyProjectChanged()
+                return
+            }
+        }
     }
 }
 
@@ -158,17 +309,17 @@ struct SceneRowView: View {
                 // Scene info
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(scene.sceneNumber)
+                        Text(scene.name)
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
 
-                        Text(scene.heading)
+                        Text(scene.description)
                             .font(.system(size: 16, weight: .medium))
                     }
 
-                    if !scene.synopsis.isEmpty {
-                        Text(scene.synopsis)
+                    if !scene.notes.isEmpty {
+                        Text(scene.notes)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(2)

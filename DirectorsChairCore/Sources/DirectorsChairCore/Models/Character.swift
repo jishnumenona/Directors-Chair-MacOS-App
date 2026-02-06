@@ -435,4 +435,150 @@ public struct Character: Codable, Identifiable, Hashable {
         case updatedAt = "updated_at"
         case version
     }
+
+    // MARK: - Custom Decoder
+
+    /// Custom decoder to handle missing character_id and provide sensible defaults
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Handle character_id: if missing, generate from name
+        let name = try container.decode(String.self, forKey: .name)
+        self.characterId = try container.decodeIfPresent(String.self, forKey: .characterId)
+            ?? name.replacingOccurrences(of: " ", with: "_").lowercased()
+
+        // Basic information
+        self.name = name
+        self.role = try container.decodeIfPresent(String.self, forKey: .role) ?? "Supporting"
+        self.color = try container.decodeIfPresent(String.self, forKey: .color) ?? "#3498db"
+        self.textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#ffffff"
+        self.avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
+        self.about = try container.decodeIfPresent(String.self, forKey: .about) ?? ""
+        // Normalize gender to lowercase for consistency with UI picker
+        let rawGender = try container.decodeIfPresent(String.self, forKey: .gender) ?? "neutral"
+        self.gender = rawGender.lowercased()
+        self.voice = try container.decodeIfPresent(String.self, forKey: .voice)
+
+        // Physical appearance
+        self.heightCm = try container.decodeIfPresent(Double.self, forKey: .heightCm)
+        self.weightKg = try container.decodeIfPresent(Double.self, forKey: .weightKg)
+        self.build = try container.decodeIfPresent(String.self, forKey: .build) ?? "Average"
+
+        // Handle age as either Int or String
+        if let ageInt = try? container.decode(Int.self, forKey: .age) {
+            self.age = ageInt
+        } else if let ageString = try? container.decode(String.self, forKey: .age),
+                  let ageInt = Int(ageString) {
+            self.age = ageInt
+        } else {
+            self.age = 30
+        }
+
+        self.hairColor = try container.decodeIfPresent(String.self, forKey: .hairColor) ?? "#000000"
+        self.hairStyle = try container.decodeIfPresent(String.self, forKey: .hairStyle) ?? "Short"
+        self.hairLength = try container.decodeIfPresent(String.self, forKey: .hairLength) ?? "Short"
+
+        self.eyeColor = try container.decodeIfPresent(String.self, forKey: .eyeColor) ?? "#8B4513"
+        self.eyeColorDescription = try container.decodeIfPresent(String.self, forKey: .eyeColorDescription) ?? "Brown"
+        self.eyeShape = try container.decodeIfPresent(String.self, forKey: .eyeShape) ?? "Almond"
+
+        self.skinTone = try container.decodeIfPresent(String.self, forKey: .skinTone) ?? "#f5deb3"
+        self.ethnicity = try container.decodeIfPresent(String.self, forKey: .ethnicity) ?? ""
+
+        self.distinguishingFeatures = try container.decodeIfPresent(String.self, forKey: .distinguishingFeatures) ?? ""
+        self.facialStructure = try container.decodeIfPresent(String.self, forKey: .facialStructure) ?? "Oval"
+
+        // Images
+        self.baseImage = try container.decodeIfPresent(String.self, forKey: .baseImage)
+        self.baseImagePrompt = try container.decodeIfPresent(String.self, forKey: .baseImagePrompt)
+        self.imageFront = try container.decodeIfPresent(String.self, forKey: .imageFront)
+        self.imageThreeQuarterLeft = try container.decodeIfPresent(String.self, forKey: .imageThreeQuarterLeft)
+        self.imageThreeQuarterRight = try container.decodeIfPresent(String.self, forKey: .imageThreeQuarterRight)
+        self.imageProfileLeft = try container.decodeIfPresent(String.self, forKey: .imageProfileLeft)
+        self.imageProfileRight = try container.decodeIfPresent(String.self, forKey: .imageProfileRight)
+        self.imageBackThreeQuarterLeft = try container.decodeIfPresent(String.self, forKey: .imageBackThreeQuarterLeft)
+        self.imageBackThreeQuarterRight = try container.decodeIfPresent(String.self, forKey: .imageBackThreeQuarterRight)
+        self.imageBack = try container.decodeIfPresent(String.self, forKey: .imageBack)
+        self.imageFaceCloseupFront = try container.decodeIfPresent(String.self, forKey: .imageFaceCloseupFront)
+        self.imageFaceCloseupThreeQuarter = try container.decodeIfPresent(String.self, forKey: .imageFaceCloseupThreeQuarter)
+        self.imageFaceCloseupProfile = try container.decodeIfPresent(String.self, forKey: .imageFaceCloseupProfile)
+        self.imageActionPose = try container.decodeIfPresent(String.self, forKey: .imageActionPose)
+
+        self.faceImageFront = try container.decodeIfPresent(String.self, forKey: .faceImageFront)
+        self.faceImageThreeQuarterLeft = try container.decodeIfPresent(String.self, forKey: .faceImageThreeQuarterLeft)
+        self.faceImageThreeQuarterRight = try container.decodeIfPresent(String.self, forKey: .faceImageThreeQuarterRight)
+        self.faceImageProfile = try container.decodeIfPresent(String.self, forKey: .faceImageProfile)
+
+        self.bodyImageFront = try container.decodeIfPresent(String.self, forKey: .bodyImageFront)
+        self.bodyImageThreeQuarterLeft = try container.decodeIfPresent(String.self, forKey: .bodyImageThreeQuarterLeft)
+        self.bodyImageThreeQuarterRight = try container.decodeIfPresent(String.self, forKey: .bodyImageThreeQuarterRight)
+        self.bodyImageProfile = try container.decodeIfPresent(String.self, forKey: .bodyImageProfile)
+
+        self.costumeImageFront = try container.decodeIfPresent(String.self, forKey: .costumeImageFront)
+        self.costumeImageThreeQuarterLeft = try container.decodeIfPresent(String.self, forKey: .costumeImageThreeQuarterLeft)
+        self.costumeImageThreeQuarterRight = try container.decodeIfPresent(String.self, forKey: .costumeImageThreeQuarterRight)
+        self.costumeImageProfile = try container.decodeIfPresent(String.self, forKey: .costumeImageProfile)
+        self.costumeTransformationPrompt = try container.decodeIfPresent(String.self, forKey: .costumeTransformationPrompt)
+
+        self.costume = try container.decodeIfPresent(String.self, forKey: .costume)
+        self.backgroundSetting = try container.decodeIfPresent(String.self, forKey: .backgroundSetting)
+        self.costumes = try container.decodeIfPresent([CharacterCostume].self, forKey: .costumes)
+        self.activeCostumeIndex = try container.decodeIfPresent(Int.self, forKey: .activeCostumeIndex)
+        self.imagePrompts = try container.decodeIfPresent([String: String].self, forKey: .imagePrompts)
+        self.imageAnnotations = try container.decodeIfPresent([String: [[String: String]]].self, forKey: .imageAnnotations)
+
+        self.overviewPortrait = try container.decodeIfPresent(String.self, forKey: .overviewPortrait)
+        self.overviewHtml = try container.decodeIfPresent(String.self, forKey: .overviewHtml)
+
+        // Traits - handle both dictionary format and array of strings
+        if let traitsDict = try? container.decode([String: Double].self, forKey: .traits) {
+            self.traits = traitsDict
+        } else if let traitsArray = try? container.decode([String].self, forKey: .traits) {
+            // Convert array of trait names to dictionary with default values
+            var traitsDict = Self.defaultTraits()
+            // If traits are mentioned in array, give them higher values
+            for traitName in traitsArray {
+                if traitsDict.keys.contains(traitName) {
+                    traitsDict[traitName] = 75.0
+                }
+            }
+            self.traits = traitsDict
+        } else {
+            self.traits = Self.defaultTraits()
+        }
+        self.traitsLastCalibrated = try container.decodeIfPresent(Date.self, forKey: .traitsLastCalibrated)
+        self.traitsConfidenceScore = try container.decodeIfPresent(Double.self, forKey: .traitsConfidenceScore)
+        self.traitsDataSources = try container.decodeIfPresent([String].self, forKey: .traitsDataSources) ?? []
+        self.traitsAiReasoning = try container.decodeIfPresent(String.self, forKey: .traitsAiReasoning)
+        self.traitsAiRanges = try container.decodeIfPresent([String: [Double]].self, forKey: .traitsAiRanges)
+
+        // Biography
+        self.fullName = try container.decodeIfPresent(String.self, forKey: .fullName)
+        self.nickname = try container.decodeIfPresent(String.self, forKey: .nickname)
+        self.occupation = try container.decodeIfPresent(String.self, forKey: .occupation)
+        self.affiliation = try container.decodeIfPresent(String.self, forKey: .affiliation)
+        self.backgroundStory = try container.decodeIfPresent(String.self, forKey: .backgroundStory)
+        self.primaryGoal = try container.decodeIfPresent(String.self, forKey: .primaryGoal)
+        self.secondaryGoal = try container.decodeIfPresent(String.self, forKey: .secondaryGoal)
+        self.hiddenMotivation = try container.decodeIfPresent(String.self, forKey: .hiddenMotivation)
+        self.primaryFear = try container.decodeIfPresent(String.self, forKey: .primaryFear)
+        self.weakness = try container.decodeIfPresent(String.self, forKey: .weakness)
+        self.flaw = try container.decodeIfPresent(String.self, forKey: .flaw)
+        self.characterArcNotes = try container.decodeIfPresent(String.self, forKey: .characterArcNotes)
+
+        // Relationships - only decode if it's a dictionary, ignore if array
+        self.relationships = try? container.decode([String: String].self, forKey: .relationships)
+
+        // Story timeline
+        self.firstAppearanceSceneId = try container.decodeIfPresent(String.self, forKey: .firstAppearanceSceneId)
+        self.lastAppearanceSceneId = try container.decodeIfPresent(String.self, forKey: .lastAppearanceSceneId)
+        self.sceneAppearances = try container.decodeIfPresent([String].self, forKey: .sceneAppearances)
+        self.totalDialogueLines = try container.decodeIfPresent(Int.self, forKey: .totalDialogueLines)
+        self.totalScreenTimeSeconds = try container.decodeIfPresent(Double.self, forKey: .totalScreenTimeSeconds)
+
+        // Metadata
+        self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+        self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        self.version = try container.decodeIfPresent(Int.self, forKey: .version)
+    }
 }

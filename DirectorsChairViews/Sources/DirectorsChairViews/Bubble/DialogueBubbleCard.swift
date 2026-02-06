@@ -25,31 +25,55 @@ public struct DialogueBubbleCard: View {
     var onTap: (() -> Void)?
     var onDoubleTap: (() -> Void)?
     var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
     var onPlay: (() -> Void)?
     var onStop: (() -> Void)?
+    var onTextChanged: ((String) -> Void)?
+    var onChronologyChanged: ((Int) -> Void)?
+    var onEditModeStarted: (() -> Void)?
+
+    let startInEditMode: Bool
+
+    @State private var isEditing: Bool = false
+    @State private var editedText: String = ""
+    @State private var isEditingIndex: Bool = false
+    @State private var editedIndex: String = ""
+    @State private var isHovered: Bool = false
+    @FocusState private var textFieldFocused: Bool
+    @FocusState private var indexFieldFocused: Bool
 
     public init(
         dialogue: Dialogue,
         character: Character? = nil,
         isSelected: Bool = false,
         isPrimaryCharacter: Bool = false,
+        startInEditMode: Bool = false,
         projectBasePath: URL? = nil,
         onTap: (() -> Void)? = nil,
         onDoubleTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
+        onDelete: (() -> Void)? = nil,
         onPlay: (() -> Void)? = nil,
-        onStop: (() -> Void)? = nil
+        onStop: (() -> Void)? = nil,
+        onTextChanged: ((String) -> Void)? = nil,
+        onChronologyChanged: ((Int) -> Void)? = nil,
+        onEditModeStarted: (() -> Void)? = nil
     ) {
         self.dialogue = dialogue
         self.character = character
         self.isSelected = isSelected
         self.isPrimaryCharacter = isPrimaryCharacter
+        self.startInEditMode = startInEditMode
         self.projectBasePath = projectBasePath
         self.onTap = onTap
         self.onDoubleTap = onDoubleTap
         self.onEdit = onEdit
+        self.onDelete = onDelete
         self.onPlay = onPlay
         self.onStop = onStop
+        self.onTextChanged = onTextChanged
+        self.onChronologyChanged = onChronologyChanged
+        self.onEditModeStarted = onEditModeStarted
     }
 
     public var body: some View {
@@ -66,6 +90,12 @@ public struct DialogueBubbleCard: View {
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 5)
+        .onAppear {
+            if startInEditMode {
+                startEditing()
+                onEditModeStarted?()
+            }
+        }
     }
 
     // MARK: - Avatar
@@ -86,11 +116,31 @@ public struct DialogueBubbleCard: View {
             // Header row: chronology number, character name, edit button
             headerRow
 
-            // Dialogue text
-            Text(htmlToPlainText(dialogue.text))
-                .font(.body)
-                .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF"))
-                .multilineTextAlignment(.leading)
+            // Dialogue text - inline editable
+            if isEditing {
+                TextField("Dialogue text...", text: $editedText, axis: .vertical)
+                    .font(.body)
+                    .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF"))
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...10)
+                    .focused($textFieldFocused)
+                    .onSubmit {
+                        commitEdit()
+                    }
+                    .onChange(of: textFieldFocused) { _, focused in
+                        if !focused {
+                            commitEdit()
+                        }
+                    }
+            } else {
+                Text(htmlToPlainText(dialogue.text))
+                    .font(.body)
+                    .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF"))
+                    .multilineTextAlignment(.leading)
+                    .onTapGesture(count: 2) {
+                        startEditing()
+                    }
+            }
 
             // Tags
             if !dialogue.tags.isEmpty {
@@ -104,14 +154,12 @@ public struct DialogueBubbleCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                .stroke(isSelected || isEditing ? Color.accentColor : Color.clear, lineWidth: 2)
         )
         .frame(maxWidth: 500)
+        .onHover { isHovered = $0 }
         .onTapGesture {
             onTap?()
-        }
-        .onTapGesture(count: 2) {
-            onDoubleTap?()
         }
         .contextMenu {
             contextMenuItems
@@ -122,15 +170,41 @@ public struct DialogueBubbleCard: View {
 
     private var headerRow: some View {
         HStack {
-            // Chronology number badge
-            Text("#\(dialogue.chronologyNumber)")
-                .font(.caption2)
-                .fontWeight(.bold)
-                .foregroundColor(.gray)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.black.opacity(0.3))
-                .cornerRadius(4)
+            // Chronology number badge - editable on double-click
+            if isEditingIndex {
+                TextField("", text: $editedIndex)
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .textFieldStyle(.plain)
+                    .frame(width: 35)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.8))
+                    .cornerRadius(4)
+                    .focused($indexFieldFocused)
+                    .onSubmit {
+                        commitIndexEdit()
+                    }
+                    .onChange(of: indexFieldFocused) { _, focused in
+                        if !focused {
+                            commitIndexEdit()
+                        }
+                    }
+            } else {
+                Text("#\(dialogue.chronologyNumber)")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.gray)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.3))
+                    .cornerRadius(4)
+                    .onTapGesture(count: 2) {
+                        startIndexEditing()
+                    }
+            }
 
             // Character name
             Text(dialogue.character)
@@ -147,12 +221,15 @@ public struct DialogueBubbleCard: View {
                     .foregroundColor(.green)
             }
 
-            // Edit button
-            Button(action: { onEdit?() }) {
-                Text("Edit")
-                    .font(.caption)
+            // Edit button (pencil icon, shown on hover)
+            if isHovered && !isEditing {
+                Button(action: { onEdit?() }) {
+                    Image(systemName: "pencil")
+                        .font(.caption)
+                        .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.7))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             // Play/Stop buttons
             if dialogue.audioFilePath != nil {
@@ -188,7 +265,40 @@ public struct DialogueBubbleCard: View {
         Divider()
 
         Button("Delete", role: .destructive) {
-            // TODO: Implement deletion callback
+            onDelete?()
+        }
+    }
+
+    // MARK: - Inline Editing
+
+    private func startEditing() {
+        editedText = htmlToPlainText(dialogue.text)
+        isEditing = true
+        textFieldFocused = true
+    }
+
+    private func commitEdit() {
+        if isEditing {
+            isEditing = false
+            let originalText = htmlToPlainText(dialogue.text)
+            if editedText != originalText {
+                onTextChanged?(editedText)
+            }
+        }
+    }
+
+    private func startIndexEditing() {
+        editedIndex = "\(dialogue.chronologyNumber)"
+        isEditingIndex = true
+        indexFieldFocused = true
+    }
+
+    private func commitIndexEdit() {
+        if isEditingIndex {
+            isEditingIndex = false
+            if let newIndex = Int(editedIndex), newIndex != dialogue.chronologyNumber, newIndex > 0 {
+                onChronologyChanged?(newIndex)
+            }
         }
     }
 

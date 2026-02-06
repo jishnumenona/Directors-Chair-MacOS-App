@@ -1,140 +1,184 @@
 // DirectorsChairViews/Sources/DirectorsChairViews/Bubble/ActionBubbleCard.swift
 //
-// Action bubble card for displaying action/stage directions
+// Compact inline action card for stage directions
 
 import SwiftUI
 import DirectorsChairCore
 
-/// Action bubble card - displays action/stage directions
-///
-/// Shows:
-/// - Action icon
-/// - Description text
-/// - Tags
-/// - Chronology number
-/// - Characters involved
 public struct ActionBubbleCard: View {
     let action: Action
     let isSelected: Bool
+    let characters: [Character]
 
     var onTap: (() -> Void)?
     var onEdit: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onTextChanged: ((String) -> Void)?
+    var onChronologyChanged: ((Int) -> Void)?
+    var onEditModeStarted: (() -> Void)?
+
+    let startInEditMode: Bool
+
+    @State private var isHovered: Bool = false
+    @State private var isEditing: Bool = false
+    @State private var editedText: String = ""
+    @State private var isEditingIndex: Bool = false
+    @State private var editedIndex: String = ""
+    @FocusState private var textFieldFocused: Bool
+    @FocusState private var indexFieldFocused: Bool
 
     public init(
         action: Action,
         isSelected: Bool = false,
+        startInEditMode: Bool = false,
+        characters: [Character] = [],
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
-        onDelete: (() -> Void)? = nil
+        onDelete: (() -> Void)? = nil,
+        onTextChanged: ((String) -> Void)? = nil,
+        onChronologyChanged: ((Int) -> Void)? = nil,
+        onEditModeStarted: (() -> Void)? = nil
     ) {
         self.action = action
         self.isSelected = isSelected
+        self.startInEditMode = startInEditMode
+        self.characters = characters
         self.onTap = onTap
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.onTextChanged = onTextChanged
+        self.onChronologyChanged = onChronologyChanged
+        self.onEditModeStarted = onEditModeStarted
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Header
-            HStack {
-                Text("#\(action.chronologyNumber)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 6)
+        HStack(spacing: 6) {
+            // Index badge - editable on double-click
+            if isEditingIndex {
+                TextField("", text: $editedIndex)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .textFieldStyle(.plain)
+                    .frame(width: 30)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.3))
+                    .background(Color.orange.opacity(0.8))
                     .cornerRadius(4)
+                    .focused($indexFieldFocused)
+                    .onSubmit {
+                        commitIndexEdit()
+                    }
+                    .onChange(of: indexFieldFocused) { _, focused in
+                        if !focused {
+                            commitIndexEdit()
+                        }
+                    }
+            } else {
+                Text("#\(action.chronologyNumber)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.6))
+                    .cornerRadius(4)
+                    .onTapGesture(count: 2) {
+                        startIndexEditing()
+                    }
+            }
 
-                Image(systemName: "film.fill")
-                    .font(.caption)
-                    .foregroundColor(.orange)
+            // Action icon
+            Image(systemName: "figure.walk")
+                .font(.system(size: 10))
+                .foregroundColor(.orange)
 
-                Text("ACTION")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.orange)
+            // Inline editable text with @ mention support
+            if isEditing {
+                CharacterMentionTextField(
+                    text: $editedText,
+                    placeholder: "Action description...",
+                    characters: characters,
+                    font: .system(size: 12).italic(),
+                    foregroundColor: .orange.opacity(0.9),
+                    onSubmit: { commitEdit() }
+                )
+                .focused($textFieldFocused)
+                .onChange(of: textFieldFocused) { _, focused in
+                    if !focused {
+                        commitEdit()
+                    }
+                }
+            } else {
+                Text(action.description.isEmpty ? "Action..." : action.description)
+                    .font(.system(size: 12))
+                    .italic()
+                    .foregroundColor(action.description.isEmpty ? .gray : .orange.opacity(0.9))
+                    .onTapGesture(count: 2) {
+                        startEditing()
+                    }
+            }
 
-                Spacer()
-
+            if isHovered && !isEditing {
                 Button(action: { onEdit?() }) {
-                    Text("Edit")
-                        .font(.caption)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9))
+                        .foregroundColor(.orange.opacity(0.6))
                 }
                 .buttonStyle(.plain)
             }
-
-            // Description
-            Text(action.description)
-                .font(.body)
-                .foregroundColor(.primary)
-                .multilineTextAlignment(.leading)
-
-            // Characters involved
-            if !action.characters.isEmpty {
-                HStack {
-                    Image(systemName: "person.2.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(action.characters.joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            // Tags
-            if !action.tags.isEmpty {
-                TagsStackView(tags: action.tags)
-            }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.orange.opacity(0.15))
-        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(Color.orange.opacity(0.12))
+        .cornerRadius(12)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(isSelected ? Color.accentColor : Color.orange.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected || isEditing ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .onTapGesture {
-            onTap?()
-        }
+        .fixedSize(horizontal: !isEditing, vertical: false)
+        .frame(minWidth: isEditing ? 200 : nil)
+        .onHover { isHovered = $0 }
+        .onTapGesture { onTap?() }
         .contextMenu {
-            Button("Edit Action") {
-                onEdit?()
-            }
+            Button("Edit") { onEdit?() }
             Divider()
-            Button("Delete", role: .destructive) {
-                onDelete?()
+            Button("Delete", role: .destructive) { onDelete?() }
+        }
+        .onAppear {
+            if startInEditMode {
+                startEditing()
+                onEditModeStarted?()
             }
         }
     }
-}
 
-#Preview {
-    VStack(spacing: 20) {
-        ActionBubbleCard(
-            action: Action(
-                description: "John walks across the room and picks up the phone",
-                tags: ["movement", "props"],
-                chronologyNumber: 3,
-                characters: ["John"]
-            ),
-            isSelected: false
-        )
-
-        ActionBubbleCard(
-            action: Action(
-                description: "The lights dim as thunder rumbles in the distance",
-                tags: ["lighting", "atmosphere"],
-                chronologyNumber: 5,
-                characters: []
-            ),
-            isSelected: true
-        )
+    private func startEditing() {
+        editedText = action.description
+        isEditing = true
+        textFieldFocused = true
     }
-    .padding()
+
+    private func commitEdit() {
+        if isEditing {
+            isEditing = false
+            if editedText != action.description {
+                onTextChanged?(editedText)
+            }
+        }
+    }
+
+    private func startIndexEditing() {
+        editedIndex = "\(action.chronologyNumber)"
+        isEditingIndex = true
+        indexFieldFocused = true
+    }
+
+    private func commitIndexEdit() {
+        if isEditingIndex {
+            isEditingIndex = false
+            if let newIndex = Int(editedIndex), newIndex != action.chronologyNumber, newIndex > 0 {
+                onChronologyChanged?(newIndex)
+            }
+        }
+    }
 }

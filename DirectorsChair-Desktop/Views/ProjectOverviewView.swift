@@ -8,6 +8,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 
 struct ProjectOverviewView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
@@ -17,8 +18,12 @@ struct ProjectOverviewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // Project Header
-                ProjectHeaderSection(project: projectViewModel.project)
+                // Project Header with Icon
+                ProjectHeaderSection(
+                    project: $projectViewModel.project,
+                    projectPath: projectViewModel.projectPath,
+                    onProjectChanged: { projectViewModel.isDirty = true }
+                )
 
                 Divider()
 
@@ -30,13 +35,13 @@ struct ProjectOverviewView: View {
 
                 Divider()
 
-                // Project Statistics
-                ProjectStatisticsSection(projectViewModel: projectViewModel)
+                // Quick Actions
+                QuickActionsSection()
 
                 Divider()
 
-                // Quick Actions
-                QuickActionsSection()
+                // Project Statistics
+                ProjectStatisticsSection(projectViewModel: projectViewModel)
             }
             .padding(24)
         }
@@ -48,33 +53,264 @@ struct ProjectOverviewView: View {
 // MARK: - Project Header Section
 
 struct ProjectHeaderSection: View {
-    let project: Project
+    @Binding var project: Project
+    let projectPath: URL?
+    let onProjectChanged: () -> Void
+
+    @State private var isGeneratingIcon = false
+    @State private var iconError: String?
+    @State private var showingIconError = false
+
+    /// Computed icon URL from project base path
+    private var iconURL: URL? {
+        guard !project.projectIcon.isEmpty,
+              let projectPath = projectPath else { return nil }
+        let projectDir = projectPath.deletingLastPathComponent()
+        return projectDir.appendingPathComponent(project.projectIcon)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(project.name)
-                .font(.system(size: 32, weight: .bold))
+        HStack(alignment: .top, spacing: 20) {
+            // Project Icon
+            ProjectIconView(
+                iconURL: iconURL,
+                isGenerating: isGeneratingIcon,
+                onGenerate: generateProjectIcon
+            )
 
-            HStack(spacing: 16) {
-                if !project.director.isEmpty {
-                    Label(project.director, systemImage: "person.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+            // Project Info
+            VStack(alignment: .leading, spacing: 12) {
+                Text(project.name)
+                    .font(.system(size: 32, weight: .bold))
+
+                HStack(spacing: 16) {
+                    if !project.director.isEmpty {
+                        Label(project.director, systemImage: "person.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+
+                    if !project.productionCompany.isEmpty {
+                        Label(project.productionCompany, systemImage: "building.2.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+
+                    if !project.genre.isEmpty {
+                        Label(project.genre, systemImage: "theatermasks.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .alert("Icon Generation Failed", isPresented: $showingIconError) {
+            Button("OK") { }
+        } message: {
+            Text(iconError ?? "Unknown error")
+        }
+    }
+
+    // MARK: - Icon Generation
+
+    private func generateProjectIcon() {
+        guard let projectPath = projectPath else {
+            iconError = "No project path set. Please save the project first."
+            showingIconError = true
+            return
+        }
+
+        isGeneratingIcon = true
+
+        Task {
+            do {
+                let aiClient = AIServiceClient.shared
+
+                // Check if AI server is available
+                guard await aiClient.testConnection() else {
+                    await MainActor.run {
+                        iconError = "Could not connect to AI server. Please ensure the AI Proxy server is running."
+                        showingIconError = true
+                        isGeneratingIcon = false
+                    }
+                    return
                 }
 
-                if !project.productionCompany.isEmpty {
-                    Label(project.productionCompany, systemImage: "building.2.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                // Build a prompt based on project metadata
+                let prompt = buildIconPrompt()
+
+                let request = ImageGenerationRequest(
+                    prompt: prompt,
+                    provider: .googleImagen,
+                    aspectRatio: "1:1",
+                    numberOfImages: 1
+                )
+
+                let response = try await aiClient.generateImage(request)
+
+                guard let imageData = response.images.first else {
+                    throw AIClientError.invalidResponse("No image generated")
                 }
 
-                if !project.genre.isEmpty {
-                    Label(project.genre, systemImage: "theatermasks.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                // Save icon to project directory
+                let projectDir = projectPath.deletingLastPathComponent()
+                let iconsDir = projectDir.appendingPathComponent("assets").appendingPathComponent("icons")
+
+                // Create icons directory if needed
+                if !FileManager.default.fileExists(atPath: iconsDir.path) {
+                    try FileManager.default.createDirectory(at: iconsDir, withIntermediateDirectories: true)
+                }
+
+                // Save with project name
+                let sanitizedName = sanitizeFilename(project.name)
+                let iconFilename = "\(sanitizedName)_icon.png"
+                let iconPath = iconsDir.appendingPathComponent(iconFilename)
+
+                try imageData.write(to: iconPath)
+
+                // Update project with relative path
+                let relativePath = "assets/icons/\(iconFilename)"
+
+                await MainActor.run {
+                    project.projectIcon = relativePath
+                    onProjectChanged()
+                    isGeneratingIcon = false
+                }
+
+            } catch {
+                await MainActor.run {
+                    iconError = error.localizedDescription
+                    showingIconError = true
+                    isGeneratingIcon = false
                 }
             }
         }
+    }
+
+    private func buildIconPrompt() -> String {
+        var promptParts: [String] = []
+
+        // Base prompt for cinematic icon
+        promptParts.append("A cinematic movie poster icon for a film project")
+
+        // Add project name
+        promptParts.append("titled '\(project.name)'")
+
+        // Add genre if available
+        if !project.genre.isEmpty {
+            promptParts.append("in the \(project.genre) genre")
+        }
+
+        // Add description/pitch if available
+        if !project.description.isEmpty {
+            let shortDesc = String(project.description.prefix(200))
+            promptParts.append("about: \(shortDesc)")
+        }
+
+        // Add tagline if available
+        if !project.overviewTagline.isEmpty {
+            promptParts.append("with the tagline: '\(project.overviewTagline)'")
+        }
+
+        // Style guidance
+        promptParts.append("Style: professional movie poster art, cinematic lighting, dramatic composition, high quality digital art, suitable as an app icon")
+
+        return promptParts.joined(separator: ". ")
+    }
+
+    private func sanitizeFilename(_ name: String) -> String {
+        var sanitized = name
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "\\", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+
+        // Remove other special characters
+        let allowedChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        sanitized = sanitized.unicodeScalars.filter { allowedChars.contains($0) }.map { String($0) }.joined()
+
+        // Collapse multiple underscores
+        while sanitized.contains("__") {
+            sanitized = sanitized.replacingOccurrences(of: "__", with: "_")
+        }
+
+        return sanitized.isEmpty ? "project" : sanitized
+    }
+}
+
+// MARK: - Project Icon View
+
+struct ProjectIconView: View {
+    let iconURL: URL?
+    let isGenerating: Bool
+    let onGenerate: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        ZStack {
+            // Icon container
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .frame(width: 120, height: 120)
+
+            if isGenerating {
+                // Loading state
+                VStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("Generating...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else if let iconURL = iconURL,
+                      let nsImage = NSImage(contentsOf: iconURL) {
+                // Display existing icon
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 120, height: 120)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            } else {
+                // Placeholder
+                VStack(spacing: 8) {
+                    Image(systemName: "film.stack")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary)
+                    Text("No Icon")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            // Hover overlay with generate button
+            if isHovered && !isGenerating {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.black.opacity(0.6))
+                    .frame(width: 120, height: 120)
+
+                Button(action: onGenerate) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 24))
+                        Text(iconURL != nil ? "Regenerate" : "Generate")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.white)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .help("Click to generate a project icon using AI")
     }
 }
 
@@ -211,6 +447,7 @@ struct StatCard: View {
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(12)
+        .help("\(value) \(title)")
     }
 }
 
@@ -309,6 +546,7 @@ struct QuickActionButton: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+        .help(title)
     }
 }
 

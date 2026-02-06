@@ -74,13 +74,12 @@ class ShotsAdapter: ObservableObject {
                 // Create default sequence and scene
                 let defaultScene = DirectorsChairCore.Scene(
                     name: "Scene 1",
-                    heading: "INT. LOCATION - DAY",
-                    synopsis: "",
-                    shots: newShots,
-                    actions: [],
+                    description: "INT. LOCATION - DAY",
                     dialogues: [],
+                    actions: [],
                     soundNotes: [],
-                    sceneLocationImages: []
+                    shots: newShots,
+                    locationImages: []
                 )
                 let defaultSequence = DirectorsChairCore.Sequence(
                     name: "Sequence 1",
@@ -92,13 +91,12 @@ class ShotsAdapter: ObservableObject {
                 // Add default scene to first sequence
                 let defaultScene = DirectorsChairCore.Scene(
                     name: "Scene 1",
-                    heading: "INT. LOCATION - DAY",
-                    synopsis: "",
-                    shots: newShots,
-                    actions: [],
+                    description: "INT. LOCATION - DAY",
                     dialogues: [],
+                    actions: [],
                     soundNotes: [],
-                    sceneLocationImages: []
+                    shots: newShots,
+                    locationImages: []
                 )
                 updatedProject.sequences[0].scenes.append(defaultScene)
             } else {

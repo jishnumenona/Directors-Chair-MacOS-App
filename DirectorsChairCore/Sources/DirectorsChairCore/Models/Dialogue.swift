@@ -6,8 +6,9 @@ import Foundation
 
 /// Represents a single dialogue line in a scene
 public struct Dialogue: Codable, Identifiable, Hashable {
-    public var id: String { "\(chronologyNumber)-\(character)-\(globalChronologyNumber)" }
+    public var id: String { uuid }
 
+    public var uuid: String  // Unique identifier
     public var character: String  // Name of character speaking
     public var text: String  // Dialogue text content
     public var tags: [String]  // Tone, emotion, or note tags
@@ -17,8 +18,10 @@ public struct Dialogue: Codable, Identifiable, Hashable {
     public var globalChronologyNumber: Int  // Global order across project
     public var audioFilePath: String?  // Path to TTS or audio file
     public var manualDuration: Double?  // User-specified duration override (seconds)
+    public var manualStartTime: Double?  // User-specified timeline position override (seconds)
 
     public init(
+        uuid: String = UUID().uuidString,
         character: String,
         text: String,
         tags: [String] = [],
@@ -27,8 +30,10 @@ public struct Dialogue: Codable, Identifiable, Hashable {
         chronologyNumber: Int = 0,
         globalChronologyNumber: Int = 0,
         audioFilePath: String? = nil,
-        manualDuration: Double? = nil
+        manualDuration: Double? = nil,
+        manualStartTime: Double? = nil
     ) {
+        self.uuid = uuid
         self.character = character
         self.text = text
         self.tags = tags
@@ -38,9 +43,11 @@ public struct Dialogue: Codable, Identifiable, Hashable {
         self.globalChronologyNumber = globalChronologyNumber
         self.audioFilePath = audioFilePath
         self.manualDuration = manualDuration
+        self.manualStartTime = manualStartTime
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case character
         case text
         case tags
@@ -50,6 +57,7 @@ public struct Dialogue: Codable, Identifiable, Hashable {
         case globalChronologyNumber = "global_chronology_number"
         case audioFilePath = "audio_file_path"
         case manualDuration = "manual_duration"
+        case manualStartTime = "manual_start_time"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -57,6 +65,9 @@ public struct Dialogue: Codable, Identifiable, Hashable {
     /// Custom decoder to provide defaults for fields missing in Python JSON
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Generate UUID if not present
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
 
         // Required fields
         character = try container.decodeIfPresent(String.self, forKey: .character) ?? ""
@@ -72,5 +83,6 @@ public struct Dialogue: Codable, Identifiable, Hashable {
         // Optional fields
         audioFilePath = try container.decodeIfPresent(String.self, forKey: .audioFilePath)
         manualDuration = try container.decodeIfPresent(Double.self, forKey: .manualDuration)
+        manualStartTime = try container.decodeIfPresent(Double.self, forKey: .manualStartTime)
     }
 }

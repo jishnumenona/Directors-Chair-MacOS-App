@@ -1,184 +1,231 @@
 // DirectorsChairViews/Sources/DirectorsChairViews/Bubble/NoteBubbleCard.swift
 //
-// Note bubble card for displaying production notes
+// Compact note card for displaying production notes
 
 import SwiftUI
 import DirectorsChairCore
 
-/// Note bubble card - displays production notes
-///
-/// Supports different note types:
-/// - text: Plain text note
-/// - link: Web link
-/// - youtube: YouTube video with thumbnail
-/// - image: Image reference
+/// Compact note card - displays production notes inline
 public struct NoteBubbleCard: View {
     let note: Note
     let isSelected: Bool
     let projectBasePath: URL?
+    let characters: [Character]
 
     var onTap: (() -> Void)?
     var onEdit: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onTextChanged: ((String) -> Void)?
+    var onChronologyChanged: ((Int) -> Void)?
+    var onEditModeStarted: (() -> Void)?
+
+    let startInEditMode: Bool
+
+    @State private var isHovered: Bool = false
+    @State private var isEditing: Bool = false
+    @State private var editedText: String = ""
+    @State private var isEditingIndex: Bool = false
+    @State private var editedIndex: String = ""
+    @FocusState private var textFieldFocused: Bool
+    @FocusState private var indexFieldFocused: Bool
+
+    private let accentColor = Color(red: 0.85, green: 0.65, blue: 0.2) // Amber/gold
 
     public init(
         note: Note,
         isSelected: Bool = false,
+        startInEditMode: Bool = false,
         projectBasePath: URL? = nil,
+        characters: [Character] = [],
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
-        onDelete: (() -> Void)? = nil
+        onDelete: (() -> Void)? = nil,
+        onTextChanged: ((String) -> Void)? = nil,
+        onChronologyChanged: ((Int) -> Void)? = nil,
+        onEditModeStarted: (() -> Void)? = nil
     ) {
         self.note = note
         self.isSelected = isSelected
+        self.startInEditMode = startInEditMode
         self.projectBasePath = projectBasePath
+        self.characters = characters
         self.onTap = onTap
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.onTextChanged = onTextChanged
+        self.onChronologyChanged = onChronologyChanged
+        self.onEditModeStarted = onEditModeStarted
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Header
-            HStack {
-                Text("#\(note.chronologyNumber)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 6)
+        HStack(spacing: 6) {
+            // Index badge - editable on double-click
+            if isEditingIndex {
+                TextField("", text: $editedIndex)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .textFieldStyle(.plain)
+                    .frame(width: 30)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.3))
+                    .background(accentColor.opacity(0.8))
                     .cornerRadius(4)
+                    .focused($indexFieldFocused)
+                    .onSubmit {
+                        commitIndexEdit()
+                    }
+                    .onChange(of: indexFieldFocused) { _, focused in
+                        if !focused {
+                            commitIndexEdit()
+                        }
+                    }
+            } else {
+                Text("#\(note.chronologyNumber)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(accentColor.opacity(0.6))
+                    .cornerRadius(4)
+                    .onTapGesture(count: 2) {
+                        startIndexEditing()
+                    }
+            }
 
-                noteTypeIcon
+            // Icon based on type
+            Image(systemName: iconName)
+                .font(.system(size: 10))
+                .foregroundColor(accentColor)
 
-                Text(note.noteType.uppercased())
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.yellow)
+            // Inline editable text with @ mention support
+            if isEditing {
+                CharacterMentionTextField(
+                    text: $editedText,
+                    placeholder: "Note content...",
+                    characters: characters,
+                    font: .system(size: 12),
+                    foregroundColor: accentColor.opacity(0.9),
+                    onSubmit: { commitEdit() }
+                )
+                .focused($textFieldFocused)
+                .onChange(of: textFieldFocused) { _, focused in
+                    if !focused {
+                        commitEdit()
+                    }
+                }
+            } else {
+                Text(displayText)
+                    .font(.system(size: 12))
+                    .foregroundColor(note.content.isEmpty && note.title.isEmpty ? .gray : accentColor.opacity(0.9))
+                    .lineLimit(1)
+                    .onTapGesture(count: 2) {
+                        startEditing()
+                    }
+            }
 
-                Spacer()
+            // Type badge for special types (compact)
+            if note.noteType != "text" && !isEditing {
+                Text(note.noteType.prefix(3).uppercased())
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(accentColor.opacity(0.7))
+            }
 
+            if isHovered && !isEditing {
                 Button(action: { onEdit?() }) {
-                    Text("Edit")
-                        .font(.caption)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9))
+                        .foregroundColor(accentColor.opacity(0.6))
                 }
                 .buttonStyle(.plain)
             }
-
-            // Title (if present)
-            if !note.title.isEmpty {
-                Text(note.title)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-            }
-
-            // Content based on note type
-            noteContent
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.yellow.opacity(0.15))
-        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(accentColor.opacity(0.12))
+        .cornerRadius(12)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(isSelected ? Color.accentColor : Color.yellow.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .onTapGesture {
-            onTap?()
-        }
+        .fixedSize(horizontal: !isEditing, vertical: false)
+        .frame(minWidth: isEditing ? 200 : nil)
+        .onHover { isHovered = $0 }
+        .onTapGesture { onTap?() }
         .contextMenu {
-            Button("Edit Note") {
-                onEdit?()
+            Button("Edit Note") { onEdit?() }
+            if note.noteType == "link" || note.noteType == "youtube" {
+                Button("Open Link") {
+                    if let url = URL(string: note.content) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
             }
             Divider()
-            Button("Delete", role: .destructive) {
-                onDelete?()
+            Button("Delete", role: .destructive) { onDelete?() }
+        }
+        .onAppear {
+            if startInEditMode {
+                startEditing()
+                onEditModeStarted?()
             }
         }
-    }
-
-    // MARK: - Note Type Icon
-
-    private var noteTypeIcon: some View {
-        Image(systemName: iconName)
-            .font(.caption)
-            .foregroundColor(.yellow)
     }
 
     private var iconName: String {
         switch note.noteType {
         case "youtube": return "play.rectangle.fill"
         case "link": return "link"
-        case "image": return "photo.fill"
+        case "image": return "photo"
         default: return "note.text"
         }
     }
 
-    // MARK: - Note Content
+    private var displayText: String {
+        if !note.title.isEmpty {
+            return note.title
+        }
+        if note.content.isEmpty {
+            return "Note..."
+        }
+        return note.content
+    }
 
-    @ViewBuilder
-    private var noteContent: some View {
-        switch note.noteType {
-        case "youtube":
-            VStack(alignment: .leading, spacing: 4) {
-                // YouTube thumbnail placeholder
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.black.opacity(0.3))
-                    .frame(height: 120)
-                    .overlay(
-                        Image(systemName: "play.circle.fill")
-                            .font(.largeTitle)
-                            .foregroundColor(.white)
-                    )
+    private func startEditing() {
+        // Edit content (or title if present)
+        editedText = note.title.isEmpty ? note.content : note.title
+        isEditing = true
+        textFieldFocused = true
+    }
 
-                // YouTube link
-                Text(note.content)
-                    .font(.caption)
-                    .foregroundColor(.blue)
-                    .lineLimit(1)
+    private func commitEdit() {
+        if isEditing {
+            isEditing = false
+            let originalText = note.title.isEmpty ? note.content : note.title
+            if editedText != originalText {
+                onTextChanged?(editedText)
             }
+        }
+    }
 
-        case "link":
-            HStack {
-                Image(systemName: "safari.fill")
-                    .foregroundColor(.blue)
-                Text(note.content)
-                    .font(.body)
-                    .foregroundColor(.blue)
-                    .lineLimit(2)
+    private func startIndexEditing() {
+        editedIndex = "\(note.chronologyNumber)"
+        isEditingIndex = true
+        indexFieldFocused = true
+    }
+
+    private func commitIndexEdit() {
+        if isEditingIndex {
+            isEditingIndex = false
+            if let newIndex = Int(editedIndex), newIndex != note.chronologyNumber, newIndex > 0 {
+                onChronologyChanged?(newIndex)
             }
-
-        case "image":
-            VStack(alignment: .leading, spacing: 4) {
-                // Image preview placeholder
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(height: 100)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .font(.title)
-                            .foregroundColor(.gray)
-                    )
-
-                Text(note.content)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-        default: // text
-            Text(note.content)
-                .font(.body)
-                .foregroundColor(.primary)
         }
     }
 }
 
 #Preview {
-    VStack(spacing: 20) {
+    VStack(spacing: 8) {
         NoteBubbleCard(
             note: Note(
                 content: "Remember to have the red dress ready for scene 5",
@@ -198,6 +245,17 @@ public struct NoteBubbleCard: View {
             ),
             isSelected: true
         )
+
+        NoteBubbleCard(
+            note: Note(
+                content: "https://example.com/reference",
+                noteType: "link",
+                chronologyNumber: 8
+            ),
+            isSelected: false
+        )
     }
     .padding()
+    .frame(width: 600)
+    .background(Color(hex: "#1E1E1E"))
 }

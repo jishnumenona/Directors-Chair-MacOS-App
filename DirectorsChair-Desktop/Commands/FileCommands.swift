@@ -7,67 +7,162 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct FileCommands: Commands {
-    @EnvironmentObject var projectViewModel: ProjectViewModel
-    @State private var showingNewProjectDialog = false
-    @State private var showingOpenProjectDialog = false
+    @FocusedValue(\.projectViewModel) var projectViewModel: ProjectViewModel?
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Project...") {
-                showingNewProjectDialog = true
+                guard let viewModel = projectViewModel else { return }
+                showNewProjectDialog(viewModel: viewModel)
             }
             .keyboardShortcut("n", modifiers: .command)
-            .sheet(isPresented: $showingNewProjectDialog) {
-                NewProjectDialog(projectViewModel: projectViewModel)
-            }
+            // New Project should always be enabled
 
             Button("Open Project...") {
-                showingOpenProjectDialog = true
+                guard let viewModel = projectViewModel else { return }
+                openProjectDialog(viewModel: viewModel)
             }
             .keyboardShortcut("o", modifiers: .command)
-            .sheet(isPresented: $showingOpenProjectDialog) {
-                OpenProjectDialog(projectViewModel: projectViewModel)
-            }
+            // Open Project should always be enabled
 
             Divider()
 
             Button("Close Project") {
                 Task {
-                    await projectViewModel.close()
+                    await projectViewModel?.close()
                 }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
         }
 
         CommandGroup(replacing: .saveItem) {
             Button("Save") {
                 Task {
-                    await projectViewModel.save()
+                    await projectViewModel?.save()
                 }
             }
             .keyboardShortcut("s", modifiers: .command)
-            .disabled(!projectViewModel.isDirty || projectViewModel.projectPath == nil)
+            .disabled(projectViewModel == nil || projectViewModel?.isDirty != true || projectViewModel?.projectPath == nil)
 
             Button("Save As...") {
-                Task {
-                    // TODO: Show save dialog and call projectViewModel.saveAs
-                }
+                guard let viewModel = projectViewModel else { return }
+                saveAsDialog(viewModel: viewModel)
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
-            .disabled(!projectViewModel.hasProject)
+            .disabled(projectViewModel?.hasProject != true)
 
             Divider()
 
             Button("Force Save") {
                 Task {
-                    await projectViewModel.forceSave()
+                    await projectViewModel?.forceSave()
                 }
             }
             .keyboardShortcut("s", modifiers: [.command, .option])
-            .disabled(!projectViewModel.isDirty)
+            .disabled(projectViewModel?.isDirty != true)
+        }
+    }
+
+    // MARK: - Helper Functions
+
+    private func openProjectDialog(viewModel: ProjectViewModel) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.json]
+        panel.message = "Select a DirectorsChair project file"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                do {
+                    try await viewModel.load(from: url)
+                } catch let decodingError as DecodingError {
+                    let errorMessage: String
+                    switch decodingError {
+                    case .keyNotFound(let key, let context):
+                        errorMessage = "Missing key '\(key.stringValue)' at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))"
+                    case .typeMismatch(let type, let context):
+                        errorMessage = "Type mismatch for type '\(type)' at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> ")): \(context.debugDescription)"
+                    case .valueNotFound(let type, let context):
+                        errorMessage = "Value not found for type '\(type)' at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> ")): \(context.debugDescription)"
+                    case .dataCorrupted(let context):
+                        errorMessage = "Data corrupted at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> ")): \(context.debugDescription)"
+                    @unknown default:
+                        errorMessage = decodingError.localizedDescription
+                    }
+                    viewModel.errorAlert = ErrorAlert(
+                        title: "Failed to Decode Project",
+                        message: errorMessage
+                    )
+                } catch {
+                    viewModel.errorAlert = ErrorAlert(
+                        title: "Failed to Open Project",
+                        message: error.localizedDescription
+                    )
+                }
+            }
+        }
+    }
+
+    private func saveAsDialog(viewModel: ProjectViewModel) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "project.json"
+        panel.message = "Save DirectorsChair project as"
+        panel.canCreateDirectories = true
+
+        // Set initial directory to Documents if no project path exists
+        if let projectPath = viewModel.projectPath {
+            panel.directoryURL = projectPath.deletingLastPathComponent()
+            panel.nameFieldStringValue = projectPath.lastPathComponent
+        }
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                do {
+                    try await viewModel.saveAs(to: url)
+                } catch {
+                    viewModel.errorAlert = ErrorAlert(
+                        title: "Failed to Save Project",
+                        message: error.localizedDescription
+                    )
+                }
+            }
+        }
+    }
+
+    private func showNewProjectDialog(viewModel: ProjectViewModel) {
+        let alert = NSAlert()
+        alert.messageText = "New Project"
+        alert.informativeText = "Enter a name for your new project.\nIt will be created in ~/Directors Chair/"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+
+        // Add text field for project name
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        textField.stringValue = "Untitled Project"
+        textField.placeholderString = "Project Name"
+        alert.accessoryView = textField
+
+        // Make text field first responder
+        alert.window.initialFirstResponder = textField
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            let projectName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !projectName.isEmpty {
+                viewModel.createNew(named: projectName)
+            } else {
+                viewModel.createNew(named: "Untitled Project")
+            }
         }
     }
 }

@@ -26,6 +26,17 @@ public struct DurationEstimator {
     /// Pattern for word extraction
     private static let wordPattern = try! NSRegularExpression(pattern: "\\b[\\w']+\\b", options: [])
 
+    // MARK: - Plain Text Cache
+
+    /// Cache for htmlToPlainText results to avoid redundant regex operations
+    private static var plainTextCache: [String: String] = [:]
+    private static let cacheLimit = 500
+
+    /// Clear all internal caches (call on scene switch or rebuild)
+    public static func clearCaches() {
+        plainTextCache.removeAll()
+    }
+
     // MARK: - Public Methods
 
     /// Convert HTML text to plain text
@@ -36,8 +47,14 @@ public struct DurationEstimator {
             return ""
         }
 
+        // Check cache first
+        if let cached = plainTextCache[text] {
+            return cached
+        }
+
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let result: String
         // Check if it looks like HTML
         if trimmed.hasPrefix("<") && (trimmed.contains("</p>") || trimmed.contains("</div>") || trimmed.contains("</span>")) {
             // Remove HTML tags
@@ -49,16 +66,24 @@ public struct DurationEstimator {
                 withTemplate: ""
             )
             // Decode common HTML entities
-            return plainText
+            result = plainText
                 .replacingOccurrences(of: "&nbsp;", with: " ")
                 .replacingOccurrences(of: "&amp;", with: "&")
                 .replacingOccurrences(of: "&lt;", with: "<")
                 .replacingOccurrences(of: "&gt;", with: ">")
                 .replacingOccurrences(of: "&quot;", with: "\"")
                 .replacingOccurrences(of: "&#39;", with: "'")
+        } else {
+            result = text
         }
 
-        return text
+        // Store in cache (evict if over limit)
+        if plainTextCache.count >= cacheLimit {
+            plainTextCache.removeAll()
+        }
+        plainTextCache[text] = result
+
+        return result
     }
 
     /// Estimate dialogue duration in seconds based on text and WPM
@@ -138,6 +163,29 @@ public struct DurationEstimator {
 
         let range = NSRange(location: 0, length: plainText.utf16.count)
         return wordPattern.numberOfMatches(in: plainText, options: [], range: range)
+    }
+}
+
+// MARK: - Bubble Width Calculation
+
+extension DurationEstimator {
+    /// Compute the visual pixel width of a timeline bubble.
+    /// Shared between TimelineCanvas (draw + hit-test) and TimelineViewModel (sub-lane layout).
+    public static func bubbleWidth(
+        for segment: TimelineSegment,
+        pxPerSec: CGFloat,
+        showThumbs: Bool
+    ) -> CGFloat {
+        let durationBasedWidth = segment.duration * pxPerSec
+        let plainText = htmlToPlainText(segment.text)
+        let textBasedMinWidth = min(
+            CGFloat(plainText.count) * TimelineLayoutConstants.minWidthPerCharacter +
+            (showThumbs ? TimelineLayoutConstants.avatarSize + TimelineLayoutConstants.avatarGap : 0) +
+            TimelineLayoutConstants.contentPadding * 2 +
+            TimelineLayoutConstants.tailWidth,
+            TimelineLayoutConstants.maxTextBasedBubbleWidth
+        )
+        return max(TimelineLayoutConstants.minBubbleWidth, max(durationBasedWidth, textBasedMinWidth))
     }
 }
 

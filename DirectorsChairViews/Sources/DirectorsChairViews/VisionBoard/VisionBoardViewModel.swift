@@ -128,6 +128,7 @@ public class VisionBoardViewModel: ObservableObject {
 
     public init(cards: [VisionCard] = []) {
         self.cards = cards
+        // Note: Don't select cards in init as filteredCards depends on currentBoardId
     }
 
     // MARK: - Card CRUD Operations
@@ -438,6 +439,10 @@ public class VisionBoardViewModel: ObservableObject {
     /// Set all cards
     public func setCards(_ newCards: [VisionCard]) {
         cards = newCards
+        // Clear invalid selections
+        selectedCardIds = selectedCardIds.filter { id in
+            cards.contains { $0.id == id }
+        }
     }
 
     /// Clear all cards

@@ -24,6 +24,9 @@ public enum ProjectError: LocalizedError {
         case .encodingFailed(let error):
             return "Failed to encode project data: \(error.localizedDescription)"
         case .decodingFailed(let error):
+            if let decodingError = error as? DecodingError {
+                return "Failed to decode project data: \(Self.formatDecodingError(decodingError))"
+            }
             return "Failed to decode project data: \(error.localizedDescription)"
         case .fileWriteFailed(let url, let error):
             return "Failed to write project file to \(url.path): \(error.localizedDescription)"
@@ -52,6 +55,26 @@ public enum ProjectError: LocalizedError {
             return "Verify the project data meets all requirements."
         case .permissionDenied:
             return "Check file permissions and access rights."
+        }
+    }
+
+    /// Helper to format DecodingError with detailed information
+    private static func formatDecodingError(_ error: DecodingError) -> String {
+        switch error {
+        case .keyNotFound(let key, let context):
+            let path = context.codingPath.map { $0.stringValue }.joined(separator: " -> ")
+            return "Missing key '\(key.stringValue)' at \(path.isEmpty ? "root" : path)"
+        case .typeMismatch(let type, let context):
+            let path = context.codingPath.map { $0.stringValue }.joined(separator: " -> ")
+            return "Type mismatch for '\(type)' at \(path.isEmpty ? "root" : path): \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            let path = context.codingPath.map { $0.stringValue }.joined(separator: " -> ")
+            return "Value not found for '\(type)' at \(path.isEmpty ? "root" : path): \(context.debugDescription)"
+        case .dataCorrupted(let context):
+            let path = context.codingPath.map { $0.stringValue }.joined(separator: " -> ")
+            return "Data corrupted at \(path.isEmpty ? "root" : path): \(context.debugDescription)"
+        @unknown default:
+            return error.localizedDescription
         }
     }
 }

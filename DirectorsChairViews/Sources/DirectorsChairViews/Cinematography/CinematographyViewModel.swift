@@ -108,6 +108,10 @@ public class CinematographyViewModel: ObservableObject {
 
     public init(shots: [Shot] = []) {
         self.shots = shots
+        // Select first shot by default if available
+        if let firstShot = shots.first {
+            self.selectedShotId = firstShot.id
+        }
     }
 
     // MARK: - Shot CRUD Operations
@@ -130,7 +134,8 @@ public class CinematographyViewModel: ObservableObject {
     public func removeShot(_ shotId: String) {
         shots.removeAll { $0.id == shotId }
         if selectedShotId == shotId {
-            selectedShotId = nil
+            // Select next available shot
+            selectedShotId = shots.first?.id
         }
         notifyChange()
     }
@@ -256,8 +261,18 @@ public class CinematographyViewModel: ObservableObject {
     // MARK: - Bulk Operations
 
     /// Set all shots
-    public func setShots(_ newShots: [Shot]) {
+    public func setShots(_ newShots: [Shot], notify: Bool = true) {
         shots = newShots
+        // If current selection is invalid, select first shot
+        if let selectedId = selectedShotId, !shots.contains(where: { $0.id == selectedId }) {
+            selectedShotId = shots.first?.id
+        } else if selectedShotId == nil {
+            selectedShotId = shots.first?.id
+        }
+        // Notify for persistence
+        if notify {
+            notifyChange()
+        }
     }
 
     /// Clear all shots

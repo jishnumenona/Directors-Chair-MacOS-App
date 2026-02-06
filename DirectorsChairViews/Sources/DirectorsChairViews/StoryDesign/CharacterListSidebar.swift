@@ -9,13 +9,15 @@ import DirectorsChairCore
 public struct CharacterListSidebar: View {
     @Binding var project: Project
     @Binding var selectedCharacter: Character?
+    let projectBasePath: URL?
     @State private var searchText = ""
     @State private var showAddCharacterSheet = false
     @State private var showDeleteConfirmation = false
 
-    public init(project: Binding<Project>, selectedCharacter: Binding<Character?>) {
+    public init(project: Binding<Project>, selectedCharacter: Binding<Character?>, projectBasePath: URL? = nil) {
         self._project = project
         self._selectedCharacter = selectedCharacter
+        self.projectBasePath = projectBasePath
     }
 
     public var body: some View {
@@ -40,7 +42,7 @@ public struct CharacterListSidebar: View {
             // Character list
             List(selection: $selectedCharacter) {
                 ForEach(filteredCharacters) { character in
-                    CharacterListRow(character: character)
+                    CharacterListRow(character: character, projectBasePath: projectBasePath)
                         .tag(character)
                         .contextMenu {
                             Button("Delete", role: .destructive) {
@@ -61,6 +63,7 @@ public struct CharacterListSidebar: View {
                     Label("Detect Characters", systemImage: "magnifyingglass")
                         .frame(maxWidth: .infinity)
                 }
+                .help("Scan dialogues and auto-detect new characters")
 
                 Button {
                     showAddCharacterSheet = true
@@ -68,6 +71,7 @@ public struct CharacterListSidebar: View {
                     Label("Add Character", systemImage: "plus")
                         .frame(maxWidth: .infinity)
                 }
+                .help("Add a new character to the project")
 
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
@@ -76,6 +80,7 @@ public struct CharacterListSidebar: View {
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(selectedCharacter == nil)
+                .help("Delete the selected character")
             }
             .padding()
         }
@@ -137,13 +142,17 @@ public struct CharacterListSidebar: View {
 
 private struct CharacterListRow: View {
     let character: Character
+    let projectBasePath: URL?
 
     var body: some View {
-        HStack {
-            // Color indicator
-            Circle()
-                .fill(Color(hex: character.color))
-                .frame(width: 16, height: 16)
+        HStack(spacing: 10) {
+            // Character avatar with thumbnail
+            CharacterAvatarView(
+                character: character,
+                characterName: character.name,
+                size: 32,
+                projectBasePath: projectBasePath
+            )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(character.name)

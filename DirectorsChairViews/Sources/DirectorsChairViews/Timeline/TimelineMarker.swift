@@ -33,6 +33,7 @@ public struct TimelineMarker: Identifiable, Equatable {
         case scene      // Scene boundary
         case sequence   // Sequence boundary
         case note       // Production note
+        case shot       // Shot marker (camera setup)
     }
 
     /// Type of user marker (subcategory)

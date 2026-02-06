@@ -7,70 +7,72 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct ViewCommands: Commands {
-    @EnvironmentObject var coordinator: AppCoordinator
+    @FocusedValue(\.appCoordinator) var coordinator: AppCoordinator?
+    @FocusedValue(\.projectViewModel) var projectViewModel: ProjectViewModel?
 
     var body: some Commands {
         CommandMenu("View") {
             // Main Views
             Menu("Go to View") {
                 Button("Project Overview") {
-                    coordinator.navigateTo(.overview)
+                    coordinator?.navigateTo(.overview)
                 }
                 .keyboardShortcut("1", modifiers: .command)
 
                 Button("Bubble View") {
-                    coordinator.navigateTo(.bubble)
+                    coordinator?.navigateTo(.bubble)
                 }
                 .keyboardShortcut("2", modifiers: .command)
 
                 Button("Scenes") {
-                    coordinator.navigateTo(.scenes)
+                    coordinator?.navigateTo(.scenes)
                 }
                 .keyboardShortcut("3", modifiers: .command)
 
                 Button("Assets") {
-                    coordinator.navigateTo(.assets)
+                    coordinator?.navigateTo(.assets)
                 }
                 .keyboardShortcut("4", modifiers: .command)
 
                 Divider()
 
                 Button("Vision Board") {
-                    coordinator.navigateTo(.visionBoard)
+                    coordinator?.navigateTo(.visionBoard)
                 }
                 .keyboardShortcut("5", modifiers: .command)
 
                 Button("Shot List") {
-                    coordinator.navigateTo(.shotList)
+                    coordinator?.navigateTo(.shotList)
                 }
                 .keyboardShortcut("6", modifiers: .command)
 
                 Button("Schedule") {
-                    coordinator.navigateTo(.schedule)
+                    coordinator?.navigateTo(.schedule)
                 }
                 .keyboardShortcut("7", modifiers: .command)
 
                 Button("Cast & Crew") {
-                    coordinator.navigateTo(.castCrew)
+                    coordinator?.navigateTo(.castCrew)
                 }
                 .keyboardShortcut("8", modifiers: .command)
 
                 Button("Budget") {
-                    coordinator.navigateTo(.budget)
+                    coordinator?.navigateTo(.budget)
                 }
                 .keyboardShortcut("9", modifiers: .command)
 
                 Divider()
 
                 Button("Story Design") {
-                    coordinator.navigateTo(.storyDesign)
+                    coordinator?.navigateTo(.storyDesign)
                 }
                 .keyboardShortcut("0", modifiers: .command)
 
                 Button("Project Settings") {
-                    coordinator.navigateTo(.settings)
+                    coordinator?.navigateTo(.settings)
                 }
                 .keyboardShortcut("-", modifiers: .command)
             }
@@ -79,22 +81,22 @@ struct ViewCommands: Commands {
 
             // Panel Toggles
             Button("Toggle Navigator") {
-                coordinator.toggleNavigator()
+                coordinator?.toggleNavigator()
             }
             .keyboardShortcut("1", modifiers: [.command, .option])
 
             Button("Toggle Timeline") {
-                coordinator.toggleTimeline()
+                coordinator?.toggleTimeline()
             }
             .keyboardShortcut("2", modifiers: [.command, .option])
 
             Button("Toggle Right Panel") {
-                coordinator.toggleRightPanel()
+                coordinator?.toggleRightPanel()
             }
             .keyboardShortcut("3", modifiers: [.command, .option])
 
             Button("Toggle Comments") {
-                coordinator.toggleComments()
+                coordinator?.toggleComments()
             }
             .keyboardShortcut("4", modifiers: [.command, .option])
 
@@ -102,18 +104,29 @@ struct ViewCommands: Commands {
 
             // View Options
             Button("Show All Panels") {
-                coordinator.showingNavigator = true
-                coordinator.showingTimeline = true
-                coordinator.showingRightPanel = true
+                coordinator?.showingNavigator = true
+                coordinator?.showingTimeline = true
+                coordinator?.showingRightPanel = true
             }
             .keyboardShortcut("a", modifiers: [.command, .option])
 
             Button("Hide All Panels") {
-                coordinator.showingNavigator = false
-                coordinator.showingTimeline = false
-                coordinator.showingRightPanel = false
+                coordinator?.showingNavigator = false
+                coordinator?.showingTimeline = false
+                coordinator?.showingRightPanel = false
             }
             .keyboardShortcut("h", modifiers: [.command, .option])
+
+            Divider()
+
+            // Project Folder
+            Button("Open Project Folder in Finder") {
+                guard let projectPath = projectViewModel?.projectPath else { return }
+                let projectDir = projectPath.deletingLastPathComponent()
+                NSWorkspace.shared.open(projectDir)
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(projectViewModel?.projectPath == nil)
         }
     }
 }

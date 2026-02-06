@@ -4,6 +4,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import AppKit
 
 /// Physical appearance tab - game character customizer style
 ///
@@ -22,6 +23,14 @@ public struct PhysicalAppearanceTab: View {
     var onGenerateImage: ((String, String) -> Void)?  // (angle, prompt)
     var onAnalyzeTraits: (() -> Void)?
 
+    // State for full screen image viewer
+    @State private var showingFullScreenImage = false
+    @State private var fullScreenImageURL: URL?
+    @State private var fullScreenImageTitle: String = ""
+
+    // State for discovered images (auto-detect from filesystem)
+    @State private var discoveredImages: DiscoveredCharacterImages = DiscoveredCharacterImages()
+
     public init(
         character: Binding<Character>,
         projectBasePath: URL? = nil,
@@ -34,23 +43,66 @@ public struct PhysicalAppearanceTab: View {
         self.onAnalyzeTraits = onAnalyzeTraits
     }
 
-    public var body: some View {
-        HSplitView {
-            // Left: Character image gallery
-            imageGallerySection
-                .frame(minWidth: 300, maxWidth: 400)
+    /// Get effective image path - uses character property if set, otherwise discovered image
+    private func effectiveImagePath(for type: ImageType) -> String? {
+        switch type {
+        case .base:
+            return character.baseImage ?? discoveredImages.baseImage
+        case .front:
+            return character.imageFront ?? discoveredImages.front
+        case .threeQuarterLeft:
+            return character.imageThreeQuarterLeft ?? discoveredImages.threeQuarterLeft
+        case .threeQuarterRight:
+            return character.imageThreeQuarterRight ?? discoveredImages.threeQuarterRight
+        case .profileLeft:
+            return character.imageProfileLeft ?? discoveredImages.profileLeft
+        case .profileRight:
+            return character.imageProfileRight ?? discoveredImages.profileRight
+        case .back:
+            return character.imageBack ?? discoveredImages.back
+        }
+    }
 
-            // Right: Attribute editors
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    basicInfoSection
-                    hairSection
-                    eyesSection
-                    skinSection
-                    distinguishingFeaturesSection
+    private enum ImageType {
+        case base, front, threeQuarterLeft, threeQuarterRight, profileLeft, profileRight, back
+    }
+
+    public var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // Left: Character image gallery
+                imageGallerySection
+                    .frame(width: min(350, geometry.size.width * 0.35))
+
+                Divider()
+
+                // Right: Attribute editors
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        basicInfoSection
+                        hairSection
+                        eyesSection
+                        skinSection
+                        distinguishingFeaturesSection
+                    }
+                    .padding()
                 }
-                .padding()
+                .frame(maxWidth: .infinity)
             }
+        }
+        .onAppear {
+            // Discover images from filesystem
+            discoveredImages = DiscoveredCharacterImages.discover(
+                for: character.name,
+                basePath: projectBasePath
+            )
+        }
+        .onChange(of: character.name) { newName in
+            // Re-discover when character changes
+            discoveredImages = DiscoveredCharacterImages.discover(
+                for: newName,
+                basePath: projectBasePath
+            )
         }
     }
 
@@ -64,7 +116,7 @@ public struct PhysicalAppearanceTab: View {
                     .fill(Color.gray.opacity(0.1))
                     .frame(height: 300)
 
-                if let imagePath = character.baseImage,
+                if let imagePath = effectiveImagePath(for: .base),
                    let basePath = projectBasePath {
                     let fullPath = basePath.appendingPathComponent(imagePath)
                     AsyncImage(url: fullPath) { phase in
@@ -86,6 +138,33 @@ public struct PhysicalAppearanceTab: View {
                 }
             }
 
+            // View and Download buttons for base image
+            if let imagePath = effectiveImagePath(for: .base),
+               let basePath = projectBasePath {
+                let fullPath = basePath.appendingPathComponent(imagePath)
+                HStack(spacing: 8) {
+                    Button {
+                        fullScreenImageURL = fullPath
+                        fullScreenImageTitle = "\(character.name) - Base Image"
+                        showingFullScreenImage = true
+                    } label: {
+                        Label("View", systemImage: "eye")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("View image in full screen")
+
+                    Button {
+                        downloadImage(from: fullPath, suggestedName: "\(character.name)_base.png")
+                    } label: {
+                        Label("Download", systemImage: "arrow.down.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Save image to your computer")
+                }
+            }
+
             // Generate button
             Button {
                 // Generate base image
@@ -96,16 +175,95 @@ public struct PhysicalAppearanceTab: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .help("AI: Generate a base character image")
 
             // Angle thumbnails
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    AngleThumbnail(label: "Front", imagePath: character.imageFront, projectBasePath: projectBasePath)
-                    AngleThumbnail(label: "3/4 Left", imagePath: character.imageThreeQuarterLeft, projectBasePath: projectBasePath)
-                    AngleThumbnail(label: "3/4 Right", imagePath: character.imageThreeQuarterRight, projectBasePath: projectBasePath)
-                    AngleThumbnail(label: "Profile L", imagePath: character.imageProfileLeft, projectBasePath: projectBasePath)
-                    AngleThumbnail(label: "Profile R", imagePath: character.imageProfileRight, projectBasePath: projectBasePath)
-                    AngleThumbnail(label: "Back", imagePath: character.imageBack, projectBasePath: projectBasePath)
+                    AngleThumbnail(
+                        label: "Front",
+                        imagePath: effectiveImagePath(for: .front),
+                        projectBasePath: projectBasePath,
+                        characterName: character.name,
+                        onView: { url in
+                            fullScreenImageURL = url
+                            fullScreenImageTitle = "\(character.name) - Front"
+                            showingFullScreenImage = true
+                        },
+                        onDownload: { url in
+                            downloadImage(from: url, suggestedName: "\(character.name)_front.png")
+                        }
+                    )
+                    AngleThumbnail(
+                        label: "3/4 Left",
+                        imagePath: effectiveImagePath(for: .threeQuarterLeft),
+                        projectBasePath: projectBasePath,
+                        characterName: character.name,
+                        onView: { url in
+                            fullScreenImageURL = url
+                            fullScreenImageTitle = "\(character.name) - Three Quarter Left"
+                            showingFullScreenImage = true
+                        },
+                        onDownload: { url in
+                            downloadImage(from: url, suggestedName: "\(character.name)_3q_left.png")
+                        }
+                    )
+                    AngleThumbnail(
+                        label: "3/4 Right",
+                        imagePath: effectiveImagePath(for: .threeQuarterRight),
+                        projectBasePath: projectBasePath,
+                        characterName: character.name,
+                        onView: { url in
+                            fullScreenImageURL = url
+                            fullScreenImageTitle = "\(character.name) - Three Quarter Right"
+                            showingFullScreenImage = true
+                        },
+                        onDownload: { url in
+                            downloadImage(from: url, suggestedName: "\(character.name)_3q_right.png")
+                        }
+                    )
+                    AngleThumbnail(
+                        label: "Profile L",
+                        imagePath: effectiveImagePath(for: .profileLeft),
+                        projectBasePath: projectBasePath,
+                        characterName: character.name,
+                        onView: { url in
+                            fullScreenImageURL = url
+                            fullScreenImageTitle = "\(character.name) - Profile Left"
+                            showingFullScreenImage = true
+                        },
+                        onDownload: { url in
+                            downloadImage(from: url, suggestedName: "\(character.name)_profile_left.png")
+                        }
+                    )
+                    AngleThumbnail(
+                        label: "Profile R",
+                        imagePath: effectiveImagePath(for: .profileRight),
+                        projectBasePath: projectBasePath,
+                        characterName: character.name,
+                        onView: { url in
+                            fullScreenImageURL = url
+                            fullScreenImageTitle = "\(character.name) - Profile Right"
+                            showingFullScreenImage = true
+                        },
+                        onDownload: { url in
+                            downloadImage(from: url, suggestedName: "\(character.name)_profile_right.png")
+                        }
+                    )
+                    AngleThumbnail(
+                        label: "Back",
+                        imagePath: effectiveImagePath(for: .back),
+                        projectBasePath: projectBasePath,
+                        characterName: character.name,
+                        onView: { url in
+                            fullScreenImageURL = url
+                            fullScreenImageTitle = "\(character.name) - Back"
+                            showingFullScreenImage = true
+                        },
+                        onDownload: { url in
+                            downloadImage(from: url, suggestedName: "\(character.name)_back.png")
+                        }
+                    )
                 }
             }
 
@@ -113,6 +271,43 @@ public struct PhysicalAppearanceTab: View {
         }
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
+        .sheet(isPresented: $showingFullScreenImage) {
+            FullScreenImageViewer(
+                imageURL: fullScreenImageURL,
+                title: fullScreenImageTitle,
+                onDownload: {
+                    if let url = fullScreenImageURL {
+                        downloadImage(from: url, suggestedName: "\(character.name)_image.png")
+                    }
+                }
+            )
+        }
+    }
+
+    // MARK: - Download Image
+
+    private func downloadImage(from url: URL, suggestedName: String) {
+        // Load the image data
+        guard let imageData = try? Data(contentsOf: url) else {
+            return
+        }
+
+        // Show save panel
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.png, .jpeg]
+        savePanel.nameFieldStringValue = suggestedName
+        savePanel.title = "Save Image"
+        savePanel.message = "Choose a location to save the image"
+
+        savePanel.begin { response in
+            if response == .OK, let saveURL = savePanel.url {
+                do {
+                    try imageData.write(to: saveURL)
+                } catch {
+                    print("Failed to save image: \(error)")
+                }
+            }
+        }
     }
 
     private var placeholderImage: some View {
@@ -352,6 +547,11 @@ private struct AngleThumbnail: View {
     let label: String
     let imagePath: String?
     let projectBasePath: URL?
+    let characterName: String
+    var onView: ((URL) -> Void)?
+    var onDownload: ((URL) -> Void)?
+
+    @State private var isHovering = false
 
     var body: some View {
         VStack(spacing: 4) {
@@ -361,7 +561,8 @@ private struct AngleThumbnail: View {
                     .frame(width: 60, height: 60)
 
                 if let path = imagePath, let basePath = projectBasePath {
-                    AsyncImage(url: basePath.appendingPathComponent(path)) { phase in
+                    let fullPath = basePath.appendingPathComponent(path)
+                    AsyncImage(url: fullPath) { phase in
                         if case .success(let image) = phase {
                             image
                                 .resizable()
@@ -373,9 +574,43 @@ private struct AngleThumbnail: View {
                                 .foregroundColor(.gray)
                         }
                     }
+
+                    // Hover overlay with buttons
+                    if isHovering {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.black.opacity(0.6))
+                            .frame(width: 60, height: 60)
+
+                        HStack(spacing: 4) {
+                            Button {
+                                onView?(fullPath)
+                            } label: {
+                                Image(systemName: "eye")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white)
+                            }
+                            .buttonStyle(.plain)
+                            .help("View full screen")
+
+                            Button {
+                                onDownload?(fullPath)
+                            } label: {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Download image")
+                        }
+                    }
                 } else {
                     Image(systemName: "plus")
                         .foregroundColor(.gray)
+                }
+            }
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHovering = hovering && imagePath != nil
                 }
             }
 
@@ -383,6 +618,188 @@ private struct AngleThumbnail: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
+        .help(imagePath != nil ? "\(label) - Click to view/download" : "\(label) - No image")
+    }
+}
+
+// MARK: - Full Screen Image Viewer
+
+private struct FullScreenImageViewer: View {
+    let imageURL: URL?
+    let title: String
+    var onDownload: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text(title)
+                    .font(.headline)
+
+                Spacer()
+
+                Button {
+                    onDownload?()
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.bordered)
+                .help("Save image to your computer")
+
+                Button("Close") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.escape, modifiers: [])
+            }
+            .padding()
+            .background(Color(NSColor.windowBackgroundColor))
+
+            Divider()
+
+            // Image
+            if let url = imageURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        ScrollView([.horizontal, .vertical]) {
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    case .failure:
+                        VStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 48))
+                                .foregroundColor(.orange)
+                            Text("Failed to load image")
+                                .foregroundColor(.secondary)
+                        }
+                    case .empty:
+                        ProgressView("Loading...")
+                    @unknown default:
+                        ProgressView()
+                    }
+                }
+            } else {
+                VStack {
+                    Image(systemName: "photo")
+                        .font(.system(size: 48))
+                        .foregroundColor(.gray)
+                    Text("No image selected")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .frame(minWidth: 800, minHeight: 600)
+        .background(Color.black)
+    }
+}
+
+// MARK: - Discovered Character Images
+
+/// Auto-discovered images from the character folder structure
+struct DiscoveredCharacterImages {
+    var baseImage: String?
+    var front: String?
+    var threeQuarterLeft: String?
+    var threeQuarterRight: String?
+    var profileLeft: String?
+    var profileRight: String?
+    var back: String?
+
+    /// Discover images from the character folder
+    /// Looks in: assets/characters/{CharacterName}/face/ and assets/characters/{CharacterName}/body/
+    static func discover(for characterName: String, basePath: URL?) -> DiscoveredCharacterImages {
+        guard let basePath = basePath else { return DiscoveredCharacterImages() }
+
+        var result = DiscoveredCharacterImages()
+        let fileManager = FileManager.default
+
+        // Sanitize character name for folder lookup
+        let sanitizedName = sanitizeName(characterName)
+
+        // Check face folder
+        let faceFolder = basePath
+            .appendingPathComponent("assets")
+            .appendingPathComponent("characters")
+            .appendingPathComponent(sanitizedName)
+            .appendingPathComponent("face")
+
+        // Check body folder
+        let bodyFolder = basePath
+            .appendingPathComponent("assets")
+            .appendingPathComponent("characters")
+            .appendingPathComponent(sanitizedName)
+            .appendingPathComponent("body")
+
+        // Helper to find first image matching patterns
+        func findImage(in folder: URL, patterns: [String]) -> String? {
+            guard fileManager.fileExists(atPath: folder.path) else { return nil }
+            guard let contents = try? fileManager.contentsOfDirectory(atPath: folder.path) else { return nil }
+
+            // Sort by modification date descending to get most recent
+            let files = contents.compactMap { filename -> (String, Date)? in
+                let path = folder.appendingPathComponent(filename).path
+                guard let attrs = try? fileManager.attributesOfItem(atPath: path),
+                      let modDate = attrs[.modificationDate] as? Date else { return nil }
+                return (filename, modDate)
+            }.sorted { $0.1 > $1.1 }
+
+            for (filename, _) in files {
+                let lower = filename.lowercased()
+                for pattern in patterns {
+                    if lower.contains(pattern.lowercased()) && (lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg")) {
+                        // Return relative path from basePath
+                        let relativePath = "assets/characters/\(sanitizedName)/\(folder.lastPathComponent)/\(filename)"
+                        return relativePath
+                    }
+                }
+            }
+            return nil
+        }
+
+        // Discover face images
+        result.baseImage = findImage(in: faceFolder, patterns: ["base", "front"])
+        result.front = findImage(in: faceFolder, patterns: ["front", "face_front"])
+        result.threeQuarterLeft = findImage(in: faceFolder, patterns: ["three_quarter_left", "3_4_left", "3/4_left"])
+        result.threeQuarterRight = findImage(in: faceFolder, patterns: ["three_quarter_right", "3_4_right", "3/4_right"])
+        result.profileLeft = findImage(in: faceFolder, patterns: ["profile_left", "profile"])
+        result.profileRight = findImage(in: faceFolder, patterns: ["profile_right"])
+
+        // Discover body images (can also serve as front/back)
+        if result.front == nil {
+            result.front = findImage(in: bodyFolder, patterns: ["front"])
+        }
+        result.back = findImage(in: bodyFolder, patterns: ["back"])
+
+        // If no specific base image, use any front image
+        if result.baseImage == nil {
+            result.baseImage = result.front
+        }
+
+        return result
+    }
+
+    private static func sanitizeName(_ name: String) -> String {
+        var sanitized = name
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "\\", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+            .replacingOccurrences(of: "(", with: "_")
+            .replacingOccurrences(of: ")", with: "_")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "\"", with: "")
+
+        while sanitized.contains("__") {
+            sanitized = sanitized.replacingOccurrences(of: "__", with: "_")
+        }
+
+        return sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
     }
 }
 

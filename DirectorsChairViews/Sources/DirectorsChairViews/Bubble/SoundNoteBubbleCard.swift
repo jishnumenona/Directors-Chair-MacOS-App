@@ -1,231 +1,249 @@
 // DirectorsChairViews/Sources/DirectorsChairViews/Bubble/SoundNoteBubbleCard.swift
 //
-// Sound note bubble card for displaying audio/music/SFX notes
+// Compact sound note card for displaying audio/music/SFX notes
 
 import SwiftUI
 import DirectorsChairCore
 
-/// Sound note bubble card - displays audio/music/SFX notes
-///
-/// Shows:
-/// - Sound type icon
-/// - Description
-/// - Volume indicator
-/// - Loop/fade settings
-/// - Audio file info
-/// - Reference URL (if any)
+/// Compact sound note card - displays audio/music/SFX notes inline
 public struct SoundNoteBubbleCard: View {
     let soundNote: SoundNote
     let isSelected: Bool
+    let characters: [Character]
 
     var onTap: (() -> Void)?
     var onEdit: (() -> Void)?
     var onPlay: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onTextChanged: ((String) -> Void)?
+    var onChronologyChanged: ((Int) -> Void)?
+    var onEditModeStarted: (() -> Void)?
+
+    let startInEditMode: Bool
+
+    @State private var isHovered: Bool = false
+    @State private var isEditing: Bool = false
+    @State private var editedText: String = ""
+    @State private var isEditingIndex: Bool = false
+    @State private var editedIndex: String = ""
+    @FocusState private var textFieldFocused: Bool
+    @FocusState private var indexFieldFocused: Bool
+
+    private let accentColor = Color(red: 0.3, green: 0.6, blue: 0.7) // Teal/cyan
 
     public init(
         soundNote: SoundNote,
         isSelected: Bool = false,
+        startInEditMode: Bool = false,
+        characters: [Character] = [],
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
         onPlay: (() -> Void)? = nil,
-        onDelete: (() -> Void)? = nil
+        onDelete: (() -> Void)? = nil,
+        onTextChanged: ((String) -> Void)? = nil,
+        onChronologyChanged: ((Int) -> Void)? = nil,
+        onEditModeStarted: (() -> Void)? = nil
     ) {
         self.soundNote = soundNote
         self.isSelected = isSelected
+        self.startInEditMode = startInEditMode
+        self.characters = characters
         self.onTap = onTap
         self.onEdit = onEdit
         self.onPlay = onPlay
         self.onDelete = onDelete
+        self.onTextChanged = onTextChanged
+        self.onChronologyChanged = onChronologyChanged
+        self.onEditModeStarted = onEditModeStarted
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Header
-            HStack {
-                Text("#\(soundNote.chronologyNumber)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 6)
+        HStack(spacing: 6) {
+            // Index badge - editable on double-click
+            if isEditingIndex {
+                TextField("", text: $editedIndex)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .textFieldStyle(.plain)
+                    .frame(width: 30)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.3))
+                    .background(accentColor.opacity(0.8))
                     .cornerRadius(4)
+                    .focused($indexFieldFocused)
+                    .onSubmit {
+                        commitIndexEdit()
+                    }
+                    .onChange(of: indexFieldFocused) { _, focused in
+                        if !focused {
+                            commitIndexEdit()
+                        }
+                    }
+            } else {
+                Text("#\(soundNote.chronologyNumber)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(accentColor.opacity(0.6))
+                    .cornerRadius(4)
+                    .onTapGesture(count: 2) {
+                        startIndexEditing()
+                    }
+            }
 
-                soundTypeIcon
+            // Sound type icon
+            Image(systemName: soundIconName)
+                .font(.system(size: 10))
+                .foregroundColor(accentColor)
 
-                Text(soundNote.soundType.uppercased())
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.cyan)
+            // Inline editable description with @ mention support
+            if isEditing {
+                CharacterMentionTextField(
+                    text: $editedText,
+                    placeholder: "Sound description...",
+                    characters: characters,
+                    font: .system(size: 12),
+                    foregroundColor: accentColor.opacity(0.9),
+                    onSubmit: { commitEdit() }
+                )
+                .focused($textFieldFocused)
+                .onChange(of: textFieldFocused) { _, focused in
+                    if !focused {
+                        commitEdit()
+                    }
+                }
+            } else {
+                Text(soundNote.description.isEmpty ? "Sound..." : soundNote.description)
+                    .font(.system(size: 12))
+                    .foregroundColor(soundNote.description.isEmpty ? .gray : accentColor.opacity(0.9))
+                    .lineLimit(1)
+                    .onTapGesture(count: 2) {
+                        startEditing()
+                    }
+            }
 
-                Spacer()
+            // Compact type indicator (hide when editing)
+            if !isEditing {
+                Text(soundNote.soundType.prefix(3).uppercased())
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(accentColor.opacity(0.7))
+
+                // Loop indicator
+                if soundNote.loop {
+                    Image(systemName: "repeat")
+                        .font(.system(size: 8))
+                        .foregroundColor(accentColor.opacity(0.6))
+                }
 
                 // Play button (if audio file exists)
                 if let audioPath = soundNote.audioFilePath, !audioPath.isEmpty {
                     Button(action: { onPlay?() }) {
                         Image(systemName: "play.fill")
-                            .font(.caption)
+                            .font(.system(size: 8))
+                            .foregroundColor(accentColor.opacity(0.7))
                     }
                     .buttonStyle(.plain)
                 }
+            }
 
+            if isHovered && !isEditing {
                 Button(action: { onEdit?() }) {
-                    Text("Edit")
-                        .font(.caption)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9))
+                        .foregroundColor(accentColor.opacity(0.6))
                 }
                 .buttonStyle(.plain)
             }
-
-            // Description
-            Text(soundNote.description)
-                .font(.body)
-                .foregroundColor(.primary)
-
-            // Audio settings row
-            HStack(spacing: 12) {
-                // Volume indicator
-                HStack(spacing: 4) {
-                    Image(systemName: volumeIcon)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("\(soundNote.volume)%")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                // Loop indicator
-                if soundNote.loop {
-                    HStack(spacing: 2) {
-                        Image(systemName: "repeat")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                        Text("Loop")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    }
-                }
-
-                // Fade indicators
-                if soundNote.fadeInDuration > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Text("\(String(format: "%.1f", soundNote.fadeInDuration))s in")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                    }
-                }
-
-                if soundNote.fadeOutDuration > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "arrow.down.right")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                        Text("\(String(format: "%.1f", soundNote.fadeOutDuration))s out")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                }
-            }
-
-            // Time range (if specified)
-            if let start = soundNote.startTime, let end = soundNote.endTime {
-                HStack {
-                    Image(systemName: "clock")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("\(formatTime(start)) - \(formatTime(end))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            // Reference URL (if any)
-            if let refUrl = soundNote.referenceUrl, !refUrl.isEmpty {
-                HStack {
-                    Image(systemName: "link")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                    Text(refUrl)
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                        .lineLimit(1)
-                }
-            }
-
-            // Tags
-            if !soundNote.tags.isEmpty {
-                TagsStackView(tags: soundNote.tags)
-            }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.cyan.opacity(0.15))
-        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(accentColor.opacity(0.12))
+        .cornerRadius(12)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(isSelected ? Color.accentColor : Color.cyan.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .onTapGesture {
-            onTap?()
-        }
+        .fixedSize(horizontal: !isEditing, vertical: false)
+        .frame(minWidth: isEditing ? 200 : nil)
+        .onHover { isHovered = $0 }
+        .onTapGesture { onTap?() }
         .contextMenu {
-            Button("Edit Sound Note") {
-                onEdit?()
-            }
+            Button("Edit Sound Note") { onEdit?() }
             if soundNote.audioFilePath != nil {
-                Button("Play Audio") {
-                    onPlay?()
+                Button("Play Audio") { onPlay?() }
+            }
+            if let refUrl = soundNote.referenceUrl, !refUrl.isEmpty {
+                Button("Open Reference") {
+                    if let url = URL(string: refUrl) {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
             }
             Divider()
-            Button("Delete", role: .destructive) {
-                onDelete?()
+            Button("Delete", role: .destructive) { onDelete?() }
+        }
+        .onAppear {
+            if startInEditMode {
+                startEditing()
+                onEditModeStarted?()
             }
         }
-    }
-
-    // MARK: - Sound Type Icon
-
-    private var soundTypeIcon: some View {
-        Image(systemName: soundIconName)
-            .font(.caption)
-            .foregroundColor(.cyan)
     }
 
     private var soundIconName: String {
         switch soundNote.soundType.lowercased() {
         case "music": return "music.note"
-        case "sfx", "effect": return "waveform"
-        case "ambience", "ambient": return "leaf.fill"
-        case "dialogue": return "text.bubble"
-        case "foley": return "shoe.fill"
+        case "effects", "sfx": return "waveform"
+        case "ambient", "ambience": return "leaf.fill"
+        case "dialogue_sfx": return "text.bubble"
         default: return "speaker.wave.2.fill"
         }
     }
 
     private var volumeIcon: String {
         switch soundNote.volume {
-        case 0: return "speaker.slash.fill"
-        case 1..<33: return "speaker.fill"
-        case 33..<66: return "speaker.wave.1.fill"
-        default: return "speaker.wave.3.fill"
+        case 0: return "speaker.slash"
+        case 1..<33: return "speaker"
+        case 33..<66: return "speaker.wave.1"
+        default: return "speaker.wave.2"
         }
     }
 
-    private func formatTime(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
+    private func startEditing() {
+        editedText = soundNote.description
+        isEditing = true
+        textFieldFocused = true
+    }
+
+    private func commitEdit() {
+        if isEditing {
+            isEditing = false
+            if editedText != soundNote.description {
+                onTextChanged?(editedText)
+            }
+        }
+    }
+
+    private func startIndexEditing() {
+        editedIndex = "\(soundNote.chronologyNumber)"
+        isEditingIndex = true
+        indexFieldFocused = true
+    }
+
+    private func commitIndexEdit() {
+        if isEditingIndex {
+            isEditingIndex = false
+            if let newIndex = Int(editedIndex), newIndex != soundNote.chronologyNumber, newIndex > 0 {
+                onChronologyChanged?(newIndex)
+            }
+        }
     }
 }
 
 #Preview {
-    VStack(spacing: 20) {
+    VStack(spacing: 8) {
         SoundNoteBubbleCard(
             soundNote: SoundNote(
                 description: "Dramatic orchestral hit",
@@ -243,7 +261,7 @@ public struct SoundNoteBubbleCard: View {
         SoundNoteBubbleCard(
             soundNote: SoundNote(
                 description: "Rain and thunder ambience",
-                soundType: "ambience",
+                soundType: "ambient",
                 chronologyNumber: 9,
                 volume: 40,
                 loop: true,
@@ -255,4 +273,6 @@ public struct SoundNoteBubbleCard: View {
         )
     }
     .padding()
+    .frame(width: 600)
+    .background(Color(hex: "#1E1E1E"))
 }

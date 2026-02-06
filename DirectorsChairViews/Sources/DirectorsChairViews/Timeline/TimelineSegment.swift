@@ -46,12 +46,21 @@ public struct TimelineSegment: Identifiable, Equatable {
     /// Whether this segment has an associated audio file
     public var hasAudio: Bool
 
+    /// Original source item ID (dialogue.id, action.id, narration.id)
+    /// Used for cross-view synchronization (e.g., timeline to bubble view highlighting)
+    public var sourceItemId: String?
+
+    /// Parent dialogue's character name (for connected actions/narrations)
+    /// Used to show the character avatar on non-character tracks
+    public var parentCharacterName: String?
+
     /// Content type enumeration
     public enum ContentType: String, Sendable {
         case dialogue
         case action
         case narration
         case note
+        case soundNote
     }
 
     public init(
@@ -67,7 +76,9 @@ public struct TimelineSegment: Identifiable, Equatable {
         chronologyNumber: Int = 0,
         avatarPath: String? = nil,
         propsCount: Int = 0,
-        hasAudio: Bool = false
+        hasAudio: Bool = false,
+        sourceItemId: String? = nil,
+        parentCharacterName: String? = nil
     ) {
         self.id = id
         self.start = start
@@ -82,6 +93,8 @@ public struct TimelineSegment: Identifiable, Equatable {
         self.avatarPath = avatarPath
         self.propsCount = propsCount
         self.hasAudio = hasAudio
+        self.sourceItemId = sourceItemId
+        self.parentCharacterName = parentCharacterName
     }
 
     /// End time in seconds

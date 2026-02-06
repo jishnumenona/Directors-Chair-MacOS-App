@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import AppKit
 import DirectorsChairCore
 
 struct ProjectSettingsView: View {
@@ -21,6 +22,14 @@ struct ProjectSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
+                // Project Identity Header
+                ProjectHeaderBanner(
+                    project: projectViewModel.project,
+                    projectPath: projectViewModel.projectPath,
+                    subtitle: "Project Settings"
+                )
+                .cornerRadius(12)
+
                 // Project Metadata Section
                 ProjectMetadataSection(
                     title: $title,
@@ -42,6 +51,13 @@ struct ProjectSettingsView: View {
                     Button("Reset") {
                         loadFromProject()
                     }
+
+                    Button {
+                        openProjectFolder()
+                    } label: {
+                        Label("Open Project Folder", systemImage: "folder")
+                    }
+                    .disabled(projectViewModel.projectPath == nil)
 
                     Spacer()
 
@@ -81,9 +97,15 @@ struct ProjectSettingsView: View {
         projectViewModel.project.name = title
         projectViewModel.project.director = director
         projectViewModel.project.productionCompany = productionCompany
-        projectViewModel.project.genre = genre.isEmpty ? nil : genre
-        projectViewModel.project.overviewLogline = logline.isEmpty ? nil : logline
+        projectViewModel.project.genre = genre
+        projectViewModel.project.overviewLogline = logline
         projectViewModel.isDirty = true
+    }
+
+    private func openProjectFolder() {
+        guard let projectPath = projectViewModel.projectPath else { return }
+        let projectDir = projectPath.deletingLastPathComponent()
+        NSWorkspace.shared.open(projectDir)
     }
 }
 
@@ -150,8 +172,7 @@ struct ProjectInformationSection: View {
                 GridItem(.flexible())
             ], alignment: .leading, spacing: 16) {
                 InfoRow(label: "Project ID", value: projectViewModel.project.id)
-                InfoRow(label: "Created", value: formattedDate(projectViewModel.project.createdAt))
-                InfoRow(label: "Last Modified", value: formattedDate(projectViewModel.project.updatedAt))
+                InfoRow(label: "Last Saved", value: projectViewModel.lastSaved.map { formattedDate($0) } ?? "Never")
                 InfoRow(label: "File Path", value: projectViewModel.projectPath?.path ?? "Not saved")
 
                 InfoRow(label: "Sequences", value: "\(projectViewModel.sequences.count)")

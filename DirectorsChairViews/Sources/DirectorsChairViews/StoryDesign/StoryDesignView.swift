@@ -41,37 +41,43 @@ public struct StoryDesignView: View {
     }
 
     public var body: some View {
-        HSplitView {
-            // Left: Character list sidebar
-            CharacterListSidebar(
-                project: $project,
-                selectedCharacter: $selectedCharacter
-            )
-            .frame(minWidth: 200, maxWidth: 280)
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // Left: Character list sidebar
+                CharacterListSidebar(
+                    project: $project,
+                    selectedCharacter: $selectedCharacter,
+                    projectBasePath: projectBasePath
+                )
+                .frame(width: 250)
 
-            // Center: Design area
-            VStack(spacing: 0) {
-                if let characterIndex = selectedCharacterIndex {
-                    // Character header
-                    characterHeader(for: project.characters[characterIndex])
+                Divider()
 
-                    Divider()
+                // Center: Design area
+                VStack(spacing: 0) {
+                    if let characterIndex = selectedCharacterIndex {
+                        // Character header
+                        characterHeader(for: project.characters[characterIndex])
 
-                    // Tab bar
-                    tabBar
+                        Divider()
 
-                    Divider()
+                        // Tab bar
+                        tabBar
 
-                    // Tab content
-                    tabContent(for: $project.characters[characterIndex])
-                } else {
-                    // No character selected
-                    ContentUnavailableView(
-                        "Select a Character",
-                        systemImage: "person.fill",
-                        description: Text("Choose a character from the sidebar to edit their details")
-                    )
+                        Divider()
+
+                        // Tab content
+                        tabContent(for: $project.characters[characterIndex])
+                    } else {
+                        // No character selected
+                        ContentUnavailableView(
+                            "Select a Character",
+                            systemImage: "person.fill",
+                            description: Text("Choose a character from the sidebar to edit their details")
+                        )
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .alert("Generate All Attributes", isPresented: $showGenerateAllConfirmation) {
@@ -84,6 +90,12 @@ public struct StoryDesignView: View {
             }
         } message: {
             Text("This will analyze the script to generate personality traits, physical attributes, and biography information. This may take a few minutes.")
+        }
+        .onAppear {
+            // Select the first character by default if none is selected
+            if selectedCharacter == nil, let firstCharacter = project.characters.first {
+                selectedCharacter = firstCharacter
+            }
         }
     }
 
@@ -123,7 +135,7 @@ public struct StoryDesignView: View {
                 Label("Auto-Generate All", systemImage: "wand.and.stars")
             }
             .buttonStyle(.borderedProminent)
-            .help("Analyze script to generate traits, physical attributes, and biography")
+            .help("AI: Analyze script to generate traits, physical attributes, and biography")
         }
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
@@ -257,6 +269,21 @@ private struct TabButton: View {
                     .fill(Color.accentColor)
                     .frame(height: 2)
             }
+        }
+        .help(tab.tooltip)
+    }
+}
+
+// MARK: - Tab Tooltips
+
+extension DesignTab {
+    var tooltip: String {
+        switch self {
+        case .physical: return "Edit physical appearance: height, hair, eyes, etc."
+        case .traits: return "Adjust personality traits and characteristics"
+        case .biography: return "Edit background story, goals, and motivations"
+        case .relationships: return "Manage relationships with other characters"
+        case .scenes: return "View scenes where this character appears"
         }
     }
 }
