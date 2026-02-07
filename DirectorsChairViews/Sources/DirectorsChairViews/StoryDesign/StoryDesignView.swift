@@ -1,83 +1,91 @@
 // DirectorsChairViews/Sources/DirectorsChairViews/StoryDesign/StoryDesignView.swift
 //
-// Main Story Design View - Character Design and Story World Management
+// Main Story Design View - Character Design, Location Design, and Story World Management
 
 import SwiftUI
 import DirectorsChairCore
 
-/// Main Story Design View - Character design and story world management
+// MARK: - Top-Level Mode
+
+public enum StoryDesignMode: String, CaseIterable {
+    case characters
+    case locations
+
+    var displayName: String {
+        switch self {
+        case .characters: return "Characters"
+        case .locations: return "Locations"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .characters: return "person.fill"
+        case .locations: return "map.fill"
+        }
+    }
+}
+
+/// Main Story Design View - Character design, location design, and story world management
 ///
 /// Layout:
-/// - Left (20%): Character list with search and management
-/// - Center (80%): Design area with tabs:
-///   - Character Design: Physical, Traits, Biography, Relationships
-///   - Costume Design (future)
-///   - World Design (future)
+/// - Top: Mode picker (Characters / Locations)
+/// - Characters mode:
+///   - Left (250px): Character list with search and management
+///   - Center: Design area with tabs (Physical, Traits, Biography, Relationships, Scenes)
+/// - Locations mode:
+///   - Left (250px): Location list with search and management
+///   - Center: Location detail editor
 public struct StoryDesignView: View {
     @Binding var project: Project
+    @State private var selectedMode: StoryDesignMode = .characters
     @State private var selectedCharacter: Character?
+    @State private var selectedLocation: Location?
     @State private var selectedTab: DesignTab = .physical
     @State private var showGenerateAllConfirmation = false
 
     let projectBasePath: URL?
 
-    // Callbacks for AI operations (to be handled by Agent 3's services)
-    var onGenerateImage: ((Character, String, String) -> Void)?  // (character, angle, prompt)
+    // External selection (set by coordinator via Cmd+Click navigation)
+    var initialCharacterId: String?
+    var initialLocationId: String?
+
+    // Callbacks for AI operations
+    var onGenerateImage: ((Character, String, String) -> Void)?
     var onAnalyzeTraits: ((Character) -> Void)?
     var onGenerateBiography: ((Character) -> Void)?
 
     public init(
         project: Binding<Project>,
         projectBasePath: URL? = nil,
+        initialCharacterId: String? = nil,
+        initialLocationId: String? = nil,
         onGenerateImage: ((Character, String, String) -> Void)? = nil,
         onAnalyzeTraits: ((Character) -> Void)? = nil,
         onGenerateBiography: ((Character) -> Void)? = nil
     ) {
         self._project = project
         self.projectBasePath = projectBasePath
+        self.initialCharacterId = initialCharacterId
+        self.initialLocationId = initialLocationId
         self.onGenerateImage = onGenerateImage
         self.onAnalyzeTraits = onAnalyzeTraits
         self.onGenerateBiography = onGenerateBiography
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                // Left: Character list sidebar
-                CharacterListSidebar(
-                    project: $project,
-                    selectedCharacter: $selectedCharacter,
-                    projectBasePath: projectBasePath
-                )
-                .frame(width: 250)
+        VStack(spacing: 0) {
+            // Mode picker bar
+            modePickerBar
 
-                Divider()
+            Divider()
 
-                // Center: Design area
-                VStack(spacing: 0) {
-                    if let characterIndex = selectedCharacterIndex {
-                        // Character header
-                        characterHeader(for: project.characters[characterIndex])
-
-                        Divider()
-
-                        // Tab bar
-                        tabBar
-
-                        Divider()
-
-                        // Tab content
-                        tabContent(for: $project.characters[characterIndex])
-                    } else {
-                        // No character selected
-                        ContentUnavailableView(
-                            "Select a Character",
-                            systemImage: "person.fill",
-                            description: Text("Choose a character from the sidebar to edit their details")
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Content based on mode
+            switch selectedMode {
+            case .characters:
+                charactersModeContent
+            case .locations:
+                locationsModeContent
             }
         }
         .alert("Generate All Attributes", isPresented: $showGenerateAllConfirmation) {
@@ -92,23 +100,156 @@ public struct StoryDesignView: View {
             Text("This will analyze the script to generate personality traits, physical attributes, and biography information. This may take a few minutes.")
         }
         .onAppear {
-            // Select the first character by default if none is selected
-            if selectedCharacter == nil, let firstCharacter = project.characters.first {
-                selectedCharacter = firstCharacter
+            applyInitialSelection()
+        }
+        .onChange(of: initialCharacterId) { newId in
+            if let id = newId, let char = project.characters.first(where: { $0.id == id }) {
+                selectedMode = .characters
+                selectedCharacter = char
+            }
+        }
+        .onChange(of: initialLocationId) { newId in
+            if let id = newId, let loc = project.locations.first(where: { $0.id == id }) {
+                selectedMode = .locations
+                selectedLocation = loc
             }
         }
     }
+
+    private func applyInitialSelection() {
+        if let locId = initialLocationId,
+           let loc = project.locations.first(where: { $0.id == locId }) {
+            selectedMode = .locations
+            selectedLocation = loc
+        } else if let charId = initialCharacterId,
+                  let char = project.characters.first(where: { $0.id == charId }) {
+            selectedMode = .characters
+            selectedCharacter = char
+        } else {
+            // Default: select first character
+            if selectedCharacter == nil, let firstCharacter = project.characters.first {
+                selectedCharacter = firstCharacter
+            }
+            if selectedLocation == nil, let firstLocation = project.locations.first {
+                selectedLocation = firstLocation
+            }
+        }
+    }
+
+    // MARK: - Mode Picker Bar
+
+    private var modePickerBar: some View {
+        HStack(spacing: 0) {
+            ForEach(StoryDesignMode.allCases, id: \.self) { mode in
+                Button {
+                    selectedMode = mode
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.icon)
+                        Text(mode.displayName)
+                    }
+                    .font(.subheadline)
+                    .fontWeight(selectedMode == mode ? .semibold : .regular)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(selectedMode == mode ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .foregroundColor(selectedMode == mode ? .accentColor : .primary)
+                }
+                .buttonStyle(.plain)
+                .overlay(alignment: .bottom) {
+                    if selectedMode == mode {
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(height: 2)
+                    }
+                }
+            }
+            Spacer()
+        }
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    // MARK: - Characters Mode
+
+    private var charactersModeContent: some View {
+        GeometryReader { _ in
+            HStack(spacing: 0) {
+                CharacterListSidebar(
+                    project: $project,
+                    selectedCharacter: $selectedCharacter,
+                    projectBasePath: projectBasePath
+                )
+                .frame(width: 250)
+
+                Divider()
+
+                VStack(spacing: 0) {
+                    if let characterIndex = selectedCharacterIndex {
+                        characterHeader(for: project.characters[characterIndex])
+                        Divider()
+                        tabBar
+                        Divider()
+                        tabContent(for: $project.characters[characterIndex])
+                    } else {
+                        ContentUnavailableView(
+                            "Select a Character",
+                            systemImage: "person.fill",
+                            description: Text("Choose a character from the sidebar to edit their details")
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    // MARK: - Locations Mode
+
+    private var locationsModeContent: some View {
+        GeometryReader { _ in
+            HStack(spacing: 0) {
+                LocationListSidebar(
+                    project: $project,
+                    selectedLocation: $selectedLocation
+                )
+                .frame(width: 250)
+
+                Divider()
+
+                VStack(spacing: 0) {
+                    if let locationIndex = selectedLocationIndex {
+                        LocationDetailView(
+                            location: $project.locations[locationIndex],
+                            project: project,
+                            projectBasePath: projectBasePath
+                        )
+                    } else {
+                        ContentUnavailableView(
+                            "Select a Location",
+                            systemImage: "map.fill",
+                            description: Text("Choose a location from the sidebar to edit its details")
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    // MARK: - Character Helpers
 
     private var selectedCharacterIndex: Int? {
         guard let character = selectedCharacter else { return nil }
         return project.characters.firstIndex(where: { $0.id == character.id })
     }
 
-    // MARK: - Character Header
+    private var selectedLocationIndex: Int? {
+        guard let location = selectedLocation else { return nil }
+        return project.locations.firstIndex(where: { $0.id == location.id })
+    }
 
     private func characterHeader(for character: Character) -> some View {
         HStack {
-            // Avatar
             CharacterAvatarView(
                 character: character,
                 characterName: character.name,
@@ -128,7 +269,6 @@ public struct StoryDesignView: View {
 
             Spacer()
 
-            // Generate all button
             Button {
                 showGenerateAllConfirmation = true
             } label: {
@@ -140,8 +280,6 @@ public struct StoryDesignView: View {
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
     }
-
-    // MARK: - Tab Bar
 
     private var tabBar: some View {
         HStack(spacing: 0) {
@@ -157,8 +295,6 @@ public struct StoryDesignView: View {
         .background(Color(NSColor.controlBackgroundColor))
     }
 
-    // MARK: - Tab Content
-
     @ViewBuilder
     private func tabContent(for character: Binding<Character>) -> some View {
         switch selectedTab {
@@ -173,7 +309,6 @@ public struct StoryDesignView: View {
                     onAnalyzeTraits?(character.wrappedValue)
                 }
             )
-
         case .traits:
             PersonalityTraitsTab(
                 character: character,
@@ -181,13 +316,11 @@ public struct StoryDesignView: View {
                     onAnalyzeTraits?(character.wrappedValue)
                 },
                 onResetToDefaults: {
-                    // Reset all traits to 50
                     for key in character.wrappedValue.traits.keys {
                         character.wrappedValue.traits[key] = 50.0
                     }
                 }
             )
-
         case .biography:
             BiographyTab(
                 character: character,
@@ -195,15 +328,12 @@ public struct StoryDesignView: View {
                     onGenerateBiography?(character.wrappedValue)
                 }
             )
-
         case .relationships:
             RelationshipsTab(
                 character: character,
                 allCharacters: project.characters
             )
-
         case .scenes:
-            // Scenes & Dialogues tab - shows all scenes the character appears in
             CharacterScenesView(
                 character: character.wrappedValue,
                 project: project
@@ -285,6 +415,312 @@ extension DesignTab {
         case .relationships: return "Manage relationships with other characters"
         case .scenes: return "View scenes where this character appears"
         }
+    }
+}
+
+// MARK: - Location List Sidebar
+
+struct LocationListSidebar: View {
+    @Binding var project: Project
+    @Binding var selectedLocation: Location?
+    @State private var searchText = ""
+    @State private var showAddLocationSheet = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Locations")
+                    .font(.headline)
+                Text("(\(project.locations.count))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding()
+
+            TextField("Search locations...", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+
+            List(selection: $selectedLocation) {
+                ForEach(filteredLocations) { location in
+                    LocationListRow(location: location)
+                        .tag(location)
+                        .contextMenu {
+                            Button("Delete", role: .destructive) {
+                                deleteLocation(location)
+                            }
+                        }
+                }
+            }
+            .listStyle(.sidebar)
+
+            Divider()
+
+            VStack(spacing: 8) {
+                Button {
+                    showAddLocationSheet = true
+                } label: {
+                    Label("Add Location", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .help("Add a new location to the project")
+            }
+            .padding()
+        }
+        .frame(minWidth: 200, maxWidth: 280)
+        .sheet(isPresented: $showAddLocationSheet) {
+            AddLocationSheet(project: $project)
+        }
+    }
+
+    private var filteredLocations: [Location] {
+        if searchText.isEmpty {
+            return project.locations
+        }
+        return project.locations.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private func deleteLocation(_ location: Location) {
+        project.locations.removeAll { $0.id == location.id }
+        if selectedLocation?.id == location.id {
+            selectedLocation = nil
+        }
+    }
+}
+
+// MARK: - Location List Row
+
+private struct LocationListRow: View {
+    let location: Location
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: locationIcon(for: location))
+                .font(.title3)
+                .foregroundColor(.accentColor)
+                .frame(width: 32, height: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(location.name)
+                    .font(.body)
+
+                Text(location.locationType.capitalized)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func locationIcon(for location: Location) -> String {
+        switch location.locationType.lowercased() {
+        case "indoor": return "building.2.fill"
+        case "outdoor": return "sun.max.fill"
+        default: return "map.fill"
+        }
+    }
+}
+
+// MARK: - Add Location Sheet
+
+private struct AddLocationSheet: View {
+    @Binding var project: Project
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var locationType = "mixed"
+    @State private var description = ""
+
+    private let locationTypes = ["indoor", "outdoor", "mixed"]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Add Location")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Add") { addLocation() }
+                    .disabled(name.isEmpty)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding()
+
+            Divider()
+
+            Form {
+                TextField("Name", text: $name)
+
+                Picker("Type", selection: $locationType) {
+                    ForEach(locationTypes, id: \.self) { type in
+                        Text(type.capitalized).tag(type)
+                    }
+                }
+
+                TextField("Description", text: $description, axis: .vertical)
+                    .lineLimit(3...6)
+            }
+            .padding()
+        }
+        .frame(width: 400, height: 300)
+    }
+
+    private func addLocation() {
+        let newLocation = Location(
+            name: name,
+            description: description,
+            locationType: locationType
+        )
+        project.locations.append(newLocation)
+        dismiss()
+    }
+}
+
+// MARK: - Location Detail View
+
+struct LocationDetailView: View {
+    @Binding var location: Location
+    let project: Project
+    let projectBasePath: URL?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            locationHeader
+
+            Divider()
+
+            // Content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Description
+                    GroupBox("Description") {
+                        TextEditor(text: $location.description)
+                            .font(.body)
+                            .frame(minHeight: 80)
+                    }
+
+                    // Details grid
+                    GroupBox("Details") {
+                        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                            GridRow {
+                                Text("Type")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 100, alignment: .trailing)
+                                Picker("", selection: $location.locationType) {
+                                    Text("Indoor").tag("indoor")
+                                    Text("Outdoor").tag("outdoor")
+                                    Text("Mixed").tag("mixed")
+                                }
+                                .labelsHidden()
+                                .frame(width: 150)
+                            }
+
+                            GridRow {
+                                Text("Address")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 100, alignment: .trailing)
+                                TextField("Address", text: $location.address)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            GridRow {
+                                Text("GPS")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 100, alignment: .trailing)
+                                TextField("Latitude, Longitude", text: $location.gpsCoordinates)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            GridRow {
+                                Text("Tags")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 100, alignment: .trailing)
+                                Text(location.tags.isEmpty ? "None" : location.tags.joined(separator: ", "))
+                                    .foregroundColor(location.tags.isEmpty ? .secondary : .primary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+
+                    // Notes
+                    GroupBox("Notes") {
+                        TextEditor(text: $location.notes)
+                            .font(.body)
+                            .frame(minHeight: 60)
+                    }
+
+                    // Scenes using this location
+                    GroupBox("Scenes at this Location") {
+                        let scenes = scenesAtLocation
+                        if scenes.isEmpty {
+                            Text("No scenes use this location yet.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.vertical, 8)
+                        } else {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(scenes, id: \.self) { sceneName in
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "film")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text(sceneName)
+                                            .font(.body)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+        }
+    }
+
+    private var locationHeader: some View {
+        HStack {
+            Image(systemName: "map.fill")
+                .font(.title)
+                .foregroundColor(.accentColor)
+                .frame(width: 50, height: 50)
+                .background(Color.accentColor.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(location.name)
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text(location.locationType.capitalized)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    private var scenesAtLocation: [String] {
+        var names: [String] = []
+        for sequence in project.sequences {
+            for scene in sequence.scenes {
+                let sceneLocation = (scene.location ?? "").uppercased()
+                if sceneLocation.contains(location.name.uppercased()) {
+                    names.append(scene.name)
+                }
+            }
+        }
+        return names
     }
 }
 

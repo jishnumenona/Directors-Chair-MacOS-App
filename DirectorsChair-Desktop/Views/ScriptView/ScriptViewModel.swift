@@ -51,6 +51,9 @@ class ScriptViewModel: ObservableObject {
     private weak var coordinator: AppCoordinator?
     private var syncDebounceTask: Task<Void, Never>?
 
+    // Tracks where wizard scene was inserted so we can remove on cancel
+    private var wizardScenePlacement: (sequenceIndex: Int, sceneIndex: Int)?
+
     // Character/location lists for autocomplete
     private var characters: [DirectorsChairCore.Character] = []
     private var locationNames: [String] = []
@@ -100,6 +103,10 @@ class ScriptViewModel: ObservableObject {
     // MARK: - Refresh (after external project changes)
 
     func refresh(from project: Project) {
+        // Suppress external refresh during wizard — regenerating elements would
+        // create new UUIDs and break the wizard's ID-based tracking
+        guard !isWizardActive else { return }
+
         elements = ProjectToScriptConverter.convert(from: project)
         sceneOutline = ProjectToScriptConverter.extractSceneOutline(from: elements)
         estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: elements)
@@ -201,8 +208,86 @@ class ScriptViewModel: ObservableObject {
 
         // Cancel wizard if user dismisses during it
         if isWizardActive {
+            // Remove the scene we added to the project model
+            removeWizardScene()
             newSceneWizardStep = .idle
+
+            // Refresh elements to clean up local placeholders
+            if let projectViewModel = projectViewModel {
+                refresh(from: projectViewModel.project)
+            }
         }
+    }
+
+    // MARK: - Project Scene Management
+
+    /// Add a new scene to the project model and return its placement indices
+    private func addSceneToProject(afterElementIndex: Int) -> (sequenceIndex: Int, sceneIndex: Int)? {
+        guard let projectViewModel = projectViewModel else { return nil }
+
+        // Determine target sequence from the element at cursor
+        var targetSeqIdx: Int? = nil
+        var insertAfterSceneIdx: Int? = nil
+
+        if afterElementIndex < elements.count {
+            let element = elements[afterElementIndex]
+            targetSeqIdx = element.sourceSequenceIndex
+            insertAfterSceneIdx = element.sourceSceneIndex
+        }
+
+        // If no sequences exist, create a default "Act 1"
+        if projectViewModel.project.sequences.isEmpty {
+            let newSequence = DirectorsChairCore.Sequence(name: "Act 1")
+            projectViewModel.addSequence(newSequence)
+            targetSeqIdx = 0
+        }
+
+        let seqIdx = targetSeqIdx ?? 0
+        guard seqIdx < projectViewModel.project.sequences.count else { return nil }
+
+        // Generate a unique scene name (Scene.id == name, must be unique)
+        let existingNames = Set(projectViewModel.project.sequences.flatMap { $0.scenes.map { $0.name } })
+        var counter = projectViewModel.project.sequences.flatMap({ $0.scenes }).count + 1
+        var sceneName = "Scene \(counter)"
+        while existingNames.contains(sceneName) {
+            counter += 1
+            sceneName = "Scene \(counter)"
+        }
+
+        // Create the scene with placeholder location
+        let newScene = DirectorsChairCore.Scene(
+            name: sceneName,
+            location: "INT. LOCATION - TIME OF DAY"
+        )
+
+        // Insert at the correct position
+        let sceneInsertIdx: Int
+        if let afterIdx = insertAfterSceneIdx {
+            sceneInsertIdx = afterIdx + 1
+        } else {
+            sceneInsertIdx = projectViewModel.project.sequences[seqIdx].scenes.count
+        }
+
+        projectViewModel.project.sequences[seqIdx].scenes.insert(newScene, at: sceneInsertIdx)
+        projectViewModel.isDirty = true
+
+        return (sequenceIndex: seqIdx, sceneIndex: sceneInsertIdx)
+    }
+
+    /// Remove the scene added by the wizard (called on cancel)
+    private func removeWizardScene() {
+        guard let placement = wizardScenePlacement,
+              let projectViewModel = projectViewModel else { return }
+
+        let seqIdx = placement.sequenceIndex
+        let sceneIdx = placement.sceneIndex
+
+        guard seqIdx < projectViewModel.project.sequences.count,
+              sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count else { return }
+
+        projectViewModel.project.sequences[seqIdx].scenes.remove(at: sceneIdx)
+        projectViewModel.isDirty = true
+        wizardScenePlacement = nil
     }
 
     // MARK: - Insert Helpers
@@ -221,6 +306,13 @@ class ScriptViewModel: ObservableObject {
 
     /// Insert a new scene and start the guided wizard
     func insertNewScene(afterElementIndex: Int) {
+        // Prevent double-wizard
+        guard !isWizardActive else { return }
+
+        // Add scene to project model first
+        guard let placement = addSceneToProject(afterElementIndex: afterElementIndex) else { return }
+        wizardScenePlacement = placement
+
         // Calculate the next scene number
         let existingSceneCount = elements.filter { $0.type == .sceneHeading }.count
         let nextSceneNum = "\(existingSceneCount + 1)"
@@ -229,9 +321,12 @@ class ScriptViewModel: ObservableObject {
         let blankLine = ScriptElement(type: .blankLine, text: "")
 
         // Scene heading — starts with "INT. " and placeholder hint
+        // Set source indices so reverse sync works
         let heading = ScriptElement(
             type: .sceneHeading,
             text: "INT. LOCATION - TIME OF DAY",
+            sourceSequenceIndex: placement.sequenceIndex,
+            sourceSceneIndex: placement.sceneIndex,
             sceneNumber: nextSceneNum,
             isPlaceholder: true
         )
@@ -240,6 +335,8 @@ class ScriptViewModel: ObservableObject {
         let descPlaceholder = ScriptElement(
             type: .action,
             text: "Scene description...",
+            sourceSequenceIndex: placement.sequenceIndex,
+            sourceSceneIndex: placement.sceneIndex,
             isPlaceholder: true
         )
 
@@ -296,11 +393,26 @@ class ScriptViewModel: ObservableObject {
             }
 
         case .selectingTime(let headingId, let descId, let location):
+            let finalLocation = "INT. \(location) - \(selectedText.uppercased())"
+
             // Finalize heading: "INT. {LOCATION} - {TIME}"
             if let idx = elements.firstIndex(where: { $0.id == headingId }) {
-                elements[idx].text = "INT. \(location) - \(selectedText.uppercased())"
+                elements[idx].text = finalLocation
                 elements[idx].isPlaceholder = false
             }
+
+            // Sync scene location to project model
+            if let placement = wizardScenePlacement,
+               let projectViewModel = projectViewModel {
+                let seqIdx = placement.sequenceIndex
+                let sceneIdx = placement.sceneIndex
+                if seqIdx < projectViewModel.project.sequences.count,
+                   sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count {
+                    projectViewModel.project.sequences[seqIdx].scenes[sceneIdx].location = finalLocation
+                    projectViewModel.isDirty = true
+                }
+            }
+            wizardScenePlacement = nil
 
             // Clear description placeholder and focus it
             if let descIdx = elements.firstIndex(where: { $0.id == descId }) {
@@ -312,8 +424,11 @@ class ScriptViewModel: ObservableObject {
             showingAutocomplete = false
             autocompleteItems = []
 
-            // Done with wizard
+            // Done with wizard — set idle BEFORE notifying so refresh is not suppressed
             newSceneWizardStep = .idle
+
+            // Notify global project change so other views refresh
+            coordinator?.notifyProjectChanged()
 
             // Focus cursor at description element
             focusElementId = descId
@@ -322,6 +437,81 @@ class ScriptViewModel: ObservableObject {
             }
 
         case .idle:
+            break
+        }
+    }
+
+    // MARK: - Cmd+Click Navigation
+
+    func navigateToElement(_ element: ScriptElement) {
+        guard let projectViewModel = projectViewModel,
+              let coordinator = coordinator else { return }
+
+        let project = projectViewModel.project
+
+        switch element.type {
+        case .character:
+            // Navigate to the character in Story Design
+            // Character name is stored in text, strip (CONT'D) suffix
+            let charName = element.text
+                .replacingOccurrences(of: " (CONT'D)", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            if let character = project.characters.first(where: {
+                $0.name.caseInsensitiveCompare(charName) == .orderedSame
+            }) {
+                coordinator.selectCharacter(character)
+            }
+
+        case .dialogue, .parenthetical:
+            // Navigate to the character who speaks this dialogue
+            if let itemId = element.sourceItemId,
+               let seqIdx = element.sourceSequenceIndex,
+               let sceneIdx = element.sourceSceneIndex,
+               seqIdx < project.sequences.count,
+               sceneIdx < project.sequences[seqIdx].scenes.count {
+                let scene = project.sequences[seqIdx].scenes[sceneIdx]
+                if let dialogue = scene.dialogues.first(where: { $0.uuid == itemId }) {
+                    if let character = project.characters.first(where: {
+                        $0.name.caseInsensitiveCompare(dialogue.character) == .orderedSame
+                    }) {
+                        coordinator.selectCharacter(character)
+                    }
+                }
+            }
+
+        case .sceneHeading:
+            // Navigate to the scene's location in Story Design
+            if let seqIdx = element.sourceSequenceIndex,
+               let sceneIdx = element.sourceSceneIndex,
+               seqIdx < project.sequences.count,
+               sceneIdx < project.sequences[seqIdx].scenes.count {
+                let scene = project.sequences[seqIdx].scenes[sceneIdx]
+                let sceneLocation = (scene.location ?? scene.name).uppercased()
+                // Try to match against project locations
+                if let location = project.locations.first(where: {
+                    sceneLocation.contains($0.name.uppercased())
+                }) {
+                    coordinator.selectLocation(location)
+                } else {
+                    // Navigate to bubble view for the scene
+                    coordinator.selectScene(scene)
+                    coordinator.navigateTo(.bubble)
+                }
+            }
+
+        case .action:
+            // If it's a scene description (no sourceItemId), navigate to bubble for that scene
+            if element.sourceItemId == nil,
+               let seqIdx = element.sourceSequenceIndex,
+               let sceneIdx = element.sourceSceneIndex,
+               seqIdx < project.sequences.count,
+               sceneIdx < project.sequences[seqIdx].scenes.count {
+                let scene = project.sequences[seqIdx].scenes[sceneIdx]
+                coordinator.selectScene(scene)
+                coordinator.navigateTo(.bubble)
+            }
+
+        default:
             break
         }
     }

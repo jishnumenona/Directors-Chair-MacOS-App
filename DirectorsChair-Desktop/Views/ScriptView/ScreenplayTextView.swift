@@ -24,6 +24,7 @@ struct ScreenplayTextView: NSViewRepresentable {
     var onAutocompleteDismissed: (() -> Void)?
     var onNewScene: ((Int) -> Void)?  // (afterElementIndex)
     var onDeleteScene: ((UUID) -> Void)?  // (elementId of scene heading)
+    var onCommandClick: ((ScriptElement) -> Void)?  // Cmd+Click navigation
 
     // Wizard mode
     var isWizardActive: Bool = false
@@ -98,6 +99,12 @@ struct ScreenplayTextView: NSViewRepresentable {
         textView.onDeleteSceneHandler = { [weak coordinator = context.coordinator] elementId in
             coordinator?.parent.onDeleteScene?(elementId)
         }
+
+        // Wire Cmd+Click navigation handler
+        textView.onCommandClickHandler = { [weak coordinator = context.coordinator] element in
+            coordinator?.parent.onCommandClick?(element)
+        }
+
         textView.coordinatorRef = context.coordinator
 
         // Observe frame changes to re-center text container on layout/resize
@@ -624,8 +631,190 @@ class ScreenplayNSTextView: NSTextView {
     /// Callback for deleting a scene (elementId of scene heading)
     var onDeleteSceneHandler: ((UUID) -> Void)?
 
+    /// Callback for Cmd+Click navigation (element)
+    var onCommandClickHandler: ((ScriptElement) -> Void)?
+
     /// Reference to coordinator for accessing element ranges
     weak var coordinatorRef: ScreenplayTextView.Coordinator?
+
+    // MARK: - Cmd+Hover State
+
+    /// The element range currently highlighted for Cmd+hover
+    private var hoveredLinkRange: NSRange?
+    /// Original attributes saved before applying hover styling
+    private var hoveredOriginalAttrs: [NSAttributedString.Key: Any]?
+    /// Whether Cmd is currently held
+    private var isCmdHeld = false
+
+    /// Link hover color (accent blue that works on cream background)
+    private static let linkHoverColor = NSColor(calibratedRed: 0.20, green: 0.40, blue: 0.75, alpha: 1.0)
+
+    // MARK: - Tracking Area
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // Remove old tracking areas we own
+        for area in trackingAreas where area.owner === self {
+            removeTrackingArea(area)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        if isCmdHeld {
+            updateHoverHighlight(at: event.locationInWindow)
+        }
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        let cmdNow = event.modifierFlags.contains(.command)
+        if cmdNow && !isCmdHeld {
+            // Cmd just pressed
+            isCmdHeld = true
+            // Use current mouse location
+            if let window = self.window {
+                let mouseInWindow = window.mouseLocationOutsideOfEventStream
+                updateHoverHighlight(at: mouseInWindow)
+            }
+        } else if !cmdNow && isCmdHeld {
+            // Cmd just released
+            isCmdHeld = false
+            clearHoverHighlight()
+            NSCursor.iBeam.set()
+        }
+    }
+
+    /// Check if a ScriptElement type is navigable via Cmd+Click
+    private func isNavigableElement(_ element: ScriptElement) -> Bool {
+        switch element.type {
+        case .character, .sceneHeading:
+            return true
+        case .dialogue, .parenthetical:
+            return element.sourceItemId != nil
+        case .action:
+            // Scene description (no sourceItemId) is navigable
+            return element.sourceItemId == nil && element.sourceSequenceIndex != nil
+        default:
+            return false
+        }
+    }
+
+    private func updateHoverHighlight(at locationInWindow: NSPoint) {
+        let clickPoint = convert(locationInWindow, from: nil)
+        let adjustedPoint = NSPoint(
+            x: clickPoint.x - textContainerOrigin.x,
+            y: clickPoint.y - textContainerOrigin.y
+        )
+
+        guard let layoutManager = layoutManager,
+              let textContainer = textContainer,
+              let textStorage = textStorage,
+              let coordinator = coordinatorRef else { return }
+
+        let charIndex = layoutManager.characterIndex(
+            for: adjustedPoint,
+            in: textContainer,
+            fractionOfDistanceBetweenInsertionPoints: nil
+        )
+
+        // Find element at this position
+        var foundRange: NSRange?
+        for element in coordinator.parent.elements {
+            if let range = coordinator.elementRanges[element.id],
+               charIndex >= range.location && charIndex < range.location + range.length,
+               isNavigableElement(element) {
+                foundRange = range
+                break
+            }
+        }
+
+        // If same range already highlighted, nothing to do
+        if foundRange == hoveredLinkRange { return }
+
+        // Clear old highlight
+        clearHoverHighlight()
+
+        // Apply new highlight
+        if let range = foundRange,
+           range.location + range.length <= textStorage.length {
+            // Save original attributes
+            hoveredOriginalAttrs = textStorage.attributes(at: range.location, effectiveRange: nil)
+            hoveredLinkRange = range
+
+            // Apply underline + color
+            textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            textStorage.addAttribute(.foregroundColor, value: Self.linkHoverColor, range: range)
+
+            NSCursor.pointingHand.set()
+        } else {
+            NSCursor.iBeam.set()
+        }
+    }
+
+    private func clearHoverHighlight() {
+        guard let range = hoveredLinkRange,
+              let originalAttrs = hoveredOriginalAttrs,
+              let textStorage = textStorage,
+              range.location + range.length <= textStorage.length else {
+            hoveredLinkRange = nil
+            hoveredOriginalAttrs = nil
+            return
+        }
+
+        // Restore original foreground color and remove underline
+        textStorage.removeAttribute(.underlineStyle, range: range)
+        if let originalColor = originalAttrs[.foregroundColor] {
+            textStorage.addAttribute(.foregroundColor, value: originalColor, range: range)
+        }
+
+        hoveredLinkRange = nil
+        hoveredOriginalAttrs = nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Cmd+Click → Navigate to element's source page
+        if event.modifierFlags.contains(.command),
+           !event.modifierFlags.contains(.shift) {
+            clearHoverHighlight()
+            isCmdHeld = false
+
+            let clickPoint = convert(event.locationInWindow, from: nil)
+            let adjustedPoint = NSPoint(
+                x: clickPoint.x - textContainerOrigin.x,
+                y: clickPoint.y - textContainerOrigin.y
+            )
+
+            guard let layoutManager = layoutManager,
+                  let textContainer = textContainer,
+                  let coordinator = coordinatorRef else {
+                super.mouseDown(with: event)
+                return
+            }
+
+            let charIndex = layoutManager.characterIndex(
+                for: adjustedPoint,
+                in: textContainer,
+                fractionOfDistanceBetweenInsertionPoints: nil
+            )
+
+            for element in coordinator.parent.elements {
+                if let range = coordinator.elementRanges[element.id],
+                   charIndex >= range.location && charIndex < range.location + range.length {
+                    onCommandClickHandler?(element)
+                    return
+                }
+            }
+        }
+        super.mouseDown(with: event)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Cmd+Shift+N → New Scene

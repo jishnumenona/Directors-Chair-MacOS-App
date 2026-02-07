@@ -115,6 +115,9 @@ class AppCoordinator: ObservableObject {
     /// Currently selected character (for story design)
     @Published var selectedCharacter: Character?
 
+    /// Currently selected location (for story design)
+    @Published var selectedLocation: Location?
+
     // MARK: - UI State
 
     /// Navigator sidebar visibility
@@ -284,7 +287,17 @@ class AppCoordinator: ObservableObject {
 
     /// Select a character and navigate to story design if needed
     func selectCharacter(_ character: Character) {
+        selectedLocation = nil
         selectedCharacter = character
+        if selectedView != .storyDesign {
+            navigateTo(.storyDesign)
+        }
+    }
+
+    /// Select a location and navigate to story design if needed
+    func selectLocation(_ location: Location) {
+        selectedCharacter = nil
+        selectedLocation = location
         if selectedView != .storyDesign {
             navigateTo(.storyDesign)
         }
@@ -342,6 +355,7 @@ class AppCoordinator: ObservableObject {
 /// Corresponds to Python's QStackedWidget views
 enum AppView: String, CaseIterable, Identifiable {
     case overview = "Overview"
+    case script = "Script"
     case bubble = "Bubble"
     case shotList = "Shot List"
     case scenes = "Scenes"
@@ -360,6 +374,7 @@ enum AppView: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .overview: return "doc.text"
+        case .script: return "text.alignleft"
         case .bubble: return "bubble.left.and.bubble.right"
         case .scenes: return "film"
         case .assets: return "photo.on.rectangle"

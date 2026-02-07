@@ -249,6 +249,9 @@ struct CentralViewStack: View {
             case .overview:
                 ProjectOverviewView()
                     .onAppear { debugLog("📱 Overview appeared") }
+            case .script:
+                ScriptView()
+                    .onAppear { debugLog("📱 ScriptView appeared") }
             case .bubble:
                 BubbleView(
                     project: $projectViewModel.project,
@@ -335,6 +338,8 @@ struct CentralViewStack: View {
                 StoryDesignView(
                     project: $projectViewModel.project,
                     projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                    initialCharacterId: coordinator.selectedCharacter?.id,
+                    initialLocationId: coordinator.selectedLocation?.id,
                     onGenerateImage: { character, angle, prompt in
                         Task {
                             await generateCharacterImage(character: character, angle: angle, prompt: prompt)

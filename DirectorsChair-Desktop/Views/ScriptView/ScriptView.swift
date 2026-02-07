@@ -59,6 +59,9 @@ struct ScriptView: View {
                     onDeleteScene: { elementId in
                         viewModel.deleteScene(elementId: elementId)
                     },
+                    onCommandClick: { element in
+                        viewModel.navigateToElement(element)
+                    },
                     isWizardActive: viewModel.isWizardActive,
                     focusElementId: viewModel.focusElementId
                 )
