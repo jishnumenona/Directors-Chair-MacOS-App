@@ -78,31 +78,346 @@ public struct PhysicalAppearanceTab: View {
 
                 // Right: Attribute editors
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        basicInfoSection
-                        hairSection
-                        eyesSection
-                        skinSection
+                    VStack(alignment: .leading, spacing: 24) {
+                        identityHeader
+
+                        bodyMeasurementsSection
+
+                        HStack(alignment: .top, spacing: 16) {
+                            hairSection
+                            eyesSection
+                        }
+
+                        HStack(alignment: .top, spacing: 16) {
+                            skinSection
+                            faceStructureSection
+                        }
+
                         distinguishingFeaturesSection
                     }
-                    .padding()
+                    .padding(24)
                 }
                 .frame(maxWidth: .infinity)
             }
         }
         .onAppear {
-            // Discover images from filesystem
             discoveredImages = DiscoveredCharacterImages.discover(
                 for: character.name,
                 basePath: projectBasePath
             )
         }
         .onChange(of: character.name) { newName in
-            // Re-discover when character changes
             discoveredImages = DiscoveredCharacterImages.discover(
                 for: newName,
                 basePath: projectBasePath
             )
+        }
+    }
+
+    // MARK: - Identity Header
+
+    private var identityHeader: some View {
+        HStack(spacing: 16) {
+            // Age badge
+            VStack(spacing: 2) {
+                Text("AGE")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .tracking(1)
+                TextField("", value: $character.age, format: .number)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .frame(width: 56)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.accentColor.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.accentColor.opacity(0.25), lineWidth: 1)
+            )
+
+            // Gender selector
+            VStack(alignment: .leading, spacing: 6) {
+                Text("GENDER")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .tracking(1)
+                HStack(spacing: 6) {
+                    GenderChip(label: "Male", icon: "figure.stand", isSelected: character.gender == "male") {
+                        character.gender = "male"
+                    }
+                    GenderChip(label: "Female", icon: "figure.stand.dress", isSelected: character.gender == "female") {
+                        character.gender = "female"
+                    }
+                    GenderChip(label: "Neutral", icon: "figure.wave", isSelected: character.gender == "neutral") {
+                        character.gender = "neutral"
+                    }
+                    GenderChip(label: "Other", icon: "person.fill.questionmark", isSelected: character.gender == "other") {
+                        character.gender = "other"
+                    }
+                }
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Body Measurements
+
+    private var bodyMeasurementsSection: some View {
+        AttributeCard(title: "BODY", icon: "figure.arms.open") {
+            VStack(spacing: 16) {
+                // Height and Weight side by side
+                HStack(spacing: 16) {
+                    // Height
+                    MeasurementField(
+                        label: "Height",
+                        unit: "cm",
+                        value: $character.heightCm,
+                        icon: "ruler",
+                        range: 100...250
+                    )
+
+                    // Weight
+                    MeasurementField(
+                        label: "Weight",
+                        unit: "kg",
+                        value: $character.weightKg,
+                        icon: "scalemass",
+                        range: 30...200
+                    )
+                }
+
+                // Build selector
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Build")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    HStack(spacing: 6) {
+                        BuildChip(label: "Slim", icon: "figure.stand", isSelected: character.build == "Slim") {
+                            character.build = "Slim"
+                        }
+                        BuildChip(label: "Athletic", icon: "figure.run", isSelected: character.build == "Athletic") {
+                            character.build = "Athletic"
+                        }
+                        BuildChip(label: "Average", icon: "figure.stand", isSelected: character.build == "Average") {
+                            character.build = "Average"
+                        }
+                        BuildChip(label: "Stocky", icon: "figure.strengthtraining.traditional", isSelected: character.build == "Stocky") {
+                            character.build = "Stocky"
+                        }
+                        BuildChip(label: "Heavy", icon: "figure.arms.open", isSelected: character.build == "Heavy") {
+                            character.build = "Heavy"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Hair Section
+
+    private var hairSection: some View {
+        AttributeCard(title: "HAIR", icon: "comb") {
+            VStack(spacing: 14) {
+                // Color row
+                HStack(spacing: 10) {
+                    ColorPicker("", selection: Binding(
+                        get: { Color(hex: character.hairColor) },
+                        set: { character.hairColor = $0.hexString }
+                    ))
+                    .labelsHidden()
+                    .frame(width: 28, height: 28)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Color")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Text(character.hairColor.isEmpty ? "Not set" : character.hairColor)
+                            .font(.system(size: 12))
+                            .foregroundColor(character.hairColor.isEmpty ? .secondary : .primary)
+                    }
+
+                    Spacer()
+                }
+
+                Divider().opacity(0.5)
+
+                // Length
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Length")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        ForEach(["Bald", "Short", "Medium", "Long", "Very Long"], id: \.self) { length in
+                            CompactChip(label: length, isSelected: character.hairLength == length) {
+                                character.hairLength = length
+                            }
+                        }
+                    }
+                }
+
+                Divider().opacity(0.5)
+
+                // Style
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Style")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    TextField("e.g., Wavy, tied up", text: $character.hairStyle)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .padding(8)
+                        .background(Color(nsColor: .quaternarySystemFill))
+                        .cornerRadius(6)
+                }
+            }
+        }
+    }
+
+    // MARK: - Eyes Section
+
+    private var eyesSection: some View {
+        AttributeCard(title: "EYES", icon: "eye") {
+            VStack(spacing: 14) {
+                // Color row
+                HStack(spacing: 10) {
+                    ColorPicker("", selection: Binding(
+                        get: { Color(hex: character.eyeColor) },
+                        set: { character.eyeColor = $0.hexString }
+                    ))
+                    .labelsHidden()
+                    .frame(width: 28, height: 28)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Color")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary)
+                        TextField("e.g., Brown, Hazel", text: $character.eyeColorDescription)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                    }
+
+                    Spacer()
+                }
+
+                Divider().opacity(0.5)
+
+                // Shape
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Shape")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+
+                    let shapes = ["Almond", "Round", "Hooded", "Monolid", "Deep-set", "Upturned", "Downturned"]
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: 72), spacing: 4)
+                    ], spacing: 4) {
+                        ForEach(shapes, id: \.self) { shape in
+                            CompactChip(label: shape, isSelected: character.eyeShape == shape) {
+                                character.eyeShape = shape
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Skin Section
+
+    private var skinSection: some View {
+        AttributeCard(title: "SKIN", icon: "hand.raised") {
+            VStack(spacing: 14) {
+                // Tone row
+                HStack(spacing: 10) {
+                    ColorPicker("", selection: Binding(
+                        get: { Color(hex: character.skinTone) },
+                        set: { character.skinTone = $0.hexString }
+                    ))
+                    .labelsHidden()
+                    .frame(width: 28, height: 28)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Tone")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Text(character.skinTone.isEmpty ? "Not set" : character.skinTone)
+                            .font(.system(size: 12))
+                            .foregroundColor(character.skinTone.isEmpty ? .secondary : .primary)
+                    }
+
+                    Spacer()
+                }
+
+                Divider().opacity(0.5)
+
+                // Ethnicity
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Ethnicity")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    TextField("e.g., South Asian, Caucasian", text: $character.ethnicity)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .padding(8)
+                        .background(Color(nsColor: .quaternarySystemFill))
+                        .cornerRadius(6)
+                }
+            }
+        }
+    }
+
+    // MARK: - Face Structure Section
+
+    private var faceStructureSection: some View {
+        AttributeCard(title: "FACE", icon: "face.dashed") {
+            VStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Facial Structure")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+
+                    let structures = ["Oval", "Round", "Square", "Heart", "Oblong", "Diamond"]
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: 68), spacing: 4)
+                    ], spacing: 4) {
+                        ForEach(structures, id: \.self) { structure in
+                            FaceShapeChip(
+                                label: structure,
+                                isSelected: character.facialStructure == structure
+                            ) {
+                                character.facialStructure = structure
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Distinguishing Features Section
+
+    private var distinguishingFeaturesSection: some View {
+        AttributeCard(title: "DISTINGUISHING FEATURES", icon: "sparkle") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Scars, tattoos, birthmarks, or other notable physical features")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+
+                TextEditor(text: $character.distinguishingFeatures)
+                    .font(.system(size: 12))
+                    .frame(minHeight: 72)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(Color(nsColor: .quaternarySystemFill))
+                    .cornerRadius(8)
+            }
         }
     }
 
@@ -167,7 +482,6 @@ public struct PhysicalAppearanceTab: View {
 
             // Generate button
             Button {
-                // Generate base image
                 let prompt = buildImagePrompt()
                 onGenerateImage?("base", prompt)
             } label: {
@@ -287,12 +601,10 @@ public struct PhysicalAppearanceTab: View {
     // MARK: - Download Image
 
     private func downloadImage(from url: URL, suggestedName: String) {
-        // Load the image data
         guard let imageData = try? Data(contentsOf: url) else {
             return
         }
 
-        // Show save panel
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.png, .jpeg]
         savePanel.nameFieldStringValue = suggestedName
@@ -321,223 +633,245 @@ public struct PhysicalAppearanceTab: View {
         }
     }
 
-    // MARK: - Basic Info Section
-
-    private var basicInfoSection: some View {
-        GroupBox("Basic Information") {
-            VStack(spacing: 12) {
-                HStack {
-                    LabeledContent("Age") {
-                        TextField("", value: $character.age, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                    }
-
-                    LabeledContent("Gender") {
-                        Picker("", selection: $character.gender) {
-                            Text("Male").tag("male")
-                            Text("Female").tag("female")
-                            Text("Neutral").tag("neutral")
-                            Text("Other").tag("other")
-                        }
-                        .labelsHidden()
-                        .frame(width: 120)
-                    }
-                }
-
-                HStack {
-                    LabeledContent("Height (cm)") {
-                        TextField("", value: $character.heightCm, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                    }
-
-                    LabeledContent("Weight (kg)") {
-                        TextField("", value: $character.weightKg, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                    }
-                }
-
-                LabeledContent("Build") {
-                    Picker("", selection: $character.build) {
-                        Text("Slim").tag("Slim")
-                        Text("Athletic").tag("Athletic")
-                        Text("Average").tag("Average")
-                        Text("Stocky").tag("Stocky")
-                        Text("Heavy").tag("Heavy")
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                }
-            }
-        }
-    }
-
-    // MARK: - Hair Section
-
-    private var hairSection: some View {
-        GroupBox("Hair") {
-            VStack(spacing: 12) {
-                HStack {
-                    LabeledContent("Color") {
-                        ColorPicker("", selection: Binding(
-                            get: { Color(hex: character.hairColor) },
-                            set: { character.hairColor = $0.hexString }
-                        ))
-                        .labelsHidden()
-                    }
-
-                    TextField("Color name", text: $character.hairColor)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                }
-
-                LabeledContent("Length") {
-                    Picker("", selection: $character.hairLength) {
-                        Text("Bald").tag("Bald")
-                        Text("Short").tag("Short")
-                        Text("Medium").tag("Medium")
-                        Text("Long").tag("Long")
-                        Text("Very Long").tag("Very Long")
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                }
-
-                LabeledContent("Style") {
-                    TextField("e.g., Short and Spiky", text: $character.hairStyle)
-                        .textFieldStyle(.roundedBorder)
-                }
-            }
-        }
-    }
-
-    // MARK: - Eyes Section
-
-    private var eyesSection: some View {
-        GroupBox("Eyes") {
-            VStack(spacing: 12) {
-                HStack {
-                    LabeledContent("Color") {
-                        ColorPicker("", selection: Binding(
-                            get: { Color(hex: character.eyeColor) },
-                            set: { character.eyeColor = $0.hexString }
-                        ))
-                        .labelsHidden()
-                    }
-
-                    TextField("Color description", text: $character.eyeColorDescription)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                LabeledContent("Shape") {
-                    Picker("", selection: $character.eyeShape) {
-                        Text("Almond").tag("Almond")
-                        Text("Round").tag("Round")
-                        Text("Hooded").tag("Hooded")
-                        Text("Monolid").tag("Monolid")
-                        Text("Deep-set").tag("Deep-set")
-                        Text("Upturned").tag("Upturned")
-                        Text("Downturned").tag("Downturned")
-                    }
-                    .labelsHidden()
-                    .frame(width: 150)
-                }
-            }
-        }
-    }
-
-    // MARK: - Skin Section
-
-    private var skinSection: some View {
-        GroupBox("Skin") {
-            VStack(spacing: 12) {
-                HStack {
-                    LabeledContent("Tone") {
-                        ColorPicker("", selection: Binding(
-                            get: { Color(hex: character.skinTone) },
-                            set: { character.skinTone = $0.hexString }
-                        ))
-                        .labelsHidden()
-                    }
-
-                    TextField("Skin tone name", text: $character.skinTone)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                }
-
-                LabeledContent("Ethnicity") {
-                    TextField("Ethnic background", text: $character.ethnicity)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                LabeledContent("Facial Structure") {
-                    Picker("", selection: $character.facialStructure) {
-                        Text("Oval").tag("Oval")
-                        Text("Round").tag("Round")
-                        Text("Square").tag("Square")
-                        Text("Heart").tag("Heart")
-                        Text("Oblong").tag("Oblong")
-                        Text("Diamond").tag("Diamond")
-                    }
-                    .labelsHidden()
-                    .frame(width: 150)
-                }
-            }
-        }
-    }
-
-    // MARK: - Distinguishing Features Section
-
-    private var distinguishingFeaturesSection: some View {
-        GroupBox("Distinguishing Features") {
-            TextEditor(text: $character.distinguishingFeatures)
-                .frame(minHeight: 80)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .background(Color(NSColor.textBackgroundColor))
-                .cornerRadius(6)
-        }
-    }
-
     // MARK: - Build Image Prompt
 
     private func buildImagePrompt() -> String {
         var parts: [String] = []
 
-        // Basic info
         parts.append("\(character.gender) character")
         if character.age > 0 {
             parts.append("age \(character.age)")
         }
 
-        // Build
         if !character.build.isEmpty {
             parts.append("\(character.build.lowercased()) build")
         }
 
-        // Hair
         if !character.hairColor.isEmpty && !character.hairStyle.isEmpty {
             parts.append("\(character.hairColor) \(character.hairStyle) hair")
         }
 
-        // Eyes
         if !character.eyeColorDescription.isEmpty {
             parts.append("\(character.eyeColorDescription) eyes")
         }
 
-        // Skin
         if !character.ethnicity.isEmpty {
             parts.append("\(character.ethnicity) ethnicity")
         }
 
-        // Distinguishing features
         if !character.distinguishingFeatures.isEmpty {
             parts.append(character.distinguishingFeatures)
         }
 
         return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Reusable Components
+
+/// Card container for attribute groups
+private struct AttributeCard<Content: View>: View {
+    let title: String
+    let icon: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                    .foregroundColor(.accentColor)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .tracking(1.2)
+            }
+
+            content()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 1)
+        )
+    }
+}
+
+/// Gender selection chip with icon
+private struct GenderChip: View {
+    let label: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? Color.accentColor : Color(nsColor: .quaternarySystemFill))
+            )
+            .foregroundColor(isSelected ? .white : .primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Build type selection chip
+private struct BuildChip: View {
+    let label: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 14))
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? Color.accentColor : Color(nsColor: .quaternarySystemFill))
+            )
+            .foregroundColor(isSelected ? .white : .primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Compact selection chip for options like hair length, eye shape
+private struct CompactChip: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isSelected ? Color.accentColor : Color(nsColor: .quaternarySystemFill))
+                )
+                .foregroundColor(isSelected ? .white : .primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Face shape chip with visual shape indicator
+private struct FaceShapeChip: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    private var shapeIcon: String {
+        switch label {
+        case "Oval": return "oval"
+        case "Round": return "circle"
+        case "Square": return "square"
+        case "Heart": return "heart"
+        case "Oblong": return "rectangle"
+        case "Diamond": return "diamond"
+        default: return "circle"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: shapeIcon)
+                    .font(.system(size: 14))
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? Color.accentColor : Color(nsColor: .quaternarySystemFill))
+            )
+            .foregroundColor(isSelected ? .white : .primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Measurement input with label, unit, icon, and optional slider
+private struct MeasurementField: View {
+    let label: String
+    let unit: String
+    @Binding var value: Double?
+    let icon: String
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 6) {
+                TextField("—", value: $value, format: .number)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .frame(width: 52)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(nsColor: .quaternarySystemFill))
+                    .cornerRadius(8)
+
+                Text(unit)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+
+                Spacer()
+            }
+
+            // Subtle slider
+            Slider(
+                value: Binding(
+                    get: { value ?? range.lowerValue(range) },
+                    set: { value = $0 }
+                ),
+                in: range,
+                step: 1
+            )
+            .controlSize(.mini)
+            .tint(.accentColor.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private extension ClosedRange where Bound == Double {
+    func lowerValue(_ range: ClosedRange<Double>) -> Double {
+        let mid = (range.lowerBound + range.upperBound) / 2
+        return mid
     }
 }
 
@@ -753,7 +1087,6 @@ struct DiscoveredCharacterImages {
                 let lower = filename.lowercased()
                 for pattern in patterns {
                     if lower.contains(pattern.lowercased()) && (lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg")) {
-                        // Return relative path from basePath
                         let relativePath = "assets/characters/\(sanitizedName)/\(folder.lastPathComponent)/\(filename)"
                         return relativePath
                     }

@@ -3,62 +3,421 @@
 //  DirectorsChair-Desktop
 //
 //  Phase 8E: Project Management
-//  Media library and asset management
+//  Media library and asset management — full implementation
 //
 
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
+
+// MARK: - Data Model
+
+enum MediaCategory: String, CaseIterable, Identifiable {
+    case image = "Images"
+    case audio = "Audio"
+    case video = "Video"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .image: return "photo"
+        case .audio: return "waveform"
+        case .video: return "film"
+        }
+    }
+
+    static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "heic", "webp"]
+    static let audioExtensions: Set<String> = ["mp3", "wav", "aiff", "m4a", "flac", "aac", "ogg"]
+    static let videoExtensions: Set<String> = ["mp4", "mov", "avi", "mkv", "m4v", "webm"]
+
+    static func from(extension ext: String) -> MediaCategory? {
+        let lower = ext.lowercased()
+        if imageExtensions.contains(lower) { return .image }
+        if audioExtensions.contains(lower) { return .audio }
+        if videoExtensions.contains(lower) { return .video }
+        return nil
+    }
+}
+
+enum AssetCategory: String, CaseIterable, Identifiable {
+    case characters = "Characters"
+    case scenes = "Scenes"
+    case shots = "Shots"
+    case locations = "Locations"
+    case visionBoard = "Vision Board"
+    case props = "Props"
+    case costumes = "Costumes"
+    case posters = "Posters"
+    case projectIcons = "Project Icons"
+    case dialogueAudio = "Dialogue Audio"
+    case soundEffects = "Sound Effects"
+    case music = "Music"
+    case videoReferences = "Video References"
+    case videoFootage = "Video Footage"
+    case other = "Other"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .characters: return "person.fill"
+        case .scenes: return "film"
+        case .shots: return "camera.fill"
+        case .locations: return "map.fill"
+        case .visionBoard: return "rectangle.3.group.fill"
+        case .props: return "cube.fill"
+        case .costumes: return "tshirt.fill"
+        case .posters: return "rectangle.portrait.fill"
+        case .projectIcons: return "app.fill"
+        case .dialogueAudio: return "person.wave.2.fill"
+        case .soundEffects: return "speaker.wave.3.fill"
+        case .music: return "music.note"
+        case .videoReferences: return "play.rectangle.fill"
+        case .videoFootage: return "video.fill"
+        case .other: return "doc.fill"
+        }
+    }
+
+    var accentColor: Color {
+        switch self {
+        case .characters: return .blue
+        case .scenes: return .purple
+        case .shots: return .orange
+        case .locations: return .green
+        case .visionBoard: return .pink
+        case .props: return .brown
+        case .costumes: return .cyan
+        case .posters: return .red
+        case .projectIcons: return .indigo
+        case .dialogueAudio: return .teal
+        case .soundEffects: return .yellow
+        case .music: return .mint
+        case .videoReferences: return .purple
+        case .videoFootage: return .orange
+        case .other: return .gray
+        }
+    }
+
+    static func from(path: String) -> AssetCategory {
+        let lower = path.lowercased()
+        if lower.contains("assets/icons") || lower.contains("assets/icon") { return .projectIcons }
+        if lower.contains("assets/characters") || lower.contains("characters/") { return .characters }
+        if lower.contains("assets/scenes") || lower.contains("scenes/") { return .scenes }
+        if lower.contains("assets/shots") || lower.contains("shots/") { return .shots }
+        if lower.contains("locations/") { return .locations }
+        if lower.contains("vision_board") || lower.contains("visionboard") || lower.contains("vision board") { return .visionBoard }
+        if lower.contains("props/") { return .props }
+        if lower.contains("costumes/") || lower.contains("wardrobe/") { return .costumes }
+        if lower.contains("posters/") || lower.contains("poster") { return .posters }
+        if lower.contains("audio/dialogue") || lower.contains("dialogue/") { return .dialogueAudio }
+        if lower.contains("audio/sfx") || lower.contains("sfx/") || lower.contains("sound_effects") { return .soundEffects }
+        if lower.contains("audio/music") || lower.contains("music/") || lower.contains("soundtrack") { return .music }
+        if lower.contains("video/references") || lower.contains("references/") { return .videoReferences }
+        if lower.contains("video/footage") || lower.contains("footage/") { return .videoFootage }
+        return .other
+    }
+}
+
+struct DiscoveredAsset: Identifiable, Hashable {
+    let id: UUID
+    let fileName: String
+    let relativePath: String
+    let fullURL: URL
+    let fileExtension: String
+    let mediaType: MediaCategory
+    let fileSize: Int64
+    let modificationDate: Date?
+    let category: AssetCategory
+    let contextLabel: String
+
+    init(fileName: String, relativePath: String, fullURL: URL, fileExtension: String, mediaType: MediaCategory, fileSize: Int64, modificationDate: Date?, category: AssetCategory, contextLabel: String) {
+        self.id = UUID()
+        self.fileName = fileName
+        self.relativePath = relativePath
+        self.fullURL = fullURL
+        self.fileExtension = fileExtension
+        self.mediaType = mediaType
+        self.fileSize = fileSize
+        self.modificationDate = modificationDate
+        self.category = category
+        self.contextLabel = contextLabel
+    }
+
+    var formattedSize: String {
+        ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+    }
+
+    static func == (lhs: DiscoveredAsset, rhs: DiscoveredAsset) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+}
+
+// MARK: - Asset Scanner
+
+@MainActor
+final class AssetScanner: ObservableObject {
+    @Published var assets: [DiscoveredAsset] = []
+    @Published var isScanning = false
+
+    private static let skipDirectories: Set<String> = [
+        ".build", ".git", ".backups", ".swiftpm", "xcuserdata",
+        "ModuleCache", "DerivedData", "build", ".Trash", "node_modules"
+    ]
+
+    var imageCount: Int { assets.filter { $0.mediaType == .image }.count }
+    var audioCount: Int { assets.filter { $0.mediaType == .audio }.count }
+    var videoCount: Int { assets.filter { $0.mediaType == .video }.count }
+
+    func scan(projectURL: URL) {
+        guard !isScanning else { return }
+        isScanning = true
+        assets = []
+
+        let skipDirs = Self.skipDirectories
+        Task.detached(priority: .userInitiated) {
+            var discovered: [DiscoveredAsset] = []
+
+            let projectDir = projectURL.deletingLastPathComponent()
+            let fm = FileManager.default
+            let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isHiddenKey]
+
+            guard let enumerator = fm.enumerator(
+                at: projectDir,
+                includingPropertiesForKeys: keys,
+                options: [.skipsPackageDescendants]
+            ) else {
+                await MainActor.run {
+                    self.isScanning = false
+                }
+                return
+            }
+
+            for case let fileURL as URL in enumerator {
+                let fileName = fileURL.lastPathComponent
+
+                // Skip hidden files
+                if fileName.hasPrefix(".") {
+                    if (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                        enumerator.skipDescendants()
+                    }
+                    continue
+                }
+
+                // Skip known build/cache directories
+                if skipDirs.contains(fileName) {
+                    enumerator.skipDescendants()
+                    continue
+                }
+
+                // Check if directory
+                if let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey]),
+                   values.isDirectory == true {
+                    continue
+                }
+
+                // Check extension
+                let ext = fileURL.pathExtension.lowercased()
+                guard let mediaType = MediaCategory.from(extension: ext) else { continue }
+
+                // Get file attributes
+                let resourceValues = try? fileURL.resourceValues(forKeys: Set(keys))
+                let fileSize = Int64(resourceValues?.fileSize ?? 0)
+                let modDate = resourceValues?.contentModificationDate
+
+                // Compute relative path
+                let relativePath = fileURL.path.replacingOccurrences(of: projectDir.path + "/", with: "")
+
+                // Determine category from path
+                let category = AssetCategory.from(path: relativePath)
+
+                // Extract context label from parent folder
+                let parentDir = fileURL.deletingLastPathComponent().lastPathComponent
+                let contextLabel = parentDir == projectDir.lastPathComponent ? "" : parentDir
+
+                discovered.append(DiscoveredAsset(
+                    fileName: fileName,
+                    relativePath: relativePath,
+                    fullURL: fileURL,
+                    fileExtension: ext,
+                    mediaType: mediaType,
+                    fileSize: fileSize,
+                    modificationDate: modDate,
+                    category: category,
+                    contextLabel: contextLabel
+                ))
+            }
+
+            // Sort by category order then filename
+            discovered.sort { a, b in
+                if a.category != b.category {
+                    let aIdx = AssetCategory.allCases.firstIndex(of: a.category) ?? 0
+                    let bIdx = AssetCategory.allCases.firstIndex(of: b.category) ?? 0
+                    return aIdx < bIdx
+                }
+                return a.fileName.localizedCaseInsensitiveCompare(b.fileName) == .orderedAscending
+            }
+
+            await MainActor.run {
+                self.assets = discovered
+                self.isScanning = false
+            }
+        }
+    }
+}
+
+// MARK: - Thumbnail Cache
+
+final class AssetThumbnailCache {
+    static let shared = AssetThumbnailCache()
+    private let cache = NSCache<NSURL, NSImage>()
+
+    private init() {
+        cache.countLimit = 500
+    }
+
+    func thumbnail(for url: URL) -> NSImage? {
+        cache.object(forKey: url as NSURL)
+    }
+
+    func setThumbnail(_ image: NSImage, for url: URL) {
+        cache.setObject(image, forKey: url as NSURL)
+    }
+
+    static func generateThumbnail(for url: URL, maxSize: CGFloat = 200) async -> NSImage? {
+        if let cached = shared.thumbnail(for: url) {
+            return cached
+        }
+
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .utility) {
+                guard let image = NSImage(contentsOf: url) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let size = image.size
+                let scale = min(maxSize / size.width, maxSize / size.height, 1.0)
+                let newSize = NSSize(width: size.width * scale, height: size.height * scale)
+
+                let thumbnail = NSImage(size: newSize)
+                thumbnail.lockFocus()
+                image.draw(in: NSRect(origin: .zero, size: newSize),
+                           from: NSRect(origin: .zero, size: size),
+                           operation: .copy,
+                           fraction: 1.0)
+                thumbnail.unlockFocus()
+
+                await MainActor.run {
+                    shared.setThumbnail(thumbnail, for: url)
+                }
+
+                continuation.resume(returning: thumbnail)
+            }
+        }
+    }
+}
+
+// MARK: - Main View
 
 struct AssetsView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
 
-    @State private var selectedAssetType: AssetType = .all
+    @StateObject private var scanner = AssetScanner()
     @State private var searchText = ""
+    @State private var selectedMediaFilter: MediaCategory? = nil
+    @State private var viewMode: ViewMode = .sections
+    @State private var selectedAsset: DiscoveredAsset? = nil
+
+    enum ViewMode: String {
+        case sections = "Sections"
+        case grid = "Grid"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Toolbar
-            AssetsToolbar(
-                searchText: $searchText,
-                selectedType: $selectedAssetType
-            )
+            assetsToolbar
 
             Divider()
 
-            // Asset Grid
-            ScrollView {
-                if assets.isEmpty {
-                    EmptyAssetsView()
-                } else {
-                    LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 16)
-                    ], spacing: 16) {
-                        ForEach(assets, id: \.self) { asset in
-                            AssetCard(asset: asset)
-                        }
-                    }
-                    .padding()
+            // Stats bar
+            if !scanner.assets.isEmpty {
+                assetsStatsBar
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+            }
+
+            // Content
+            if scanner.isScanning {
+                scanningView
+            } else if filteredAssets.isEmpty {
+                emptyStateView
+            } else {
+                switch viewMode {
+                case .sections:
+                    sectionView
+                case .grid:
+                    gridView
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+        .onAppear {
+            startScan()
+        }
+        .sheet(item: $selectedAsset) { asset in
+            AssetDetailSheet(asset: asset)
+        }
     }
 
-    private var assets: [String] {
-        // TODO: Implement actual asset management
-        // For now, return empty list
-        []
+    // MARK: - Filtering
+
+    private var filteredAssets: [DiscoveredAsset] {
+        var result = scanner.assets
+
+        if let filter = selectedMediaFilter {
+            result = result.filter { $0.mediaType == filter }
+        }
+
+        if !searchText.isEmpty {
+            let query = searchText.lowercased()
+            result = result.filter {
+                $0.fileName.lowercased().contains(query) ||
+                $0.relativePath.lowercased().contains(query) ||
+                $0.contextLabel.lowercased().contains(query) ||
+                $0.category.rawValue.lowercased().contains(query)
+            }
+        }
+
+        return result
     }
-}
 
-// MARK: - Assets Toolbar
+    private var groupedAssets: [(AssetCategory, [DiscoveredAsset])] {
+        let grouped = Dictionary(grouping: filteredAssets) { $0.category }
+        return AssetCategory.allCases
+            .compactMap { cat in
+                guard let items = grouped[cat], !items.isEmpty else { return nil }
+                return (cat, items)
+            }
+    }
 
-struct AssetsToolbar: View {
-    @Binding var searchText: String
-    @Binding var selectedType: AssetType
+    // MARK: - Scan
 
-    var body: some View {
+    private func startScan() {
+        if let path = projectViewModel.projectPath {
+            scanner.scan(projectURL: path)
+        }
+    }
+
+    // MARK: - Toolbar
+
+    private var assetsToolbar: some View {
         HStack(spacing: 12) {
             // Search field
             HStack {
@@ -68,9 +427,7 @@ struct AssetsToolbar: View {
                     .textFieldStyle(.plain)
 
                 if !searchText.isEmpty {
-                    Button(action: {
-                        searchText = ""
-                    }) {
+                    Button(action: { searchText = "" }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                     }
@@ -81,78 +438,120 @@ struct AssetsToolbar: View {
             .background(Color(nsColor: .controlBackgroundColor))
             .cornerRadius(8)
 
-            // Asset type filter
-            Picker("Type", selection: $selectedType) {
-                ForEach(AssetType.allCases) { type in
-                    Text(type.rawValue).tag(type)
-                }
+            // Type filter
+            HStack(spacing: 4) {
+                filterButton(label: "All", count: scanner.assets.count, mediaType: nil)
+                filterButton(label: "Images", count: scanner.imageCount, mediaType: .image)
+                filterButton(label: "Audio", count: scanner.audioCount, mediaType: .audio)
+                filterButton(label: "Video", count: scanner.videoCount, mediaType: .video)
             }
-            .pickerStyle(.segmented)
-            .frame(width: 400)
 
             Spacer()
 
-            // Add asset button
-            Button(action: {
-                // TODO: Implement add asset
-            }) {
-                Label("Add Asset", systemImage: "plus")
+            // View mode toggle
+            Picker("", selection: $viewMode) {
+                Image(systemName: "rectangle.split.2x2")
+                    .tag(ViewMode.sections)
+                Image(systemName: "square.grid.3x3")
+                    .tag(ViewMode.grid)
             }
-            .buttonStyle(.borderedProminent)
+            .pickerStyle(.segmented)
+            .frame(width: 80)
+
+            // Rescan button
+            Button(action: { startScan() }) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(scanner.isScanning)
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
-}
 
-// MARK: - Asset Card
-
-struct AssetCard: View {
-    let asset: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            // Asset preview
-            Rectangle()
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .aspectRatio(16/9, contentMode: .fit)
-                .overlay(
-                    Image(systemName: "photo")
-                        .font(.system(size: 32))
-                        .foregroundColor(.secondary)
-                )
-                .cornerRadius(8)
-
-            // Asset name
-            Text(asset)
-                .font(.caption)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
+    private func filterButton(label: String, count: Int, mediaType: MediaCategory?) -> some View {
+        Button(action: { selectedMediaFilter = mediaType }) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule().fill(selectedMediaFilter == mediaType
+                            ? Color.white.opacity(0.3)
+                            : Color(nsColor: .separatorColor).opacity(0.3))
+                    )
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(selectedMediaFilter == mediaType
+                        ? Color.accentColor
+                        : Color(nsColor: .controlBackgroundColor))
+            )
+            .foregroundColor(selectedMediaFilter == mediaType ? .white : .primary)
         }
+        .buttonStyle(.plain)
     }
-}
 
-// MARK: - Empty State
+    // MARK: - Stats Bar
 
-struct EmptyAssetsView: View {
-    var body: some View {
+    private var assetsStatsBar: some View {
+        HStack(spacing: 0) {
+            StatPill(icon: "folder.fill", label: "Total", value: scanner.assets.count)
+            AssetStatDivider()
+            StatPill(icon: "photo", label: "Images", value: scanner.imageCount)
+            AssetStatDivider()
+            StatPill(icon: "waveform", label: "Audio", value: scanner.audioCount)
+            AssetStatDivider()
+            StatPill(icon: "film", label: "Video", value: scanner.videoCount)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 20)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Scanning View
+
+    private var scanningView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "photo.on.rectangle")
+            ProgressView()
+                .scaleEffect(1.5)
+            Text("Scanning project for media assets...")
+                .font(.body)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
 
-            Text("No Assets")
+            Text("No Media Assets Found")
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Add images, videos, and audio files to your project")
+            Text("Add images, audio, or video files to your project directory.\nOrganize them in folders like assets/characters, audio/music, etc.")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
 
-            Button(action: {
-                // TODO: Implement add asset
-            }) {
-                Label("Add Asset", systemImage: "plus")
+            Button(action: { startScan() }) {
+                Label("Rescan Project", systemImage: "arrow.clockwise")
             }
             .buttonStyle(.borderedProminent)
             .padding(.top, 8)
@@ -160,18 +559,591 @@ struct EmptyAssetsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }
+
+    // MARK: - Section View
+
+    private var sectionView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 28) {
+                ForEach(groupedAssets, id: \.0) { category, assets in
+                    AssetSectionView(
+                        category: category,
+                        assets: assets,
+                        onSelect: { selectedAsset = $0 }
+                    )
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+    }
+
+    // MARK: - Grid View
+
+    private var gridView: some View {
+        ScrollView {
+            LazyVGrid(columns: [
+                GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 16)
+            ], spacing: 16) {
+                ForEach(filteredAssets) { asset in
+                    AssetCardView(asset: asset)
+                        .onTapGesture { selectedAsset = asset }
+                }
+            }
+            .padding(24)
+        }
+    }
 }
 
-// MARK: - Asset Type
+// MARK: - Section View
 
-enum AssetType: String, CaseIterable, Identifiable {
-    case all = "All"
-    case images = "Images"
-    case videos = "Videos"
-    case audio = "Audio"
-    case documents = "Documents"
+private struct AssetSectionView: View {
+    let category: AssetCategory
+    let assets: [DiscoveredAsset]
+    let onSelect: (DiscoveredAsset) -> Void
 
-    var id: String { rawValue }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section header
+            HStack(spacing: 8) {
+                Image(systemName: category.icon)
+                    .font(.system(size: 13))
+                    .foregroundColor(category.accentColor)
+
+                Text(category.rawValue.uppercased())
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .tracking(1.2)
+
+                Text("\(assets.count)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(category.accentColor.opacity(0.8)))
+            }
+
+            // Horizontal scroll of cards
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 14) {
+                    ForEach(assets) { asset in
+                        AssetCardView(asset: asset)
+                            .onTapGesture { onSelect(asset) }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+}
+
+// MARK: - Asset Card
+
+private struct AssetCardView: View {
+    let asset: DiscoveredAsset
+    @State private var isHovered = false
+    @State private var thumbnail: NSImage? = nil
+
+    var body: some View {
+        Group {
+            switch asset.mediaType {
+            case .image:
+                imageCard
+            case .audio:
+                audioCard
+            case .video:
+                videoCard
+            }
+        }
+        .scaleEffect(isHovered ? 1.03 : 1.0)
+        .shadow(color: .black.opacity(isHovered ? 0.25 : 0.1), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .onHover { isHovered = $0 }
+        .help(asset.relativePath)
+        .contextMenu {
+            Button(action: { saveToDownloads(asset: asset) }) {
+                Label("Save to Downloads", systemImage: "arrow.down.circle")
+            }
+            Button(action: { saveAs(asset: asset) }) {
+                Label("Save As...", systemImage: "square.and.arrow.down")
+            }
+            Divider()
+            Button(action: { revealInFinder(asset: asset) }) {
+                Label("Reveal in Finder", systemImage: "folder")
+            }
+            Button(action: { NSWorkspace.shared.open(asset.fullURL) }) {
+                Label("Open with Default App", systemImage: "arrow.up.right.square")
+            }
+            Divider()
+            Button(action: { copyPath(asset: asset) }) {
+                Label("Copy File Path", systemImage: "doc.on.doc")
+            }
+        }
+    }
+
+    // MARK: Image Card
+
+    private var imageCard: some View {
+        ZStack(alignment: .bottomLeading) {
+            // Thumbnail
+            Group {
+                if let thumb = thumbnail {
+                    Image(nsImage: thumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Rectangle()
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .overlay(
+                            Image(systemName: "photo")
+                                .font(.system(size: 28))
+                                .foregroundColor(.secondary)
+                        )
+                }
+            }
+            .frame(width: 160, height: 140)
+            .clipped()
+
+            // Gradient overlay
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.7)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 60)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+
+            // Label
+            VStack(alignment: .leading, spacing: 2) {
+                if !asset.contextLabel.isEmpty {
+                    Text(asset.contextLabel)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(asset.category.accentColor)
+                        .textCase(.uppercase)
+                }
+                Text(asset.fileName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+            }
+            .padding(8)
+        }
+        .frame(width: 160, height: 140)
+        .cornerRadius(10)
+        .task {
+            thumbnail = await AssetThumbnailCache.generateThumbnail(for: asset.fullURL)
+        }
+    }
+
+    // MARK: Audio Card
+
+    private var audioCard: some View {
+        VStack(spacing: 0) {
+            // Icon area
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [asset.category.accentColor.opacity(0.3), Color(nsColor: .controlBackgroundColor)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(height: 70)
+                .overlay(
+                    VStack(spacing: 6) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 24))
+                            .foregroundColor(asset.category.accentColor)
+                        Text(asset.fileExtension.uppercased())
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                )
+
+            // Info area
+            VStack(alignment: .leading, spacing: 4) {
+                Text(asset.fileName)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                HStack {
+                    Text(asset.formattedSize)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if !asset.contextLabel.isEmpty {
+                        Text(asset.contextLabel)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(asset.category.accentColor)
+                    }
+                }
+            }
+            .padding(8)
+        }
+        .frame(width: 160, height: 120)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(10)
+    }
+
+    // MARK: Video Card
+
+    private var videoCard: some View {
+        VStack(spacing: 0) {
+            // Icon area with play badge
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [asset.category.accentColor.opacity(0.3), Color(nsColor: .controlBackgroundColor)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(height: 70)
+                .overlay(
+                    ZStack {
+                        Image(systemName: "film")
+                            .font(.system(size: 24))
+                            .foregroundColor(asset.category.accentColor)
+
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                            .offset(x: 20, y: 14)
+                    }
+                )
+
+            // Info area
+            VStack(alignment: .leading, spacing: 4) {
+                Text(asset.fileName)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                HStack {
+                    Text(asset.formattedSize)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if !asset.contextLabel.isEmpty {
+                        Text(asset.contextLabel)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(asset.category.accentColor)
+                    }
+                }
+            }
+            .padding(8)
+        }
+        .frame(width: 160, height: 120)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(10)
+    }
+
+    // MARK: - Context Menu Actions
+
+    private func saveToDownloads(asset: DiscoveredAsset) {
+        guard let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+        let destURL = uniqueDestination(for: asset.fileName, in: downloadsURL)
+        do {
+            try FileManager.default.copyItem(at: asset.fullURL, to: destURL)
+            NSWorkspace.shared.activateFileViewerSelecting([destURL])
+        } catch {
+            debugLog("Failed to save asset to Downloads: \(error)")
+        }
+    }
+
+    private func saveAs(asset: DiscoveredAsset) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = asset.fileName
+        panel.canCreateDirectories = true
+        if let contentType = UTType(filenameExtension: asset.fileExtension) {
+            panel.allowedContentTypes = [contentType]
+        }
+        panel.begin { response in
+            guard response == .OK, let destURL = panel.url else { return }
+            do {
+                if FileManager.default.fileExists(atPath: destURL.path) {
+                    try FileManager.default.removeItem(at: destURL)
+                }
+                try FileManager.default.copyItem(at: asset.fullURL, to: destURL)
+            } catch {
+                debugLog("Failed to save asset: \(error)")
+            }
+        }
+    }
+
+    private func revealInFinder(asset: DiscoveredAsset) {
+        NSWorkspace.shared.activateFileViewerSelecting([asset.fullURL])
+    }
+
+    private func copyPath(asset: DiscoveredAsset) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(asset.fullURL.path, forType: .string)
+    }
+
+    private func uniqueDestination(for fileName: String, in directory: URL) -> URL {
+        let base = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+        var dest = directory.appendingPathComponent(fileName)
+        var counter = 1
+        while FileManager.default.fileExists(atPath: dest.path) {
+            let newName = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
+            dest = directory.appendingPathComponent(newName)
+            counter += 1
+        }
+        return dest
+    }
+}
+
+// MARK: - Stats Components
+
+private struct StatPill: View {
+    let icon: String
+    let label: String
+    let value: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            Text("\(value)")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct AssetStatDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor).opacity(0.4))
+            .frame(width: 1, height: 28)
+    }
+}
+
+// MARK: - Detail Sheet
+
+struct AssetDetailSheet: View {
+    let asset: DiscoveredAsset
+    @State private var thumbnail: NSImage? = nil
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: asset.category.icon)
+                    .foregroundColor(asset.category.accentColor)
+                Text(asset.fileName)
+                    .font(.headline)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Preview
+                    previewArea
+                        .frame(maxHeight: 300)
+
+                    // File info
+                    fileInfoSection
+
+                    // Actions
+                    actionsSection
+                }
+                .padding(24)
+            }
+        }
+        .frame(width: 480, height: 560)
+        .task {
+            if asset.mediaType == .image {
+                thumbnail = await AssetThumbnailCache.generateThumbnail(for: asset.fullURL, maxSize: 400)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var previewArea: some View {
+        switch asset.mediaType {
+        case .image:
+            if let thumb = thumbnail {
+                Image(nsImage: thumb)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .cornerRadius(8)
+            } else {
+                ProgressView()
+                    .frame(height: 200)
+            }
+        case .audio:
+            VStack(spacing: 12) {
+                Image(systemName: "waveform.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(asset.category.accentColor)
+                Text(asset.fileExtension.uppercased())
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .frame(height: 150)
+        case .video:
+            VStack(spacing: 12) {
+                ZStack {
+                    Image(systemName: "film")
+                        .font(.system(size: 64))
+                        .foregroundColor(asset.category.accentColor)
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.white)
+                        .offset(x: 28, y: 20)
+                }
+                Text(asset.fileExtension.uppercased())
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .frame(height: 150)
+        }
+    }
+
+    private var fileInfoSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("FILE INFO")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(1.2)
+
+            infoRow(label: "Name", value: asset.fileName)
+            infoRow(label: "Type", value: asset.mediaType.rawValue)
+            infoRow(label: "Category", value: asset.category.rawValue)
+            infoRow(label: "Extension", value: asset.fileExtension.uppercased())
+            infoRow(label: "Size", value: asset.formattedSize)
+            infoRow(label: "Path", value: asset.relativePath)
+            if let date = asset.modificationDate {
+                infoRow(label: "Modified", value: date.formatted(date: .abbreviated, time: .shortened))
+            }
+            if !asset.contextLabel.isEmpty {
+                infoRow(label: "Context", value: asset.contextLabel)
+            }
+        }
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(10)
+    }
+
+    private func infoRow(label: String, value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.secondary)
+                .frame(width: 70, alignment: .trailing)
+            Text(value)
+                .font(.system(size: 12))
+                .textSelection(.enabled)
+            Spacer()
+        }
+    }
+
+    private var actionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Button(action: saveToDownloads) {
+                    Label("Save to Downloads", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button(action: saveAs) {
+                    Label("Save As...", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+
+            HStack(spacing: 12) {
+                Button(action: revealInFinder) {
+                    Label("Reveal in Finder", systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: openWithDefault) {
+                    Label("Open", systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: copyPath) {
+                    Label("Copy Path", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+        }
+    }
+
+    private func saveToDownloads() {
+        guard let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+        let destURL = uniqueDestination(for: asset.fileName, in: downloadsURL)
+        do {
+            try FileManager.default.copyItem(at: asset.fullURL, to: destURL)
+            NSWorkspace.shared.activateFileViewerSelecting([destURL])
+        } catch {
+            debugLog("Failed to save asset to Downloads: \(error)")
+        }
+    }
+
+    private func saveAs() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = asset.fileName
+        panel.canCreateDirectories = true
+        if let contentType = UTType(filenameExtension: asset.fileExtension) {
+            panel.allowedContentTypes = [contentType]
+        }
+        panel.begin { response in
+            guard response == .OK, let destURL = panel.url else { return }
+            do {
+                if FileManager.default.fileExists(atPath: destURL.path) {
+                    try FileManager.default.removeItem(at: destURL)
+                }
+                try FileManager.default.copyItem(at: asset.fullURL, to: destURL)
+            } catch {
+                debugLog("Failed to save asset: \(error)")
+            }
+        }
+    }
+
+    private func revealInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([asset.fullURL])
+    }
+
+    private func openWithDefault() {
+        NSWorkspace.shared.open(asset.fullURL)
+    }
+
+    private func copyPath() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(asset.fullURL.path, forType: .string)
+    }
+
+    private func uniqueDestination(for fileName: String, in directory: URL) -> URL {
+        let base = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+        var dest = directory.appendingPathComponent(fileName)
+        var counter = 1
+        while FileManager.default.fileExists(atPath: dest.path) {
+            let newName = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
+            dest = directory.appendingPathComponent(newName)
+            counter += 1
+        }
+        return dest
+    }
 }
 
 // MARK: - Preview
