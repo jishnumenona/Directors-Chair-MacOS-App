@@ -37,6 +37,7 @@ public struct BubbleView: View {
     @State private var sortRefreshTrigger = UUID()
     @State private var newlyAddedItemId: String? = nil  // Track newly added items for auto-edit
     @State private var dropTargetDialogueId: String? = nil  // Track which dialogue is being targeted for drop
+    @State private var leftAlignedOverrides: Set<String> = []  // Character names with flipped alignment
 
     // Highlight state for cross-view synchronization
     @State private var scrollToItemId: String? = nil
@@ -204,6 +205,8 @@ public struct BubbleView: View {
             if let targetScene = findScene(containing: highlighted.id, ofType: highlighted.type) {
                 if selectedScene?.id != targetScene.id {
                     selectedScene = targetScene
+                    leftAlignedOverrides.removeAll()
+                    rebuildBubbleCache(for: targetScene)
                 }
             }
 
@@ -219,11 +222,14 @@ public struct BubbleView: View {
             for sequence in project.sequences {
                 if let targetScene = sequence.scenes.first(where: { $0.name == sceneName }) {
                     selectedScene = targetScene
+                    leftAlignedOverrides.removeAll()
+                    rebuildBubbleCache(for: targetScene)
                     return
                 }
             }
         }
         .onChange(of: selectedScene?.id) { _ in
+            leftAlignedOverrides.removeAll()
             if let scene = selectedScene {
                 rebuildBubbleCache(for: scene)
             }
@@ -440,6 +446,23 @@ public struct BubbleView: View {
         }
     }
 
+    /// Context menu for the connector area between sub-bubbles
+    @ViewBuilder
+    private func connectedItemsContextMenu(for dialogue: Dialogue) -> some View {
+        Button("Add Action") {
+            addConnectedAction(to: dialogue)
+        }
+        Button("Add Narration") {
+            addConnectedNarration(to: dialogue)
+        }
+        Button("Add Note") {
+            addConnectedNote(to: dialogue)
+        }
+        Button("Add Sound Note") {
+            addConnectedSoundNote(to: dialogue)
+        }
+    }
+
     // MARK: - Item Views
 
     /// Check if an item should be highlighted based on the external highlight request
@@ -477,12 +500,22 @@ public struct BubbleView: View {
         }
     }
 
+    // MARK: - Alignment Helper
+
+    /// Determines effective left-alignment for a character using XOR logic:
+    /// primary defaults left, override flips it; non-primary defaults right, override flips it
+    private func isLeftAligned(_ characterName: String, in scene: DCScene) -> Bool {
+        let isPrimary = scene.primaryCharacter == characterName
+        let isOverridden = leftAlignedOverrides.contains(characterName)
+        return isPrimary != isOverridden
+    }
+
     // MARK: - Dialogue View with Drop Target and Sub-Bubbles
 
     @ViewBuilder
     private func dialogueItemView(dialogue: Dialogue, scene: DCScene, isHighlighted: Bool = false) -> some View {
         let character = cachedCharacterMap[dialogue.character]
-        let isPrimary = scene.primaryCharacter == dialogue.character
+        let isPrimary = isLeftAligned(dialogue.character, in: scene)
         let connectedItems = cachedConnectedItems[dialogue.id] ?? []
         let isDropTarget = dropTargetDialogueId == dialogue.id
 
@@ -515,7 +548,19 @@ public struct BubbleView: View {
                     onChronologyChanged: { newIndex in
                         reorderItems(movingItemId: dialogue.id, oldIndex: dialogue.chronologyNumber, newIndex: newIndex)
                     },
-                    onEditModeStarted: { newlyAddedItemId = nil }
+                    onEditModeStarted: { newlyAddedItemId = nil },
+                    alignmentLabel: isPrimary ? "Move \(dialogue.character) to Right" : "Move \(dialogue.character) to Left",
+                    onToggleAlignment: {
+                        if leftAlignedOverrides.contains(dialogue.character) {
+                            leftAlignedOverrides.remove(dialogue.character)
+                        } else {
+                            leftAlignedOverrides.insert(dialogue.character)
+                        }
+                    },
+                    onAddConnectedAction: { addConnectedAction(to: dialogue) },
+                    onAddConnectedNarration: { addConnectedNarration(to: dialogue) },
+                    onAddConnectedNote: { addConnectedNote(to: dialogue) },
+                    onAddConnectedSoundNote: { addConnectedSoundNote(to: dialogue) }
                 )
                 .modifier(HighlightModifier(isHighlighted: isHighlighted))
                 .overlay(
@@ -578,6 +623,9 @@ public struct BubbleView: View {
                     }
                     .padding(.leading, isPrimary ? 50 : 0)  // Align with bubble content area
                     .padding(.trailing, isPrimary ? 0 : 50)
+                    .contextMenu {
+                        connectedItemsContextMenu(for: dialogue)
+                    }
                 }
             }
 
@@ -1286,6 +1334,152 @@ public struct BubbleView: View {
             project.sequences[seqIndex].scenes[sceneIndex].soundNotes.append(newSoundNote)
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
             newlyAddedItemId = newSoundNote.id
+            sortRefreshTrigger = UUID()
+            onContentChanged?()
+        }
+    }
+
+    // MARK: - Add Connected Items (directly to a dialogue)
+
+    private func addConnectedAction(to dialogue: Dialogue) {
+        guard let scene = selectedScene else { return }
+
+        let maxChronology = max(
+            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
+            scene.actions.map(\.chronologyNumber).max() ?? 0,
+            scene.narrations.map(\.chronologyNumber).max() ?? 0,
+            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
+            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
+        )
+
+        let newAction = Action(
+            uuid: UUID().uuidString,
+            description: "",
+            tags: [],
+            costumes: [],
+            effects: [],
+            color: "",
+            textColor: "",
+            chronologyNumber: maxChronology + 1,
+            globalChronologyNumber: maxChronology + 1,
+            characters: [],
+            parentDialogueId: dialogue.id
+        )
+
+        if let seqIndex = project.sequences.firstIndex(where: { seq in
+            seq.scenes.contains { $0.id == scene.id }
+        }),
+           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+
+            project.sequences[seqIndex].scenes[sceneIndex].actions.append(newAction)
+            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            newlyAddedItemId = newAction.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            sortRefreshTrigger = UUID()
+            onContentChanged?()
+        }
+    }
+
+    private func addConnectedNarration(to dialogue: Dialogue) {
+        guard let scene = selectedScene else { return }
+
+        let maxChronology = max(
+            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
+            scene.actions.map(\.chronologyNumber).max() ?? 0,
+            scene.narrations.map(\.chronologyNumber).max() ?? 0,
+            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
+            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
+        )
+
+        let newNarration = Narration(
+            uuid: UUID().uuidString,
+            text: "",
+            tags: [],
+            costumes: [],
+            effects: [],
+            color: "",
+            textColor: "",
+            chronologyNumber: maxChronology + 1,
+            globalChronologyNumber: maxChronology + 1,
+            characters: [],
+            parentDialogueId: dialogue.id
+        )
+
+        if let seqIndex = project.sequences.firstIndex(where: { seq in
+            seq.scenes.contains { $0.id == scene.id }
+        }),
+           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+
+            project.sequences[seqIndex].scenes[sceneIndex].narrations.append(newNarration)
+            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            newlyAddedItemId = newNarration.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            sortRefreshTrigger = UUID()
+            onContentChanged?()
+        }
+    }
+
+    private func addConnectedNote(to dialogue: Dialogue) {
+        guard let scene = selectedScene else { return }
+
+        let maxChronology = max(
+            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
+            scene.actions.map(\.chronologyNumber).max() ?? 0,
+            scene.narrations.map(\.chronologyNumber).max() ?? 0,
+            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
+            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
+        )
+
+        let newNote = Note(
+            uuid: UUID().uuidString,
+            content: "",
+            noteType: "text",
+            chronologyNumber: maxChronology + 1,
+            parentDialogueId: dialogue.id
+        )
+
+        if let seqIndex = project.sequences.firstIndex(where: { seq in
+            seq.scenes.contains { $0.id == scene.id }
+        }),
+           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+
+            project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.append(newNote)
+            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            newlyAddedItemId = newNote.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            sortRefreshTrigger = UUID()
+            onContentChanged?()
+        }
+    }
+
+    private func addConnectedSoundNote(to dialogue: Dialogue) {
+        guard let scene = selectedScene else { return }
+
+        let maxChronology = max(
+            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
+            scene.actions.map(\.chronologyNumber).max() ?? 0,
+            scene.narrations.map(\.chronologyNumber).max() ?? 0,
+            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
+            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
+        )
+
+        let newSoundNote = SoundNote(
+            uuid: UUID().uuidString,
+            description: "",
+            soundType: "ambient",
+            chronologyNumber: maxChronology + 1,
+            parentDialogueId: dialogue.id
+        )
+
+        if let seqIndex = project.sequences.firstIndex(where: { seq in
+            seq.scenes.contains { $0.id == scene.id }
+        }),
+           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+
+            project.sequences[seqIndex].scenes[sceneIndex].soundNotes.append(newSoundNote)
+            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            newlyAddedItemId = newSoundNote.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
             onContentChanged?()
         }

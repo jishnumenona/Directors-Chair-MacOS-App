@@ -28,6 +28,9 @@ public struct TimelineView: View {
     /// Callback when a shot label is dragged to a new time (shotId, sceneName, newTime)
     public var onShotLabelMoved: ((Int, String, CGFloat) -> Void)?
 
+    /// Callback when a shot label is resized to a new duration (shotId, sceneName, newDuration)
+    public var onShotLabelResized: ((Int, String, CGFloat) -> Void)?
+
     /// Callback when a segment is dragged to a new time (segment, newStartTime)
     public var onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)?
 
@@ -43,6 +46,7 @@ public struct TimelineView: View {
         onSegmentDoubleClicked: ((TimelineSegment) -> Void)? = nil,
         onShotLabelDoubleClicked: ((Int, String) -> Void)? = nil,
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
+        onShotLabelResized: ((Int, String, CGFloat) -> Void)? = nil,
         onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)? = nil,
         onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)? = nil
     ) {
@@ -52,6 +56,7 @@ public struct TimelineView: View {
         self.onSegmentDoubleClicked = onSegmentDoubleClicked
         self.onShotLabelDoubleClicked = onShotLabelDoubleClicked
         self.onShotLabelMoved = onShotLabelMoved
+        self.onShotLabelResized = onShotLabelResized
         self.onSegmentMoved = onSegmentMoved
         self.onSegmentsMoved = onSegmentsMoved
     }
@@ -97,6 +102,10 @@ public struct TimelineView: View {
                                 shotLaneSubLaneCount: viewModel.shotLaneSubLaneCount,
                                 shotDialogueConnections: viewModel.shotDialogueConnections,
                                 showShotConnections: viewModel.showShotConnections,
+                                playheadTime: viewModel.playheadTime,
+                                playheadActive: viewModel.playheadActive,
+                                userMarkers: viewModel.showUserMarkers ? viewModel.userMarkers : [],
+                                projectBasePath: projectBasePath,
                                 onShotLabelDoubleClicked: { shotId, sceneName in
                                     onShotLabelDoubleClicked?(shotId, sceneName)
                                 },
@@ -106,6 +115,34 @@ public struct TimelineView: View {
                                 },
                                 onShotLabelSelected: { labelId in
                                     viewModel.selectedShotLabelId = labelId
+                                },
+                                onShotTrackToggled: {
+                                    viewModel.showShotLabels.toggle()
+                                },
+                                onShotLabelResized: { shotId, sceneName, newDuration in
+                                    viewModel.resizeShotLabel(shotId: shotId, sceneName: sceneName, newDuration: newDuration)
+                                    onShotLabelResized?(shotId, sceneName, newDuration)
+                                },
+                                onSceneBoundaryMoved: { name, newTime in
+                                    viewModel.moveSceneBoundary(name: name, newTime: newTime)
+                                },
+                                onSequenceBoundaryMoved: { name, newTime in
+                                    viewModel.moveSequenceBoundary(name: name, newTime: newTime)
+                                },
+                                onRulerClicked: { x in
+                                    viewModel.togglePlayhead(at: x)
+                                },
+                                onPlayheadDragged: { x in
+                                    viewModel.setPlayheadFromX(x)
+                                },
+                                onMarkerDeleted: { id in
+                                    viewModel.deleteUserMarker(id: id)
+                                },
+                                onMarkerUpdated: { id, label, icon, color in
+                                    viewModel.updateUserMarker(id: id, label: label, icon: icon, color: color)
+                                },
+                                onMarkerAdded: { time, label, icon, color in
+                                    viewModel.addUserMarker(at: time, label: label, icon: icon, color: color)
                                 }
                             )
 
@@ -116,6 +153,7 @@ public struct TimelineView: View {
                                     markers: viewModel.visibleMarkers,
                                     sceneBoundaries: viewModel.sceneBoundaries,
                                     sequenceBoundaries: viewModel.sequenceBoundaries,
+                                    playheadTime: viewModel.playheadTime,
                                     pxPerSec: viewModel.pxPerSec,
                                     showThumbs: viewModel.showThumbs,
                                     mode: viewModel.mode,
@@ -152,6 +190,13 @@ public struct TimelineView: View {
                             }
                             .frame(height: availableTrackHeight)
                         }
+                        .background(
+                            // Invisible helper inside scroll content — finds enclosing NSScrollView
+                            TimelineScrollHelper(
+                                scrollOffset: viewModel.viewportOffset.x,
+                                trigger: viewModel.scrollRequestId
+                            )
+                        )
                     }
                     .background(Color(hex: "#1E1E1E") ?? .black)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -163,6 +208,9 @@ public struct TimelineView: View {
             }
             .padding(8)
             .background(Color(hex: "#262626") ?? .black)
+            .onAppear {
+                UserDefaults.standard.set(0, forKey: "NSInitialToolTipDelay")
+            }
         }
     }
 
@@ -193,60 +241,40 @@ struct TimelineControlsView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(Color(hex: "#E6E6E6") ?? .white)
 
-                // Scene dropdown (only show in sequence/global mode or when multiple scenes)
+                // Scene navigation (prev / name / next)
                 if viewModel.allScenesInScope.count > 1 {
-                    Menu {
-                        ForEach(Array(viewModel.allScenesInScope.enumerated()), id: \.element.id) { index, scene in
-                            Button(action: { viewModel.navigateToScene(at: index) }) {
-                                HStack {
-                                    Text(scene.name)
-                                    if index == viewModel.currentSceneIndex {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Scene:")
-                                .font(.system(size: 11))
-                                .foregroundColor(Color(hex: "#AAAAAA") ?? .gray)
-                            Text(viewModel.allScenesInScope.isEmpty ? "None" :
-                                 (viewModel.currentSceneIndex < viewModel.allScenesInScope.count ?
-                                  viewModel.allScenesInScope[viewModel.currentSceneIndex].name : "Unknown"))
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white)
-                                .lineLimit(1)
-                                .frame(maxWidth: 120)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8))
-                                .foregroundColor(Color(hex: "#AAAAAA") ?? .gray)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(hex: "#3A3A3A") ?? .gray)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                    .help("Jump to a specific scene")
-
-                    // Prev/Next Scene buttons
-                    HStack(spacing: 2) {
+                    HStack(spacing: 4) {
                         Button(action: { viewModel.navigateToPreviousScene() }) {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 10))
+                                .font(.system(size: 9, weight: .semibold))
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.plain)
+                        .foregroundColor(viewModel.currentSceneIndex > 0 ? .white : Color(hex: "#555555") ?? .gray)
                         .disabled(viewModel.currentSceneIndex <= 0)
-                        .help("Previous Scene (Cmd+[)")
+                        .help("Previous Scene")
+
+                        Text(viewModel.currentSceneIndex < viewModel.allScenesInScope.count
+                             ? viewModel.allScenesInScope[viewModel.currentSceneIndex].name
+                             : "")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color(hex: "#CCCCCC") ?? .white)
+                            .lineLimit(1)
+                            .frame(maxWidth: 180)
 
                         Button(action: { viewModel.navigateToNextScene() }) {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 10))
+                                .font(.system(size: 9, weight: .semibold))
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.plain)
+                        .foregroundColor(viewModel.currentSceneIndex < viewModel.allScenesInScope.count - 1 ? .white : Color(hex: "#555555") ?? .gray)
                         .disabled(viewModel.currentSceneIndex >= viewModel.allScenesInScope.count - 1)
-                        .help("Next Scene (Cmd+])")
+                        .help("Next Scene")
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color(hex: "#333333") ?? .gray)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .help("Navigate between scenes")
                 }
 
                 Spacer()
@@ -355,6 +383,20 @@ struct TimelineControlsView: View {
                     }
                     .buttonStyle(.bordered)
                     .help("Next Marker (L)")
+
+                }
+
+                // Playhead time display
+                if let _ = viewModel.playheadTime {
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(Color(hex: TimelineDefaultColors.playheadColor))
+                        Text(viewModel.playheadTimeFormatted)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(Color(hex: TimelineDefaultColors.playheadColor))
+                    }
+                    .help("Playhead position")
                 }
 
                 Divider()
@@ -429,6 +471,14 @@ struct TimelineControlsView: View {
                 }
                 .toggleStyle(.checkbox)
                 .help("Show connections between shots and linked dialogues")
+
+                // User markers visibility toggle
+                Toggle(isOn: $viewModel.showUserMarkers) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 11))
+                }
+                .toggleStyle(.checkbox)
+                .help("Show custom markers on timeline")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -474,6 +524,54 @@ struct TrackFilterButton: View {
 }
 
 // MARK: - Preview
+
+// MARK: - Timeline Scroll Helper
+
+/// NSViewRepresentable that programmatically scrolls the enclosing NSScrollView
+/// when triggered. This bridges SwiftUI's ScrollView with AppKit's NSScrollView
+/// to enable precise horizontal scroll position control.
+private struct TimelineScrollHelper: NSViewRepresentable {
+    let scrollOffset: CGFloat
+    let trigger: UUID?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard trigger != nil else { return }
+        // Defer to next runloop tick so the scroll view layout is settled
+        DispatchQueue.main.async {
+            guard let scrollView = nsView.findEnclosingScrollView() else { return }
+            let targetX = max(0, scrollOffset)
+            let maxScrollX = max(0, scrollView.documentView!.frame.width - scrollView.contentView.bounds.width)
+            let clampedX = min(targetX, maxScrollX)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.3
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                scrollView.contentView.animator().setBoundsOrigin(
+                    NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y)
+                )
+            }
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+}
+
+private extension NSView {
+    func findEnclosingScrollView() -> NSScrollView? {
+        var current: NSView? = self.superview
+        while let view = current {
+            if let sv = view as? NSScrollView {
+                return sv
+            }
+            current = view.superview
+        }
+        return nil
+    }
+}
 
 #if DEBUG
 struct TimelineView_Previews: PreviewProvider {

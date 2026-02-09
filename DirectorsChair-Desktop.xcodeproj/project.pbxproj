@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F31DC6E0D80E3CF14D1D2A22 /* DirectorsChairExports in Frameworks */ = {isa = PBXBuildFile; productRef = CB607F7039F0B98C705AFF85 /* DirectorsChairExports */; };
 		F61A4F042F10463000C641A8 /* DirectorsChairCore in Frameworks */ = {isa = PBXBuildFile; productRef = F61A4F032F10463000C641A8 /* DirectorsChairCore */; };
 		F61A4F5A2F1A174A00C641A8 /* DirectorsChairViews in Frameworks */ = {isa = PBXBuildFile; productRef = F61A4F592F1A174A00C641A8 /* DirectorsChairViews */; };
 		F61A4F5C2F1A174E00C641A8 /* DirectorsChairProduction in Frameworks */ = {isa = PBXBuildFile; productRef = F61A4F5B2F1A174E00C641A8 /* DirectorsChairProduction */; };
@@ -77,6 +78,7 @@
 				F61A4F042F10463000C641A8 /* DirectorsChairCore in Frameworks */,
 				F61A4F5C2F1A174E00C641A8 /* DirectorsChairProduction in Frameworks */,
 				F61A4F5A2F1A174A00C641A8 /* DirectorsChairViews in Frameworks */,
+				F31DC6E0D80E3CF14D1D2A22 /* DirectorsChairExports in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -149,6 +151,7 @@
 				F61A4F592F1A174A00C641A8 /* DirectorsChairViews */,
 				F61A4F5B2F1A174E00C641A8 /* DirectorsChairProduction */,
 				F61A4F602F1EE3FD00C641A8 /* DirectorsChairServices */,
+				CB607F7039F0B98C705AFF85 /* DirectorsChairExports */,
 			);
 			productName = "DirectorsChair-Desktop";
 			productReference = F61A4EC82F0F64C500C641A8 /* DirectorsChair-Desktop.app */;
@@ -237,6 +240,7 @@
 				F61A4F572F1A170300C641A8 /* XCLocalSwiftPackageReference "DirectorsChairViews" */,
 				F61A4F582F1A174000C641A8 /* XCLocalSwiftPackageReference "DirectorsChairProduction" */,
 				F61A4F5F2F1EE3F100C641A8 /* XCLocalSwiftPackageReference "DirectorsChairServices" */,
+				856A3FFCA0FC0D17134B1BC9 /* XCLocalSwiftPackageReference "DirectorsChairExports" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F61A4EC92F0F64C500C641A8 /* Products */;
@@ -588,6 +592,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		856A3FFCA0FC0D17134B1BC9 /* XCLocalSwiftPackageReference "DirectorsChairExports" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = DirectorsChairExports;
+		};
 		F61A4F022F10458C00C641A8 /* XCLocalSwiftPackageReference "DirectorsChairCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = DirectorsChairCore;
@@ -607,6 +615,11 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		CB607F7039F0B98C705AFF85 /* DirectorsChairExports */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 856A3FFCA0FC0D17134B1BC9 /* XCLocalSwiftPackageReference "DirectorsChairExports" */;
+			productName = DirectorsChairExports;
+		};
 		F61A4F032F10463000C641A8 /* DirectorsChairCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F61A4F022F10458C00C641A8 /* XCLocalSwiftPackageReference "DirectorsChairCore" */;

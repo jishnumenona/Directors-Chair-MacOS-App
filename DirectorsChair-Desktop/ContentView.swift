@@ -16,6 +16,7 @@ import DirectorsChairServices
 struct ContentView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @StateObject private var timelineViewModel = TimelineViewModel()
 
     /// Timeline height as percentage of available space (default 20%)
     @State private var timelineHeightRatio: CGFloat = 0.20
@@ -51,6 +52,7 @@ struct ContentView: View {
                         // Left Sidebar - Navigator (conditionally shown, hidden on Projects view)
                         if shouldShowNavigator {
                             NavigatorSidebar()
+                                .environmentObject(timelineViewModel)
                                 .frame(width: sidebarWidth)
                                 .frame(maxHeight: .infinity)
                                 .background(Color(nsColor: .controlBackgroundColor))
@@ -84,6 +86,7 @@ struct ContentView: View {
 
                         // Bottom Timeline (20% of space, resizable) - full width
                         TimelineContainer()
+                            .environmentObject(timelineViewModel)
                             .frame(maxWidth: .infinity)
                             .frame(height: timelineHeight)
                     }
@@ -166,6 +169,7 @@ struct TimelineDivider: View {
     let totalHeight: CGFloat
 
     @State private var isDragging = false
+    @State private var previousRatio: CGFloat? = nil
 
     var body: some View {
         Rectangle()
@@ -188,6 +192,8 @@ struct TimelineDivider: View {
                 DragGesture()
                     .onChanged { value in
                         isDragging = true
+                        // Clear saved ratio when user manually drags
+                        previousRatio = nil
                         // Calculate new ratio based on drag
                         let dragOffset = value.translation.height
                         let newTimelineHeight = (totalHeight * timelineHeightRatio) - dragOffset
@@ -201,6 +207,19 @@ struct TimelineDivider: View {
                     }
             )
             .help("Drag to resize timeline panel")
+            .onTapGesture(count: 2) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    if abs(timelineHeightRatio - 0.50) < 0.01, let saved = previousRatio {
+                        // Already at 50% — restore previous size
+                        timelineHeightRatio = saved
+                        previousRatio = nil
+                    } else {
+                        // Save current and snap to 50%
+                        previousRatio = timelineHeightRatio
+                        timelineHeightRatio = 0.50
+                    }
+                }
+            }
     }
 }
 
@@ -1004,6 +1023,8 @@ struct NavigatorSidebar: View {
                 switch selectedTab {
                 case .outline:
                     OutlineTab()
+                case .markers:
+                    MarkersTab()
                 case .versions:
                     VersionsTab()
                 case .comments:
@@ -1016,6 +1037,7 @@ struct NavigatorSidebar: View {
 
 enum NavigatorTab: String, CaseIterable, Identifiable {
     case outline = "Outline"
+    case markers = "Markers"
     case versions = "Versions"
     case comments = "Comments"
 
@@ -1027,15 +1049,14 @@ enum NavigatorTab: String, CaseIterable, Identifiable {
 struct TimelineContainer: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
-    @StateObject private var timelineViewModel = TimelineViewModel()
+    @EnvironmentObject var timelineViewModel: TimelineViewModel
 
     /// Track sequence count to detect actual changes (not just any array mutation)
     @State private var lastSequenceCount: Int = 0
 
-    /// Project base path as URL for image loading
+    /// Project base path as URL for image loading (matches CinematographyView resolution)
     private var projectBaseURL: URL? {
-        guard !projectViewModel.project.basePath.isEmpty else { return nil }
-        return URL(fileURLWithPath: projectViewModel.project.basePath)
+        projectViewModel.projectPath?.deletingLastPathComponent()
     }
 
     var body: some View {
@@ -1119,12 +1140,22 @@ struct TimelineContainer: View {
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
             // Set project and show global timeline view
+            timelineViewModel.projectFilePath = projectViewModel.projectPath
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.showGlobal()
             lastSequenceCount = projectViewModel.project.sequences.count
         }
+        // Refresh when project finishes loading (catches async restoreLastProject)
+        .onChange(of: projectViewModel.hasProject) { _, hasProject in
+            if hasProject {
+                timelineViewModel.projectFilePath = projectViewModel.projectPath
+                timelineViewModel.setProject(projectViewModel.project)
+                timelineViewModel.showGlobal()
+                lastSequenceCount = projectViewModel.project.sequences.count
+            }
+        }
         // Only refresh when sequence COUNT changes, not on every array comparison
-        .onChange(of: projectViewModel.project.sequences.count) { newCount in
+        .onChange(of: projectViewModel.project.sequences.count) { _, newCount in
             if newCount != lastSequenceCount {
                 lastSequenceCount = newCount
                 timelineViewModel.setProject(projectViewModel.project)
@@ -1133,7 +1164,6 @@ struct TimelineContainer: View {
         }
         // Subscribe to project changed events (e.g., when bubbles are reordered)
         .onReceive(coordinator.projectChanged) { _ in
-            debugLog("🔄 Timeline received projectChanged - refreshing")
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.refresh()
         }

@@ -3,7 +3,7 @@
 //  DirectorsChair-Desktop
 //
 //  Phase 8E: Project Management
-//  Scene list with filtering, search, and connections
+//  Scene card grid with detail page and connections
 //
 
 import SwiftUI
@@ -30,6 +30,7 @@ struct ScenesListView: View {
 
     @State private var searchText = ""
     @State private var selectedSequenceFilter: String? = nil
+    @State private var detailScene: DirectorsChairCore.Scene? = nil
 
     /// Scene tab state bridged to coordinator for navigation history
     private var selectedTab: SceneViewTab {
@@ -39,21 +40,51 @@ struct ScenesListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab Picker
-            tabPicker
-
-            Divider()
+            // Only show tab picker when not in detail view
+            if detailScene == nil {
+                tabPicker
+                Divider()
+            }
 
             // Tab Content
             switch selectedTab {
             case .scenes:
-                scenesListContent
+                if let scene = detailScene {
+                    SceneDetailView(
+                        scene: scene,
+                        characters: projectViewModel.characters,
+                        projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                        onBack: { detailScene = nil },
+                        onOpenBubble: { s in
+                            coordinator.selectScene(s)
+                            coordinator.navigateTo(.bubble)
+                        },
+                        onOpenShotList: { s in
+                            coordinator.selectScene(s)
+                            coordinator.navigateTo(.shotList)
+                        },
+                        onImageGenerated: { relativePath in
+                            updateSceneOverviewImage(scene, relativePath: relativePath)
+                        },
+                        onPromptUsed: { prompt in
+                            updateSceneOverviewPrompt(scene, prompt: prompt)
+                        }
+                    )
+                } else {
+                    scenesGridContent
+                }
             case .connections:
                 connectionsContent
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+        .onChange(of: coordinator.selectedScene) { _, newScene in
+            // Sync detail view when scene selected from navigator
+            if let newScene = newScene, selectedTab == .scenes {
+                detailScene = newScene
+            }
+        }
     }
 
     // MARK: - Tab Picker
@@ -91,9 +122,9 @@ struct ScenesListView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    // MARK: - Scenes List Content
+    // MARK: - Scenes Grid Content
 
-    private var scenesListContent: some View {
+    private var scenesGridContent: some View {
         VStack(spacing: 0) {
             // Toolbar
             ScenesToolbar(
@@ -104,20 +135,35 @@ struct ScenesListView: View {
 
             Divider()
 
-            // Scene List
+            // Scene Card Grid
             if filteredScenes.isEmpty {
                 EmptySceneListView()
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 300), spacing: 16)],
+                        spacing: 16
+                    ) {
                         ForEach(filteredScenes) { scene in
-                            SceneRowView(scene: scene) {
+                            SceneCardView(
+                                scene: scene,
+                                characters: projectViewModel.characters,
+                                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                                onImageGenerated: { relativePath in
+                                    updateSceneOverviewImage(scene, relativePath: relativePath)
+                                },
+                                onPromptUsed: { prompt in
+                                    updateSceneOverviewPrompt(scene, prompt: prompt)
+                                }
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                detailScene = scene
                                 coordinator.selectScene(scene)
-                                coordinator.navigateTo(.bubble)
                             }
                         }
                     }
-                    .padding()
+                    .padding(16)
                 }
             }
         }
@@ -152,6 +198,7 @@ struct ScenesListView: View {
                         coordinator.navigateTo(.bubble)
                     }
                 )
+                .id(scene.id)
             } else {
                 // Prompt to select a scene from navigator
                 VStack(spacing: 16) {
@@ -204,6 +251,34 @@ struct ScenesListView: View {
         }
 
         return scenes
+    }
+
+    private func updateSceneOverviewImage(_ scene: DirectorsChairCore.Scene, relativePath: String) {
+        for seqIndex in projectViewModel.project.sequences.indices {
+            if let sceneIndex = projectViewModel.project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+                projectViewModel.project.sequences[seqIndex].scenes[sceneIndex].sceneOverviewImage = relativePath
+                projectViewModel.isDirty = true
+
+                // Update coordinator's scene reference so detail view also sees it
+                coordinator.selectedScene = projectViewModel.project.sequences[seqIndex].scenes[sceneIndex]
+                coordinator.notifyProjectChanged()
+
+                // Force save to ensure persistence across navigation
+                Task { await projectViewModel.forceSave() }
+                return
+            }
+        }
+    }
+
+    private func updateSceneOverviewPrompt(_ scene: DirectorsChairCore.Scene, prompt: String) {
+        for seqIndex in projectViewModel.project.sequences.indices {
+            if let sceneIndex = projectViewModel.project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+                projectViewModel.project.sequences[seqIndex].scenes[sceneIndex].sceneOverviewPrompt = prompt
+                projectViewModel.isDirty = true
+                Task { await projectViewModel.forceSave() }
+                return
+            }
+        }
     }
 
     private func updateShotsForScene(_ scene: DirectorsChairCore.Scene, updatedShots: [Shot]) {
@@ -288,83 +363,6 @@ struct ScenesToolbar: View {
             return sequence.name
         }
         return "All Sequences"
-    }
-}
-
-// MARK: - Scene Row View
-
-struct SceneRowView: View {
-    let scene: DirectorsChairCore.Scene
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                // Scene icon
-                Image(systemName: "film")
-                    .font(.system(size: 24))
-                    .foregroundColor(.green)
-                    .frame(width: 40)
-
-                // Scene info
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(scene.name)
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-
-                        Text(scene.description)
-                            .font(.system(size: 16, weight: .medium))
-                    }
-
-                    if !scene.notes.isEmpty {
-                        Text(scene.notes)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
-                    }
-
-                    // Scene stats
-                    HStack(spacing: 16) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "bubble.left")
-                                .font(.caption2)
-                            Text("\(scene.dialogues.count)")
-                                .font(.caption2)
-                        }
-                        .foregroundColor(.secondary)
-
-                        HStack(spacing: 4) {
-                            Image(systemName: "figure.walk")
-                                .font(.caption2)
-                            Text("\(scene.actions.count)")
-                                .font(.caption2)
-                        }
-                        .foregroundColor(.secondary)
-
-                        if !scene.shots.isEmpty {
-                            HStack(spacing: 4) {
-                                Image(systemName: "camera")
-                                    .font(.caption2)
-                                Text("\(scene.shots.count)")
-                                    .font(.caption2)
-                            }
-                            .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(12)
-        }
-        .buttonStyle(.plain)
     }
 }
 

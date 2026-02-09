@@ -6,7 +6,7 @@ import Foundation
 import SwiftUI
 
 /// Represents a marker on the timeline (scene/sequence boundary, user marker, or note)
-public struct TimelineMarker: Identifiable, Equatable {
+public struct TimelineMarker: Identifiable, Equatable, Codable {
     public let id: UUID
 
     /// Time position in seconds
@@ -21,6 +21,9 @@ public struct TimelineMarker: Identifiable, Equatable {
     /// Color for the marker (hex string)
     public var color: String
 
+    /// SF Symbol icon name for the marker
+    public var icon: String
+
     /// Type of user marker (for user markers only)
     public var markerType: MarkerType
 
@@ -28,7 +31,7 @@ public struct TimelineMarker: Identifiable, Equatable {
     public var notes: String
 
     /// Kind of marker on the timeline
-    public enum MarkerKind: String, Sendable {
+    public enum MarkerKind: String, Sendable, Codable {
         case user       // User-placed marker
         case scene      // Scene boundary
         case sequence   // Sequence boundary
@@ -37,7 +40,7 @@ public struct TimelineMarker: Identifiable, Equatable {
     }
 
     /// Type of user marker (subcategory)
-    public enum MarkerType: String, Sendable {
+    public enum MarkerType: String, Sendable, Codable {
         case general    // General purpose marker
         case lighting   // Lighting cue
         case effect     // Special effect cue
@@ -49,6 +52,7 @@ public struct TimelineMarker: Identifiable, Equatable {
         label: String,
         kind: MarkerKind = .user,
         color: String = "#FF5F5F",
+        icon: String = "flag.fill",
         markerType: MarkerType = .general,
         notes: String = ""
     ) {
@@ -57,6 +61,7 @@ public struct TimelineMarker: Identifiable, Equatable {
         self.label = label
         self.kind = kind
         self.color = color
+        self.icon = icon
         self.markerType = markerType
         self.notes = notes
     }

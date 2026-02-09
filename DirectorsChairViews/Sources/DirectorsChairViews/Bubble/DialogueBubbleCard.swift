@@ -31,6 +31,12 @@ public struct DialogueBubbleCard: View {
     var onTextChanged: ((String) -> Void)?
     var onChronologyChanged: ((Int) -> Void)?
     var onEditModeStarted: (() -> Void)?
+    var alignmentLabel: String?
+    var onToggleAlignment: (() -> Void)?
+    var onAddConnectedAction: (() -> Void)?
+    var onAddConnectedNarration: (() -> Void)?
+    var onAddConnectedNote: (() -> Void)?
+    var onAddConnectedSoundNote: (() -> Void)?
 
     let startInEditMode: Bool
 
@@ -57,7 +63,13 @@ public struct DialogueBubbleCard: View {
         onStop: (() -> Void)? = nil,
         onTextChanged: ((String) -> Void)? = nil,
         onChronologyChanged: ((Int) -> Void)? = nil,
-        onEditModeStarted: (() -> Void)? = nil
+        onEditModeStarted: (() -> Void)? = nil,
+        alignmentLabel: String? = nil,
+        onToggleAlignment: (() -> Void)? = nil,
+        onAddConnectedAction: (() -> Void)? = nil,
+        onAddConnectedNarration: (() -> Void)? = nil,
+        onAddConnectedNote: (() -> Void)? = nil,
+        onAddConnectedSoundNote: (() -> Void)? = nil
     ) {
         self.dialogue = dialogue
         self.character = character
@@ -74,6 +86,12 @@ public struct DialogueBubbleCard: View {
         self.onTextChanged = onTextChanged
         self.onChronologyChanged = onChronologyChanged
         self.onEditModeStarted = onEditModeStarted
+        self.alignmentLabel = alignmentLabel
+        self.onToggleAlignment = onToggleAlignment
+        self.onAddConnectedAction = onAddConnectedAction
+        self.onAddConnectedNarration = onAddConnectedNarration
+        self.onAddConnectedNote = onAddConnectedNote
+        self.onAddConnectedSoundNote = onAddConnectedSoundNote
     }
 
     public var body: some View {
@@ -260,6 +278,33 @@ public struct DialogueBubbleCard: View {
 
         Button("Add to Vision Board") {
             // TODO: Implement
+        }
+
+        if let label = alignmentLabel {
+            Divider()
+
+            Button(label) {
+                onToggleAlignment?()
+            }
+        }
+
+        if onAddConnectedAction != nil {
+            Divider()
+
+            Menu("Add Connected") {
+                Button("Action") {
+                    onAddConnectedAction?()
+                }
+                Button("Narration") {
+                    onAddConnectedNarration?()
+                }
+                Button("Note") {
+                    onAddConnectedNote?()
+                }
+                Button("Sound Note") {
+                    onAddConnectedSoundNote?()
+                }
+            }
         }
 
         Divider()

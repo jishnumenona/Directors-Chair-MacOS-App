@@ -40,6 +40,9 @@ public class TimelineViewModel: ObservableObject {
     /// Viewport scroll offset
     @Published public var viewportOffset: CGPoint = .zero
 
+    /// Incremented each time we want the view to programmatically scroll to `viewportOffset.x`
+    @Published public var scrollRequestId: UUID?
+
     /// Zoom level (pixels per second)
     @Published public var pxPerSec: CGFloat = TimelineLayoutConstants.defaultPxPerSec
 
@@ -61,7 +64,7 @@ public class TimelineViewModel: ObservableObject {
     @Published public var showDialogue: Bool = true
 
     /// Show action track
-    @Published public var showAction: Bool = true
+    @Published public var showAction: Bool = false
 
     /// Show narration track
     @Published public var showNarration: Bool = true
@@ -114,7 +117,32 @@ public class TimelineViewModel: ObservableObject {
     @Published public private(set) var shotLaneSubLaneCount: Int = 1
 
     /// Whether to show shot-dialogue connection lines
-    @Published public var showShotConnections: Bool = true
+    @Published public var showShotConnections: Bool = false
+
+    /// Whether to show user markers on the timeline
+    @Published public var showUserMarkers: Bool = true
+
+    // MARK: - Playhead
+
+    /// Whether the playhead is active (following cursor)
+    @Published public var playheadActive: Bool = false
+
+    /// Playhead position in seconds (nil = no playhead placed yet)
+    @Published public var playheadTime: CGFloat? = nil
+
+    // MARK: - User Markers
+
+    /// User-created custom markers (separate from auto-rebuilt `markers`)
+    @Published public var userMarkers: [TimelineMarker] = []
+
+    /// Project file path (used for saving markers alongside the project)
+    public var projectFilePath: URL? {
+        didSet {
+            if projectFilePath != oldValue {
+                loadMarkers()
+            }
+        }
+    }
 
     /// Computed shot-dialogue connections for drawing connection lines
     @Published public private(set) var shotDialogueConnections: [ShotDialogueConnection] = []
@@ -262,6 +290,22 @@ public class TimelineViewModel: ObservableObject {
         rebuild()
     }
 
+    /// Move a scene boundary marker to a new time position
+    public func moveSceneBoundary(name: String, newTime: CGFloat) {
+        let clampedTime = max(0, newTime)
+        if let index = sceneBoundaries.firstIndex(where: { $0.name == name }) {
+            sceneBoundaries[index].time = clampedTime
+        }
+    }
+
+    /// Move a sequence boundary marker to a new time position
+    public func moveSequenceBoundary(name: String, newTime: CGFloat) {
+        let clampedTime = max(0, newTime)
+        if let index = sequenceBoundaries.firstIndex(where: { $0.name == name }) {
+            sequenceBoundaries[index].time = clampedTime
+        }
+    }
+
     /// Move a shot label to a new time position and persist to project model
     public func moveShotLabel(shotId: Int, sceneName: String, newTime: CGFloat) {
         let clampedTime = max(0, newTime)
@@ -287,6 +331,41 @@ public class TimelineViewModel: ObservableObject {
                 if scene.name == sceneName,
                    let shotIdx = scene.shots.firstIndex(where: { $0.shotId == shotId }) {
                     self.project!.sequences[seqIdx].scenes[scnIdx].shots[shotIdx].timelinePosition = Double(clampedTime)
+                    computeShotSubLanes()
+                    computeShotDialogueConnections()
+                    return
+                }
+            }
+        }
+        computeShotSubLanes()
+        computeShotDialogueConnections()
+    }
+
+    /// Resize a shot label to a new duration and persist to the project model
+    public func resizeShotLabel(shotId: Int, sceneName: String, newDuration: CGFloat) {
+        let clampedDuration = max(0.5, newDuration)
+
+        // Update visual label
+        if let index = shotLabels.firstIndex(where: { $0.shotId == shotId && $0.sceneName == sceneName }) {
+            shotLabels[index].duration = clampedDuration
+            shotLabels.sort {
+                if $0.time != $1.time { return $0.time < $1.time }
+                return $0.shotId < $1.shotId
+            }
+        }
+
+        // Persist to project model
+        guard let project = project else {
+            computeShotSubLanes()
+            computeShotDialogueConnections()
+            return
+        }
+        for seqIdx in project.sequences.indices {
+            for scnIdx in project.sequences[seqIdx].scenes.indices {
+                let scene = project.sequences[seqIdx].scenes[scnIdx]
+                if scene.name == sceneName,
+                   let shotIdx = scene.shots.firstIndex(where: { $0.shotId == shotId }) {
+                    self.project!.sequences[seqIdx].scenes[scnIdx].shots[shotIdx].duration = Double(clampedDuration)
                     computeShotSubLanes()
                     computeShotDialogueConnections()
                     return
@@ -398,6 +477,7 @@ public class TimelineViewModel: ObservableObject {
         let originX = TimelineLayoutConstants.leftMargin + TimelineLayoutConstants.rowLabelWidth
         let x = originX + time * pxPerSec
         viewportOffset = CGPoint(x: max(0, x - 100), y: viewportOffset.y)
+        scrollRequestId = UUID()
     }
 
     /// Navigate to next marker
@@ -502,6 +582,113 @@ public class TimelineViewModel: ObservableObject {
     /// Show all tracks (clear hidden set)
     public func showAllTracks() {
         hiddenTracks.removeAll()
+    }
+
+    // MARK: - Playhead Methods
+
+    /// Toggle playhead on/off via double-click on ruler
+    public func togglePlayhead(at x: CGFloat) {
+        if playheadActive {
+            // Deactivate
+            playheadActive = false
+            playheadTime = nil
+        } else {
+            // Activate at this position
+            playheadActive = true
+            setPlayheadFromX(x)
+        }
+    }
+
+    /// Set the playhead from a pixel X coordinate (cursor tracking)
+    public func setPlayheadFromX(_ x: CGFloat) {
+        let originX = TimelineLayoutConstants.leftMargin + TimelineLayoutConstants.rowLabelWidth
+        let time = max(0, (x - originX) / pxPerSec)
+        playheadTime = time
+    }
+
+    /// Formatted playhead time string (e.g. "00:05.2")
+    public var playheadTimeFormatted: String {
+        guard let t = playheadTime else { return "--:--.-" }
+        let totalSec = Int(t)
+        let minutes = totalSec / 60
+        let secs = totalSec % 60
+        let frac = Int((t - CGFloat(totalSec)) * 10)
+        return String(format: "%02d:%02d.%d", minutes, secs, frac)
+    }
+
+    // MARK: - User Marker CRUD
+
+    /// Add a user marker at the given time
+    public func addUserMarker(at time: CGFloat, label: String = "Marker", icon: String = "flag.fill", color: String = "#FF5F5F") {
+        let marker = TimelineMarker(
+            time: time,
+            label: label,
+            kind: .user,
+            color: color,
+            icon: icon
+        )
+        userMarkers.append(marker)
+        saveMarkers()
+    }
+
+    /// Update an existing user marker
+    public func updateUserMarker(id: UUID, label: String, icon: String, color: String) {
+        if let index = userMarkers.firstIndex(where: { $0.id == id }) {
+            userMarkers[index].label = label
+            userMarkers[index].icon = icon
+            userMarkers[index].color = color
+            saveMarkers()
+        }
+    }
+
+    /// Delete a user marker
+    public func deleteUserMarker(id: UUID) {
+        userMarkers.removeAll { $0.id == id }
+        saveMarkers()
+    }
+
+    // MARK: - Marker Persistence
+
+    /// URL for the markers JSON file (sibling to project file)
+    private var markersFileURL: URL? {
+        guard let projectPath = projectFilePath else { return nil }
+        return projectPath.deletingLastPathComponent().appendingPathComponent("markers.json")
+    }
+
+    /// Save user markers to disk
+    public func saveMarkers() {
+        guard let url = markersFileURL else { return }
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(userMarkers)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            print("[TimelineViewModel] Failed to save markers: \(error.localizedDescription)")
+        }
+    }
+
+    /// Load user markers from disk
+    public func loadMarkers() {
+        guard let url = markersFileURL,
+              FileManager.default.fileExists(atPath: url.path) else {
+            userMarkers = []
+            return
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            userMarkers = try decoder.decode([TimelineMarker].self, from: data)
+        } catch {
+            print("[TimelineViewModel] Failed to load markers: \(error.localizedDescription)")
+            userMarkers = []
+        }
+    }
+
+    /// Get the time for placing a marker: playhead time or viewport center
+    public func getMarkerPlacementTime() -> CGFloat {
+        if let t = playheadTime { return t }
+        return getCurrentTimeFromViewport()
     }
 
     // MARK: - Private Methods
@@ -814,7 +1001,8 @@ public class TimelineViewModel: ObservableObject {
                 shotType: shot.shotType,
                 cameraAngle: shot.cameraAngle,
                 lensMm: shot.lensMm,
-                movement: shot.movement
+                movement: shot.movement,
+                previewImagePath: shot.previewImage
             ))
         }
 
@@ -1114,7 +1302,8 @@ public class TimelineViewModel: ObservableObject {
                     shotType: shot.shotType,
                     cameraAngle: shot.cameraAngle,
                     lensMm: shot.lensMm,
-                    movement: shot.movement
+                    movement: shot.movement,
+                    previewImagePath: shot.previewImage
                 ))
             }
 
@@ -1423,7 +1612,8 @@ public class TimelineViewModel: ObservableObject {
                         shotType: shot.shotType,
                         cameraAngle: shot.cameraAngle,
                         lensMm: shot.lensMm,
-                        movement: shot.movement
+                        movement: shot.movement,
+                        previewImagePath: shot.previewImage
                     ))
                 }
 
@@ -1600,7 +1790,7 @@ public class TimelineViewModel: ObservableObject {
         var intervals: [(label: TimelineShotLabel, start: CGFloat, end: CGFloat)] = []
         for label in shotLabels {
             let rx = label.time * pxPerSec
-            let w = label.cardWidth()
+            let w = label.displayWidth(pxPerSec: pxPerSec)
             intervals.append((label, rx, rx + w))
         }
         intervals.sort { $0.start < $1.start }
@@ -1724,8 +1914,11 @@ public class TimelineViewModel: ObservableObject {
         // Add sequence boundaries
         times.append(contentsOf: sequenceBoundaries.map { $0.time })
 
-        // Add user markers
+        // Add auto-generated markers (notes, etc.)
         times.append(contentsOf: markers.map { $0.time })
+
+        // Add user-created markers
+        times.append(contentsOf: userMarkers.map { $0.time })
 
         return times.sorted()
     }
@@ -1753,6 +1946,7 @@ public struct TimelineShotLabel: Identifiable {
     public var cameraAngle: String        // e.g., "Eye Level", "High Angle"
     public var lensMm: Int?               // e.g., 50, 85
     public var movement: String           // e.g., "Static", "Pan", "Dolly"
+    public var previewImagePath: String?  // Relative path to AI-generated preview image
 
     /// End time in seconds
     public var end: CGFloat { time + duration }
@@ -1768,7 +1962,8 @@ public struct TimelineShotLabel: Identifiable {
         shotType: String = "Standard",
         cameraAngle: String = "Medium",
         lensMm: Int? = nil,
-        movement: String = "Static"
+        movement: String = "Static",
+        previewImagePath: String? = nil
     ) {
         self.id = id
         self.time = time
@@ -1781,6 +1976,7 @@ public struct TimelineShotLabel: Identifiable {
         self.cameraAngle = cameraAngle
         self.lensMm = lensMm
         self.movement = movement
+        self.previewImagePath = previewImagePath
     }
 
     /// Compute the visual card width for this shot label (shared between Canvas and ViewModel)
@@ -1795,6 +1991,14 @@ public struct TimelineShotLabel: Identifiable {
         let movementExtra: CGFloat = hasMovement ? 18 : 0
         let width = CGFloat(longerLen) * 6.0 + TimelineLayoutConstants.shotAccentBarWidth + 16 + movementExtra
         return max(TimelineLayoutConstants.minShotCardWidth, min(width, 180))
+    }
+
+    /// Duration-aware card width: uses duration * pxPerSec when duration is set, otherwise falls back to text-based width
+    public func displayWidth(pxPerSec: CGFloat) -> CGFloat {
+        if duration > 0 {
+            return max(cardWidth(), duration * pxPerSec)
+        }
+        return cardWidth()
     }
 }
 

@@ -8,10 +8,12 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairViews
 
 struct OutlineTab: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @EnvironmentObject var timelineViewModel: TimelineViewModel
 
     var body: some View {
         ScrollView {
@@ -19,7 +21,9 @@ struct OutlineTab: View {
                 if projectViewModel.sequences.isEmpty {
                     EmptyOutlineView()
                 } else {
-                    OutlineList()
+                    VStack(alignment: .leading, spacing: 0) {
+                        OutlineList()
+                    }
                 }
             } else {
                 NoProjectView()
@@ -288,6 +292,61 @@ struct SceneRow: View {
     @State private var isExpanded = false
     @State private var showDeleteConfirmation = false
 
+    /// Whether this scene contains the currently selected shot
+    private var containsSelectedShot: Bool {
+        guard let selected = coordinator.selectedShot else { return false }
+        return scene.shots.contains(where: { $0.id == selected.id })
+    }
+
+    /// Parse location string like "INT. KITCHEN - DAY" into (location, time)
+    private var locationParts: (location: String, time: String?) {
+        let loc = (scene.location ?? "").uppercased()
+        // Strip INT./EXT. prefix
+        var stripped = loc
+        for prefix in ["INT./EXT. ", "INT/EXT. ", "INT. ", "EXT. ", "INT/EXT ", "INT ", "EXT "] {
+            if stripped.hasPrefix(prefix) {
+                stripped = String(stripped.dropFirst(prefix.count))
+                break
+            }
+        }
+        // Split on " - " to get location and time
+        if let dashRange = stripped.range(of: " - ") {
+            let place = String(stripped[stripped.startIndex..<dashRange.lowerBound])
+            let time = String(stripped[dashRange.upperBound...])
+            return (place.capitalized, time.capitalized)
+        }
+        return (stripped.capitalized, nil)
+    }
+
+    /// Build a tooltip with full scene details
+    private var sceneTooltip: String {
+        var parts: [String] = []
+        parts.append(scene.name)
+        if let loc = scene.location, !loc.isEmpty {
+            parts.append(loc)
+        }
+        if !scene.description.isEmpty {
+            parts.append(scene.description)
+        }
+        if !scene.notes.isEmpty {
+            parts.append("Notes: \(scene.notes)")
+        }
+        if !scene.shots.isEmpty {
+            parts.append("\(scene.shots.count) shot(s)")
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    /// Extract the scene number portion from the name (e.g. "Scene 3" from "Scene 3 - Kitchen")
+    private var sceneNumber: String {
+        let name = scene.name
+        // If name starts with "Scene N", extract that part
+        if let range = name.range(of: #"^Scene\s+\d+"#, options: .regularExpression) {
+            return String(name[range])
+        }
+        return name
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // Scene Header
@@ -309,21 +368,25 @@ struct SceneRow: View {
                     .foregroundColor(.green)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        Text(scene.name)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.secondary)
+                    Text(sceneNumber)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
 
-                        Text(scene.description)
-                            .font(.system(size: 12))
+                    HStack(spacing: 3) {
+                        Text(locationParts.location)
+                            .font(.system(size: 12, weight: .medium))
                             .lineLimit(1)
-                    }
 
-                    if !scene.notes.isEmpty {
-                        Text(scene.notes)
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                        if let time = locationParts.time {
+                            Text("·")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                            Text(time)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
 
@@ -343,6 +406,7 @@ struct SceneRow: View {
             )
             .cornerRadius(6)
             .contentShape(Rectangle())
+            .help(sceneTooltip)
             .onTapGesture(count: 2) {
                 coordinator.selectScene(scene)
                 coordinator.navigateTo(.bubble)
@@ -379,6 +443,13 @@ struct SceneRow: View {
             }
         } message: {
             Text("This cannot be undone.")
+        }
+        .onChange(of: coordinator.selectedShot?.id) { _, _ in
+            if containsSelectedShot && !isExpanded {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded = true
+                }
+            }
         }
     }
 }
@@ -427,6 +498,208 @@ struct ShotRow: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Markers Section
+
+// MARK: - Markers Tab
+
+struct MarkersTab: View {
+    @EnvironmentObject var timelineViewModel: TimelineViewModel
+    @State private var editingMarkerId: UUID? = nil
+    @State private var editLabel: String = ""
+    @State private var editIcon: String = "flag.fill"
+    @State private var editColor: String = "#FF5F5F"
+
+    private let iconOptions = ["flag.fill", "star.fill", "bolt.fill", "lightbulb.fill",
+                               "camera.fill", "music.note", "exclamationmark.triangle.fill",
+                               "bookmark.fill", "mappin", "heart.fill", "bell.fill", "tag.fill"]
+    private let colorOptions = ["#FF5F5F", "#FF9500", "#FFDF5F", "#34C759",
+                                "#4A8FBF", "#9966CC", "#FF6B9D"]
+
+    var body: some View {
+        if timelineViewModel.userMarkers.isEmpty {
+            VStack(spacing: 12) {
+                Spacer()
+                Image(systemName: "flag")
+                    .font(.system(size: 28))
+                    .foregroundColor(.secondary)
+                Text("No Markers")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                Text("Right-click the timeline ruler to add a marker.")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                    .multilineTextAlignment(.center)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(timelineViewModel.userMarkers.sorted(by: { $0.time < $1.time })) { marker in
+                        MarkerRow(marker: marker) {
+                            timelineViewModel.scrollToTime(marker.time)
+                        }
+                        .contextMenu {
+                            Button {
+                                editingMarkerId = marker.id
+                                editLabel = marker.label
+                                editIcon = marker.icon
+                                editColor = marker.color
+                            } label: {
+                                Label("Edit Marker...", systemImage: "pencil")
+                            }
+                            Divider()
+                            Button(role: .destructive) {
+                                timelineViewModel.deleteUserMarker(id: marker.id)
+                            } label: {
+                                Label("Delete Marker", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .popover(item: $editingMarkerId) { markerId in
+                MarkerEditPanel(
+                    label: $editLabel,
+                    icon: $editIcon,
+                    color: $editColor,
+                    iconOptions: iconOptions,
+                    colorOptions: colorOptions,
+                    onSave: {
+                        timelineViewModel.updateUserMarker(id: markerId, label: editLabel, icon: editIcon, color: editColor)
+                        editingMarkerId = nil
+                    },
+                    onCancel: {
+                        editingMarkerId = nil
+                    }
+                )
+            }
+        }
+    }
+}
+
+// Make UUID work with .popover(item:)
+extension UUID: @retroactive Identifiable {
+    public var id: UUID { self }
+}
+
+private struct MarkerEditPanel: View {
+    @Binding var label: String
+    @Binding var icon: String
+    @Binding var color: String
+    let iconOptions: [String]
+    let colorOptions: [String]
+    let onSave: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Edit Marker")
+                .font(.system(size: 13, weight: .semibold))
+
+            TextField("Name", text: $label)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+
+            // Icon picker
+            Text("Icon")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 4), count: 6), spacing: 4) {
+                ForEach(iconOptions, id: \.self) { iconName in
+                    Button {
+                        icon = iconName
+                    } label: {
+                        Image(systemName: iconName)
+                            .font(.system(size: 12))
+                            .frame(width: 24, height: 24)
+                            .background(icon == iconName ? Color.accentColor.opacity(0.3) : Color.clear)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Color picker
+            Text("Color")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+            HStack(spacing: 6) {
+                ForEach(colorOptions, id: \.self) { hex in
+                    Button {
+                        color = hex
+                    } label: {
+                        Circle()
+                            .fill(Color(hex: hex))
+                            .frame(width: 18, height: 18)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white, lineWidth: color == hex ? 2 : 0)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Save", action: onSave)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 240)
+    }
+}
+
+struct MarkerRow: View {
+    let marker: TimelineMarker
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                Image(systemName: marker.icon)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: marker.color))
+                    .frame(width: 16, height: 16)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(marker.label)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+
+                    Text(formatMarkerTime(marker.time))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Circle()
+                    .fill(Color(hex: marker.color))
+                    .frame(width: 8, height: 8)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func formatMarkerTime(_ t: CGFloat) -> String {
+        let totalSec = Int(t)
+        let minutes = totalSec / 60
+        let secs = totalSec % 60
+        let frac = Int((t - CGFloat(totalSec)) * 10)
+        return String(format: "%02d:%02d.%d", minutes, secs, frac)
     }
 }
 
@@ -495,5 +768,6 @@ struct NoProjectView: View {
     OutlineTab()
         .environmentObject(AppCoordinator())
         .environmentObject(ProjectViewModel())
+        .environmentObject(TimelineViewModel())
         .frame(width: 300, height: 600)
 }

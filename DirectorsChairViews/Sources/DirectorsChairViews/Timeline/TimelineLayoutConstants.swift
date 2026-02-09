@@ -146,6 +146,25 @@ public struct TimelineLayoutConstants {
     /// Spacing between film perforation holes
     public static let filmPerforationSpacing: CGFloat = 8
 
+    // MARK: - Playhead
+
+    /// Width of the playhead triangle handle
+    public static let playheadHandleWidth: CGFloat = 12
+
+    /// Height of the playhead triangle handle
+    public static let playheadHandleHeight: CGFloat = 10
+
+    /// Hit-test radius for the playhead handle
+    public static let playheadHitRadius: CGFloat = 12
+
+    // MARK: - User Marker Drawing
+
+    /// Size of user marker diamond on the ruler
+    public static let userMarkerDiamondSize: CGFloat = 7
+
+    /// Icon size for user markers on the ruler
+    public static let userMarkerIconSize: CGFloat = 10
+
     // MARK: - Control Layout
 
     /// Height of the primary control row
@@ -217,6 +236,9 @@ public struct TimelineDefaultColors {
 
     /// Shot marker color (camera blue)
     public static let shotMarker = "#4A8FBF"
+
+    /// Playhead color (white)
+    public static let playheadColor = "#FFFFFF"
 
     /// Default user marker color
     public static let userMarker = "#FF5F5F"

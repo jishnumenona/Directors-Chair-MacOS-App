@@ -30,6 +30,18 @@ struct ScreenplayTextView: NSViewRepresentable {
     var isWizardActive: Bool = false
     var focusElementId: UUID?
 
+    // Pages mode
+    var showPagesMode: Bool = false
+
+    // Title page metadata (used in pages mode)
+    var projectName: String = ""
+    var directorName: String = ""
+    var productionCompany: String = ""
+    var genre: String = ""
+
+    // Zoom
+    @Binding var magnification: CGFloat
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -42,6 +54,12 @@ struct ScreenplayTextView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
         scrollView.backgroundColor = ScreenplayFormatting.backgroundColor
+
+        // Pinch-to-zoom support
+        scrollView.allowsMagnification = true
+        scrollView.minMagnification = 0.5
+        scrollView.maxMagnification = 3.0
+        scrollView.magnification = 1.0
 
         let textView = ScreenplayNSTextView()
         textView.isEditable = true
@@ -116,6 +134,14 @@ struct ScreenplayTextView: NSViewRepresentable {
             object: scrollView
         )
 
+        // Observe live magnification changes from pinch gestures
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.magnificationChanged(_:)),
+            name: NSScrollView.didEndLiveMagnifyNotification,
+            object: scrollView
+        )
+
         // Build initial content
         context.coordinator.rebuildAttributedString()
 
@@ -123,15 +149,63 @@ struct ScreenplayTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
+        guard let textView = scrollView.documentView as? ScreenplayNSTextView else { return }
 
         // CRITICAL: Update coordinator's parent reference so it sees current elements
         context.coordinator.parent = self
 
+        // Update pages mode on the NSTextView and trigger redraw if changed
+        if textView.showPagesMode != showPagesMode {
+            textView.showPagesMode = showPagesMode
+            // In pages mode: disable NSTextView background so our custom draw shows through
+            textView.drawsBackground = !showPagesMode
+            scrollView.drawsBackground = true
+            scrollView.backgroundColor = showPagesMode
+                ? NSColor(calibratedRed: 0.75, green: 0.76, blue: 0.78, alpha: 1.0)
+                : ScreenplayFormatting.backgroundColor
+            textView.needsDisplay = true
+        }
+
+        // Pass title page metadata
+        textView.projectName = projectName
+        textView.directorName = directorName
+        textView.productionCompany = productionCompany
+        textView.genre = genre
+
         // Re-center text container when scroll view resizes
         let availableWidth = scrollView.frame.width - 20 // account for scroller
-        let horizontalInset = max(20, (availableWidth - ScreenplayFormatting.contentWidth) / 2)
-        textView.textContainerInset = NSSize(width: horizontalInset, height: ScreenplayFormatting.marginTop)
+        let horizontalInset: CGFloat
+        let verticalInset: CGFloat
+        if showPagesMode {
+            // In pages mode, position text within the centered US Letter page
+            let pageX = max(20, (availableWidth - ScreenplayFormatting.pageWidth) / 2)
+            horizontalInset = pageX + ScreenplayFormatting.marginLeft
+            // Push text down by one page height (title page) + top margin
+            // Top margin must be a multiple of lineHeight (16pt) so page breaks
+            // always fall between lines, never mid-line.
+            let lineH: CGFloat = ScreenplayFormatting.lineHeight + 2 // 16pt
+            let pageH: CGFloat = 55 * lineH // 880pt
+            let pageTopMargin: CGFloat = 5 * lineH // 80pt (multiple of 16)
+            verticalInset = pageH + pageTopMargin
+        } else {
+            horizontalInset = max(20, (availableWidth - ScreenplayFormatting.contentWidth) / 2)
+            verticalInset = ScreenplayFormatting.marginTop
+        }
+        textView.textContainerInset = NSSize(width: horizontalInset, height: verticalInset)
+
+        // Apply magnification from binding (e.g. restore saved zoom)
+        if abs(scrollView.magnification - magnification) > 0.01 {
+            scrollView.magnification = magnification
+            context.coordinator.centerHorizontallyDeferred()
+        }
+
+        // Center on first layout when zoom != 1.0
+        if !context.coordinator.hasCenteredOnFirstLayout && scrollView.frame.width > 0 {
+            context.coordinator.hasCenteredOnFirstLayout = true
+            if magnification > 1.01 {
+                context.coordinator.centerHorizontallyDeferred()
+            }
+        }
 
         // Rebuild content if elements changed
         if context.coordinator.lastElementCount != elements.count ||
@@ -178,6 +252,7 @@ struct ScreenplayTextView: NSViewRepresentable {
         var lastElementCount = 0
         var needsRebuild = false
         var isUpdating = false
+        var hasCenteredOnFirstLayout = false
 
         private var autocompletePanel: NSPanel?
         private var autocompleteVC: AutocompleteViewController?
@@ -197,11 +272,50 @@ struct ScreenplayTextView: NSViewRepresentable {
             recenterTextContainer()
         }
 
+        @objc func magnificationChanged(_ notification: Notification) {
+            guard let scrollView = notification.object as? NSScrollView else { return }
+            parent.magnification = scrollView.magnification
+            centerHorizontallyDeferred()
+        }
+
+        func centerHorizontallyDeferred() {
+            // Defer to next run loop so the scroll view has finished layout
+            DispatchQueue.main.async { [weak self] in
+                self?.centerHorizontallyNow()
+            }
+        }
+
+        func centerHorizontallyNow() {
+            guard let scrollView = scrollView,
+                  let documentView = scrollView.documentView else { return }
+            let docWidth = documentView.frame.width
+            let visibleWidth = scrollView.contentView.bounds.width
+            if docWidth > visibleWidth {
+                let centeredX = (docWidth - visibleWidth) / 2
+                var origin = scrollView.contentView.bounds.origin
+                origin.x = centeredX
+                scrollView.contentView.setBoundsOrigin(origin)
+            }
+        }
+
         func recenterTextContainer() {
-            guard let textView = textView, let scrollView = scrollView else { return }
+            guard let textView = textView as? ScreenplayNSTextView,
+                  let scrollView = scrollView else { return }
             let availableWidth = scrollView.frame.width - 20
-            let horizontalInset = max(20, (availableWidth - ScreenplayFormatting.contentWidth) / 2)
-            textView.textContainerInset = NSSize(width: horizontalInset, height: ScreenplayFormatting.marginTop)
+            let horizontalInset: CGFloat
+            let verticalInset: CGFloat
+            if textView.showPagesMode {
+                let pageX = max(20, (availableWidth - ScreenplayFormatting.pageWidth) / 2)
+                horizontalInset = pageX + ScreenplayFormatting.marginLeft
+                let lineH: CGFloat = ScreenplayFormatting.lineHeight + 2
+                let pageH: CGFloat = 55 * lineH
+                let pageTopMargin: CGFloat = 5 * lineH // 80pt, multiple of lineHeight
+                verticalInset = pageH + pageTopMargin
+            } else {
+                horizontalInset = max(20, (availableWidth - ScreenplayFormatting.contentWidth) / 2)
+                verticalInset = ScreenplayFormatting.marginTop
+            }
+            textView.textContainerInset = NSSize(width: horizontalInset, height: verticalInset)
         }
 
         // MARK: - Build Attributed String
@@ -637,6 +751,15 @@ class ScreenplayNSTextView: NSTextView {
     /// Reference to coordinator for accessing element ranges
     weak var coordinatorRef: ScreenplayTextView.Coordinator?
 
+    /// Whether to show paginated "pages" view with gaps between pages
+    var showPagesMode: Bool = false
+
+    // Title page metadata
+    var projectName: String = ""
+    var directorName: String = ""
+    var productionCompany: String = ""
+    var genre: String = ""
+
     // MARK: - Cmd+Hover State
 
     /// The element range currently highlighted for Cmd+hover
@@ -648,6 +771,16 @@ class ScreenplayNSTextView: NSTextView {
 
     /// Link hover color (accent blue that works on cream background)
     private static let linkHoverColor = NSColor(calibratedRed: 0.20, green: 0.40, blue: 0.75, alpha: 1.0)
+
+    // MARK: - Cmd Bulk Highlight State (characters + locations)
+
+    /// Ranges highlighted for characters/locations with their original background color
+    private var bulkHighlightedRanges: [(range: NSRange, originalBg: Any?)] = []
+
+    /// Yellow highlighter for character names
+    private static let characterHighlightColor = NSColor(calibratedRed: 1.0, green: 0.92, blue: 0.40, alpha: 0.50)
+    /// Blue highlighter for locations (scene headings)
+    private static let locationHighlightColor = NSColor(calibratedRed: 0.55, green: 0.78, blue: 1.0, alpha: 0.40)
 
     // MARK: - Tracking Area
 
@@ -679,15 +812,17 @@ class ScreenplayNSTextView: NSTextView {
         if cmdNow && !isCmdHeld {
             // Cmd just pressed
             isCmdHeld = true
-            // Use current mouse location
+            highlightCharactersAndLocations()
+            // Use current mouse location for hover underline
             if let window = self.window {
                 let mouseInWindow = window.mouseLocationOutsideOfEventStream
                 updateHoverHighlight(at: mouseInWindow)
             }
         } else if !cmdNow && isCmdHeld {
-            // Cmd just released
+            // Cmd just released — clear hover first, then bulk highlights
             isCmdHeld = false
             clearHoverHighlight()
+            clearCharacterAndLocationHighlights()
             NSCursor.iBeam.set()
         }
     }
@@ -779,11 +914,58 @@ class ScreenplayNSTextView: NSTextView {
         hoveredOriginalAttrs = nil
     }
 
+    // MARK: - Bulk Character + Location Highlights
+
+    private func highlightCharactersAndLocations() {
+        guard let textStorage = textStorage,
+              let coordinator = coordinatorRef else { return }
+
+        clearCharacterAndLocationHighlights()
+
+        for element in coordinator.parent.elements {
+            guard let range = coordinator.elementRanges[element.id],
+                  range.location + range.length <= textStorage.length else { continue }
+
+            let highlightColor: NSColor
+            switch element.type {
+            case .character:
+                highlightColor = Self.characterHighlightColor
+            case .sceneHeading:
+                highlightColor = Self.locationHighlightColor
+            default:
+                continue
+            }
+
+            // Save original background so we can restore it
+            let originalBg = textStorage.attribute(.backgroundColor, at: range.location, effectiveRange: nil)
+            textStorage.addAttribute(.backgroundColor, value: highlightColor, range: range)
+            bulkHighlightedRanges.append((range: range, originalBg: originalBg))
+        }
+    }
+
+    private func clearCharacterAndLocationHighlights() {
+        guard let textStorage = textStorage else {
+            bulkHighlightedRanges.removeAll()
+            return
+        }
+
+        for entry in bulkHighlightedRanges {
+            guard entry.range.location + entry.range.length <= textStorage.length else { continue }
+            if let originalBg = entry.originalBg {
+                textStorage.addAttribute(.backgroundColor, value: originalBg, range: entry.range)
+            } else {
+                textStorage.removeAttribute(.backgroundColor, range: entry.range)
+            }
+        }
+        bulkHighlightedRanges.removeAll()
+    }
+
     override func mouseDown(with event: NSEvent) {
         // Cmd+Click → Navigate to element's source page
         if event.modifierFlags.contains(.command),
            !event.modifierFlags.contains(.shift) {
             clearHoverHighlight()
+            clearCharacterAndLocationHighlights()
             isCmdHeld = false
 
             let clickPoint = convert(event.locationInWindow, from: nil)
@@ -891,32 +1073,202 @@ class ScreenplayNSTextView: NSTextView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        // Draw subtle page break lines
         guard let layoutManager = layoutManager,
-              let textContainer = textContainer else { return }
+              let textContainer = textContainer else {
+            super.draw(dirtyRect)
+            return
+        }
 
         let linesPerPage: CGFloat = 55
         let lineHeight: CGFloat = ScreenplayFormatting.lineHeight + 2 // line + spacing
         let pageHeight = linesPerPage * lineHeight
-
         let contentHeight = layoutManager.usedRect(for: textContainer).height
         let insetY = textContainerInset.height
+        let insetX = textContainerInset.width
 
-        let context = NSGraphicsContext.current?.cgContext
-        context?.setStrokeColor(ScreenplayFormatting.pageBreakColor.cgColor)
-        context?.setLineWidth(0.5)
-        context?.setLineDash(phase: 0, lengths: [4, 4])
+        if showPagesMode {
+            // --- Pages Mode ---
+            // Gray desk with a single continuous cream page column + shadow + title page
+            // Pages are stacked flush — no gaps — so text is never clipped mid-line.
+            // Shadow is drawn only on the outer edges of the column (not between pages).
 
-        var y = insetY + pageHeight
-        while y < contentHeight + insetY {
-            if dirtyRect.intersects(NSRect(x: 0, y: y - 1, width: bounds.width, height: 2)) {
-                context?.move(to: CGPoint(x: textContainerInset.width, y: y))
-                context?.addLine(to: CGPoint(x: textContainerInset.width + ScreenplayFormatting.contentWidth, y: y))
-                context?.strokePath()
+            let deskColor = NSColor(calibratedRed: 0.75, green: 0.76, blue: 0.78, alpha: 1.0)
+            let fullPageWidth = ScreenplayFormatting.pageWidth // 612pt (8.5")
+
+            // Center the page horizontally in the view
+            let pageX = max(10, (bounds.width - fullPageWidth) / 2)
+
+            // Fill entire rect with desk color
+            deskColor.setFill()
+            dirtyRect.fill()
+
+            // Calculate total pages from content height (insetY includes title page offset)
+            let totalContentHeight = contentHeight + insetY * 2
+            let totalPages = max(1, Int(ceil(totalContentHeight / pageHeight)))
+            let totalHeight = CGFloat(totalPages) * pageHeight
+
+            // Draw one continuous cream column with shadow on outer edges only
+            let columnRect = NSRect(x: pageX, y: 0, width: fullPageWidth, height: totalHeight)
+            let drawableColumn = columnRect.intersection(dirtyRect.insetBy(dx: -16, dy: -16))
+
+            if !drawableColumn.isNull {
+                // Shadow (only visible on left/right/bottom edges of column)
+                NSGraphicsContext.current?.saveGraphicsState()
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor(calibratedRed: 0, green: 0, blue: 0, alpha: 0.20)
+                shadow.shadowOffset = NSSize(width: 3, height: 3)
+                shadow.shadowBlurRadius = 8
+                shadow.set()
+                ScreenplayFormatting.backgroundColor.setFill()
+                NSBezierPath(rect: drawableColumn).fill()
+                NSGraphicsContext.current?.restoreGraphicsState()
+
+                // Clean cream fill (no shadow)
+                ScreenplayFormatting.backgroundColor.setFill()
+                NSBezierPath(rect: drawableColumn).fill()
             }
-            y += pageHeight
+
+            // Page break separator lines
+            let separatorColor = NSColor(calibratedRed: 0.70, green: 0.68, blue: 0.65, alpha: 0.6)
+            for pageIndex in 1..<totalPages {
+                let breakY = CGFloat(pageIndex) * pageHeight
+                let lineArea = NSRect(x: pageX, y: breakY - 1, width: fullPageWidth, height: 2)
+                if dirtyRect.intersects(lineArea) {
+                    separatorColor.setFill()
+                    NSBezierPath(rect: NSRect(x: pageX, y: breakY - 0.5, width: fullPageWidth, height: 1)).fill()
+                }
+            }
+
+            // Draw title page content on page 0
+            let titlePageRect = NSRect(x: pageX, y: 0, width: fullPageWidth, height: pageHeight)
+            if dirtyRect.intersects(titlePageRect) {
+                drawTitlePage(in: titlePageRect)
+            }
+
+            // super.draw() renders text only (drawsBackground is false in pages mode)
+            // Text is offset by one pageHeight via textContainerInset, so starts on page 2
+            super.draw(dirtyRect)
+        } else {
+            // --- Continuous Mode ---
+            super.draw(dirtyRect)
+
+            let context = NSGraphicsContext.current?.cgContext
+            context?.setStrokeColor(ScreenplayFormatting.pageBreakColor.cgColor)
+            context?.setLineWidth(0.5)
+            context?.setLineDash(phase: 0, lengths: [4, 4])
+
+            var y = insetY + pageHeight
+            while y < contentHeight + insetY {
+                if dirtyRect.intersects(NSRect(x: 0, y: y - 1, width: bounds.width, height: 2)) {
+                    context?.move(to: CGPoint(x: insetX, y: y))
+                    context?.addLine(to: CGPoint(x: insetX + ScreenplayFormatting.contentWidth, y: y))
+                    context?.strokePath()
+                }
+                y += pageHeight
+            }
+        }
+    }
+
+    // MARK: - Title Page Drawing
+
+    private func drawTitlePage(in pageRect: NSRect) {
+        let titleFont = NSFont(name: "Courier-Bold", size: 24) ?? NSFont.monospacedSystemFont(ofSize: 24, weight: .bold)
+        let byFont = NSFont(name: "Courier", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let smallFont = NSFont(name: "Courier", size: 10) ?? NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+
+        let centerStyle = NSMutableParagraphStyle()
+        centerStyle.alignment = .center
+        centerStyle.lineSpacing = 4
+
+        let leftStyle = NSMutableParagraphStyle()
+        leftStyle.alignment = .left
+        leftStyle.lineSpacing = 2
+
+        let textColor = ScreenplayFormatting.textColor
+        let subtleColor = ScreenplayFormatting.sceneNumberColor
+
+        let contentInsetX: CGFloat = 108 // 1.5" left margin
+        let contentRight: CGFloat = 72   // 1" right margin
+        let contentWidth = pageRect.width - contentInsetX - contentRight
+
+        // --- Title block: centered vertically in upper 60% of page ---
+        let titleBlockTop = pageRect.origin.y + pageRect.height * 0.33
+
+        // Project name (large, bold, centered)
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: titleFont,
+            .foregroundColor: textColor,
+            .paragraphStyle: centerStyle
+        ]
+        let titleRect = NSRect(
+            x: pageRect.origin.x + contentInsetX,
+            y: titleBlockTop,
+            width: contentWidth,
+            height: 80
+        )
+        let displayName = projectName.isEmpty ? "Untitled Screenplay" : projectName
+        (displayName as NSString).draw(in: titleRect, withAttributes: titleAttrs)
+
+        // Calculate how tall the title actually rendered
+        let titleSize = (displayName as NSString).boundingRect(
+            with: NSSize(width: contentWidth, height: 80),
+            options: [.usesLineFragmentOrigin],
+            attributes: titleAttrs
+        )
+
+        // "written by" (centered, normal weight)
+        let byY = titleBlockTop + titleSize.height + 40
+        let byAttrs: [NSAttributedString.Key: Any] = [
+            .font: byFont,
+            .foregroundColor: textColor,
+            .paragraphStyle: centerStyle
+        ]
+        let byRect = NSRect(
+            x: pageRect.origin.x + contentInsetX,
+            y: byY,
+            width: contentWidth,
+            height: 20
+        )
+        if !directorName.isEmpty {
+            ("written by" as NSString).draw(in: byRect, withAttributes: byAttrs)
+
+            // Director name (centered)
+            let directorRect = NSRect(
+                x: pageRect.origin.x + contentInsetX,
+                y: byY + 24,
+                width: contentWidth,
+                height: 20
+            )
+            (directorName as NSString).draw(in: directorRect, withAttributes: byAttrs)
+        }
+
+        // --- Bottom-left block: production company, genre ---
+        let bottomAttrs: [NSAttributedString.Key: Any] = [
+            .font: smallFont,
+            .foregroundColor: subtleColor,
+            .paragraphStyle: leftStyle
+        ]
+        var bottomY = pageRect.origin.y + pageRect.height - 80
+
+        if !productionCompany.isEmpty {
+            let companyRect = NSRect(
+                x: pageRect.origin.x + contentInsetX,
+                y: bottomY,
+                width: 300,
+                height: 16
+            )
+            (productionCompany as NSString).draw(in: companyRect, withAttributes: bottomAttrs)
+            bottomY += 18
+        }
+
+        if !genre.isEmpty {
+            let genreRect = NSRect(
+                x: pageRect.origin.x + contentInsetX,
+                y: bottomY,
+                width: 300,
+                height: 16
+            )
+            (genre as NSString).draw(in: genreRect, withAttributes: bottomAttrs)
         }
     }
 }

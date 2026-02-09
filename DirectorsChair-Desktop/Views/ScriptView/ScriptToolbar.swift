@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PDFKit
 import DirectorsChairCore
 import DirectorsChairExports
 
@@ -53,6 +54,47 @@ struct ScriptToolbar: View {
             .toggleStyle(.checkbox)
             .help("Show/hide scene navigator sidebar")
 
+            // Pages mode toggle
+            Toggle(isOn: $viewModel.showPagesMode) {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.richtext")
+                        .font(.system(size: 11))
+                    Text("Pages")
+                        .font(.system(size: 11))
+                }
+            }
+            .toggleStyle(.checkbox)
+            .help("Show screenplay as distinct pages")
+
+            Divider()
+                .frame(height: 16)
+
+            // Zoom controls
+            HStack(spacing: 4) {
+                Text("\(Int(viewModel.currentZoom * 100))%")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(width: 36, alignment: .trailing)
+
+                Button {
+                    viewModel.saveZoomLevel()
+                } label: {
+                    Image(systemName: "arrow.down.doc")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help("Save current zoom level (\(Int(viewModel.currentZoom * 100))%)")
+
+                Button {
+                    viewModel.restoreZoomLevel()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help("Restore saved zoom level (\(Int(viewModel.savedZoomLevel * 100))%)")
+            }
+
             Spacer()
 
             // Shortcuts help
@@ -79,6 +121,9 @@ struct ScriptToolbar: View {
                 }
                 Button("Final Draft (.fdx)") {
                     exportFDX()
+                }
+                Button("PDF (.pdf)") {
+                    exportPDF()
                 }
             } label: {
                 HStack(spacing: 4) {
@@ -129,6 +174,21 @@ struct ScriptToolbar: View {
             if response == .OK, let url = panel.url {
                 let content = FDXExportService.exportProject(projectViewModel.project)
                 try? content.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    private func exportPDF() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(projectViewModel.project.name).pdf"
+        panel.title = "Export Screenplay as PDF"
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                if let pdf = PDFExportService.exportScreenplay(projectViewModel.project) {
+                    pdf.write(to: url)
+                }
             }
         }
     }

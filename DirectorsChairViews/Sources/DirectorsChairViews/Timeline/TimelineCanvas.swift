@@ -27,6 +27,9 @@ public struct TimelineCanvas: View {
     /// Sequence boundaries (for vertical lines through tracks)
     public let sequenceBoundaries: [TimelineBoundary]
 
+    /// Playhead time in seconds (nil = no playhead)
+    public let playheadTime: CGFloat?
+
     /// Pixels per second (zoom level)
     public let pxPerSec: CGFloat
 
@@ -159,6 +162,7 @@ public struct TimelineCanvas: View {
         markers: [TimelineMarker] = [],
         sceneBoundaries: [TimelineBoundary] = [],
         sequenceBoundaries: [TimelineBoundary] = [],
+        playheadTime: CGFloat? = nil,
         pxPerSec: CGFloat = TimelineLayoutConstants.defaultPxPerSec,
         showThumbs: Bool = true,
         mode: TimelineMode = .scene,
@@ -182,6 +186,7 @@ public struct TimelineCanvas: View {
         self.markers = markers
         self.sceneBoundaries = sceneBoundaries
         self.sequenceBoundaries = sequenceBoundaries
+        self.playheadTime = playheadTime
         self.pxPerSec = pxPerSec
         self.showThumbs = showThumbs
         self.mode = mode
@@ -220,6 +225,7 @@ public struct TimelineCanvas: View {
             drawUserMarkers(context: context, size: size)
             drawLaneLabels(context: context, size: size)
             drawScopeMarkerLines(context: context, size: size)
+            drawPlayheadLine(context: context, size: size)
         }
         .frame(width: totalWidth, height: totalHeight)
         .contentShape(Rectangle())
@@ -601,6 +607,20 @@ public struct TimelineCanvas: View {
                 )
             }
         }
+    }
+
+    /// Draw the playhead vertical red line through all tracks
+    private func drawPlayheadLine(context: GraphicsContext, size: CGSize) {
+        guard let time = playheadTime else { return }
+        let x = originX + time * pxPerSec
+        context.stroke(
+            Path { path in
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+            },
+            with: .color(Color(hex: TimelineDefaultColors.playheadColor).opacity(0.8)),
+            lineWidth: 1.5
+        )
     }
 
     /// Draw shot-dialogue connection lines (lines from shot card position to linked dialogue segments)

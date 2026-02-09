@@ -45,6 +45,21 @@ class ScriptViewModel: ObservableObject {
     // Configuration
     @Published var showSceneNumbers: Bool = true
     @Published var showSceneNavigator: Bool = true
+    @Published var showPagesMode: Bool = false
+
+    // Zoom
+    @Published var currentZoom: CGFloat = 2.0
+    @Published var savedZoomLevel: CGFloat = UserDefaults.standard.double(forKey: "scriptView.savedZoomLevel") == 0
+        ? 2.0 : CGFloat(UserDefaults.standard.double(forKey: "scriptView.savedZoomLevel"))
+
+    func saveZoomLevel() {
+        savedZoomLevel = currentZoom
+        UserDefaults.standard.set(Double(currentZoom), forKey: "scriptView.savedZoomLevel")
+    }
+
+    func restoreZoomLevel() {
+        currentZoom = savedZoomLevel
+    }
 
     // Project reference for reverse sync
     private weak var projectViewModel: ProjectViewModel?

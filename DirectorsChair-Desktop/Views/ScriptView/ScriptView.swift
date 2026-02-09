@@ -63,7 +63,13 @@ struct ScriptView: View {
                         viewModel.navigateToElement(element)
                     },
                     isWizardActive: viewModel.isWizardActive,
-                    focusElementId: viewModel.focusElementId
+                    focusElementId: viewModel.focusElementId,
+                    showPagesMode: viewModel.showPagesMode,
+                    projectName: projectViewModel.project.name,
+                    directorName: projectViewModel.project.director,
+                    productionCompany: projectViewModel.project.productionCompany,
+                    genre: projectViewModel.project.genre,
+                    magnification: $viewModel.currentZoom
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

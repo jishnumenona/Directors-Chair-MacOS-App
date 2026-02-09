@@ -30,6 +30,7 @@ public struct CinematographyView: View {
     @State private var showingDeleteAlert: Bool = false
     @State private var shotToDelete: String?
     @State private var lastAppliedShotId: Int?
+    @State private var isShotListCollapsed: Bool = true
 
     // MARK: - Init
 
@@ -52,15 +53,19 @@ public struct CinematographyView: View {
     // MARK: - Body
 
     public var body: some View {
-        HSplitView {
-            // Left sidebar - shot list
-            shotListSidebar
-                .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
+        HStack(spacing: 0) {
+            // Left sidebar - shot list (collapsible)
+            if !isShotListCollapsed {
+                shotListSidebar
+                    .frame(width: 320)
+                    .transition(.move(edge: .leading))
+            }
 
             // Main content area
             mainContentArea
-                .frame(minWidth: 500)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .animation(.easeInOut(duration: 0.2), value: isShotListCollapsed)
         .sheet(isPresented: $viewModel.showingShotEditor) {
             if let shot = viewModel.editingShot {
                 ShotEditorSheet(
@@ -312,6 +317,20 @@ public struct CinematographyView: View {
     @ViewBuilder
     private var modeToolbar: some View {
         HStack(spacing: 16) {
+            // Shot list toggle
+            Button {
+                isShotListCollapsed.toggle()
+            } label: {
+                Image(systemName: isShotListCollapsed ? "sidebar.left" : "sidebar.left")
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(isShotListCollapsed ? .gray : .accentColor)
+            .help(isShotListCollapsed ? "Show Shot List" : "Hide Shot List")
+
+            Divider()
+                .frame(height: 20)
+
             // View mode picker
             ForEach(CinematographyViewMode.allCases) { mode in
                 Button {
@@ -1163,11 +1182,24 @@ private struct ShotPreviewSection: View {
                     return
                 }
 
+                let ref: (base64: String, mimeType: String)?
+                if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
+                    ref = CharacterReferenceHelper.referenceImage(
+                        forScene: scene,
+                        characters: characters,
+                        projectDirectory: projDir
+                    )
+                } else {
+                    ref = nil
+                }
+
                 let request = ImageGenerationRequest(
                     prompt: prompt,
                     provider: .googleImagen,
                     aspectRatio: "16:9",
-                    numberOfImages: 1
+                    numberOfImages: 1,
+                    referenceImageBase64: ref?.base64,
+                    referenceMimeType: ref?.mimeType
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -1476,6 +1508,19 @@ private struct ShotPreviewFullSizeSheet: View {
     @Binding var isPresented: Bool
     let onDownload: () -> Void
 
+    private var imageSize: CGSize {
+        guard let image = image else { return CGSize(width: 900, height: 506) }
+        return image.size
+    }
+
+    private var sheetSize: (width: CGFloat, height: CGFloat) {
+        let chromeHeight: CGFloat = 100 // header + footer + dividers
+        let aspectRatio = imageSize.width / max(imageSize.height, 1)
+        let displayWidth = min(imageSize.width, 1200)
+        let displayHeight = displayWidth / aspectRatio
+        return (displayWidth, displayHeight + chromeHeight)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -1546,7 +1591,7 @@ private struct ShotPreviewFullSizeSheet: View {
             .padding()
             .background(Color(hex: "#1E1E1E"))
         }
-        .frame(width: 900, height: 650)
+        .frame(width: sheetSize.width, height: sheetSize.height)
         .background(Color(hex: "#252525"))
     }
 }
