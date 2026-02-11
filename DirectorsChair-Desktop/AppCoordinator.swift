@@ -81,6 +81,8 @@ class AppCoordinator: ObservableObject {
     struct NavigationSnapshot: Equatable {
         let view: AppView
         let sceneTab: String?  // SceneViewTab raw value, if on scenes view
+        let scriptScrollY: CGFloat?  // Script scroll position (when on script view)
+        let productionTab: String?  // Production sub-tab, if on production view
     }
 
     /// Stack of previously visited states (for navigate back)
@@ -102,6 +104,9 @@ class AppCoordinator: ObservableObject {
 
     /// Currently selected tab within the Scenes view
     @Published var selectedSceneTab: String = "Scenes"
+
+    /// Currently selected tab within the Production view
+    @Published var selectedProductionTab: String = "Schedule"
 
     /// Currently selected sequence (if any)
     @Published var selectedSequence: DirectorsChairCore.Sequence?
@@ -132,6 +137,20 @@ class AppCoordinator: ObservableObject {
     /// Comments overlay visibility
     @Published var showingComments = false
 
+    /// AI usage widget visibility
+    @Published var showingUsageWidget = true
+
+    /// AI Chat overlay visibility
+    @Published var showingAIChat = false
+
+    /// AI Chat context snapshot (set when overlay opens)
+    @Published var aiChatContext: AIChatContext? = nil
+
+    /// Fine-grained selection forwarded from BubbleView for AI context
+    @Published var chatContextDialogue: Dialogue? = nil
+    @Published var chatContextAction: Action? = nil
+    @Published var chatContextNarration: Narration? = nil
+
     // MARK: - Cross-View Highlight State
 
     /// Item to highlight in bubble view (set from timeline double-click)
@@ -153,6 +172,38 @@ class AppCoordinator: ObservableObject {
                 self?.highlightedBubbleItem = nil
                 debugLog("✨ Cleared highlight for \(id)")
             }
+        }
+    }
+
+    /// Current script scroll Y position (continuously updated by ScreenplayTextView)
+    var scriptScrollY: CGFloat = 0
+
+    /// Script scroll Y to restore after back/forward navigation
+    @Published var restoreScriptScrollY: CGFloat?
+
+    /// Script element to scroll to (set from shot detail "Jump to Script")
+    /// Contains: (sourceItemId, itemType) where itemType is "dialogue", "action", "narration"
+    @Published var scrollToScriptItemId: String?
+
+    /// Navigate to script view and scroll to a specific element by its source item ID
+    func jumpToScriptElement(itemId: String, itemType: String) {
+        debugLog("📜 Jump to script: \(itemType) \(itemId)")
+        scrollToScriptItemId = itemId
+        if selectedView != .script {
+            navigateTo(.script)
+        }
+    }
+
+    /// Jump to script for a shot: linked script element first, parent scene fallback
+    func jumpToScriptForShot(_ shot: Shot, scene: DirectorsChairCore.Scene?) {
+        if let dialogueId = shot.linkedDialogueIds.first {
+            jumpToScriptElement(itemId: dialogueId, itemType: "dialogue")
+        } else if let actionId = shot.linkedActionIds.first {
+            jumpToScriptElement(itemId: actionId, itemType: "action")
+        } else if let narrationId = shot.linkedNarrationIds.first {
+            jumpToScriptElement(itemId: narrationId, itemType: "narration")
+        } else if let scene = scene {
+            jumpToScriptElement(itemId: scene.id, itemType: "scene")
         }
     }
 
@@ -212,10 +263,13 @@ class AppCoordinator: ObservableObject {
         if !isHistoryNavigation {
             let snapshot = NavigationSnapshot(
                 view: selectedView,
-                sceneTab: selectedView == .scenes ? selectedSceneTab : nil
+                sceneTab: selectedView == .scenes ? selectedSceneTab : nil,
+                scriptScrollY: selectedView == .script ? scriptScrollY : nil,
+                productionTab: selectedView == .production ? selectedProductionTab : nil
             )
             navigationBackStack.append(snapshot)
             navigationForwardStack.removeAll()
+            restoreScriptScrollY = nil  // Clear on fresh navigation
         }
 
         // Direct assignment without animation to prevent stacking during rapid switches
@@ -235,7 +289,9 @@ class AppCoordinator: ObservableObject {
         debugLog("🧭 Navigate back to \(previousSnapshot.view.rawValue)")
         let currentSnapshot = NavigationSnapshot(
             view: selectedView,
-            sceneTab: selectedView == .scenes ? selectedSceneTab : nil
+            sceneTab: selectedView == .scenes ? selectedSceneTab : nil,
+            scriptScrollY: selectedView == .script ? scriptScrollY : nil,
+            productionTab: selectedView == .production ? selectedProductionTab : nil
         )
         navigationForwardStack.append(currentSnapshot)
         isHistoryNavigation = true
@@ -243,6 +299,11 @@ class AppCoordinator: ObservableObject {
         if let sceneTab = previousSnapshot.sceneTab {
             selectedSceneTab = sceneTab
         }
+        if let productionTab = previousSnapshot.productionTab {
+            selectedProductionTab = productionTab
+        }
+        // Restore script scroll position if returning to script view
+        restoreScriptScrollY = previousSnapshot.view == .script ? previousSnapshot.scriptScrollY : nil
         navigateTo(previousSnapshot.view)
         isHistoryNavigation = false
     }
@@ -253,7 +314,9 @@ class AppCoordinator: ObservableObject {
         debugLog("🧭 Navigate forward to \(nextSnapshot.view.rawValue)")
         let currentSnapshot = NavigationSnapshot(
             view: selectedView,
-            sceneTab: selectedView == .scenes ? selectedSceneTab : nil
+            sceneTab: selectedView == .scenes ? selectedSceneTab : nil,
+            scriptScrollY: selectedView == .script ? scriptScrollY : nil,
+            productionTab: selectedView == .production ? selectedProductionTab : nil
         )
         navigationBackStack.append(currentSnapshot)
         isHistoryNavigation = true
@@ -261,6 +324,11 @@ class AppCoordinator: ObservableObject {
         if let sceneTab = nextSnapshot.sceneTab {
             selectedSceneTab = sceneTab
         }
+        if let productionTab = nextSnapshot.productionTab {
+            selectedProductionTab = productionTab
+        }
+        // Restore script scroll position if returning to script view
+        restoreScriptScrollY = nextSnapshot.view == .script ? nextSnapshot.scriptScrollY : nil
         navigateTo(nextSnapshot.view)
         isHistoryNavigation = false
     }
@@ -333,6 +401,34 @@ class AppCoordinator: ObservableObject {
         }
     }
 
+    /// Toggle AI usage widget
+    func toggleUsageWidget() {
+        withAnimation {
+            showingUsageWidget.toggle()
+        }
+    }
+
+    /// Toggle AI Chat overlay
+    func toggleAIChat() {
+        if showingAIChat {
+            showingAIChat = false
+        } else {
+            aiChatContext = AIChatContext(
+                currentView: selectedView,
+                selectedScene: selectedScene,
+                selectedShot: selectedShot,
+                selectedCharacter: selectedCharacter,
+                selectedLocation: selectedLocation,
+                selectedSequence: selectedSequence,
+                selectedDialogue: chatContextDialogue,
+                selectedAction: chatContextAction,
+                selectedNarration: chatContextNarration,
+                productionTab: selectedView == .production ? selectedProductionTab : nil
+            )
+            showingAIChat = true
+        }
+    }
+
     // MARK: - Global Event Methods
 
     /// Notify that the project has changed (triggers global refresh)
@@ -361,9 +457,7 @@ enum AppView: String, CaseIterable, Identifiable {
     case scenes = "Scenes"
     case assets = "Assets"
     case visionBoard = "Vision Board"
-    case schedule = "Schedule"
-    case castCrew = "Cast & Crew"
-    case budget = "Budget"
+    case production = "Production"
     case storyDesign = "Story Design"
     case settings = "Settings"
     case projects = "Projects"
@@ -380,9 +474,7 @@ enum AppView: String, CaseIterable, Identifiable {
         case .assets: return "photo.on.rectangle"
         case .visionBoard: return "square.grid.2x2"
         case .shotList: return "camera"
-        case .schedule: return "calendar"
-        case .castCrew: return "person.3"
-        case .budget: return "dollarsign.circle"
+        case .production: return "theatermasks"
         case .storyDesign: return "book"
         case .settings: return "gear"
         case .projects: return "folder"
@@ -398,4 +490,19 @@ enum AppView: String, CaseIterable, Identifiable {
             return true
         }
     }
+}
+
+// MARK: - AI Chat Context
+
+struct AIChatContext: Equatable {
+    var currentView: AppView
+    var selectedScene: DirectorsChairCore.Scene?
+    var selectedShot: Shot?
+    var selectedCharacter: Character?
+    var selectedLocation: Location?
+    var selectedSequence: DirectorsChairCore.Sequence?
+    var selectedDialogue: Dialogue?
+    var selectedAction: Action?
+    var selectedNarration: Narration?
+    var productionTab: String?
 }

@@ -64,13 +64,17 @@ public struct BubbleView: View {
     /// When this changes, BubbleView syncs its internal selectedScene to match.
     let externalSelectedSceneName: String?
 
+    /// Callback when a dialogue is selected (for AI context forwarding)
+    let onDialogueSelected: ((Dialogue?) -> Void)?
+
     public init(
         project: Binding<Project>,
         projectBasePath: URL? = nil,
         highlightedBubbleItem: (id: String, type: String, sceneName: String)? = nil,
         onItemsReordered: (() -> Void)? = nil,
         onContentChanged: (() -> Void)? = nil,
-        externalSelectedSceneName: String? = nil
+        externalSelectedSceneName: String? = nil,
+        onDialogueSelected: ((Dialogue?) -> Void)? = nil
     ) {
         self._project = project
         self.projectBasePath = projectBasePath
@@ -78,6 +82,7 @@ public struct BubbleView: View {
         self.onItemsReordered = onItemsReordered
         self.onContentChanged = onContentChanged
         self.externalSelectedSceneName = externalSelectedSceneName
+        self.onDialogueSelected = onDialogueSelected
     }
 
     public var body: some View {
@@ -238,6 +243,9 @@ public struct BubbleView: View {
             if let scene = selectedScene {
                 rebuildBubbleCache(for: scene)
             }
+        }
+        .onChange(of: selectedDialogue?.uuid) { _ in
+            onDialogueSelected?(selectedDialogue)
         }
     }
 

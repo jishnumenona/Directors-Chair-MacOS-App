@@ -97,6 +97,18 @@ struct ContentView: View {
             if projectViewModel.isLoading {
                 LoadingOverlay()
             }
+
+            // AI Chat overlay
+            if coordinator.showingAIChat {
+                AIChatOverlayView()
+                    .transition(.opacity)
+            }
+        }
+        .onAppear {
+            DoubleShiftMonitor.shared.onDoubleShift = {
+                coordinator.toggleAIChat()
+            }
+            DoubleShiftMonitor.shared.install()
         }
         .focusedValue(\.projectViewModel, projectViewModel)
         .focusedValue(\.appCoordinator, coordinator)
@@ -259,6 +271,7 @@ struct CentralViewStack: View {
     @StateObject private var scheduleViewModel = ScheduleViewModel(scheduleItems: [])
     @StateObject private var castCrewViewModel = CastCrewViewModel(castMembers: [], crewMembers: [], teams: [], equipment: [])
     @StateObject private var budgetViewModel = BudgetViewModel(budget: ProjectBudget())
+    @StateObject private var equipmentViewModel = EquipmentViewModel()
 
     var body: some View {
         let _ = debugLog("🔄 CentralViewStack body - current: \(coordinator.selectedView.rawValue)")
@@ -284,7 +297,10 @@ struct CentralViewStack: View {
                         // Notify that content was added/modified (triggers timeline refresh)
                         coordinator.notifyProjectChanged()
                     },
-                    externalSelectedSceneName: coordinator.selectedScene?.name
+                    externalSelectedSceneName: coordinator.selectedScene?.name,
+                    onDialogueSelected: { dialogue in
+                        coordinator.chatContextDialogue = dialogue
+                    }
                 )
                 .onAppear { debugLog("📱 BubbleView appeared") }
             case .scenes:
@@ -311,57 +327,23 @@ struct CentralViewStack: View {
                     CinematographyViewAdapter()
                 }
                 .onAppear { debugLog("📱 CinematographyView appeared") }
-            case .schedule:
-                ProductionViewWrapper(
-                    project: projectViewModel.project,
-                    projectPath: projectViewModel.projectPath,
-                    subtitle: "Production Schedule"
-                ) {
-                    ScheduleView(viewModel: scheduleViewModel)
-                }
-                .onAppear {
-                    debugLog("📱 ScheduleView appeared - loading data")
-                    scheduleViewModel.setScheduleItems(projectViewModel.project.scheduleItems)
-                    debugLog("📱 ScheduleView data loaded")
-                }
-            case .castCrew:
-                ProductionViewWrapper(
-                    project: projectViewModel.project,
-                    projectPath: projectViewModel.projectPath,
-                    subtitle: "Cast & Crew"
-                ) {
-                    CastCrewView(viewModel: castCrewViewModel)
-                }
-                .onAppear {
-                    debugLog("📱 CastCrewView appeared - loading data")
-                    castCrewViewModel.setCastMembers(projectViewModel.project.castMembers)
-                    castCrewViewModel.setCrewMembers(projectViewModel.project.crewMembers)
-                    castCrewViewModel.setTeams(projectViewModel.project.teams)
-                    castCrewViewModel.setEquipment(projectViewModel.project.equipmentLibrary)
-                    debugLog("📱 CastCrewView data loaded")
-                }
-            case .budget:
-                ProductionViewWrapper(
-                    project: projectViewModel.project,
-                    projectPath: projectViewModel.projectPath,
-                    subtitle: "Budget"
-                ) {
-                    BudgetView(viewModel: budgetViewModel)
-                }
-                .onAppear {
-                    debugLog("📱 BudgetView appeared - loading data")
-                    budgetViewModel.setBudget(projectViewModel.project.projectBudget ?? ProjectBudget())
-                    debugLog("📱 BudgetView data loaded")
-                }
+            case .production:
+                ProductionContainer(
+                    scheduleViewModel: scheduleViewModel,
+                    castCrewViewModel: castCrewViewModel,
+                    budgetViewModel: budgetViewModel,
+                    equipmentViewModel: equipmentViewModel
+                )
+                .onAppear { debugLog("📱 ProductionContainer appeared") }
             case .storyDesign:
                 StoryDesignView(
                     project: $projectViewModel.project,
                     projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
                     initialCharacterId: coordinator.selectedCharacter?.id,
                     initialLocationId: coordinator.selectedLocation?.id,
-                    onGenerateImage: { character, angle, prompt in
+                    onGenerateImage: { character, angle, prompt, progressHandler in
                         Task {
-                            await generateCharacterImage(character: character, angle: angle, prompt: prompt)
+                            await generateCharacterImage(character: character, angle: angle, prompt: prompt, progressHandler: progressHandler)
                         }
                     },
                     onAnalyzeTraits: { character in
@@ -372,6 +354,11 @@ struct CentralViewStack: View {
                     onGenerateBiography: { character in
                         Task {
                             await generateCharacterBiography(character: character)
+                        }
+                    },
+                    onGenerateLocationImage: { location, variation, prompt, progressHandler in
+                        Task {
+                            await generateLocationImage(location: location, variation: variation, prompt: prompt, progressHandler: progressHandler)
                         }
                     }
                 )
@@ -389,12 +376,15 @@ struct CentralViewStack: View {
 
     // MARK: - AI Integration Methods
 
-    private func generateCharacterImage(character: Character, angle: String, prompt: String) async {
+    private func generateCharacterImage(character: Character, angle: String, prompt: String, progressHandler: @escaping @MainActor (Double) -> Void) async {
         let aiClient = AIServiceClient.shared
+
+        await MainActor.run { progressHandler(0.05) }
 
         // Check if AI server is available
         guard await aiClient.testConnection() else {
             await MainActor.run {
+                progressHandler(1.0) // Clear progress
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
                     message: "Could not connect to AI server at http://165.22.172.244:8002. Please ensure the AI Proxy server is running."
@@ -403,34 +393,58 @@ struct CentralViewStack: View {
             return
         }
 
-        await MainActor.run {
-            projectViewModel.isLoading = true
-        }
+        await MainActor.run { progressHandler(0.1) }
 
         do {
+            // Load base image as reference when generating angle variants
+            var referenceBase64: String? = nil
+            var referenceMime: String? = nil
+            if angle != "base" {
+                referenceBase64 = loadBaseImageAsBase64(for: character)
+                if referenceBase64 != nil {
+                    referenceMime = "image/png"
+                }
+            }
+
+            await MainActor.run { progressHandler(0.15) }
+
             let request = ImageGenerationRequest(
                 prompt: prompt,
                 provider: .googleImagen,
                 aspectRatio: "1:1",
-                numberOfImages: 1
+                numberOfImages: 1,
+                referenceImageBase64: referenceBase64,
+                referenceMimeType: referenceMime
             )
 
+            // Simulate gradual progress during the AI call
+            let progressSimulator = Task { @MainActor in
+                var current = 0.2
+                while current < 0.85 {
+                    progressHandler(current)
+                    try await Task.sleep(nanoseconds: 800_000_000) // 0.8s intervals
+                    current += Double.random(in: 0.03...0.08)
+                }
+            }
+
             let response = try await aiClient.generateImage(request)
+            progressSimulator.cancel()
+
+            await MainActor.run { progressHandler(0.88) }
 
             guard let imageData = response.images.first else {
                 throw AIClientError.invalidResponse("No image generated")
             }
 
-            // Save image to project directory using Python-compatible structure:
-            // assets/characters/{CharacterName}/face/{angle}.png
+            await MainActor.run { progressHandler(0.92) }
+
+            // Save image to project directory
             if let projectPath = projectViewModel.projectPath {
                 let projectDir = projectPath.deletingLastPathComponent()
                 let sanitizedName = sanitizeAssetName(character.name)
 
-                // Determine subfolder based on angle type
                 let (subfolder, filename) = getAssetPath(for: angle)
 
-                // Build path: assets/characters/{CharacterName}/{subfolder}/{filename}.png
                 let characterAssetsDir = projectDir
                     .appendingPathComponent("assets")
                     .appendingPathComponent("characters")
@@ -439,7 +453,6 @@ struct CentralViewStack: View {
 
                 let imagePath = characterAssetsDir.appendingPathComponent("\(filename).png")
 
-                // Try to write the image, prompt for access if needed
                 let saveSucceeded = await saveImageWithUserPermission(
                     imageData: imageData,
                     imagePath: imagePath,
@@ -448,16 +461,14 @@ struct CentralViewStack: View {
                 )
 
                 if !saveSucceeded {
-                    await MainActor.run {
-                        projectViewModel.isLoading = false
-                    }
+                    await MainActor.run { progressHandler(1.0) }
                     return
                 }
 
-                // Store relative path from project directory (Python-compatible)
+                await MainActor.run { progressHandler(0.96) }
+
                 let relativePath = "assets/characters/\(sanitizedName)/\(subfolder)/\(filename).png"
 
-                // Update character with relative image path
                 if let charIndex = projectViewModel.project.characters.firstIndex(where: { $0.id == character.id }) {
                     await MainActor.run {
                         switch angle {
@@ -476,7 +487,6 @@ struct CentralViewStack: View {
                         case "back":
                             projectViewModel.project.characters[charIndex].imageBack = relativePath
                         default:
-                            // Default to base image
                             projectViewModel.project.characters[charIndex].baseImage = relativePath
                         }
                         projectViewModel.isDirty = true
@@ -484,19 +494,44 @@ struct CentralViewStack: View {
                 }
             }
 
-            await MainActor.run {
-                projectViewModel.isLoading = false
-            }
+            // Signal completion
+            await MainActor.run { progressHandler(1.0) }
 
         } catch {
             await MainActor.run {
-                projectViewModel.isLoading = false
+                progressHandler(1.0) // Clear progress even on failure
                 projectViewModel.errorAlert = ErrorAlert(
                     error: error,
                     title: "Image Generation Failed"
                 )
             }
         }
+    }
+
+    /// Load the base image for a character as base64 string for use as reference
+    private func loadBaseImageAsBase64(for character: Character) -> String? {
+        guard let projectPath = projectViewModel.projectPath else { return nil }
+        let projectDir = projectPath.deletingLastPathComponent()
+
+        // Try character's stored base image path first, then front image
+        let candidatePaths = [character.baseImage, character.imageFront].compactMap { $0 }
+
+        for relativePath in candidatePaths {
+            let fullPath = projectDir.appendingPathComponent(relativePath)
+            if let imageData = try? Data(contentsOf: fullPath) {
+                return imageData.base64EncodedString()
+            }
+        }
+
+        // Also try discovered images from filesystem
+        let sanitizedName = sanitizeAssetName(character.name)
+        let faceFrontPath = projectDir
+            .appendingPathComponent("assets/characters/\(sanitizedName)/face/front.png")
+        if let imageData = try? Data(contentsOf: faceFrontPath) {
+            return imageData.base64EncodedString()
+        }
+
+        return nil
     }
 
     /// Save image with user permission - prompts for folder access if needed
@@ -764,12 +799,154 @@ struct CentralViewStack: View {
             }
         }
     }
+
+    // MARK: - Location Image Generation
+
+    private func generateLocationImage(location: Location, variation: String, prompt: String, progressHandler: @escaping @MainActor (Double) -> Void) async {
+        let aiClient = AIServiceClient.shared
+
+        await MainActor.run { progressHandler(0.05) }
+
+        guard await aiClient.testConnection() else {
+            await MainActor.run {
+                progressHandler(1.0)
+                projectViewModel.errorAlert = ErrorAlert(
+                    title: "AI Service Unavailable",
+                    message: "Could not connect to AI server at http://165.22.172.244:8002. Please ensure the AI Proxy server is running."
+                )
+            }
+            return
+        }
+
+        await MainActor.run { progressHandler(0.1) }
+
+        do {
+            // Load primary image as reference when generating variations
+            var referenceBase64: String? = nil
+            var referenceMime: String? = nil
+            if variation != "primary" {
+                referenceBase64 = loadPrimaryLocationImageAsBase64(for: location)
+                if referenceBase64 != nil {
+                    referenceMime = "image/png"
+                }
+            }
+
+            await MainActor.run { progressHandler(0.15) }
+
+            let request = ImageGenerationRequest(
+                prompt: prompt,
+                provider: .googleImagen,
+                aspectRatio: "16:9",
+                numberOfImages: 1,
+                referenceImageBase64: referenceBase64,
+                referenceMimeType: referenceMime
+            )
+
+            // Simulate gradual progress during the AI call
+            let progressSimulator = Task { @MainActor in
+                var current = 0.2
+                while current < 0.85 {
+                    progressHandler(current)
+                    try await Task.sleep(nanoseconds: 800_000_000)
+                    current += Double.random(in: 0.03...0.08)
+                }
+            }
+
+            let response = try await aiClient.generateImage(request)
+            progressSimulator.cancel()
+
+            await MainActor.run { progressHandler(0.88) }
+
+            guard let imageData = response.images.first else {
+                throw AIClientError.invalidResponse("No image generated")
+            }
+
+            await MainActor.run { progressHandler(0.92) }
+
+            // Save image to project directory
+            if let projectPath = projectViewModel.projectPath {
+                let projectDir = projectPath.deletingLastPathComponent()
+                let sanitizedName = sanitizeAssetName(location.name)
+
+                let locationAssetsDir = projectDir
+                    .appendingPathComponent("assets")
+                    .appendingPathComponent("locations")
+                    .appendingPathComponent(sanitizedName)
+
+                let imagePath = locationAssetsDir.appendingPathComponent("\(variation).png")
+
+                let saveSucceeded = await saveImageWithUserPermission(
+                    imageData: imageData,
+                    imagePath: imagePath,
+                    imagesDir: locationAssetsDir,
+                    projectDir: projectDir
+                )
+
+                if !saveSucceeded {
+                    await MainActor.run { progressHandler(1.0) }
+                    return
+                }
+
+                await MainActor.run { progressHandler(0.96) }
+
+                let relativePath = "assets/locations/\(sanitizedName)/\(variation).png"
+
+                if let locIndex = projectViewModel.project.locations.firstIndex(where: { $0.id == location.id }) {
+                    await MainActor.run {
+                        if variation == "primary" {
+                            projectViewModel.project.locations[locIndex].primaryImage = relativePath
+                        }
+                        if !projectViewModel.project.locations[locIndex].images.contains(relativePath) {
+                            projectViewModel.project.locations[locIndex].images.append(relativePath)
+                        }
+                        projectViewModel.isDirty = true
+                    }
+                }
+            }
+
+            await MainActor.run { progressHandler(1.0) }
+
+        } catch {
+            await MainActor.run {
+                progressHandler(1.0)
+                projectViewModel.errorAlert = ErrorAlert(
+                    error: error,
+                    title: "Location Image Generation Failed"
+                )
+            }
+        }
+    }
+
+    /// Load the primary image for a location as base64 string for use as reference
+    private func loadPrimaryLocationImageAsBase64(for location: Location) -> String? {
+        guard let projectPath = projectViewModel.projectPath else { return nil }
+        let projectDir = projectPath.deletingLastPathComponent()
+
+        // Try location's stored primary image path first
+        if let primaryPath = location.primaryImage {
+            let fullPath = projectDir.appendingPathComponent(primaryPath)
+            if let imageData = try? Data(contentsOf: fullPath) {
+                return imageData.base64EncodedString()
+            }
+        }
+
+        // Try discovered primary image from filesystem
+        let sanitizedName = sanitizeAssetName(location.name)
+        let primaryPath = projectDir
+            .appendingPathComponent("assets/locations/\(sanitizedName)/primary.png")
+        if let imageData = try? Data(contentsOf: primaryPath) {
+            return imageData.base64EncodedString()
+        }
+
+        return nil
+    }
 }
 
 // MARK: - App Toolbar
 
 struct AppToolbar: View {
     @EnvironmentObject var coordinator: AppCoordinator
+    @EnvironmentObject var projectViewModel: ProjectViewModel
 
     var body: some View {
         HStack(spacing: 0) {
@@ -794,6 +971,10 @@ struct AppToolbar: View {
 
             // Toggle Controls
             HStack(spacing: 8) {
+                if coordinator.showingUsageWidget {
+                    AIUsageWidget(projectStorageSize: projectViewModel.projectStorageSize)
+                }
+
                 Divider()
                     .frame(height: 20)
 
@@ -1105,6 +1286,27 @@ struct TimelineContainer: View {
                     coordinator.navigateTo(.bubble)
                 }
             },
+            onOptionClickSegment: { segment in
+                // Option+Click: jump to script element
+                if let sourceItemId = segment.sourceItemId {
+                    let itemType: String
+                    switch segment.contentType {
+                    case .dialogue: itemType = "dialogue"
+                    case .action: itemType = "action"
+                    case .narration: itemType = "narration"
+                    case .note: itemType = "note"
+                    case .soundNote: itemType = "soundNote"
+                    }
+                    coordinator.jumpToScriptElement(itemId: sourceItemId, itemType: itemType)
+                }
+            },
+            onOptionClickShotLabel: { shotId, sceneName in
+                // Option+Click on shot label: resolve the full Shot and jump to script
+                if let scene = projectViewModel.allScenes.first(where: { $0.name == sceneName }),
+                   let shot = scene.shots.first(where: { $0.shotId == shotId }) {
+                    coordinator.jumpToScriptForShot(shot, scene: scene)
+                }
+            },
             onShotLabelDoubleClicked: { shotId, sceneName in
                 // Find the shot by shotId and sceneName to ensure correct match
                 if let scene = projectViewModel.allScenes.first(where: { $0.name == sceneName }),
@@ -1166,6 +1368,311 @@ struct TimelineContainer: View {
         .onReceive(coordinator.projectChanged) { _ in
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.refresh()
+        }
+    }
+}
+
+// MARK: - Production Container
+
+/// Combines Schedule, Cast & Crew, and Budget into a single tabbed view
+struct ProductionContainer: View {
+    @EnvironmentObject var coordinator: AppCoordinator
+    @EnvironmentObject var projectViewModel: ProjectViewModel
+    @ObservedObject var scheduleViewModel: ScheduleViewModel
+    @ObservedObject var castCrewViewModel: CastCrewViewModel
+    @ObservedObject var budgetViewModel: BudgetViewModel
+    @ObservedObject var equipmentViewModel: EquipmentViewModel
+
+    var body: some View {
+        ProductionViewWrapper(
+            project: projectViewModel.project,
+            projectPath: projectViewModel.projectPath,
+            subtitle: "Production"
+        ) {
+            VStack(spacing: 0) {
+                // Custom icon+label tab bar
+                HStack(spacing: 0) {
+                    ProductionTabButton(
+                        icon: "calendar",
+                        title: "Schedule",
+                        isSelected: coordinator.selectedProductionTab == "Schedule"
+                    ) {
+                        coordinator.selectedProductionTab = "Schedule"
+                    }
+                    ProductionTabButton(
+                        icon: "person.3",
+                        title: "Cast & Crew",
+                        isSelected: coordinator.selectedProductionTab == "Cast & Crew"
+                    ) {
+                        coordinator.selectedProductionTab = "Cast & Crew"
+                    }
+                    ProductionTabButton(
+                        icon: "banknote",
+                        title: "Accounting",
+                        isSelected: coordinator.selectedProductionTab == "Accounting"
+                    ) {
+                        coordinator.selectedProductionTab = "Accounting"
+                    }
+                    ProductionTabButton(
+                        icon: "camera.metering.matrix",
+                        title: "Equipment",
+                        isSelected: coordinator.selectedProductionTab == "Equipment"
+                    ) {
+                        coordinator.selectedProductionTab = "Equipment"
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+
+                Divider()
+
+                // Tab content
+                switch coordinator.selectedProductionTab {
+                case "Schedule":
+                    ScheduleView(viewModel: scheduleViewModel, sequences: projectViewModel.project.sequences, onSceneStatusUpdate: updateSceneStatus)
+                case "Cast & Crew":
+                    CastCrewView(viewModel: castCrewViewModel)
+                case "Accounting":
+                    BudgetView(viewModel: budgetViewModel)
+                case "Equipment":
+                    EquipmentView(viewModel: equipmentViewModel)
+                default:
+                    ScheduleView(viewModel: scheduleViewModel, sequences: projectViewModel.project.sequences, onSceneStatusUpdate: updateSceneStatus)
+                }
+            }
+        }
+        .onAppear {
+            wireUpCallbacks()
+            loadProductionData()
+        }
+        .onChange(of: coordinator.selectedProductionTab) { _, _ in loadProductionData() }
+    }
+
+    private func wireUpCallbacks() {
+        // Sync schedule changes back to project (triggers auto-save)
+        scheduleViewModel.onScheduleChanged = { items in
+            projectViewModel.project.scheduleItems = items
+        }
+
+        // Sync cast & crew changes back to project
+        castCrewViewModel.onCastChanged = { members in
+            projectViewModel.project.castMembers = members
+        }
+        castCrewViewModel.onCrewChanged = { members in
+            projectViewModel.project.crewMembers = members
+        }
+        castCrewViewModel.onTeamsChanged = { teams in
+            projectViewModel.project.teams = teams
+        }
+        castCrewViewModel.onEquipmentChanged = { equipment in
+            projectViewModel.project.equipmentLibrary = equipment
+        }
+
+        // Sync budget changes back to project
+        budgetViewModel.onBudgetChanged = { budget in
+            projectViewModel.project.projectBudget = budget
+        }
+
+        // AI receipt analysis callback
+        // Capture category names upfront (on main actor) to avoid actor-isolation issues in the async closure
+        let capturedBudgetVM = budgetViewModel
+        budgetViewModel.onAnalyzeReceipt = { imageData, mimeType in
+            let logFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("receipt_analysis_debug.log")
+            func debugLog(_ msg: String) {
+                let line = "[\(Date())] \(msg)\n"
+                print("[Receipt Analysis] \(msg)")
+                if let data = line.data(using: .utf8) {
+                    if FileManager.default.fileExists(atPath: logFile.path) {
+                        if let handle = try? FileHandle(forWritingTo: logFile) {
+                            handle.seekToEndOfFile()
+                            handle.write(data)
+                            handle.closeFile()
+                        }
+                    } else {
+                        try? data.write(to: logFile)
+                    }
+                }
+            }
+
+            let aiClient = AIServiceClient.shared
+            debugLog("Starting analysis, data size: \(imageData.count) bytes, mime: \(mimeType)")
+
+            guard await aiClient.testConnection() else {
+                debugLog("AI server connection failed")
+                return []
+            }
+            debugLog("Server connection OK")
+
+            let base64 = imageData.base64EncodedString()
+            debugLog("Base64 encoded, length: \(base64.count)")
+
+            // Build category names on main actor
+            let categoryNames = capturedBudgetVM.budget.categories.map { $0.name }.joined(separator: ", ")
+            debugLog("Categories: \(categoryNames)")
+
+            let prompt = """
+            Analyze this receipt image. If the receipt contains multiple distinct line items, return ALL items individually.
+            Return ONLY valid JSON with this structure:
+            {
+              "vendor": "store/vendor name",
+              "date": "YYYY-MM-DD format",
+              "items": [
+                {"description": "item 1 description", "amount": 12.99, "category": "best matching category"},
+                {"description": "item 2 description", "amount": 45.00, "category": "best matching category"}
+              ]
+            }
+
+            Rules:
+            - "vendor" and "date" are shared across all items.
+            - Each item in "items" should have its own description, amount, and category.
+            - If the receipt has only one item or a single total, return a single item in the array.
+            - Do NOT include tax/tip as separate items unless they are distinct line items on the receipt.
+            - Available budget categories: \(categoryNames)
+            - Choose the category that best matches each item. If no category matches well, use the most general one.
+            - Return ONLY the JSON object, no other text.
+            """
+
+            let request = TextGenerationRequest(
+                prompt: prompt,
+                provider: .google,
+                maxTokens: 4000,
+                temperature: 0.1,
+                imageBase64: base64,
+                imageMimeType: mimeType
+            )
+
+            do {
+                debugLog("Sending request to AI...")
+                let response = try await aiClient.generateText(request)
+                let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                debugLog("AI response: \(text)")
+
+                // Strip markdown code fences if present
+                var jsonString = text
+                if jsonString.hasPrefix("```json") {
+                    jsonString = String(jsonString.dropFirst(7))
+                } else if jsonString.hasPrefix("```") {
+                    jsonString = String(jsonString.dropFirst(3))
+                }
+                if jsonString.hasSuffix("```") {
+                    jsonString = String(jsonString.dropLast(3))
+                }
+                jsonString = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
+                debugLog("Cleaned JSON string: \(jsonString)")
+
+                guard let jsonData = jsonString.data(using: .utf8),
+                      let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                    debugLog("Failed to parse JSON")
+                    return []
+                }
+
+                debugLog("Parsed JSON: \(json)")
+
+                let sharedVendor = json["vendor"] as? String ?? ""
+                let sharedDate = json["date"] as? String ?? ""
+
+                guard let items = json["items"] as? [[String: Any]], !items.isEmpty else {
+                    debugLog("No items array found in response")
+                    return []
+                }
+
+                var results: [ReceiptAnalysisResult] = []
+                for item in items {
+                    // Handle amount as either Double or Int from JSON
+                    let parsedAmount: Double
+                    if let doubleVal = item["amount"] as? Double {
+                        parsedAmount = doubleVal
+                    } else if let intVal = item["amount"] as? Int {
+                        parsedAmount = Double(intVal)
+                    } else if let strVal = item["amount"] as? String, let numVal = Double(strVal) {
+                        parsedAmount = numVal
+                    } else {
+                        parsedAmount = 0
+                    }
+
+                    let result = ReceiptAnalysisResult(
+                        description: item["description"] as? String ?? "",
+                        vendor: sharedVendor,
+                        date: sharedDate,
+                        amount: parsedAmount,
+                        category: item["category"] as? String ?? ""
+                    )
+                    results.append(result)
+                }
+
+                debugLog("Returning \(results.count) results")
+                return results
+            } catch {
+                debugLog("Error: \(error)")
+                return []
+            }
+        }
+
+        // Sync equipment changes back to project
+        equipmentViewModel.onEquipmentChanged = { equipment in
+            projectViewModel.project.equipmentLibrary = equipment
+        }
+        equipmentViewModel.onAllocationsChanged = { allocations in
+            projectViewModel.project.equipmentAllocations = allocations
+        }
+    }
+
+    private func loadProductionData() {
+        switch coordinator.selectedProductionTab {
+        case "Schedule":
+            // Auto-promote any "Planned" items that have a date to "Scheduled"
+            var items = projectViewModel.project.scheduleItems
+            var changed = false
+            for i in items.indices {
+                if items[i].status == "Planned", let date = items[i].shootDate, !date.isEmpty {
+                    items[i].status = "Scheduled"
+                    changed = true
+                    // Also update the scene's productionStatus
+                    updateSceneStatus(sequenceName: items[i].sequenceName, sceneName: items[i].sceneName, status: "Scheduled")
+                }
+            }
+            if changed {
+                projectViewModel.project.scheduleItems = items
+            }
+            scheduleViewModel.setScheduleItems(items)
+        case "Cast & Crew":
+            castCrewViewModel.setCastMembers(projectViewModel.project.castMembers)
+            castCrewViewModel.setCrewMembers(projectViewModel.project.crewMembers)
+            castCrewViewModel.setTeams(projectViewModel.project.teams)
+            castCrewViewModel.setEquipment(projectViewModel.project.equipmentLibrary)
+            castCrewViewModel.characterNames = projectViewModel.project.characters.map { $0.name }
+            castCrewViewModel.scheduleItems = projectViewModel.project.scheduleItems
+            if let projectPath = projectViewModel.projectPath {
+                castCrewViewModel.projectBasePath = projectPath.deletingLastPathComponent()
+            }
+        case "Accounting":
+            budgetViewModel.setBudget(projectViewModel.project.projectBudget ?? ProjectBudget())
+            budgetViewModel.castMembers = projectViewModel.project.castMembers
+            budgetViewModel.crewMembers = projectViewModel.project.crewMembers
+            budgetViewModel.equipment = projectViewModel.project.equipmentLibrary
+            budgetViewModel.equipmentAllocations = projectViewModel.project.equipmentAllocations
+            budgetViewModel.scheduleItems = projectViewModel.project.scheduleItems
+            budgetViewModel.props = projectViewModel.project.props
+            budgetViewModel.sequences = projectViewModel.project.sequences
+            // Pass accounting defaults and project base path
+            budgetViewModel.defaultDepartment = projectViewModel.project.defaultExpenseDepartment
+            budgetViewModel.defaultAccountCode = projectViewModel.project.defaultExpenseAccountCode
+            if let projectPath = projectViewModel.projectPath {
+                budgetViewModel.projectBasePath = projectPath.deletingLastPathComponent()
+            }
+        case "Equipment":
+            equipmentViewModel.setEquipment(projectViewModel.project.equipmentLibrary)
+            equipmentViewModel.setAllocations(projectViewModel.project.equipmentAllocations)
+        default: break
+        }
+    }
+
+    private func updateSceneStatus(sequenceName: String, sceneName: String, status: String) {
+        if let seqIdx = projectViewModel.project.sequences.firstIndex(where: { $0.name == sequenceName }),
+           let sceneIdx = projectViewModel.project.sequences[seqIdx].scenes.firstIndex(where: { $0.name == sceneName }) {
+            projectViewModel.project.sequences[seqIdx].scenes[sceneIdx].productionStatus = status
         }
     }
 }
@@ -1273,6 +1780,15 @@ struct CinematographyViewAdapter: View {
                     initialSelectedShotId: coordinator.selectedShot?.shotId,
                     onShotsChanged: { updatedShots in
                         adapter.updateShots(updatedShots)
+                    },
+                    onJumpToScriptElement: { itemId, itemType in
+                        coordinator.jumpToScriptElement(itemId: itemId, itemType: itemType)
+                    },
+                    onOptionClickShot: { shot in
+                        let parentScene = projectViewModel.allScenes.first { scene in
+                            scene.shots.contains { $0.shotId == shot.shotId }
+                        }
+                        coordinator.jumpToScriptForShot(shot, scene: parentScene)
                     }
                 )
             } else {

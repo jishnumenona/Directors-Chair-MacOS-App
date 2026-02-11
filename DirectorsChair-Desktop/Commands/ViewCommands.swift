@@ -49,32 +49,22 @@ struct ViewCommands: Commands {
                 }
                 .keyboardShortcut("6", modifiers: .command)
 
-                Button("Schedule") {
-                    coordinator?.navigateTo(.schedule)
+                Button("Production") {
+                    coordinator?.navigateTo(.production)
                 }
                 .keyboardShortcut("7", modifiers: .command)
-
-                Button("Cast & Crew") {
-                    coordinator?.navigateTo(.castCrew)
-                }
-                .keyboardShortcut("8", modifiers: .command)
-
-                Button("Budget") {
-                    coordinator?.navigateTo(.budget)
-                }
-                .keyboardShortcut("9", modifiers: .command)
 
                 Divider()
 
                 Button("Story Design") {
                     coordinator?.navigateTo(.storyDesign)
                 }
-                .keyboardShortcut("0", modifiers: .command)
+                .keyboardShortcut("8", modifiers: .command)
 
                 Button("Project Settings") {
                     coordinator?.navigateTo(.settings)
                 }
-                .keyboardShortcut("-", modifiers: .command)
+                .keyboardShortcut("9", modifiers: .command)
             }
 
             Divider()
@@ -100,6 +90,11 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("4", modifiers: [.command, .option])
 
+            Button("Toggle Usage Widget") {
+                coordinator?.toggleUsageWidget()
+            }
+            .keyboardShortcut("5", modifiers: [.command, .option])
+
             Divider()
 
             // View Options
@@ -116,6 +111,13 @@ struct ViewCommands: Commands {
                 coordinator?.showingRightPanel = false
             }
             .keyboardShortcut("h", modifiers: [.command, .option])
+
+            Divider()
+
+            Button("AI Chat Assistant") {
+                coordinator?.toggleAIChat()
+            }
+            .keyboardShortcut(" ", modifiers: [.command, .shift])
 
             Divider()
 
