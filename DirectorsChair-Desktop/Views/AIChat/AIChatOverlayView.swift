@@ -13,6 +13,7 @@ struct AIChatOverlayView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @StateObject private var viewModel = AIChatViewModel()
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         ZStack {
@@ -74,6 +75,9 @@ struct AIChatOverlayView: View {
         .onAppear {
             viewModel.coordinator = coordinator
             viewModel.projectViewModel = projectViewModel
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isInputFocused = true
+            }
         }
         .onExitCommand {
             dismiss()
@@ -271,6 +275,7 @@ struct AIChatOverlayView: View {
                         .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
                 )
                 .cornerRadius(10)
+                .focused($isInputFocused)
                 .onSubmit {
                     viewModel.sendMessage()
                 }

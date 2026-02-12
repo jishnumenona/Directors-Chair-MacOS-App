@@ -443,7 +443,24 @@ struct CentralViewStack: View {
                 let projectDir = projectPath.deletingLastPathComponent()
                 let sanitizedName = sanitizeAssetName(character.name)
 
-                let (subfolder, filename) = getAssetPath(for: angle)
+                // Check if this is a costume image (format: "costume:{costumeName}:{angle}")
+                let isCostumeImage = angle.hasPrefix("costume:")
+                let costumeComponents = angle.split(separator: ":", maxSplits: 2).map(String.init)
+
+                let subfolder: String
+                let filename: String
+
+                if isCostumeImage, costumeComponents.count == 3 {
+                    let costumeName = costumeComponents[1]
+                    let costumeAngle = costumeComponents[2]
+                    let sanitizedCostumeName = sanitizeAssetName(costumeName)
+                    subfolder = "costumes/\(sanitizedCostumeName)"
+                    filename = costumeAngle
+                } else {
+                    let assetPath = getAssetPath(for: angle)
+                    subfolder = assetPath.subfolder
+                    filename = assetPath.filename
+                }
 
                 let characterAssetsDir = projectDir
                     .appendingPathComponent("assets")
@@ -471,23 +488,49 @@ struct CentralViewStack: View {
 
                 if let charIndex = projectViewModel.project.characters.firstIndex(where: { $0.id == character.id }) {
                     await MainActor.run {
-                        switch angle {
-                        case "base":
-                            projectViewModel.project.characters[charIndex].baseImage = relativePath
-                        case "front":
-                            projectViewModel.project.characters[charIndex].imageFront = relativePath
-                        case "three_quarter_left":
-                            projectViewModel.project.characters[charIndex].imageThreeQuarterLeft = relativePath
-                        case "three_quarter_right":
-                            projectViewModel.project.characters[charIndex].imageThreeQuarterRight = relativePath
-                        case "profile_left":
-                            projectViewModel.project.characters[charIndex].imageProfileLeft = relativePath
-                        case "profile_right":
-                            projectViewModel.project.characters[charIndex].imageProfileRight = relativePath
-                        case "back":
-                            projectViewModel.project.characters[charIndex].imageBack = relativePath
-                        default:
-                            projectViewModel.project.characters[charIndex].baseImage = relativePath
+                        if isCostumeImage, costumeComponents.count == 3 {
+                            // Store on the matching CharacterCostume
+                            let costumeName = costumeComponents[1]
+                            let costumeAngle = costumeComponents[2]
+                            if var costumes = projectViewModel.project.characters[charIndex].costumes,
+                               let costumeIdx = costumes.firstIndex(where: { $0.name == costumeName }) {
+                                switch costumeAngle {
+                                case "front":
+                                    costumes[costumeIdx].imageFront = relativePath
+                                case "three_quarter_left":
+                                    costumes[costumeIdx].imageThreeQuarterLeft = relativePath
+                                case "three_quarter_right":
+                                    costumes[costumeIdx].imageThreeQuarterRight = relativePath
+                                case "profile":
+                                    costumes[costumeIdx].imageProfile = relativePath
+                                case "back":
+                                    costumes[costumeIdx].imageBack = relativePath
+                                case "full_body":
+                                    costumes[costumeIdx].imageFullBody = relativePath
+                                default:
+                                    costumes[costumeIdx].imageFront = relativePath
+                                }
+                                projectViewModel.project.characters[charIndex].costumes = costumes
+                            }
+                        } else {
+                            switch angle {
+                            case "base":
+                                projectViewModel.project.characters[charIndex].baseImage = relativePath
+                            case "front":
+                                projectViewModel.project.characters[charIndex].imageFront = relativePath
+                            case "three_quarter_left":
+                                projectViewModel.project.characters[charIndex].imageThreeQuarterLeft = relativePath
+                            case "three_quarter_right":
+                                projectViewModel.project.characters[charIndex].imageThreeQuarterRight = relativePath
+                            case "profile_left":
+                                projectViewModel.project.characters[charIndex].imageProfileLeft = relativePath
+                            case "profile_right":
+                                projectViewModel.project.characters[charIndex].imageProfileRight = relativePath
+                            case "back":
+                                projectViewModel.project.characters[charIndex].imageBack = relativePath
+                            default:
+                                projectViewModel.project.characters[charIndex].baseImage = relativePath
+                            }
                         }
                         projectViewModel.isDirty = true
                     }
@@ -950,9 +993,9 @@ struct AppToolbar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // View Selection (Radio Button Group)
+            // View Selection (Radio Button Group) — excludes Projects (moved to right)
             HStack(spacing: 4) {
-                ForEach(AppView.allCases) { view in
+                ForEach(AppView.allCases.filter { $0 != .projects }) { view in
                     Button(action: {
                         debugLog("🖱️ Button pressed: \(view.rawValue)")
                         coordinator.navigateTo(view)
@@ -971,6 +1014,16 @@ struct AppToolbar: View {
 
             // Toggle Controls
             HStack(spacing: 8) {
+                // Projects folder button (moved from left tab group)
+                Button(action: {
+                    coordinator.navigateTo(.projects)
+                }) {
+                    Label("Projects", systemImage: "folder")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == .projects, tooltipText: "Projects"))
+
                 if coordinator.showingUsageWidget {
                     AIUsageWidget(projectStorageSize: projectViewModel.projectStorageSize)
                 }
@@ -1776,6 +1829,7 @@ struct CinematographyViewAdapter: View {
                     shots: adapter.allShots,
                     scene: firstScene,
                     characters: projectViewModel.project.characters,
+                    locations: projectViewModel.project.locations,
                     projectBasePath: projectViewModel.projectPath,
                     initialSelectedShotId: coordinator.selectedShot?.shotId,
                     onShotsChanged: { updatedShots in
@@ -1789,6 +1843,26 @@ struct CinematographyViewAdapter: View {
                             scene.shots.contains { $0.shotId == shot.shotId }
                         }
                         coordinator.jumpToScriptForShot(shot, scene: parentScene)
+                    },
+                    onNavigateToCharacter: { character in
+                        coordinator.selectCharacter(character)
+                    },
+                    onNavigateToLocation: { location in
+                        coordinator.selectLocation(location)
+                    },
+                    onNavigateToStoryDesign: {
+                        coordinator.navigateTo(.storyDesign)
+                    },
+                    onSceneUpdated: { updatedScene in
+                        // Update the scene in the project model
+                        if var seq = projectViewModel.project.sequences.first {
+                            if let sceneIdx = seq.scenes.firstIndex(where: { $0.id == updatedScene.id }) {
+                                seq.scenes[sceneIdx] = updatedScene
+                                projectViewModel.project.sequences[0] = seq
+                                projectViewModel.isDirty = true
+                                coordinator.projectChanged.send(())
+                            }
+                        }
                     }
                 )
             } else {

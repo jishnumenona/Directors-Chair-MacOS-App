@@ -63,6 +63,14 @@ struct ScenesListView: View {
                             coordinator.selectScene(s)
                             coordinator.navigateTo(.shotList)
                         },
+                        onSelectShot: { s, shot in
+                            coordinator.selectScene(s)
+                            coordinator.selectShot(shot)
+                        },
+                        onJumpShotToScript: { s, shot in
+                            coordinator.selectScene(s)
+                            coordinator.jumpToScriptForShot(shot, scene: s)
+                        },
                         onImageGenerated: { relativePath in
                             updateSceneOverviewImage(scene, relativePath: relativePath)
                         },
@@ -158,8 +166,12 @@ struct ScenesListView: View {
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                detailScene = scene
-                                coordinator.selectScene(scene)
+                                if NSEvent.modifierFlags.contains(.option) {
+                                    coordinator.jumpToScriptElement(itemId: scene.id, itemType: "scene")
+                                } else {
+                                    detailScene = scene
+                                    coordinator.selectScene(scene)
+                                }
                             }
                         }
                     }

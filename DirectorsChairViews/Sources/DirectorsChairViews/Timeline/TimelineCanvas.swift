@@ -78,6 +78,9 @@ public struct TimelineCanvas: View {
     /// Callback when a track's eye icon is clicked (track name)
     public var onTrackToggled: ((String) -> Void)?
 
+    /// Callback when a segment is Option+clicked (jump to script)
+    public var onOptionClickSegment: ((TimelineSegment) -> Void)?
+
     /// Callback when a segment is dragged to a new time position (segment, newStartTime)
     public var onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)?
 
@@ -178,6 +181,7 @@ public struct TimelineCanvas: View {
         viewportOffset: Binding<CGPoint>,
         onSegmentSelected: ((TimelineSegment) -> Void)? = nil,
         onSegmentDoubleClicked: ((TimelineSegment) -> Void)? = nil,
+        onOptionClickSegment: ((TimelineSegment) -> Void)? = nil,
         onTrackToggled: ((String) -> Void)? = nil,
         onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)? = nil,
         onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)? = nil
@@ -202,6 +206,7 @@ public struct TimelineCanvas: View {
         self._viewportOffset = viewportOffset
         self.onSegmentSelected = onSegmentSelected
         self.onSegmentDoubleClicked = onSegmentDoubleClicked
+        self.onOptionClickSegment = onOptionClickSegment
         self.onTrackToggled = onTrackToggled
         self.onSegmentMoved = onSegmentMoved
         self.onSegmentsMoved = onSegmentsMoved
@@ -237,6 +242,12 @@ public struct TimelineCanvas: View {
         .onTapGesture(count: 1) { location in
             if let trackName = findLaneLabelToggle(at: location) {
                 onTrackToggled?(trackName)
+                return
+            }
+
+            let isOptionHeld = NSEvent.modifierFlags.contains(.option)
+            if isOptionHeld, let segment = findSegment(at: location) {
+                onOptionClickSegment?(segment)
                 return
             }
 

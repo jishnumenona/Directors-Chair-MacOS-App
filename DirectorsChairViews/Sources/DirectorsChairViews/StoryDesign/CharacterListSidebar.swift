@@ -23,21 +23,47 @@ public struct CharacterListSidebar: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
-                Text("Characters")
-                    .font(.headline)
-                Text("(\(project.characters.count))")
-                    .font(.caption)
+            HStack(spacing: 6) {
+                Image(systemName: "person.3.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.accentColor)
+                Text("CHARACTERS")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
+                    .tracking(1.2)
+                Text("\(project.characters.count)")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.7)))
                 Spacer()
             }
-            .padding()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
 
             // Search
-            TextField("Search characters...", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                TextField("Search...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(8)
+            .background(Color(nsColor: .quaternarySystemFill))
+            .cornerRadius(8)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
 
             // Character list
             List(selection: $selectedCharacter) {
@@ -56,33 +82,37 @@ public struct CharacterListSidebar: View {
             Divider()
 
             // Action buttons
-            VStack(spacing: 8) {
-                Button {
+            VStack(spacing: 6) {
+                SidebarActionButton(
+                    label: "Detect Characters",
+                    icon: "sparkle.magnifyingglass",
+                    color: .accentColor,
+                    isProminent: true
+                ) {
                     detectNewCharacters()
-                } label: {
-                    Label("Detect Characters", systemImage: "magnifyingglass")
-                        .frame(maxWidth: .infinity)
                 }
                 .help("Scan dialogues and auto-detect new characters")
 
-                Button {
+                SidebarActionButton(
+                    label: "Add Character",
+                    icon: "plus.circle.fill",
+                    color: .green
+                ) {
                     showAddCharacterSheet = true
-                } label: {
-                    Label("Add Character", systemImage: "plus")
-                        .frame(maxWidth: .infinity)
                 }
                 .help("Add a new character to the project")
 
-                Button(role: .destructive) {
+                SidebarActionButton(
+                    label: "Delete Selected",
+                    icon: "trash",
+                    color: .red,
+                    isDisabled: selectedCharacter == nil
+                ) {
                     showDeleteConfirmation = true
-                } label: {
-                    Label("Delete Selected", systemImage: "trash")
-                        .frame(maxWidth: .infinity)
                 }
-                .disabled(selectedCharacter == nil)
                 .help("Delete the selected character")
             }
-            .padding()
+            .padding(12)
         }
         .frame(minWidth: 200, maxWidth: 280)
         .sheet(isPresented: $showAddCharacterSheet) {
@@ -167,6 +197,45 @@ private struct CharacterListRow: View {
     }
 }
 
+// MARK: - Sidebar Action Button
+
+private struct SidebarActionButton: View {
+    let label: String
+    let icon: String
+    let color: Color
+    var isProminent: Bool = false
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(isProminent ? .white : color)
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isProminent ? .white : (isHovered ? .primary : .secondary))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isProminent
+                        ? color.opacity(isHovered ? 0.9 : 0.8)
+                        : (isHovered ? Color(nsColor: .quaternarySystemFill) : Color.clear))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.4 : 1)
+        .onHover { isHovered = $0 }
+    }
+}
+
 // MARK: - Add Character Sheet
 
 private struct AddCharacterSheet: View {
@@ -184,34 +253,104 @@ private struct AddCharacterSheet: View {
             // Header
             HStack {
                 Text("Add Character")
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Button("Cancel") { dismiss() }
-                Button("Add") { addCharacter() }
-                    .disabled(name.isEmpty)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                Button(action: addCharacter) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12))
+                        Text("Add")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
+                    .foregroundColor(.white)
+                }
+                .buttonStyle(.plain)
+                .disabled(name.isEmpty)
+                .opacity(name.isEmpty ? 0.5 : 1)
             }
-            .padding()
+            .padding(16)
 
             Divider()
 
-            Form {
-                TextField("Name", text: $name)
+            VStack(alignment: .leading, spacing: 16) {
+                // Name
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text("Name")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    TextField("Character name", text: $name)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .padding(8)
+                        .background(Color(nsColor: .quaternarySystemFill))
+                        .cornerRadius(6)
+                }
 
-                Picker("Role", selection: $role) {
-                    ForEach(roles, id: \.self) { role in
-                        Text(role).tag(role)
+                // Role chips
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "theatermask.and.paintbrush")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text("Role")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 6) {
+                        ForEach(roles, id: \.self) { r in
+                            Button {
+                                role = r
+                            } label: {
+                                Text(r)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(role == r ? Color.accentColor : Color(nsColor: .quaternarySystemFill))
+                                    )
+                                    .foregroundColor(role == r ? .white : .primary)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
 
-                ColorPicker("Color", selection: Binding(
-                    get: { Color(hex: color) },
-                    set: { color = $0.hexString }
-                ))
+                // Color
+                HStack(spacing: 10) {
+                    ColorPicker("", selection: Binding(
+                        get: { Color(hex: color) },
+                        set: { color = $0.hexString }
+                    ))
+                    .labelsHidden()
+                    .frame(width: 28, height: 28)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Dialogue Color")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Text(color)
+                            .font(.system(size: 11))
+                            .foregroundColor(.primary)
+                    }
+                }
             }
-            .padding()
+            .padding(16)
+
+            Spacer()
         }
-        .frame(width: 400, height: 250)
+        .frame(width: 440, height: 280)
     }
 
     private func addCharacter() {

@@ -144,6 +144,16 @@ class ScriptViewModel: ObservableObject {
         }
     }
 
+    /// Scroll to a script element by its source item ID (dialogue/action/narration UUID)
+    func scrollToSourceItem(_ sourceItemId: String) {
+        if let element = elements.first(where: { $0.sourceItemId == sourceItemId }) {
+            scrollToElementId = element.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.scrollToElementId = nil
+            }
+        }
+    }
+
     // MARK: - Handle Text Changes (reverse sync)
 
     func handleTextChanged(elementIndex: Int, newText: String) {

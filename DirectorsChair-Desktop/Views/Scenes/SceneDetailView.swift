@@ -17,6 +17,8 @@ struct SceneDetailView: View {
     let onBack: () -> Void
     let onOpenBubble: (DirectorsChairCore.Scene) -> Void
     let onOpenShotList: (DirectorsChairCore.Scene) -> Void
+    var onSelectShot: ((DirectorsChairCore.Scene, Shot) -> Void)? = nil
+    var onJumpShotToScript: ((DirectorsChairCore.Scene, Shot) -> Void)? = nil
     var onImageGenerated: ((String) -> Void)? = nil
     var onPromptUsed: ((String) -> Void)? = nil
 
@@ -525,35 +527,101 @@ struct SceneDetailView: View {
 
     private func miniShotCard(_ shot: Shot) -> some View {
         let statusColor = SceneCardHelpers.productionStatusColor(shot.status)
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("#\(shot.shotId)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.orange)
-                Text(shot.shotType)
-                    .font(.caption2)
-                    .fontWeight(.medium)
-                Spacer()
-                Circle().fill(statusColor).frame(width: 6, height: 6)
-            }
+        let hasCallback = onSelectShot != nil
 
-            HStack(spacing: 8) {
-                miniPill(shot.cameraAngle)
-                if let lens = shot.lensMm { miniPill("\(lens)mm") }
-                if shot.movement != "Static" { miniPill(shot.movement) }
+        return Button {
+            if NSEvent.modifierFlags.contains(.option) {
+                onJumpShotToScript?(scene, shot)
+            } else {
+                onSelectShot?(scene, shot)
             }
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                // Shot preview thumbnail
+                shotThumbnail(shot)
 
-            if !shot.description.isEmpty {
-                Text(shot.description)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                // Shot info
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("#\(shot.shotId)")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.orange)
+                        Text(shot.shotType)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                        Spacer()
+                        Circle().fill(statusColor).frame(width: 6, height: 6)
+                    }
+
+                    HStack(spacing: 8) {
+                        miniPill(shot.cameraAngle)
+                        if let lens = shot.lensMm { miniPill("\(lens)mm") }
+                        if shot.movement != "Static" { miniPill(shot.movement) }
+                    }
+
+                    if !shot.description.isEmpty {
+                        Text(shot.description)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(10)
+            }
+            .background(Color(nsColor: .textBackgroundColor))
+            .cornerRadius(8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hasCallback {
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
         }
-        .padding(10)
-        .background(Color(nsColor: .textBackgroundColor))
-        .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    private func shotThumbnail(_ shot: Shot) -> some View {
+        if let previewPath = shot.previewImage, !previewPath.isEmpty,
+           let basePath = projectBasePath {
+            let fullURL = basePath.appendingPathComponent(previewPath)
+            AsyncImage(url: fullURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(height: 90)
+                        .clipped()
+                case .failure:
+                    shotThumbnailPlaceholder
+                case .empty:
+                    shotThumbnailPlaceholder
+                        .overlay(ProgressView().scaleEffect(0.5))
+                @unknown default:
+                    shotThumbnailPlaceholder
+                }
+            }
+        } else {
+            shotThumbnailPlaceholder
+        }
+    }
+
+    private var shotThumbnailPlaceholder: some View {
+        Rectangle()
+            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            .frame(height: 90)
+            .overlay(
+                VStack(spacing: 4) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(nsColor: .separatorColor))
+                    Text("No Preview")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                }
+            )
     }
 
     private func miniPill(_ text: String) -> some View {

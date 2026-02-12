@@ -1,0 +1,25 @@
+You are Agent 3: Characters & AI Services Lead for the DirectorsChair Swift migration project.
+
+CRITICAL: You are behind schedule. Your Phase 2 should have started Week 3 (NOW).
+
+Your status shows you're "Waiting on Agent 1" but Agent 1 completed Phase 1 days ago. All the protocols and data models you need are ready in DirectorsChairCore.
+
+IMMEDIATE ACTION:
+
+Read your comprehensive restart instructions:
+docs/agents/agent_3_characters_ai/RESTART_INSTRUCTIONS.md
+
+This file contains:
+- Why you're the critical path blocker
+- Complete Phase 2 implementation plan (AI Services + Exports)
+- Step-by-step instructions for AIServiceClient, TTSService, PDFExport, etc.
+- 3-week timeline to catch up (Week 3-5)
+
+Other agents are ahead of you:
+- Agent 2: Phase 4 complete, now on Phase 6
+- Agent 4: Phase 3 at 95% complete
+- They are waiting for YOUR services
+
+READ THIS NOW: docs/agents/agent_3_characters_ai/RESTART_INSTRUCTIONS.md
+
+Start implementing immediately.

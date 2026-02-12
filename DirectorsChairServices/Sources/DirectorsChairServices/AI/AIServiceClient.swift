@@ -18,12 +18,16 @@ public enum AIProvider: String, Sendable, CaseIterable {
     case stability = "stability"
     case deepseek = "deepseek"
     case elevenlabs = "elevenlabs"
-    
+    case googleVeo = "google_veo"
+
     /// Default provider for text generation
     public static var defaultTextProvider: AIProvider { .deepseek }
-    
+
     /// Default provider for image generation
     public static var defaultImageProvider: AIProvider { .googleImagen }
+
+    /// Default provider for video generation
+    public static var defaultVideoProvider: AIProvider { .googleVeo }
 }
 
 // MARK: - AI Service Error
@@ -182,6 +186,97 @@ public struct ImageGenerationResponse: Sendable {
         self.provider = provider
         self.model = model
     }
+}
+
+// MARK: - Video Generation Request
+
+/// Request for video generation
+public struct VideoGenerationRequest: Sendable {
+    public var prompt: String
+    public var provider: AIProvider
+    public var durationSeconds: Double
+    public var quality: String              // "Standard", "High", "Ultra"
+    public var aspectRatio: String           // "16:9", "9:16", "1:1"
+    public var fps: Int
+    public var cameraMotion: String          // "Static", "Pan", "Zoom", "Tracking"
+    public var subjectMotion: String         // "Static", "Walking", "Running"
+    public var negativePrompt: String?
+    public var startFrameBase64: String?     // Base64 of start keyframe
+    public var endFrameBase64: String?       // Base64 of end keyframe
+    public var shotId: String?
+    public var projectId: String?
+
+    public init(
+        prompt: String,
+        provider: AIProvider = .googleVeo,
+        durationSeconds: Double = 5.0,
+        quality: String = "High",
+        aspectRatio: String = "16:9",
+        fps: Int = 24,
+        cameraMotion: String = "Static",
+        subjectMotion: String = "Static",
+        negativePrompt: String? = nil,
+        startFrameBase64: String? = nil,
+        endFrameBase64: String? = nil,
+        shotId: String? = nil,
+        projectId: String? = nil
+    ) {
+        self.prompt = prompt
+        self.provider = provider
+        self.durationSeconds = durationSeconds
+        self.quality = quality
+        self.aspectRatio = aspectRatio
+        self.fps = fps
+        self.cameraMotion = cameraMotion
+        self.subjectMotion = subjectMotion
+        self.negativePrompt = negativePrompt
+        self.startFrameBase64 = startFrameBase64
+        self.endFrameBase64 = endFrameBase64
+        self.shotId = shotId
+        self.projectId = projectId
+    }
+}
+
+// MARK: - Video Generation Response
+
+/// Response from video generation
+public struct VideoGenerationResponse: Sendable {
+    public var jobId: String
+    public var status: VideoJobStatus
+    public var videoURL: String?
+    public var thumbnailURL: String?
+    public var progress: Double?             // 0-100
+    public var estimatedTimeSeconds: Int?
+    public var errorMessage: String?
+    public var cost: Double?
+
+    public init(
+        jobId: String,
+        status: VideoJobStatus = .pending,
+        videoURL: String? = nil,
+        thumbnailURL: String? = nil,
+        progress: Double? = nil,
+        estimatedTimeSeconds: Int? = nil,
+        errorMessage: String? = nil,
+        cost: Double? = nil
+    ) {
+        self.jobId = jobId
+        self.status = status
+        self.videoURL = videoURL
+        self.thumbnailURL = thumbnailURL
+        self.progress = progress
+        self.estimatedTimeSeconds = estimatedTimeSeconds
+        self.errorMessage = errorMessage
+        self.cost = cost
+    }
+}
+
+/// Video generation job status
+public enum VideoJobStatus: String, Sendable {
+    case pending
+    case processing
+    case completed
+    case failed
 }
 
 // MARK: - Server Health Response
@@ -383,12 +478,27 @@ public actor AIServiceClient {
             totalTokens: usageDict["total_tokens"] ?? 0
         )
         
-        return TextGenerationResponse(
+        let textResponse = TextGenerationResponse(
             text: text,
             provider: request.provider,
             model: model,
             usage: usage
         )
+
+        // Track usage
+        let finalUsage = usage
+        let finalProvider = request.provider.rawValue
+        let finalModel = model
+        await MainActor.run {
+            AIUsageTracker.shared.recordTextUsage(
+                provider: finalProvider,
+                model: finalModel,
+                promptTokens: finalUsage.promptTokens,
+                completionTokens: finalUsage.completionTokens
+            )
+        }
+
+        return textResponse
     }
     
     // MARK: - Image Generation
@@ -453,11 +563,25 @@ public actor AIServiceClient {
             }
         }
         
-        return ImageGenerationResponse(
+        let imageResponse = ImageGenerationResponse(
             images: images,
             provider: request.provider,
             model: model
         )
+
+        // Track usage
+        let imageCount = images.count
+        let finalProvider = request.provider.rawValue
+        let finalModel = model
+        await MainActor.run {
+            AIUsageTracker.shared.recordImageUsage(
+                provider: finalProvider,
+                model: finalModel,
+                imageCount: imageCount
+            )
+        }
+
+        return imageResponse
     }
     
     // MARK: - Specialized DirectorsChair Features
@@ -612,6 +736,155 @@ public actor AIServiceClient {
         return Array(alternatives.prefix(3))
     }
     
+    // MARK: - Video Generation
+
+    /// Submit a video generation job
+    public func submitVideoGeneration(_ request: VideoGenerationRequest) async throws -> VideoGenerationResponse {
+        let url = baseURL.appendingPathComponent("generate/video")
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        var body: [String: Any] = [
+            "prompt": request.prompt,
+            "provider": request.provider.rawValue,
+            "duration_seconds": request.durationSeconds,
+            "quality": request.quality,
+            "aspect_ratio": request.aspectRatio,
+            "fps": request.fps,
+            "camera_motion": request.cameraMotion,
+            "subject_motion": request.subjectMotion
+        ]
+
+        if let negativePrompt = request.negativePrompt {
+            body["negative_prompt"] = negativePrompt
+        }
+        if let startFrame = request.startFrameBase64 {
+            body["start_frame_base64"] = startFrame
+        }
+        if let endFrame = request.endFrameBase64 {
+            body["end_frame_base64"] = endFrame
+        }
+        if let shotId = request.shotId {
+            body["shot_id"] = shotId
+        }
+        if let projectId = request.projectId {
+            body["project_id"] = projectId
+        }
+
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIClientError.invalidResponse("Not an HTTP response")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw AIClientError.requestFailed("HTTP \(httpResponse.statusCode): \(errorMessage)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AIClientError.invalidResponse("Invalid JSON response")
+        }
+
+        // Server returns video fields at top level (not wrapped in success/data)
+        if let errorMsg = json["error_message"] as? String, !errorMsg.isEmpty {
+            throw AIClientError.generationFailed(errorMsg)
+        }
+
+        return VideoGenerationResponse(
+            jobId: json["job_id"] as? String ?? "",
+            status: VideoJobStatus(rawValue: json["status"] as? String ?? "pending") ?? .pending,
+            videoURL: json["video_url"] as? String,
+            thumbnailURL: json["thumbnail_url"] as? String,
+            progress: json["progress"] as? Double,
+            estimatedTimeSeconds: json["estimated_time_seconds"] as? Int,
+            errorMessage: json["error_message"] as? String,
+            cost: json["cost"] as? Double
+        )
+    }
+
+    /// Poll video generation status
+    public func checkVideoStatus(jobId: String, provider: AIProvider) async throws -> VideoGenerationResponse {
+        var components = URLComponents(url: baseURL.appendingPathComponent("generate/video/\(jobId)/status"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "provider", value: provider.rawValue)]
+
+        var urlRequest = URLRequest(url: components.url!)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIClientError.invalidResponse("Not an HTTP response")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw AIClientError.requestFailed("HTTP \(httpResponse.statusCode): \(errorMessage)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AIClientError.invalidResponse("Invalid JSON response")
+        }
+
+        return VideoGenerationResponse(
+            jobId: json["job_id"] as? String ?? jobId,
+            status: VideoJobStatus(rawValue: json["status"] as? String ?? "pending") ?? .pending,
+            videoURL: json["video_url"] as? String,
+            thumbnailURL: json["thumbnail_url"] as? String,
+            progress: json["progress"] as? Double,
+            estimatedTimeSeconds: json["estimated_time_seconds"] as? Int,
+            errorMessage: json["error_message"] as? String,
+            cost: json["cost"] as? Double
+        )
+    }
+
+    /// Cancel a video generation job
+    public func cancelVideoGeneration(jobId: String, provider: AIProvider) async throws -> Bool {
+        var components = URLComponents(url: baseURL.appendingPathComponent("generate/video/\(jobId)"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "provider", value: provider.rawValue)]
+
+        var urlRequest = URLRequest(url: components.url!)
+        urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIClientError.invalidResponse("Not an HTTP response")
+        }
+
+        return httpResponse.statusCode == 200
+    }
+
+    /// Download completed video to local path via proxy
+    public func downloadVideo(jobId: String, provider: AIProvider, to localPath: URL) async throws {
+        var components = URLComponents(url: baseURL.appendingPathComponent("generate/video/\(jobId)/download"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "provider", value: provider.rawValue)]
+
+        guard let url = components.url else {
+            throw AIClientError.invalidConfiguration("Invalid download URL")
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.timeoutInterval = 120
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw AIClientError.requestFailed("Failed to download video: \(errorText)")
+        }
+
+        try FileManager.default.createDirectory(at: localPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: localPath)
+    }
+
     /// Generate character backstory
     public func generateCharacterBackstory(
         characterName: String,

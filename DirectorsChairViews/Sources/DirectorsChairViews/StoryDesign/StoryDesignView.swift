@@ -51,18 +51,20 @@ public struct StoryDesignView: View {
     var initialLocationId: String?
 
     // Callbacks for AI operations
-    var onGenerateImage: ((Character, String, String) -> Void)?
+    var onGenerateImage: ((Character, String, String, @escaping @MainActor (Double) -> Void) -> Void)?
     var onAnalyzeTraits: ((Character) -> Void)?
     var onGenerateBiography: ((Character) -> Void)?
+    var onGenerateLocationImage: ((Location, String, String, @escaping @MainActor (Double) -> Void) -> Void)?
 
     public init(
         project: Binding<Project>,
         projectBasePath: URL? = nil,
         initialCharacterId: String? = nil,
         initialLocationId: String? = nil,
-        onGenerateImage: ((Character, String, String) -> Void)? = nil,
+        onGenerateImage: ((Character, String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
         onAnalyzeTraits: ((Character) -> Void)? = nil,
-        onGenerateBiography: ((Character) -> Void)? = nil
+        onGenerateBiography: ((Character) -> Void)? = nil,
+        onGenerateLocationImage: ((Location, String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil
     ) {
         self._project = project
         self.projectBasePath = projectBasePath
@@ -71,6 +73,7 @@ public struct StoryDesignView: View {
         self.onGenerateImage = onGenerateImage
         self.onAnalyzeTraits = onAnalyzeTraits
         self.onGenerateBiography = onGenerateBiography
+        self.onGenerateLocationImage = onGenerateLocationImage
     }
 
     public var body: some View {
@@ -221,7 +224,10 @@ public struct StoryDesignView: View {
                         LocationDetailView(
                             location: $project.locations[locationIndex],
                             project: project,
-                            projectBasePath: projectBasePath
+                            projectBasePath: projectBasePath,
+                            onGenerateImage: { variation, prompt, progressHandler in
+                                onGenerateLocationImage?(project.locations[locationIndex], variation, prompt, progressHandler)
+                            }
                         )
                     } else {
                         ContentUnavailableView(
@@ -302,11 +308,20 @@ public struct StoryDesignView: View {
             PhysicalAppearanceTab(
                 character: character,
                 projectBasePath: projectBasePath,
-                onGenerateImage: { angle, prompt in
-                    onGenerateImage?(character.wrappedValue, angle, prompt)
+                onGenerateImage: { angle, prompt, progressHandler in
+                    onGenerateImage?(character.wrappedValue, angle, prompt, progressHandler)
                 },
                 onAnalyzeTraits: {
                     onAnalyzeTraits?(character.wrappedValue)
+                }
+            )
+        case .costume:
+            CostumeTab(
+                character: character,
+                projectBasePath: projectBasePath,
+                project: project,
+                onGenerateImage: { angle, prompt, progressHandler in
+                    onGenerateImage?(character.wrappedValue, angle, prompt, progressHandler)
                 }
             )
         case .traits:
@@ -346,6 +361,7 @@ public struct StoryDesignView: View {
 
 enum DesignTab: String, CaseIterable {
     case physical
+    case costume
     case traits
     case biography
     case relationships
@@ -354,6 +370,7 @@ enum DesignTab: String, CaseIterable {
     var displayName: String {
         switch self {
         case .physical: return "Physical"
+        case .costume: return "Costume"
         case .traits: return "Traits"
         case .biography: return "Biography"
         case .relationships: return "Relationships"
@@ -364,6 +381,7 @@ enum DesignTab: String, CaseIterable {
     var icon: String {
         switch self {
         case .physical: return "person.fill"
+        case .costume: return "tshirt"
         case .traits: return "chart.pie.fill"
         case .biography: return "book.fill"
         case .relationships: return "person.2.fill"
@@ -410,6 +428,7 @@ extension DesignTab {
     var tooltip: String {
         switch self {
         case .physical: return "Edit physical appearance: height, hair, eyes, etc."
+        case .costume: return "Design costumes and wardrobe"
         case .traits: return "Adjust personality traits and characteristics"
         case .biography: return "Edit background story, goals, and motivations"
         case .relationships: return "Manage relationships with other characters"
@@ -575,152 +594,6 @@ private struct AddLocationSheet: View {
         )
         project.locations.append(newLocation)
         dismiss()
-    }
-}
-
-// MARK: - Location Detail View
-
-struct LocationDetailView: View {
-    @Binding var location: Location
-    let project: Project
-    let projectBasePath: URL?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            locationHeader
-
-            Divider()
-
-            // Content
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Description
-                    GroupBox("Description") {
-                        TextEditor(text: $location.description)
-                            .font(.body)
-                            .frame(minHeight: 80)
-                    }
-
-                    // Details grid
-                    GroupBox("Details") {
-                        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
-                            GridRow {
-                                Text("Type")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 100, alignment: .trailing)
-                                Picker("", selection: $location.locationType) {
-                                    Text("Indoor").tag("indoor")
-                                    Text("Outdoor").tag("outdoor")
-                                    Text("Mixed").tag("mixed")
-                                }
-                                .labelsHidden()
-                                .frame(width: 150)
-                            }
-
-                            GridRow {
-                                Text("Address")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 100, alignment: .trailing)
-                                TextField("Address", text: $location.address)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
-                            GridRow {
-                                Text("GPS")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 100, alignment: .trailing)
-                                TextField("Latitude, Longitude", text: $location.gpsCoordinates)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
-                            GridRow {
-                                Text("Tags")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 100, alignment: .trailing)
-                                Text(location.tags.isEmpty ? "None" : location.tags.joined(separator: ", "))
-                                    .foregroundColor(location.tags.isEmpty ? .secondary : .primary)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-
-                    // Notes
-                    GroupBox("Notes") {
-                        TextEditor(text: $location.notes)
-                            .font(.body)
-                            .frame(minHeight: 60)
-                    }
-
-                    // Scenes using this location
-                    GroupBox("Scenes at this Location") {
-                        let scenes = scenesAtLocation
-                        if scenes.isEmpty {
-                            Text("No scenes use this location yet.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.vertical, 8)
-                        } else {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(scenes, id: \.self) { sceneName in
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "film")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        Text(sceneName)
-                                            .font(.body)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
-                .padding(20)
-            }
-        }
-    }
-
-    private var locationHeader: some View {
-        HStack {
-            Image(systemName: "map.fill")
-                .font(.title)
-                .foregroundColor(.accentColor)
-                .frame(width: 50, height: 50)
-                .background(Color.accentColor.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(location.name)
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Text(location.locationType.capitalized)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-        }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
-    }
-
-    private var scenesAtLocation: [String] {
-        var names: [String] = []
-        for sequence in project.sequences {
-            for scene in sequence.scenes {
-                let sceneLocation = (scene.location ?? "").uppercased()
-                if sceneLocation.contains(location.name.uppercased()) {
-                    names.append(scene.name)
-                }
-            }
-        }
-        return names
     }
 }
 

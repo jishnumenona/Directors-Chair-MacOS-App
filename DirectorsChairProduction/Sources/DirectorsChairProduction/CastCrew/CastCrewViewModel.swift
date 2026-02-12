@@ -16,6 +16,15 @@ public class CastCrewViewModel: ObservableObject {
     @Published public var equipment: [EquipmentItem] = []
     @Published public var isLoading = false
 
+    // Character names from project (for dropdown in cast editor)
+    @Published public var characterNames: [String] = []
+
+    // Project base path for resolving photo file paths
+    public var projectBasePath: URL?
+
+    // Schedule items for scene/day cross-reference
+    @Published public var scheduleItems: [ScheduleItem] = []
+
     // Callbacks for data persistence
     public var onCastChanged: (([CastMember]) -> Void)?
     public var onCrewChanged: (([CrewMember]) -> Void)?

@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairServices
 
@@ -26,6 +27,10 @@ final class OverviewImageCache {
 
     func setImage(_ image: NSImage, forKey key: String) {
         cache.setObject(image, forKey: key as NSString)
+    }
+
+    func removeImage(forKey key: String) {
+        cache.removeObject(forKey: key as NSString)
     }
 }
 
@@ -154,10 +159,18 @@ private struct OverviewHeroBanner: View {
     let onProjectChanged: () -> Void
 
     @State private var heroImage: NSImage?
-    @State private var isGeneratingIcon = false
-    @State private var iconError: String?
-    @State private var showingIconError = false
+    @State private var isGeneratingPoster = false
+    @State private var posterError: String?
+    @State private var showingPosterError = false
     @State private var isHovered = false
+    @State private var imageRefreshId = UUID()
+
+    // Full screen viewer
+    @State private var showingFullScreenImage = false
+
+    // Prompt editor
+    @State private var showingPromptEditor = false
+    @State private var customPrompt = ""
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -167,8 +180,9 @@ private struct OverviewHeroBanner: View {
                     .resizable()
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 320)
+                    .frame(height: 480)
                     .clipped()
+                    .id(imageRefreshId)
             } else {
                 Rectangle()
                     .fill(
@@ -179,7 +193,7 @@ private struct OverviewHeroBanner: View {
                         )
                     )
                     .frame(maxWidth: .infinity)
-                    .frame(height: 320)
+                    .frame(height: 480)
             }
 
             // Dark gradient overlay
@@ -188,7 +202,7 @@ private struct OverviewHeroBanner: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 320)
+            .frame(height: 480)
 
             // Text content
             VStack(alignment: .leading, spacing: 8) {
@@ -229,54 +243,138 @@ private struct OverviewHeroBanner: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 24)
 
-            // Generate icon button on hover
-            if isHovered {
+            // Hover action buttons
+            if isHovered && !isGeneratingPoster {
                 VStack {
                     HStack {
                         Spacer()
-                        Button(action: generateProjectIcon) {
-                            HStack(spacing: 6) {
-                                if isGeneratingIcon {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                        .progressViewStyle(.circular)
-                                } else {
-                                    Image(systemName: "wand.and.stars")
+                        HStack(spacing: 8) {
+                            // View button
+                            if heroImage != nil {
+                                Button { showingFullScreenImage = true } label: {
+                                    Image(systemName: "eye")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white)
+                                        .frame(width: 30, height: 30)
+                                        .background(Circle().fill(Color.white.opacity(0.2)))
                                 }
-                                Text(heroImage != nil ? "Regenerate Poster" : "Generate Poster")
-                                    .font(.caption)
+                                .buttonStyle(.plain)
+                                .help("View full screen")
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
+
+                            // Download button
+                            if heroImage != nil {
+                                Button { downloadPoster() } label: {
+                                    Image(systemName: "arrow.down")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white)
+                                        .frame(width: 30, height: 30)
+                                        .background(Circle().fill(Color.white.opacity(0.2)))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Download poster")
+                            }
+
+                            // Regenerate button
+                            Button { generatePoster(with: nil) } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 9))
+                                    Text(heroImage != nil ? "Regenerate" : "Generate")
+                                        .font(.system(size: 10, weight: .medium))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.8)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Regenerate poster")
+
+                            // Edit Prompt button
+                            Button {
+                                customPrompt = buildPosterPrompt()
+                                showingPromptEditor = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 9))
+                                    Text("Edit Prompt")
+                                        .font(.system(size: 10, weight: .medium))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.orange.opacity(0.8)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Edit prompt and generate")
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isGeneratingIcon)
+                        .padding(16)
+                    }
+                    Spacer()
+                }
+            }
+
+            // Generating overlay
+            if isGeneratingPoster {
+                VStack {
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .progressViewStyle(.circular)
+                            Text("Generating poster...")
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
                         .padding(16)
                     }
                     Spacer()
                 }
             }
         }
-        .frame(height: 320)
+        .frame(height: 480)
         .clipped()
         .onHover { hovering in
             isHovered = hovering
         }
         .onAppear { loadHeroImage() }
         .onChange(of: project.projectIcon) { _ in loadHeroImage() }
-        .alert("Icon Generation Failed", isPresented: $showingIconError) {
+        .onChange(of: project.overviewPosterPaths) { _ in loadHeroImage() }
+        .alert("Poster Generation Failed", isPresented: $showingPosterError) {
             Button("OK") { }
         } message: {
-            Text(iconError ?? "Unknown error")
+            Text(posterError ?? "Unknown error")
+        }
+        .sheet(isPresented: $showingFullScreenImage) {
+            PosterFullScreenViewer(
+                imageURL: currentPosterURL(),
+                title: "\(project.name) — Poster",
+                onDownload: { downloadPoster() }
+            )
+        }
+        .sheet(isPresented: $showingPromptEditor) {
+            PosterPromptEditor(
+                prompt: $customPrompt,
+                onGenerate: {
+                    showingPromptEditor = false
+                    generatePoster(with: customPrompt)
+                }
+            )
         }
     }
 
+    // MARK: - Load Hero Image
+
     private func loadHeroImage() {
-        // Try project icon first, then first poster path
-        let imagePaths = [project.projectIcon] + project.overviewPosterPaths
+        // Prioritize poster paths over icon
+        let imagePaths = project.overviewPosterPaths + [project.projectIcon]
         guard let projectDir = projectDir else { return }
 
         for path in imagePaths {
@@ -296,16 +394,29 @@ private struct OverviewHeroBanner: View {
         }
     }
 
-    // MARK: - Icon Generation (preserved from original)
+    private func currentPosterURL() -> URL? {
+        guard let projectDir = projectDir else { return nil }
+        let imagePaths = project.overviewPosterPaths + [project.projectIcon]
+        for path in imagePaths {
+            guard !path.isEmpty else { continue }
+            let fullPath = projectDir.appendingPathComponent(path)
+            if FileManager.default.fileExists(atPath: fullPath.path) {
+                return fullPath
+            }
+        }
+        return nil
+    }
 
-    private func generateProjectIcon() {
+    // MARK: - Poster Generation
+
+    private func generatePoster(with prompt: String?) {
         guard let projectPath = projectPath else {
-            iconError = "No project path set. Please save the project first."
-            showingIconError = true
+            posterError = "No project path set. Please save the project first."
+            showingPosterError = true
             return
         }
 
-        isGeneratingIcon = true
+        isGeneratingPoster = true
 
         Task {
             do {
@@ -313,19 +424,19 @@ private struct OverviewHeroBanner: View {
 
                 guard await aiClient.testConnection() else {
                     await MainActor.run {
-                        iconError = "Could not connect to AI server."
-                        showingIconError = true
-                        isGeneratingIcon = false
+                        posterError = "Could not connect to AI server."
+                        showingPosterError = true
+                        isGeneratingPoster = false
                     }
                     return
                 }
 
-                let prompt = buildIconPrompt()
+                let finalPrompt = prompt ?? buildPosterPrompt()
 
                 let request = ImageGenerationRequest(
-                    prompt: prompt,
+                    prompt: finalPrompt,
                     provider: .googleImagen,
-                    aspectRatio: "1:1",
+                    aspectRatio: "3:4",
                     numberOfImages: 1
                 )
 
@@ -336,52 +447,223 @@ private struct OverviewHeroBanner: View {
                 }
 
                 let projectDir = projectPath.deletingLastPathComponent()
-                let iconsDir = projectDir.appendingPathComponent("assets").appendingPathComponent("icons")
+                let sanitizedName = sanitizeFilename(project.name)
 
+                // Save to posters/ directory
+                let postersDir = projectDir.appendingPathComponent("posters")
+                if !FileManager.default.fileExists(atPath: postersDir.path) {
+                    try FileManager.default.createDirectory(at: postersDir, withIntermediateDirectories: true)
+                }
+                let posterFilename = "\(sanitizedName)_poster.png"
+                let posterPath = postersDir.appendingPathComponent(posterFilename)
+                try imageData.write(to: posterPath)
+                let posterRelativePath = "posters/\(posterFilename)"
+
+                // Also save to assets/icons/ for icon usage
+                let iconsDir = projectDir.appendingPathComponent("assets").appendingPathComponent("icons")
                 if !FileManager.default.fileExists(atPath: iconsDir.path) {
                     try FileManager.default.createDirectory(at: iconsDir, withIntermediateDirectories: true)
                 }
-
-                let sanitizedName = sanitizeFilename(project.name)
                 let iconFilename = "\(sanitizedName)_icon.png"
                 let iconPath = iconsDir.appendingPathComponent(iconFilename)
-
                 try imageData.write(to: iconPath)
+                let iconRelativePath = "assets/icons/\(iconFilename)"
 
-                let relativePath = "assets/icons/\(iconFilename)"
+                // Invalidate cache for old paths
+                let oldPosterPaths = project.overviewPosterPaths
+                let oldIconPath = project.projectIcon
 
                 await MainActor.run {
-                    project.projectIcon = relativePath
+                    // Invalidate old cache entries
+                    for oldPath in oldPosterPaths {
+                        if !oldPath.isEmpty {
+                            let fullPath = projectDir.appendingPathComponent(oldPath)
+                            OverviewImageCache.shared.removeImage(forKey: fullPath.path)
+                        }
+                    }
+                    if !oldIconPath.isEmpty {
+                        let fullPath = projectDir.appendingPathComponent(oldIconPath)
+                        OverviewImageCache.shared.removeImage(forKey: fullPath.path)
+                    }
+                    // Also invalidate new paths in case they were cached with old data
+                    OverviewImageCache.shared.removeImage(forKey: posterPath.path)
+                    OverviewImageCache.shared.removeImage(forKey: iconPath.path)
+
+                    // Update model
+                    if !project.overviewPosterPaths.contains(posterRelativePath) {
+                        project.overviewPosterPaths = [posterRelativePath]
+                    }
+                    project.projectIcon = iconRelativePath
                     onProjectChanged()
-                    isGeneratingIcon = false
+
+                    // Force image reload
+                    if let newImage = NSImage(contentsOf: posterPath) {
+                        OverviewImageCache.shared.setImage(newImage, forKey: posterPath.path)
+                        heroImage = newImage
+                    }
+                    imageRefreshId = UUID()
+                    isGeneratingPoster = false
                 }
 
             } catch {
                 await MainActor.run {
-                    iconError = error.localizedDescription
-                    showingIconError = true
-                    isGeneratingIcon = false
+                    posterError = error.localizedDescription
+                    showingPosterError = true
+                    isGeneratingPoster = false
                 }
             }
         }
     }
 
-    private func buildIconPrompt() -> String {
-        var parts: [String] = []
-        parts.append("A cinematic movie poster icon for a film project")
-        parts.append("titled '\(project.name)'")
+    private func buildPosterPrompt() -> String {
+        var prompt = ""
+
+        // Genre-based typography style
+        let genreLower = project.genre.lowercased()
+        let typographyStyle: String
+        let moodStyle: String
+        let colorPalette: String
+
+        switch genreLower {
+        case let g where g.contains("horror") || g.contains("thriller"):
+            typographyStyle = "distressed, sharp-edged, blood-red or stark white sans-serif"
+            moodStyle = "dark, ominous, high-contrast shadows, fog, desaturated tones"
+            colorPalette = "deep blacks, blood reds, cold steel blues"
+        case let g where g.contains("romance") || g.contains("drama"):
+            typographyStyle = "elegant, serif-based with warm gold or silver metallic finish"
+            moodStyle = "warm golden-hour lighting, intimate, emotionally evocative, soft bokeh backgrounds"
+            colorPalette = "warm golds, deep amber, soft blues, muted earth tones"
+        case let g where g.contains("action") || g.contains("adventure"):
+            typographyStyle = "bold, metallic, embossed, blockbuster-style sans-serif"
+            moodStyle = "explosive, dynamic, dramatic rim lighting, motion energy"
+            colorPalette = "fiery oranges, steel blues, bright whites, gunmetal grays"
+        case let g where g.contains("comedy"):
+            typographyStyle = "playful, bold, rounded sans-serif with vibrant colors"
+            moodStyle = "bright, cheerful, well-lit, fun and energetic"
+            colorPalette = "vibrant primary colors, warm yellows, bright whites"
+        case let g where g.contains("sci-fi") || g.contains("fantasy"):
+            typographyStyle = "futuristic, sleek, glowing neon or chrome metallic"
+            moodStyle = "otherworldly atmosphere, dramatic cosmic lighting, epic scale"
+            colorPalette = "deep space blues, neon purples, electric cyans, starlight whites"
+        default:
+            typographyStyle = "bold, cinematic, professional serif or sans-serif"
+            moodStyle = "dramatic cinematic lighting, professional atmosphere"
+            colorPalette = "rich cinematic tones appropriate to the story"
+        }
+
+        // Core poster description
+        prompt += "Professional theatrical movie poster for '\(project.name)'. "
+        prompt += "FULL RECTANGULAR VERTICAL POSTER filling the entire frame edge-to-edge. NO circular frames, NO round borders, NO vignettes, NO circular crops. "
+        prompt += "Standard movie poster layout and composition like an official Hollywood theatrical one-sheet. "
+
+        // Genre & story context
         if !project.genre.isEmpty {
-            parts.append("in the \(project.genre) genre")
+            prompt += "Genre: \(project.genre). "
         }
         if !project.description.isEmpty {
-            parts.append("about: \(String(project.description.prefix(200)))")
+            prompt += "Story: \(String(project.description.prefix(250))). "
         }
+
+        // Character imagery — the hero visual
+        let mainCharacters = project.characters.prefix(4)
+        if !mainCharacters.isEmpty {
+            prompt += "MAIN IMAGERY: "
+            let charDescriptions = mainCharacters.map { char -> String in
+                var desc = char.name
+                if !char.about.isEmpty {
+                    desc += " (\(String(char.about.prefix(60))))"
+                }
+                if !char.ethnicity.isEmpty || !char.gender.isEmpty {
+                    let traits = [char.gender, char.ethnicity].filter { !$0.isEmpty }.joined(separator: ", ")
+                    desc += " — \(traits)"
+                }
+                if let costume = char.costume, !costume.isEmpty {
+                    desc += ", wearing \(String(costume.prefix(40)))"
+                }
+                return desc
+            }
+            prompt += charDescriptions.joined(separator: "; ")
+            prompt += ". Characters should be positioned dramatically — protagonist prominent in the foreground, supporting characters arranged around them with intentional visual hierarchy. "
+        }
+
+        // Mood & atmosphere
+        prompt += "MOOD & ATMOSPHERE: \(moodStyle). "
+        prompt += "COLOR PALETTE: \(colorPalette). "
+
+        // Title typography
+        prompt += "TITLE TEXT: '\(project.name)' displayed prominently in large, \(typographyStyle) typography. "
+
+        // Tagline
         if !project.overviewTagline.isEmpty {
-            parts.append("with the tagline: '\(project.overviewTagline)'")
+            prompt += "TAGLINE: '\(project.overviewTagline)' in smaller italic text positioned near the title. "
         }
-        parts.append("Style: professional movie poster art, cinematic lighting, dramatic composition, high quality digital art, suitable as an app icon")
-        return parts.joined(separator: ". ")
+
+        // Credits billing block — the small text at the bottom of movie posters
+        var creditsParts: [String] = []
+        if !project.director.isEmpty {
+            creditsParts.append("Directed by \(project.director)")
+        }
+
+        // Add cast names from castMembers
+        let castNames = project.castMembers.prefix(5).map { $0.actorName }.filter { !$0.isEmpty }
+        if !castNames.isEmpty {
+            creditsParts.append("Starring \(castNames.joined(separator: "  "))")
+        } else {
+            // Fallback to character names
+            let charNames = project.characters.prefix(5).map { $0.name }.filter { !$0.isEmpty }
+            if !charNames.isEmpty {
+                creditsParts.append("Starring \(charNames.joined(separator: "  "))")
+            }
+        }
+
+        // Add crew roles
+        let keyCrewRoles = ["Producer", "Writer", "Cinematographer", "Director of Photography", "DP", "Editor", "Composer"]
+        let keyCrew = project.crewMembers.filter { crew in
+            keyCrewRoles.contains { crew.role.localizedCaseInsensitiveContains($0) }
+        }.prefix(3)
+        for crew in keyCrew {
+            creditsParts.append("\(crew.role): \(crew.name)")
+        }
+
+        if !project.productionCompany.isEmpty {
+            creditsParts.append("A \(project.productionCompany) Production")
+        }
+
+        if !creditsParts.isEmpty {
+            prompt += "CREDITS BLOCK: At the very bottom of the poster, include a standard movie billing block in the narrow condensed typeface typical of theatrical posters, containing: \(creditsParts.joined(separator: " | ")). "
+        }
+
+        // Technical quality
+        prompt += "STYLE: Ultra-detailed, photorealistic, professional theatrical release poster quality. High production value cinematic photography with realistic skin textures and detailed environments. Shot on large format camera, printed at high resolution. "
+        prompt += "LAYOUT: Vertical 3:4 aspect ratio theatrical one-sheet poster. Full bleed to all edges. No black borders, no rounded corners, no circular framing."
+
+        return prompt
     }
+
+    // MARK: - Download
+
+    private func downloadPoster() {
+        guard let url = currentPosterURL(),
+              let imageData = try? Data(contentsOf: url) else { return }
+
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.png, .jpeg]
+        savePanel.nameFieldStringValue = "\(sanitizeFilename(project.name))_poster.png"
+        savePanel.title = "Save Poster"
+        savePanel.message = "Choose a location to save the poster"
+
+        savePanel.begin { response in
+            if response == .OK, let saveURL = savePanel.url {
+                do {
+                    try imageData.write(to: saveURL)
+                } catch {
+                    print("Failed to save poster: \(error)")
+                }
+            }
+        }
+    }
+
+    // MARK: - Helpers
 
     private func sanitizeFilename(_ name: String) -> String {
         var sanitized = name
@@ -395,6 +677,192 @@ private struct OverviewHeroBanner: View {
             sanitized = sanitized.replacingOccurrences(of: "__", with: "_")
         }
         return sanitized.isEmpty ? "project" : sanitized
+    }
+}
+
+// MARK: - Poster Full Screen Viewer
+
+private struct PosterFullScreenViewer: View {
+    let imageURL: URL?
+    let title: String
+    var onDownload: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+
+                Button { onDownload?() } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.green)
+                        Text("Download")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .quaternarySystemFill)))
+                }
+                .buttonStyle(.plain)
+
+                Button { dismiss() } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark")
+                        Text("Close")
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.accentColor.opacity(0.8)))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape, modifiers: [])
+            }
+            .padding()
+            .background(Color(NSColor.windowBackgroundColor))
+
+            Divider()
+
+            // Image content
+            if let url = imageURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        ScrollView([.horizontal, .vertical]) {
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    case .failure:
+                        VStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 48))
+                                .foregroundColor(.orange)
+                            Text("Failed to load image")
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    case .empty:
+                        ProgressView("Loading...")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    @unknown default:
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            } else {
+                VStack {
+                    Image(systemName: "photo")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+                    Text("No image available")
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 800, minHeight: 600)
+        .background(Color.black)
+    }
+}
+
+// MARK: - Poster Prompt Editor
+
+private struct PosterPromptEditor: View {
+    @Binding var prompt: String
+    var onGenerate: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: "pencil.and.outline")
+                    .font(.system(size: 14))
+                    .foregroundColor(.accentColor)
+                Text("EDIT PROMPT")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Text("POSTER")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.accentColor))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            // Prompt editor
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Image Generation Prompt")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .textCase(.uppercase)
+
+                TextEditor(text: $prompt)
+                    .font(.system(size: 12))
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(Color(nsColor: .quaternarySystemFill))
+                    .cornerRadius(8)
+                    .frame(minHeight: 140)
+
+                Text("Describe the poster style, mood, lighting, composition, and any key visual elements...")
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                    .lineLimit(2)
+            }
+            .padding(20)
+
+            Divider()
+
+            // Action buttons
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button(action: {
+                    onGenerate()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 11))
+                        Text("Generate")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.accentColor))
+                }
+                .buttonStyle(.plain)
+                .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .frame(width: 520, height: 360)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -1075,7 +1543,7 @@ private struct OverviewQuickActions: View {
         ("book", "Characters", .purple, .storyDesign),
         ("square.grid.2x2", "Vision Board", .pink, .visionBoard),
         ("camera", "Shots", .orange, .shotList),
-        ("calendar", "Schedule", .red, .schedule),
+        ("theatermasks", "Production", .red, .production),
         ("gear", "Settings", .gray, .settings)
     ]
 

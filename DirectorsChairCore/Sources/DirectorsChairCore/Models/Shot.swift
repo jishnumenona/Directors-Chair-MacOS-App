@@ -27,6 +27,15 @@ public struct Shot: Codable, Identifiable, Hashable {
     public var linkedNarrationIds: [String]  // IDs of narrations connected to this shot
     public var timelinePosition: Double?  // User-specified timeline position override (seconds)
 
+    // Video generation
+    public var videoPath: String?                    // Relative path to generated video
+    public var videoKeyframes: [VideoKeyframe]?      // Ordered keyframe images
+    public var videoGenerationJobId: String?          // Active job ID for polling
+    public var videoPrompt: String?                  // Last used prompt
+    public var videoDuration: Double?                // Video-specific duration (bidirectional sync with shot.duration)
+    public var videoProvider: String?                // Last used provider
+    public var videoQuality: String?                 // Standard/High/Ultra
+
     public init(
         shotId: Int,
         itemChronology: Int = 0,
@@ -44,7 +53,14 @@ public struct Shot: Codable, Identifiable, Hashable {
         linkedDialogueIds: [String] = [],
         linkedActionIds: [String] = [],
         linkedNarrationIds: [String] = [],
-        timelinePosition: Double? = nil
+        timelinePosition: Double? = nil,
+        videoPath: String? = nil,
+        videoKeyframes: [VideoKeyframe]? = nil,
+        videoGenerationJobId: String? = nil,
+        videoPrompt: String? = nil,
+        videoDuration: Double? = nil,
+        videoProvider: String? = nil,
+        videoQuality: String? = nil
     ) {
         self.shotId = shotId
         self.itemChronology = itemChronology
@@ -63,6 +79,13 @@ public struct Shot: Codable, Identifiable, Hashable {
         self.linkedActionIds = linkedActionIds
         self.linkedNarrationIds = linkedNarrationIds
         self.timelinePosition = timelinePosition
+        self.videoPath = videoPath
+        self.videoKeyframes = videoKeyframes
+        self.videoGenerationJobId = videoGenerationJobId
+        self.videoPrompt = videoPrompt
+        self.videoDuration = videoDuration
+        self.videoProvider = videoProvider
+        self.videoQuality = videoQuality
     }
 
     enum CodingKeys: String, CodingKey {
@@ -83,6 +106,13 @@ public struct Shot: Codable, Identifiable, Hashable {
         case linkedActionIds = "linked_action_ids"
         case linkedNarrationIds = "linked_narration_ids"
         case timelinePosition = "timeline_position"
+        case videoPath = "video_path"
+        case videoKeyframes = "video_keyframes"
+        case videoGenerationJobId = "video_generation_job_id"
+        case videoPrompt = "video_prompt"
+        case videoDuration = "video_duration"
+        case videoProvider = "video_provider"
+        case videoQuality = "video_quality"
     }
 
     enum AlternativeCodingKeys: String, CodingKey {
@@ -155,6 +185,82 @@ public struct Shot: Codable, Identifiable, Hashable {
         linkedActionIds = try container.decodeIfPresent([String].self, forKey: .linkedActionIds) ?? []
         linkedNarrationIds = try container.decodeIfPresent([String].self, forKey: .linkedNarrationIds) ?? []
         timelinePosition = try container.decodeIfPresent(Double.self, forKey: .timelinePosition)
+
+        // Video generation fields
+        videoPath = try container.decodeIfPresent(String.self, forKey: .videoPath)
+        videoKeyframes = try container.decodeIfPresent([VideoKeyframe].self, forKey: .videoKeyframes)
+        videoGenerationJobId = try container.decodeIfPresent(String.self, forKey: .videoGenerationJobId)
+        videoPrompt = try container.decodeIfPresent(String.self, forKey: .videoPrompt)
+        videoDuration = try container.decodeIfPresent(Double.self, forKey: .videoDuration)
+        videoProvider = try container.decodeIfPresent(String.self, forKey: .videoProvider)
+        videoQuality = try container.decodeIfPresent(String.self, forKey: .videoQuality)
+    }
+}
+
+// MARK: - Video Keyframe
+
+/// A keyframe position within a video generation request
+public struct VideoKeyframe: Codable, Identifiable, Hashable {
+    public var id: String
+    public var position: Double     // 0.0 = start, 1.0 = end (fractional position)
+    public var imagePath: String?   // Relative path to keyframe image
+    public var label: String        // "Start", "End", or custom
+    public var timestamp: Double    // Time in seconds within the video
+    public var annotations: [KeyframeAnnotation]?  // Point-and-click edit annotations
+
+    public init(
+        id: String = UUID().uuidString,
+        position: Double = 0.0,
+        imagePath: String? = nil,
+        label: String = "",
+        timestamp: Double = 0.0,
+        annotations: [KeyframeAnnotation]? = nil
+    ) {
+        self.id = id
+        self.position = position
+        self.imagePath = imagePath
+        self.label = label
+        self.timestamp = timestamp
+        self.annotations = annotations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        position = try container.decode(Double.self, forKey: .position)
+        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
+        label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        timestamp = try container.decodeIfPresent(Double.self, forKey: .timestamp) ?? 0.0
+        annotations = try container.decodeIfPresent([KeyframeAnnotation].self, forKey: .annotations)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, position, imagePath, label, timestamp, annotations
+    }
+}
+
+// MARK: - Keyframe Annotation
+
+/// A spatial annotation pinned to a keyframe image for edit instructions
+public struct KeyframeAnnotation: Codable, Identifiable, Hashable {
+    public var id: String
+    public var normalizedX: Double  // 0.0-1.0 (left to right)
+    public var normalizedY: Double  // 0.0-1.0 (top to bottom)
+    public var text: String
+    public var number: Int          // Display number (1, 2, 3...)
+
+    public init(
+        id: String = UUID().uuidString,
+        normalizedX: Double = 0.5,
+        normalizedY: Double = 0.5,
+        text: String = "",
+        number: Int = 1
+    ) {
+        self.id = id
+        self.normalizedX = normalizedX
+        self.normalizedY = normalizedY
+        self.text = text
+        self.number = number
     }
 }
 

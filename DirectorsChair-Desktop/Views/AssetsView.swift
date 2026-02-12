@@ -602,6 +602,36 @@ private struct AssetSectionView: View {
     let assets: [DiscoveredAsset]
     let onSelect: (DiscoveredAsset) -> Void
 
+    /// For characters/locations, group assets by entity name extracted from path
+    private var groupedByEntity: [(String, [DiscoveredAsset])]? {
+        guard category == .characters || category == .locations else { return nil }
+
+        let folderKey = category == .characters ? "characters" : "locations"
+        var groups: [String: [DiscoveredAsset]] = [:]
+        var order: [String] = []
+
+        for asset in assets {
+            let parts = asset.relativePath.components(separatedBy: "/")
+            let entityName: String
+            if let idx = parts.firstIndex(of: folderKey), idx + 1 < parts.count {
+                entityName = parts[idx + 1]
+            } else {
+                entityName = "Other"
+            }
+
+            if groups[entityName] == nil {
+                order.append(entityName)
+            }
+            groups[entityName, default: []].append(asset)
+        }
+
+        let result = order.compactMap { name -> (String, [DiscoveredAsset])? in
+            guard let items = groups[name], !items.isEmpty else { return nil }
+            return (name, items)
+        }
+        return result.isEmpty ? nil : result
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Section header
@@ -623,15 +653,54 @@ private struct AssetSectionView: View {
                     .background(Capsule().fill(category.accentColor.opacity(0.8)))
             }
 
-            // Horizontal scroll of cards
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 14) {
-                    ForEach(assets) { asset in
-                        AssetCardView(asset: asset)
-                            .onTapGesture { onSelect(asset) }
+            if let grouped = groupedByEntity {
+                // Grouped view: sub-sections by entity name
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(grouped, id: \.0) { entityName, entityAssets in
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Entity sub-header
+                            HStack(spacing: 6) {
+                                Image(systemName: category == .characters ? "person.fill" : "mappin.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(category.accentColor.opacity(0.7))
+
+                                Text(entityName)
+                                    .font(.system(size: 12, weight: .semibold))
+
+                                Text("\(entityAssets.count)")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(category.accentColor)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        Capsule().fill(category.accentColor.opacity(0.15))
+                                    )
+                            }
+
+                            // Horizontal scroll of cards for this entity
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(spacing: 14) {
+                                    ForEach(entityAssets) { asset in
+                                        AssetCardView(asset: asset)
+                                            .onTapGesture { onSelect(asset) }
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
                     }
                 }
-                .padding(.vertical, 4)
+            } else {
+                // Default flat horizontal scroll
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 14) {
+                        ForEach(assets) { asset in
+                            AssetCardView(asset: asset)
+                                .onTapGesture { onSelect(asset) }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
         }
     }

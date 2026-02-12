@@ -39,6 +39,8 @@ struct ProjectToScriptConverter {
                     text: heading,
                     sourceSequenceIndex: seqIndex,
                     sourceSceneIndex: sceneIdx,
+                    sourceItemId: scene.id,
+                    sourceItemType: "scene",
                     sceneNumber: sceneNum
                 ))
 

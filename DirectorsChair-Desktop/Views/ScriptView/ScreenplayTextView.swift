@@ -42,6 +42,10 @@ struct ScreenplayTextView: NSViewRepresentable {
     // Zoom
     @Binding var magnification: CGFloat
 
+    // Scroll position tracking & restoration
+    var onScrollYChanged: ((CGFloat) -> Void)?
+    var restoreScrollY: CGFloat?
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -76,10 +80,10 @@ struct ScreenplayTextView: NSViewRepresentable {
         textView.appearance = NSAppearance(named: .aqua)
         scrollView.appearance = NSAppearance(named: .aqua)
 
-        // Typewriter aesthetic
+        // Typewriter aesthetic — background drawn manually in draw() for title page support
         textView.backgroundColor = ScreenplayFormatting.backgroundColor
         textView.insertionPointColor = ScreenplayFormatting.textColor
-        textView.drawsBackground = true
+        textView.drawsBackground = false
 
         // Text container sizing - centered screenplay "page"
         textView.textContainer?.widthTracksTextView = false
@@ -142,8 +146,22 @@ struct ScreenplayTextView: NSViewRepresentable {
             object: scrollView
         )
 
+        // Track scroll position changes for back/forward navigation restoration
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.clipViewBoundsChanged(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+
         // Build initial content
         context.coordinator.rebuildAttributedString()
+
+        // Auto-focus the text view so Cmd+Click works immediately
+        DispatchQueue.main.async {
+            scrollView.window?.makeFirstResponder(textView)
+        }
 
         return scrollView
     }
@@ -157,8 +175,8 @@ struct ScreenplayTextView: NSViewRepresentable {
         // Update pages mode on the NSTextView and trigger redraw if changed
         if textView.showPagesMode != showPagesMode {
             textView.showPagesMode = showPagesMode
-            // In pages mode: disable NSTextView background so our custom draw shows through
-            textView.drawsBackground = !showPagesMode
+            // Both modes draw background manually in draw() so title page renders correctly
+            textView.drawsBackground = false
             scrollView.drawsBackground = true
             scrollView.backgroundColor = showPagesMode
                 ? NSColor(calibratedRed: 0.75, green: 0.76, blue: 0.78, alpha: 1.0)
@@ -189,7 +207,7 @@ struct ScreenplayTextView: NSViewRepresentable {
             verticalInset = pageH + pageTopMargin
         } else {
             horizontalInset = max(20, (availableWidth - ScreenplayFormatting.contentWidth) / 2)
-            verticalInset = ScreenplayFormatting.marginTop
+            verticalInset = ScreenplayNSTextView.continuousTitleBlockHeight + ScreenplayFormatting.marginTop
         }
         textView.textContainerInset = NSSize(width: horizontalInset, height: verticalInset)
 
@@ -217,9 +235,25 @@ struct ScreenplayTextView: NSViewRepresentable {
         // Scroll to element if requested
         if let targetId = scrollToElementId,
            let range = context.coordinator.elementRanges[targetId] {
-            textView.scrollRangeToVisible(range)
-            // Brief highlight
-            textView.showFindIndicator(for: range)
+            // Defer scroll to next run loop so text layout is fully computed
+            DispatchQueue.main.async {
+                textView.scrollRangeToVisible(range)
+                textView.showFindIndicator(for: range)
+            }
+        }
+
+        // Restore scroll position from back/forward navigation (once per view creation)
+        if !context.coordinator.hasRestoredScrollPosition,
+           scrollToElementId == nil,
+           let restoreY = restoreScrollY {
+            context.coordinator.hasRestoredScrollPosition = true
+            DispatchQueue.main.async {
+                let clipView = scrollView.contentView
+                var origin = clipView.bounds.origin
+                origin.y = restoreY
+                clipView.setBoundsOrigin(origin)
+                scrollView.reflectScrolledClipView(clipView)
+            }
         }
 
         // Handle autocomplete panel
@@ -253,6 +287,7 @@ struct ScreenplayTextView: NSViewRepresentable {
         var needsRebuild = false
         var isUpdating = false
         var hasCenteredOnFirstLayout = false
+        var hasRestoredScrollPosition = false
 
         private var autocompletePanel: NSPanel?
         private var autocompleteVC: AutocompleteViewController?
@@ -276,6 +311,11 @@ struct ScreenplayTextView: NSViewRepresentable {
             guard let scrollView = notification.object as? NSScrollView else { return }
             parent.magnification = scrollView.magnification
             centerHorizontallyDeferred()
+        }
+
+        @objc func clipViewBoundsChanged(_ notification: Notification) {
+            guard let clipView = notification.object as? NSClipView else { return }
+            parent.onScrollYChanged?(clipView.bounds.origin.y)
         }
 
         func centerHorizontallyDeferred() {
@@ -313,7 +353,7 @@ struct ScreenplayTextView: NSViewRepresentable {
                 verticalInset = pageH + pageTopMargin
             } else {
                 horizontalInset = max(20, (availableWidth - ScreenplayFormatting.contentWidth) / 2)
-                verticalInset = ScreenplayFormatting.marginTop
+                verticalInset = ScreenplayNSTextView.continuousTitleBlockHeight + ScreenplayFormatting.marginTop
             }
             textView.textContainerInset = NSSize(width: horizontalInset, height: verticalInset)
         }
@@ -760,6 +800,9 @@ class ScreenplayNSTextView: NSTextView {
     var productionCompany: String = ""
     var genre: String = ""
 
+    /// Height of the title block drawn at the top in continuous (non-pages) mode
+    static let continuousTitleBlockHeight: CGFloat = 500
+
     // MARK: - Cmd+Hover State
 
     /// The element range currently highlighted for Cmd+hover
@@ -1150,8 +1193,36 @@ class ScreenplayNSTextView: NSTextView {
             super.draw(dirtyRect)
         } else {
             // --- Continuous Mode ---
+            // Draw cream background manually (same approach as pages mode)
+            ScreenplayFormatting.backgroundColor.setFill()
+            dirtyRect.fill()
+
+            // Draw title block at top (same content as pages-mode title page)
+            let titleBlockH = Self.continuousTitleBlockHeight
+            let fullPageWidth = ScreenplayFormatting.pageWidth
+            let titlePageX = max(10, (bounds.width - fullPageWidth) / 2)
+            let titleRect = NSRect(x: titlePageX, y: 0, width: fullPageWidth, height: titleBlockH)
+            if dirtyRect.intersects(titleRect) {
+                drawTitlePage(in: titleRect)
+            }
+
+            // Subtle separator line between title block and script content
+            let separatorY = titleBlockH + 20
+            if dirtyRect.intersects(NSRect(x: 0, y: separatorY - 1, width: bounds.width, height: 2)) {
+                NSGraphicsContext.current?.cgContext.saveGState()
+                ScreenplayFormatting.pageBreakColor.setStroke()
+                let sepPath = NSBezierPath()
+                sepPath.move(to: NSPoint(x: insetX, y: separatorY))
+                sepPath.line(to: NSPoint(x: insetX + ScreenplayFormatting.contentWidth, y: separatorY))
+                sepPath.lineWidth = 0.5
+                sepPath.stroke()
+                NSGraphicsContext.current?.cgContext.restoreGState()
+            }
+
+            // Let super.draw render text only (drawsBackground is false, bg drawn above)
             super.draw(dirtyRect)
 
+            // Page break dashed lines
             let context = NSGraphicsContext.current?.cgContext
             context?.setStrokeColor(ScreenplayFormatting.pageBreakColor.cgColor)
             context?.setLineWidth(0.5)

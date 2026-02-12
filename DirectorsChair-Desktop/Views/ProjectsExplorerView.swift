@@ -21,6 +21,12 @@ struct ProjectInfo: Identifiable {
     let iconPath: URL?
     let sceneCount: Int
     let characterCount: Int
+    let genre: String
+    let status: String
+    let tagline: String
+    let projectType: String
+    let posterPath: URL?
+    let shotCount: Int
 
     /// Display-friendly last modified string
     var lastModifiedString: String {
@@ -28,6 +34,33 @@ struct ProjectInfo: Identifiable {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    /// Color for the status badge
+    var statusColor: Color {
+        switch status.lowercased() {
+        case "completed", "complete":
+            return .green
+        case "production":
+            return .blue
+        case "pre-production":
+            return .orange
+        case "post-production":
+            return .purple
+        case "analysis":
+            return .cyan
+        default:
+            return .gray
+        }
+    }
+
+    /// Initials from the project name for fallback display
+    var initials: String {
+        let words = name.split(separator: " ")
+        if words.count >= 2 {
+            return String(words[0].prefix(1) + words[1].prefix(1)).uppercased()
+        }
+        return String(name.prefix(2)).uppercased()
     }
 }
 
@@ -50,9 +83,9 @@ struct ProjectsExplorerView: View {
     @State private var showingImportSuccess = false
     @StateObject private var importProgress = ImportProgressTracker()
 
-    // Grid layout
+    // Grid layout — wider for poster cards
     private let columns = [
-        GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 16)
+        GridItem(.adaptive(minimum: 260, maximum: 320), spacing: 20)
     ]
 
     var body: some View {
@@ -106,37 +139,47 @@ struct ProjectsExplorerView: View {
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "folder.badge.plus")
+        VStack(spacing: 28) {
+            Image(systemName: "clapperboard")
                 .font(.system(size: 64))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.linearGradient(
+                    colors: [.accentColor, .accentColor.opacity(0.5)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ))
 
             VStack(spacing: 8) {
-                Text("No Projects Found")
+                Text("Start Your First Production")
                     .font(.title2)
-                    .fontWeight(.semibold)
+                    .fontWeight(.bold)
 
-                Text("Create your first project to get started")
+                Text("Create a new project or import a screenplay to begin")
                     .font(.body)
                     .foregroundColor(.secondary)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 Button(action: { showingNewProjectSheet = true }) {
                     Label("New Project", systemImage: "plus")
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.plain)
 
                 Button(action: { showingImportPicker = true }) {
                     Label("Import Screenplay", systemImage: "doc.text")
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color(nsColor: .controlBackgroundColor))
+                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+                        .clipShape(Capsule())
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+                .buttonStyle(.plain)
                 .disabled(isImporting)
             }
         }
@@ -149,41 +192,69 @@ struct ProjectsExplorerView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // Header
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Projects")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clapperboard.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.accentColor)
+                            Text("DIRECTOR'S CHAIR")
+                                .font(.system(size: 9, weight: .semibold))
+                                .tracking(1.2)
+                                .foregroundColor(.accentColor)
+                        }
+
+                        Text("Your Projects")
+                            .font(.system(size: 28, weight: .bold))
 
                         Text("\(projects.count) project\(projects.count == 1 ? "" : "s") in ~/Directors Chair/")
-                            .font(.subheadline)
+                            .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
 
                     Spacer()
 
-                    Button(action: { showingNewProjectSheet = true }) {
-                        Label("New Project", systemImage: "plus")
-                    }
-                    .buttonStyle(.borderedProminent)
+                    HStack(spacing: 10) {
+                        Button(action: { showingNewProjectSheet = true }) {
+                            Label("New", systemImage: "plus")
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
 
-                    Button(action: { showingImportPicker = true }) {
-                        Label("Import Screenplay", systemImage: "doc.text")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isImporting)
+                        Button(action: { showingImportPicker = true }) {
+                            Label("Import", systemImage: "doc.text")
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .overlay(Capsule().stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isImporting)
 
-                    Button(action: discoverProjects) {
-                        Image(systemName: "arrow.clockwise")
+                        Button(action: discoverProjects) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(7)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .overlay(Circle().stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Refresh project list")
                     }
-                    .buttonStyle(.bordered)
-                    .help("Refresh project list")
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 24)
 
                 // Projects Grid
-                LazyVGrid(columns: columns, spacing: 16) {
+                LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(projects) { project in
                         ProjectCard(
                             project: project,
@@ -191,7 +262,9 @@ struct ProjectsExplorerView: View {
                             onOpen: { openProject(project) }
                         )
                         .onHover { hovering in
-                            hoveredProjectId = hovering ? project.id : nil
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                hoveredProjectId = hovering ? project.id : nil
+                            }
                         }
                     }
                 }
@@ -258,7 +331,13 @@ struct ProjectsExplorerView: View {
                 var projectName = dir.lastPathComponent
                 var sceneCount = 0
                 var characterCount = 0
+                var shotCount = 0
                 var iconPath: URL? = nil
+                var genre = ""
+                var status = ""
+                var tagline = ""
+                var projectType = ""
+                var posterPath: URL? = nil
 
                 if let data = try? Data(contentsOf: projectFile),
                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -267,11 +346,44 @@ struct ProjectsExplorerView: View {
                         projectName = name
                     }
 
-                    // Count scenes from sequences
+                    // Genre
+                    if let g = json["genre"] as? String, !g.isEmpty {
+                        genre = g
+                    }
+
+                    // Status
+                    if let s = json["status"] as? String, !s.isEmpty {
+                        status = s
+                    }
+
+                    // Tagline
+                    if let t = json["overview_tagline"] as? String, !t.isEmpty {
+                        tagline = t
+                    }
+
+                    // Project type
+                    if let pt = json["project_type"] as? String, !pt.isEmpty {
+                        projectType = pt
+                    }
+
+                    // Poster path — first entry from overview_poster_paths
+                    if let paths = json["overview_poster_paths"] as? [String], let first = paths.first, !first.isEmpty {
+                        let possiblePoster = dir.appendingPathComponent(first)
+                        if FileManager.default.fileExists(atPath: possiblePoster.path) {
+                            posterPath = possiblePoster
+                        }
+                    }
+
+                    // Count scenes and shots from sequences
                     if let sequences = json["sequences"] as? [[String: Any]] {
                         for seq in sequences {
                             if let scenes = seq["scenes"] as? [[String: Any]] {
                                 sceneCount += scenes.count
+                                for scene in scenes {
+                                    if let shots = scene["shots"] as? [[String: Any]] {
+                                        shotCount += shots.count
+                                    }
+                                }
                             }
                         }
                     }
@@ -297,7 +409,13 @@ struct ProjectsExplorerView: View {
                     lastModified: modified,
                     iconPath: iconPath,
                     sceneCount: sceneCount,
-                    characterCount: characterCount
+                    characterCount: characterCount,
+                    genre: genre,
+                    status: status,
+                    tagline: tagline,
+                    projectType: projectType,
+                    posterPath: posterPath,
+                    shotCount: shotCount
                 )
             }
 
@@ -417,69 +535,16 @@ struct ProjectCard: View {
     let isHovered: Bool
     let onOpen: () -> Void
 
+    private let posterHeight: CGFloat = 170
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Icon and Name
-            HStack(spacing: 12) {
-                // Project Icon
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.accentColor.opacity(0.15))
-                        .frame(width: 44, height: 44)
+        VStack(alignment: .leading, spacing: 0) {
+            // Poster area
+            posterArea
 
-                    if let iconPath = project.iconPath,
-                       let nsImage = NSImage(contentsOf: iconPath) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 32, height: 32)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    } else {
-                        Image(systemName: "film.stack")
-                            .font(.system(size: 20))
-                            .foregroundColor(.accentColor)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.headline)
-                        .lineLimit(1)
-
-                    Text("Modified \(project.lastModifiedString)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-            }
-
-            Divider()
-
-            // Metadata
-            HStack(spacing: 16) {
-                Label("\(project.sceneCount) scene\(project.sceneCount == 1 ? "" : "s")", systemImage: "film")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Label("\(project.characterCount) character\(project.characterCount == 1 ? "" : "s")", systemImage: "person.2")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-            }
-
-            // Open Button (shown on hover)
-            if isHovered {
-                Button(action: onOpen) {
-                    Text("Open")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
+            // Info area
+            infoArea
         }
-        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -487,15 +552,180 @@ struct ProjectCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(
-                    isHovered ? Color.accentColor : Color(nsColor: .separatorColor),
+                    isHovered ? Color.accentColor.opacity(0.8) : Color(nsColor: .separatorColor).opacity(0.3),
                     lineWidth: isHovered ? 2 : 1
                 )
         )
-        .shadow(color: .black.opacity(isHovered ? 0.1 : 0.05), radius: isHovered ? 8 : 4)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(
+            color: isHovered ? Color.accentColor.opacity(0.15) : .black.opacity(0.06),
+            radius: isHovered ? 12 : 4,
+            y: isHovered ? 4 : 2
+        )
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(.easeInOut(duration: 0.15), value: isHovered)
-        .onTapGesture(count: 2) {
+        .contentShape(Rectangle())
+        .onTapGesture {
             onOpen()
+        }
+    }
+
+    // MARK: - Poster Area
+
+    private var posterArea: some View {
+        ZStack(alignment: .bottom) {
+            // Poster image, icon fallback, or gradient fallback
+            if let posterURL = project.posterPath,
+               let nsImage = NSImage(contentsOf: posterURL) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: posterHeight)
+                    .clipped()
+            } else if let iconPath = project.iconPath,
+                      let nsImage = NSImage(contentsOf: iconPath) {
+                // Use icon as full backdrop instead of circle
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: posterHeight)
+                    .clipped()
+            } else {
+                // Stylized gradient fallback with initials
+                ZStack {
+                    LinearGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.7),
+                            Color.accentColor.opacity(0.2),
+                            Color(nsColor: .controlBackgroundColor)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+
+                    VStack(spacing: 8) {
+                        Image(systemName: "film.stack")
+                            .font(.system(size: 36, weight: .light))
+                            .foregroundColor(.white.opacity(0.7))
+
+                        Text(project.initials)
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                }
+                .frame(height: posterHeight)
+            }
+
+            // Bottom gradient overlay for badges
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.5)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 60)
+
+            // Genre & Status badges overlaid at bottom
+            HStack(spacing: 6) {
+                if !project.genre.isEmpty {
+                    Text(project.genre)
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                }
+
+                if !project.status.isEmpty {
+                    Text(project.status)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(project.statusColor.opacity(0.85))
+                        .clipShape(Capsule())
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+        }
+        .frame(height: posterHeight)
+        .clipped()
+    }
+
+    // MARK: - Info Area
+
+    private var infoArea: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Project name
+            Text(project.name)
+                .font(.system(size: 14, weight: .bold))
+                .lineLimit(1)
+
+            // Tagline or project type fallback
+            if !project.tagline.isEmpty {
+                Text(project.tagline)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .italic()
+                    .lineLimit(1)
+            } else if !project.projectType.isEmpty {
+                Text(project.projectType)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .italic()
+                    .lineLimit(1)
+            }
+
+            // Stats grid
+            HStack(spacing: 0) {
+                statItem(icon: "film", value: "\(project.sceneCount)", label: "scenes")
+                Spacer()
+                statItem(icon: "person.2", value: "\(project.characterCount)", label: "chars")
+                Spacer()
+                statItem(icon: "camera", value: "\(project.shotCount)", label: "shots")
+                Spacer()
+                statItem(icon: "clock", value: project.lastModifiedString, label: "")
+            }
+            .padding(.top, 2)
+
+            // Open button on hover
+            if isHovered {
+                Button(action: onOpen) {
+                    HStack {
+                        Spacer()
+                        Text("Open Project")
+                            .font(.system(size: 12, weight: .semibold))
+                        Spacer()
+                    }
+                    .padding(.vertical, 7)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .padding(14)
+    }
+
+    // MARK: - Stat Item
+
+    private func statItem(icon: String, value: String, label: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.primary)
+            if !label.isEmpty {
+                Text(label)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
         }
     }
 }

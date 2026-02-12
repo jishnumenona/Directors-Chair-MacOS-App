@@ -69,7 +69,11 @@ struct ScriptView: View {
                     directorName: projectViewModel.project.director,
                     productionCompany: projectViewModel.project.productionCompany,
                     genre: projectViewModel.project.genre,
-                    magnification: $viewModel.currentZoom
+                    magnification: $viewModel.currentZoom,
+                    onScrollYChanged: { y in
+                        coordinator.scriptScrollY = y
+                    },
+                    restoreScrollY: coordinator.restoreScriptScrollY
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -77,9 +81,20 @@ struct ScriptView: View {
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
             viewModel.loadFromProject(projectViewModel.project, projectViewModel: projectViewModel, coordinator: coordinator)
+            // Check if there's a pending scroll request
+            if let itemId = coordinator.scrollToScriptItemId {
+                viewModel.scrollToSourceItem(itemId)
+                coordinator.scrollToScriptItemId = nil
+            }
         }
         .onReceive(coordinator.projectChanged) { _ in
             viewModel.refresh(from: projectViewModel.project)
+        }
+        .onChange(of: coordinator.scrollToScriptItemId) { newValue in
+            if let itemId = newValue {
+                viewModel.scrollToSourceItem(itemId)
+                coordinator.scrollToScriptItemId = nil
+            }
         }
     }
 }

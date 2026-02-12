@@ -31,6 +31,12 @@ public struct TimelineView: View {
     /// Callback when a shot label is resized to a new duration (shotId, sceneName, newDuration)
     public var onShotLabelResized: ((Int, String, CGFloat) -> Void)?
 
+    /// Callback when a segment is Option+clicked (jump to script)
+    public var onOptionClickSegment: ((TimelineSegment) -> Void)?
+
+    /// Callback when a shot label is Option+clicked (jump to script) — (shotId, sceneName)
+    public var onOptionClickShotLabel: ((Int, String) -> Void)?
+
     /// Callback when a segment is dragged to a new time (segment, newStartTime)
     public var onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)?
 
@@ -44,6 +50,8 @@ public struct TimelineView: View {
         projectBasePath: URL? = nil,
         onSegmentClicked: ((TimelineSegment) -> Void)? = nil,
         onSegmentDoubleClicked: ((TimelineSegment) -> Void)? = nil,
+        onOptionClickSegment: ((TimelineSegment) -> Void)? = nil,
+        onOptionClickShotLabel: ((Int, String) -> Void)? = nil,
         onShotLabelDoubleClicked: ((Int, String) -> Void)? = nil,
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
         onShotLabelResized: ((Int, String, CGFloat) -> Void)? = nil,
@@ -54,6 +62,8 @@ public struct TimelineView: View {
         self.projectBasePath = projectBasePath
         self.onSegmentClicked = onSegmentClicked
         self.onSegmentDoubleClicked = onSegmentDoubleClicked
+        self.onOptionClickSegment = onOptionClickSegment
+        self.onOptionClickShotLabel = onOptionClickShotLabel
         self.onShotLabelDoubleClicked = onShotLabelDoubleClicked
         self.onShotLabelMoved = onShotLabelMoved
         self.onShotLabelResized = onShotLabelResized
@@ -116,6 +126,9 @@ public struct TimelineView: View {
                                 onShotLabelSelected: { labelId in
                                     viewModel.selectedShotLabelId = labelId
                                 },
+                                onOptionClickShotLabel: { shotId, sceneName in
+                                    onOptionClickShotLabel?(shotId, sceneName)
+                                },
                                 onShotTrackToggled: {
                                     viewModel.showShotLabels.toggle()
                                 },
@@ -172,6 +185,9 @@ public struct TimelineView: View {
                                     },
                                     onSegmentDoubleClicked: { segment in
                                         onSegmentDoubleClicked?(segment)
+                                    },
+                                    onOptionClickSegment: { segment in
+                                        onOptionClickSegment?(segment)
                                     },
                                     onTrackToggled: { trackName in
                                         viewModel.toggleTrackVisibility(trackName)

@@ -50,12 +50,17 @@ public struct Project: Codable, Identifiable, Hashable {
     public var crewMembers: [CrewMember]
     public var teams: [Team]
     public var equipmentLibrary: [EquipmentItem]
+    public var equipmentAllocations: [EquipmentAllocation]
 
     // MARK: - User Management
     public var userManager: ProjectUserManager?
 
     // MARK: - Budget
     public var projectBudget: ProjectBudget?
+
+    // MARK: - Accounting Defaults
+    public var defaultExpenseDepartment: String
+    public var defaultExpenseAccountCode: String
 
     // MARK: - Project Overview (for pitching to producers)
     public var overviewPosterPath: String?  // DEPRECATED: Use overviewPosterPaths list
@@ -99,8 +104,11 @@ public struct Project: Codable, Identifiable, Hashable {
         crewMembers: [CrewMember] = [],
         teams: [Team] = [],
         equipmentLibrary: [EquipmentItem] = [],
+        equipmentAllocations: [EquipmentAllocation] = [],
         userManager: ProjectUserManager? = nil,
         projectBudget: ProjectBudget? = nil,
+        defaultExpenseDepartment: String = "",
+        defaultExpenseAccountCode: String = "",
         overviewPosterPath: String? = nil,
         overviewPosterPaths: [String] = [],
         overviewPosterCurrentIndex: Int = 0,
@@ -141,8 +149,11 @@ public struct Project: Codable, Identifiable, Hashable {
         self.crewMembers = crewMembers
         self.teams = teams
         self.equipmentLibrary = equipmentLibrary
+        self.equipmentAllocations = equipmentAllocations
         self.userManager = userManager
         self.projectBudget = projectBudget
+        self.defaultExpenseDepartment = defaultExpenseDepartment
+        self.defaultExpenseAccountCode = defaultExpenseAccountCode
         self.overviewPosterPath = overviewPosterPath
         self.overviewPosterPaths = overviewPosterPaths
         self.overviewPosterCurrentIndex = overviewPosterCurrentIndex
@@ -185,8 +196,11 @@ public struct Project: Codable, Identifiable, Hashable {
         case crewMembers = "crew_members"
         case teams
         case equipmentLibrary = "equipment_library"
+        case equipmentAllocations = "equipment_allocations"
         case userManager = "user_manager"
         case projectBudget = "project_budget"
+        case defaultExpenseDepartment = "default_expense_department"
+        case defaultExpenseAccountCode = "default_expense_account_code"
         case overviewPosterPath = "overview_poster_path"
         case overviewPosterPaths = "overview_poster_paths"
         case overviewPosterCurrentIndex = "overview_poster_current_index"
@@ -245,10 +259,15 @@ public struct Project: Codable, Identifiable, Hashable {
         crewMembers = try container.decodeIfPresent([CrewMember].self, forKey: .crewMembers) ?? []
         teams = try container.decodeIfPresent([Team].self, forKey: .teams) ?? []
         equipmentLibrary = try container.decodeIfPresent([EquipmentItem].self, forKey: .equipmentLibrary) ?? []
+        equipmentAllocations = try container.decodeIfPresent([EquipmentAllocation].self, forKey: .equipmentAllocations) ?? []
 
         // User management and budget
         userManager = try container.decodeIfPresent(ProjectUserManager.self, forKey: .userManager)
         projectBudget = try container.decodeIfPresent(ProjectBudget.self, forKey: .projectBudget)
+
+        // Accounting defaults
+        defaultExpenseDepartment = try container.decodeIfPresent(String.self, forKey: .defaultExpenseDepartment) ?? ""
+        defaultExpenseAccountCode = try container.decodeIfPresent(String.self, forKey: .defaultExpenseAccountCode) ?? ""
 
         // Project overview
         overviewPosterPath = try container.decodeIfPresent(String.self, forKey: .overviewPosterPath)

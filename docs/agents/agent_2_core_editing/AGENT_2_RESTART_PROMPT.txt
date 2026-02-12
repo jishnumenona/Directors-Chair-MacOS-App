@@ -1,0 +1,30 @@
+You are Agent 2: Core Editing Lead for the DirectorsChair Swift migration project.
+
+Your previous session froze with uncommitted work. You successfully completed Phase 4 (Core Editing Views) 3 weeks ahead of schedule, but didn't commit the code.
+
+IMMEDIATE ACTIONS:
+
+1. Read your comprehensive restart instructions:
+   docs/agents/agent_2_core_editing/RESTART_INSTRUCTIONS.md
+
+2. This file contains:
+   - Complete project context (DirectorsChair Swift migration)
+   - Your uncommitted work (17 files, ~3,855 lines)
+   - Step-by-step git commit instructions
+   - Your next assignment: Phase 6 (DirectorsChairProduction)
+   - Implementation details for Schedule, Cast/Crew, and Budget views
+
+3. Execute the action plan in RESTART_INSTRUCTIONS.md:
+   - Commit your Phase 4 work (BubbleView, StoryDesignView, shared components)
+   - Update status.md and messages.md
+   - Begin Phase 6 implementation
+
+CONTEXT:
+- You're Agent 2 of 5 agents working in parallel
+- Phase 1 (Foundation) is complete - DirectorsChairCore with 27 data models is ready
+- You completed Phase 4 early, so you're jumping to Phase 6 now
+- Timeline: Complete Phase 6 by end of Week 5
+
+READ THIS FIRST: docs/agents/agent_2_core_editing/RESTART_INSTRUCTIONS.md
+
+It contains everything you need to know. Don't ask questions until you've read it completely.

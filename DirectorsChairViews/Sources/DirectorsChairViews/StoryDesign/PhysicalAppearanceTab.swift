@@ -20,7 +20,7 @@ public struct PhysicalAppearanceTab: View {
     let projectBasePath: URL?
 
     // Callbacks for AI operations
-    var onGenerateImage: ((String, String) -> Void)?  // (angle, prompt)
+    var onGenerateImage: ((String, String, @escaping @MainActor (Double) -> Void) -> Void)?  // (angle, prompt, progressHandler)
     var onAnalyzeTraits: (() -> Void)?
 
     // State for full screen image viewer
@@ -31,10 +31,15 @@ public struct PhysicalAppearanceTab: View {
     // State for discovered images (auto-detect from filesystem)
     @State private var discoveredImages: DiscoveredCharacterImages = DiscoveredCharacterImages()
 
+    // Per-angle generation progress (nil = idle, 0.0-1.0 = generating)
+    @State private var generatingProgress: [String: Double] = [:]
+    // Cache-busting IDs to force AsyncImage reload after regeneration
+    @State private var imageRefreshIds: [String: UUID] = [:]
+
     public init(
         character: Binding<Character>,
         projectBasePath: URL? = nil,
-        onGenerateImage: ((String, String) -> Void)? = nil,
+        onGenerateImage: ((String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
         onAnalyzeTraits: (() -> Void)? = nil
     ) {
         self._character = character
@@ -448,8 +453,17 @@ public struct PhysicalAppearanceTab: View {
                             placeholderImage
                         }
                     }
+                    .id(imageRefreshIds["base"] ?? UUID())
                 } else {
                     placeholderImage
+                }
+
+                // Base image generation progress overlay
+                if let progress = generatingProgress["base"] {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.black.opacity(0.5))
+                        .frame(height: 300)
+                    GenerationProgressRing(progress: progress)
                 }
             }
 
@@ -458,127 +472,179 @@ public struct PhysicalAppearanceTab: View {
                let basePath = projectBasePath {
                 let fullPath = basePath.appendingPathComponent(imagePath)
                 HStack(spacing: 8) {
-                    Button {
+                    GalleryButton(
+                        label: "View",
+                        icon: "eye",
+                        color: .accentColor
+                    ) {
                         fullScreenImageURL = fullPath
                         fullScreenImageTitle = "\(character.name) - Base Image"
                         showingFullScreenImage = true
-                    } label: {
-                        Label("View", systemImage: "eye")
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
                     .help("View image in full screen")
 
-                    Button {
+                    GalleryButton(
+                        label: "Download",
+                        icon: "arrow.down.circle",
+                        color: .green
+                    ) {
                         downloadImage(from: fullPath, suggestedName: "\(character.name)_base.png")
-                    } label: {
-                        Label("Download", systemImage: "arrow.down.circle")
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
                     .help("Save image to your computer")
                 }
             }
 
             // Generate button
-            Button {
-                let prompt = buildImagePrompt()
-                onGenerateImage?("base", prompt)
-            } label: {
-                Label("Generate Base Image", systemImage: "wand.and.stars")
-                    .frame(maxWidth: .infinity)
+            GalleryButton(
+                label: generatingProgress["base"] != nil ? "Generating..." : "Generate Base Image",
+                icon: generatingProgress["base"] != nil ? "hourglass" : "wand.and.stars",
+                color: .accentColor,
+                isProminent: true
+            ) {
+                generateAngleImage(angle: "base", prompt: buildImagePrompt())
             }
-            .buttonStyle(.borderedProminent)
+            .disabled(generatingProgress["base"] != nil)
             .help("AI: Generate a base character image")
 
-            // Angle thumbnails
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    AngleThumbnail(
-                        label: "Front",
-                        imagePath: effectiveImagePath(for: .front),
-                        projectBasePath: projectBasePath,
-                        characterName: character.name,
-                        onView: { url in
-                            fullScreenImageURL = url
-                            fullScreenImageTitle = "\(character.name) - Front"
-                            showingFullScreenImage = true
-                        },
-                        onDownload: { url in
-                            downloadImage(from: url, suggestedName: "\(character.name)_front.png")
-                        }
-                    )
-                    AngleThumbnail(
-                        label: "3/4 Left",
-                        imagePath: effectiveImagePath(for: .threeQuarterLeft),
-                        projectBasePath: projectBasePath,
-                        characterName: character.name,
-                        onView: { url in
-                            fullScreenImageURL = url
-                            fullScreenImageTitle = "\(character.name) - Three Quarter Left"
-                            showingFullScreenImage = true
-                        },
-                        onDownload: { url in
-                            downloadImage(from: url, suggestedName: "\(character.name)_3q_left.png")
-                        }
-                    )
-                    AngleThumbnail(
-                        label: "3/4 Right",
-                        imagePath: effectiveImagePath(for: .threeQuarterRight),
-                        projectBasePath: projectBasePath,
-                        characterName: character.name,
-                        onView: { url in
-                            fullScreenImageURL = url
-                            fullScreenImageTitle = "\(character.name) - Three Quarter Right"
-                            showingFullScreenImage = true
-                        },
-                        onDownload: { url in
-                            downloadImage(from: url, suggestedName: "\(character.name)_3q_right.png")
-                        }
-                    )
-                    AngleThumbnail(
-                        label: "Profile L",
-                        imagePath: effectiveImagePath(for: .profileLeft),
-                        projectBasePath: projectBasePath,
-                        characterName: character.name,
-                        onView: { url in
-                            fullScreenImageURL = url
-                            fullScreenImageTitle = "\(character.name) - Profile Left"
-                            showingFullScreenImage = true
-                        },
-                        onDownload: { url in
-                            downloadImage(from: url, suggestedName: "\(character.name)_profile_left.png")
-                        }
-                    )
-                    AngleThumbnail(
-                        label: "Profile R",
-                        imagePath: effectiveImagePath(for: .profileRight),
-                        projectBasePath: projectBasePath,
-                        characterName: character.name,
-                        onView: { url in
-                            fullScreenImageURL = url
-                            fullScreenImageTitle = "\(character.name) - Profile Right"
-                            showingFullScreenImage = true
-                        },
-                        onDownload: { url in
-                            downloadImage(from: url, suggestedName: "\(character.name)_profile_right.png")
-                        }
-                    )
-                    AngleThumbnail(
-                        label: "Back",
-                        imagePath: effectiveImagePath(for: .back),
-                        projectBasePath: projectBasePath,
-                        characterName: character.name,
-                        onView: { url in
-                            fullScreenImageURL = url
-                            fullScreenImageTitle = "\(character.name) - Back"
-                            showingFullScreenImage = true
-                        },
-                        onDownload: { url in
-                            downloadImage(from: url, suggestedName: "\(character.name)_back.png")
-                        }
-                    )
-                }
+            // Angle section header
+            HStack(spacing: 6) {
+                Image(systemName: "cube.transparent")
+                    .font(.system(size: 10))
+                    .foregroundColor(.accentColor)
+                Text("CHARACTER ANGLES")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .tracking(1)
+                Spacer()
+                Text("\(angleImageCount)/6")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color(nsColor: .quaternarySystemFill)))
+            }
+            .padding(.top, 4)
+
+            // Angle thumbnails grid
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ], spacing: 10) {
+                AngleThumbnail(
+                    label: "Front",
+                    imagePath: effectiveImagePath(for: .front),
+                    projectBasePath: projectBasePath,
+                    characterName: character.name,
+                    generationProgress: generatingProgress["front"],
+                    refreshId: imageRefreshIds["front"],
+                    onView: { url in
+                        fullScreenImageURL = url
+                        fullScreenImageTitle = "\(character.name) - Front"
+                        showingFullScreenImage = true
+                    },
+                    onDownload: { url in
+                        downloadImage(from: url, suggestedName: "\(character.name)_front.png")
+                    },
+                    onGenerate: {
+                        generateAngleImage(angle: "front", prompt: buildAnglePrompt(angle: "front facing view, looking directly at camera"))
+                    }
+                )
+                AngleThumbnail(
+                    label: "3/4 Left",
+                    imagePath: effectiveImagePath(for: .threeQuarterLeft),
+                    projectBasePath: projectBasePath,
+                    characterName: character.name,
+                    generationProgress: generatingProgress["three_quarter_left"],
+                    refreshId: imageRefreshIds["three_quarter_left"],
+                    onView: { url in
+                        fullScreenImageURL = url
+                        fullScreenImageTitle = "\(character.name) - Three Quarter Left"
+                        showingFullScreenImage = true
+                    },
+                    onDownload: { url in
+                        downloadImage(from: url, suggestedName: "\(character.name)_3q_left.png")
+                    },
+                    onGenerate: {
+                        generateAngleImage(angle: "three_quarter_left", prompt: buildAnglePrompt(angle: "three-quarter view from the left side, head turned slightly left"))
+                    }
+                )
+                AngleThumbnail(
+                    label: "3/4 Right",
+                    imagePath: effectiveImagePath(for: .threeQuarterRight),
+                    projectBasePath: projectBasePath,
+                    characterName: character.name,
+                    generationProgress: generatingProgress["three_quarter_right"],
+                    refreshId: imageRefreshIds["three_quarter_right"],
+                    onView: { url in
+                        fullScreenImageURL = url
+                        fullScreenImageTitle = "\(character.name) - Three Quarter Right"
+                        showingFullScreenImage = true
+                    },
+                    onDownload: { url in
+                        downloadImage(from: url, suggestedName: "\(character.name)_3q_right.png")
+                    },
+                    onGenerate: {
+                        generateAngleImage(angle: "three_quarter_right", prompt: buildAnglePrompt(angle: "three-quarter view from the right side, head turned slightly right"))
+                    }
+                )
+                AngleThumbnail(
+                    label: "Profile Left",
+                    imagePath: effectiveImagePath(for: .profileLeft),
+                    projectBasePath: projectBasePath,
+                    characterName: character.name,
+                    generationProgress: generatingProgress["profile_left"],
+                    refreshId: imageRefreshIds["profile_left"],
+                    onView: { url in
+                        fullScreenImageURL = url
+                        fullScreenImageTitle = "\(character.name) - Profile Left"
+                        showingFullScreenImage = true
+                    },
+                    onDownload: { url in
+                        downloadImage(from: url, suggestedName: "\(character.name)_profile_left.png")
+                    },
+                    onGenerate: {
+                        generateAngleImage(angle: "profile_left", prompt: buildAnglePrompt(angle: "left side profile view, face in complete profile"))
+                    }
+                )
+                AngleThumbnail(
+                    label: "Profile Right",
+                    imagePath: effectiveImagePath(for: .profileRight),
+                    projectBasePath: projectBasePath,
+                    characterName: character.name,
+                    generationProgress: generatingProgress["profile_right"],
+                    refreshId: imageRefreshIds["profile_right"],
+                    onView: { url in
+                        fullScreenImageURL = url
+                        fullScreenImageTitle = "\(character.name) - Profile Right"
+                        showingFullScreenImage = true
+                    },
+                    onDownload: { url in
+                        downloadImage(from: url, suggestedName: "\(character.name)_profile_right.png")
+                    },
+                    onGenerate: {
+                        generateAngleImage(angle: "profile_right", prompt: buildAnglePrompt(angle: "right side profile view, face in complete profile"))
+                    }
+                )
+                AngleThumbnail(
+                    label: "Back",
+                    imagePath: effectiveImagePath(for: .back),
+                    projectBasePath: projectBasePath,
+                    characterName: character.name,
+                    generationProgress: generatingProgress["back"],
+                    refreshId: imageRefreshIds["back"],
+                    onView: { url in
+                        fullScreenImageURL = url
+                        fullScreenImageTitle = "\(character.name) - Back"
+                        showingFullScreenImage = true
+                    },
+                    onDownload: { url in
+                        downloadImage(from: url, suggestedName: "\(character.name)_back.png")
+                    },
+                    onGenerate: {
+                        generateAngleImage(angle: "back", prompt: buildAnglePrompt(angle: "back view, showing back of head and shoulders"))
+                    }
+                )
             }
 
             Spacer()
@@ -633,7 +699,55 @@ public struct PhysicalAppearanceTab: View {
         }
     }
 
+    // MARK: - Generate Angle Image (Background)
+
+    private func generateAngleImage(angle: String, prompt: String) {
+        guard generatingProgress[angle] == nil else { return } // Already generating
+        generatingProgress[angle] = 0.0
+
+        onGenerateImage?(angle, prompt) { progress in
+            if progress >= 1.0 {
+                // Generation complete — bust cache and clear progress
+                self.imageRefreshIds[angle] = UUID()
+                // Also refresh base image display if it was the base
+                if angle == "base" {
+                    self.imageRefreshIds["base"] = UUID()
+                }
+                withAnimation(.easeOut(duration: 0.3)) {
+                    self.generatingProgress.removeValue(forKey: angle)
+                }
+                // Re-discover images from filesystem
+                self.discoveredImages = DiscoveredCharacterImages.discover(
+                    for: self.character.name,
+                    basePath: self.projectBasePath
+                )
+            } else {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    self.generatingProgress[angle] = progress
+                }
+            }
+        }
+    }
+
+    // MARK: - Angle Image Count
+
+    private var angleImageCount: Int {
+        let angles: [ImageType] = [.front, .threeQuarterLeft, .threeQuarterRight, .profileLeft, .profileRight, .back]
+        return angles.filter { effectiveImagePath(for: $0) != nil }.count
+    }
+
     // MARK: - Build Image Prompt
+
+    private func buildAnglePrompt(angle: String) -> String {
+        let hasBaseImage = effectiveImagePath(for: .base) != nil
+        var base = buildImagePrompt()
+        base += ", \(angle)"
+        if hasBaseImage {
+            base += ". IMPORTANT: Generate the EXACT SAME person as shown in the reference image. Match the face, skin tone, hair, clothing, and art style precisely. This is a different angle of the same character, not a new character."
+        }
+        base += ", character turnaround sheet, consistent character appearance across all angles"
+        return base
+    }
 
     private func buildImagePrompt() -> String {
         var parts: [String] = []
@@ -868,6 +982,45 @@ private struct MeasurementField: View {
     }
 }
 
+/// Gallery action button with icon + label, hover effect, optional prominent style
+private struct GalleryButton: View {
+    let label: String
+    let icon: String
+    let color: Color
+    var isProminent: Bool = false
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                    .foregroundColor(isProminent ? .white : color)
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isProminent ? .white : (isHovered ? .primary : .secondary))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .frame(maxWidth: isProminent ? .infinity : nil)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isProminent
+                        ? color.opacity(isHovered ? 0.9 : 0.8)
+                        : (isHovered ? Color(nsColor: .quaternarySystemFill) : Color(nsColor: .quaternarySystemFill).opacity(0.5)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isProminent ? Color.clear : color.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
 private extension ClosedRange where Bound == Double {
     func lowerValue(_ range: ClosedRange<Double>) -> Double {
         let mid = (range.lowerBound + range.upperBound) / 2
@@ -882,17 +1035,23 @@ private struct AngleThumbnail: View {
     let imagePath: String?
     let projectBasePath: URL?
     let characterName: String
+    var generationProgress: Double?  // nil = idle, 0.0-1.0 = generating
+    var refreshId: UUID?             // Changes to force AsyncImage reload
     var onView: ((URL) -> Void)?
     var onDownload: ((URL) -> Void)?
+    var onGenerate: (() -> Void)?
 
     @State private var isHovering = false
 
+    private var hasImage: Bool { imagePath != nil }
+    private var isGenerating: Bool { generationProgress != nil }
+
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             ZStack {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.gray.opacity(0.1))
-                    .frame(width: 60, height: 60)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .quaternarySystemFill))
+                    .frame(width: 80, height: 80)
 
                 if let path = imagePath, let basePath = projectBasePath {
                     let fullPath = basePath.appendingPathComponent(path)
@@ -901,58 +1060,153 @@ private struct AngleThumbnail: View {
                             image
                                 .resizable()
                                 .scaledToFill()
-                                .frame(width: 60, height: 60)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                         } else {
                             Image(systemName: "person.crop.rectangle")
+                                .font(.system(size: 20))
                                 .foregroundColor(.gray)
                         }
                     }
+                    .id(refreshId ?? UUID())
 
-                    // Hover overlay with buttons
-                    if isHovering {
-                        RoundedRectangle(cornerRadius: 6)
+                    // Hover overlay with action buttons (only when not generating)
+                    if isHovering && !isGenerating {
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(Color.black.opacity(0.6))
-                            .frame(width: 60, height: 60)
+                            .frame(width: 80, height: 80)
 
-                        HStack(spacing: 4) {
+                        VStack(spacing: 6) {
+                            HStack(spacing: 8) {
+                                Button {
+                                    onView?(fullPath)
+                                } label: {
+                                    Image(systemName: "eye")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white)
+                                        .frame(width: 26, height: 26)
+                                        .background(Circle().fill(Color.white.opacity(0.2)))
+                                }
+                                .buttonStyle(.plain)
+                                .help("View full screen")
+
+                                Button {
+                                    onDownload?(fullPath)
+                                } label: {
+                                    Image(systemName: "arrow.down")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white)
+                                        .frame(width: 26, height: 26)
+                                        .background(Circle().fill(Color.white.opacity(0.2)))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Download image")
+                            }
+
                             Button {
-                                onView?(fullPath)
+                                onGenerate?()
                             } label: {
-                                Image(systemName: "eye")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.white)
+                                HStack(spacing: 3) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 8))
+                                    Text("Redo")
+                                        .font(.system(size: 8, weight: .medium))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.8)))
                             }
                             .buttonStyle(.plain)
-                            .help("View full screen")
-
-                            Button {
-                                onDownload?(fullPath)
-                            } label: {
-                                Image(systemName: "arrow.down")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.white)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Download image")
+                            .help("Regenerate this angle")
                         }
                     }
-                } else {
-                    Image(systemName: "plus")
-                        .foregroundColor(.gray)
+                } else if !isGenerating {
+                    // Empty state — clickable to generate
+                    Button {
+                        onGenerate?()
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: isHovering ? "wand.and.stars" : "plus")
+                                .font(.system(size: isHovering ? 18 : 16))
+                                .foregroundColor(isHovering ? .accentColor : Color(nsColor: .tertiaryLabelColor))
+                            if isHovering {
+                                Text("Generate")
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .frame(width: 80, height: 80)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Generate \(label) image")
+                }
+
+                // Generation progress overlay
+                if let progress = generationProgress {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.black.opacity(0.6))
+                        .frame(width: 80, height: 80)
+
+                    GenerationProgressRing(progress: progress, size: 44)
+                }
+
+                // Accent border when hovering on empty
+                if !hasImage && !isGenerating && isHovering {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.accentColor.opacity(0.5), lineWidth: 1.5)
+                        .frame(width: 80, height: 80)
                 }
             }
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.15)) {
-                    isHovering = hovering && imagePath != nil
+                    isHovering = hovering
                 }
             }
 
             Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(isGenerating ? .accentColor : (isHovering ? .primary : .secondary))
         }
-        .help(imagePath != nil ? "\(label) - Click to view/download" : "\(label) - No image")
+    }
+}
+
+// MARK: - Generation Progress Ring
+
+private struct GenerationProgressRing: View {
+    let progress: Double
+    var size: CGFloat = 60
+
+    var body: some View {
+        ZStack {
+            // Background ring
+            Circle()
+                .stroke(Color.white.opacity(0.15), lineWidth: 3)
+                .frame(width: size, height: size)
+
+            // Progress ring
+            Circle()
+                .trim(from: 0, to: CGFloat(min(progress, 1.0)))
+                .stroke(
+                    Color.accentColor,
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                )
+                .frame(width: size, height: size)
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut(duration: 0.3), value: progress)
+
+            // Percentage text
+            VStack(spacing: 1) {
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: size * 0.28, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                if size > 50 {
+                    Text("Generating")
+                        .font(.system(size: 7, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+        }
     }
 }
 
@@ -977,15 +1231,45 @@ private struct FullScreenImageViewer: View {
                 Button {
                     onDownload?()
                 } label: {
-                    Label("Download", systemImage: "arrow.down.circle")
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.green)
+                        Text("Download")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(nsColor: .quaternarySystemFill))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.green.opacity(0.2), lineWidth: 1)
+                    )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 .help("Save image to your computer")
 
-                Button("Close") {
+                Button {
                     dismiss()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10))
+                        Text("Close")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.accentColor.opacity(0.8))
+                    )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .keyboardShortcut(.escape, modifiers: [])
             }
             .padding()

@@ -18,6 +18,8 @@ struct ProjectSettingsView: View {
     @State private var productionCompany: String = ""
     @State private var genre: String = ""
     @State private var logline: String = ""
+    @State private var defaultExpenseDepartment: String = ""
+    @State private var defaultExpenseAccountCode: String = ""
 
     var body: some View {
         ScrollView {
@@ -37,6 +39,12 @@ struct ProjectSettingsView: View {
                     productionCompany: $productionCompany,
                     genre: $genre,
                     logline: $logline
+                )
+
+                // Accounting Defaults Section
+                AccountingDefaultsSection(
+                    defaultExpenseDepartment: $defaultExpenseDepartment,
+                    defaultExpenseAccountCode: $defaultExpenseAccountCode
                 )
 
                 Divider()
@@ -82,7 +90,9 @@ struct ProjectSettingsView: View {
         director != projectViewModel.project.director ||
         productionCompany != projectViewModel.project.productionCompany ||
         genre != (projectViewModel.project.genre ?? "") ||
-        logline != (projectViewModel.project.overviewLogline ?? "")
+        logline != (projectViewModel.project.overviewLogline ?? "") ||
+        defaultExpenseDepartment != projectViewModel.project.defaultExpenseDepartment ||
+        defaultExpenseAccountCode != projectViewModel.project.defaultExpenseAccountCode
     }
 
     private func loadFromProject() {
@@ -91,6 +101,8 @@ struct ProjectSettingsView: View {
         productionCompany = projectViewModel.project.productionCompany
         genre = projectViewModel.project.genre ?? ""
         logline = projectViewModel.project.overviewLogline ?? ""
+        defaultExpenseDepartment = projectViewModel.project.defaultExpenseDepartment
+        defaultExpenseAccountCode = projectViewModel.project.defaultExpenseAccountCode
     }
 
     private func saveToProject() {
@@ -99,6 +111,8 @@ struct ProjectSettingsView: View {
         projectViewModel.project.productionCompany = productionCompany
         projectViewModel.project.genre = genre
         projectViewModel.project.overviewLogline = logline
+        projectViewModel.project.defaultExpenseDepartment = defaultExpenseDepartment
+        projectViewModel.project.defaultExpenseAccountCode = defaultExpenseAccountCode
         projectViewModel.isDirty = true
     }
 
@@ -149,6 +163,34 @@ struct ProjectMetadataSection: View {
                     TextField("Enter one-line summary", text: $logline, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(2...4)
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+}
+
+// MARK: - Accounting Defaults Section
+
+struct AccountingDefaultsSection: View {
+    @Binding var defaultExpenseDepartment: String
+    @Binding var defaultExpenseAccountCode: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Accounting Defaults")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Form {
+                LabeledContent("Default Department") {
+                    TextField("e.g. Production, Art, Camera", text: $defaultExpenseDepartment)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                LabeledContent("Default Account Code") {
+                    TextField("e.g. 3300", text: $defaultExpenseAccountCode)
+                        .textFieldStyle(.roundedBorder)
                 }
             }
             .formStyle(.grouped)

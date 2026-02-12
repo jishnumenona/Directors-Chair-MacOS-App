@@ -1002,7 +1002,8 @@ public class TimelineViewModel: ObservableObject {
                 cameraAngle: shot.cameraAngle,
                 lensMm: shot.lensMm,
                 movement: shot.movement,
-                previewImagePath: shot.previewImage
+                previewImagePath: shot.previewImage,
+                hasVideo: shot.videoPath != nil && !(shot.videoPath?.isEmpty ?? true)
             ))
         }
 
@@ -1303,7 +1304,8 @@ public class TimelineViewModel: ObservableObject {
                     cameraAngle: shot.cameraAngle,
                     lensMm: shot.lensMm,
                     movement: shot.movement,
-                    previewImagePath: shot.previewImage
+                    previewImagePath: shot.previewImage,
+                    hasVideo: shot.videoPath != nil && !(shot.videoPath?.isEmpty ?? true)
                 ))
             }
 
@@ -1613,7 +1615,8 @@ public class TimelineViewModel: ObservableObject {
                         cameraAngle: shot.cameraAngle,
                         lensMm: shot.lensMm,
                         movement: shot.movement,
-                        previewImagePath: shot.previewImage
+                        previewImagePath: shot.previewImage,
+                        hasVideo: shot.videoPath != nil && !(shot.videoPath?.isEmpty ?? true)
                     ))
                 }
 
@@ -1947,6 +1950,7 @@ public struct TimelineShotLabel: Identifiable {
     public var lensMm: Int?               // e.g., 50, 85
     public var movement: String           // e.g., "Static", "Pan", "Dolly"
     public var previewImagePath: String?  // Relative path to AI-generated preview image
+    public var hasVideo: Bool              // Whether this shot has a generated video
 
     /// End time in seconds
     public var end: CGFloat { time + duration }
@@ -1963,7 +1967,8 @@ public struct TimelineShotLabel: Identifiable {
         cameraAngle: String = "Medium",
         lensMm: Int? = nil,
         movement: String = "Static",
-        previewImagePath: String? = nil
+        previewImagePath: String? = nil,
+        hasVideo: Bool = false
     ) {
         self.id = id
         self.time = time
@@ -1977,6 +1982,7 @@ public struct TimelineShotLabel: Identifiable {
         self.lensMm = lensMm
         self.movement = movement
         self.previewImagePath = previewImagePath
+        self.hasVideo = hasVideo
     }
 
     /// Compute the visual card width for this shot label (shared between Canvas and ViewModel)

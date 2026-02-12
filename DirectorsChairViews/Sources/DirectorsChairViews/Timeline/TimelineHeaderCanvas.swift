@@ -68,6 +68,9 @@ public struct TimelineHeaderCanvas: View {
     /// Callback when a shot label is single-clicked (selected)
     public var onShotLabelSelected: ((UUID) -> Void)?
 
+    /// Callback when a shot label is Option+clicked (jump to script) — (shotId, sceneName)
+    public var onOptionClickShotLabel: ((Int, String) -> Void)?
+
     /// Callback when shot track eye toggle is clicked
     public var onShotTrackToggled: (() -> Void)?
 
@@ -218,6 +221,7 @@ public struct TimelineHeaderCanvas: View {
         onShotLabelDoubleClicked: ((Int, String) -> Void)? = nil,
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
         onShotLabelSelected: ((UUID) -> Void)? = nil,
+        onOptionClickShotLabel: ((Int, String) -> Void)? = nil,
         onShotTrackToggled: (() -> Void)? = nil,
         onShotLabelResized: ((Int, String, CGFloat) -> Void)? = nil,
         onSceneBoundaryMoved: ((String, CGFloat) -> Void)? = nil,
@@ -247,6 +251,7 @@ public struct TimelineHeaderCanvas: View {
         self.onShotLabelDoubleClicked = onShotLabelDoubleClicked
         self.onShotLabelMoved = onShotLabelMoved
         self.onShotLabelSelected = onShotLabelSelected
+        self.onOptionClickShotLabel = onOptionClickShotLabel
         self.onShotTrackToggled = onShotTrackToggled
         self.onShotLabelResized = onShotLabelResized
         self.onSceneBoundaryMoved = onSceneBoundaryMoved
@@ -290,6 +295,11 @@ public struct TimelineHeaderCanvas: View {
             // Check for shot track eye toggle first
             if isShotEyeToggleHit(at: location) {
                 onShotTrackToggled?()
+                return
+            }
+            // Option+Click on shot label → jump to script
+            if showShotLabels, NSEvent.modifierFlags.contains(.option), let shotLabel = findShotLabel(at: location) {
+                onOptionClickShotLabel?(shotLabel.shotId, shotLabel.sceneName)
                 return
             }
             if showShotLabels, let shotLabel = findShotLabel(at: location) {
@@ -1106,10 +1116,18 @@ public struct TimelineHeaderCanvas: View {
                     at: CGPoint(x: textLeft, y: cardRect.minY + cardRect.height * 0.72), anchor: .leading
                 )
 
+                // Video indicator icon (bottom-right of card)
+                if shotLabel.hasVideo {
+                    context.draw(
+                        Text(Image(systemName: "video.fill")).font(.system(size: 7.5, weight: .medium)).foregroundColor(.green.opacity(0.9)),
+                        at: CGPoint(x: cardRect.maxX - 10, y: cardRect.maxY - 8), anchor: .center
+                    )
+                }
+
                 if let movementIcon = TimelineDefaultColors.iconForMovement(shotLabel.movement) {
                     context.draw(
                         Text(Image(systemName: movementIcon)).font(.system(size: 9)).foregroundColor(shotTypeColor.opacity(0.8)),
-                        at: CGPoint(x: cardRect.maxX - 10, y: cardRect.midY), anchor: .center
+                        at: CGPoint(x: cardRect.maxX - 10, y: cardRect.midY - (shotLabel.hasVideo ? 4 : 0)), anchor: .center
                     )
                 }
             }

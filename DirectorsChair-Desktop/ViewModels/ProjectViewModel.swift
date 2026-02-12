@@ -10,6 +10,7 @@ import Foundation
 import SwiftUI
 import Combine
 import DirectorsChairCore
+import DirectorsChairServices
 
 /// Main project view model - manages project state and persistence
 /// Replaces Python's Project QObject with auto-save
@@ -49,11 +50,15 @@ class ProjectViewModel: ObservableObject {
     /// Loading state for async operations
     @Published var isLoading = false
 
+    /// Project directory storage size in bytes
+    @Published var projectStorageSize: Int64 = 0
+
     // MARK: - Private Properties
 
     private let persistence: ProjectPersistence
     private let autoSaveManager: DebouncedSaveManager
     private var cancellables = Set<AnyCancellable>()
+    private var storageSizeTimer: Timer?
 
     // MARK: - Initialization
 
@@ -162,6 +167,9 @@ class ProjectViewModel: ObservableObject {
             lastSaved = nil
             hasProject = true
 
+            startStorageSizeTimer()
+            AIUsageTracker.shared.setProjectName(uniqueName)
+
             // Auto-save the new project immediately
             Task {
                 await save()
@@ -194,6 +202,8 @@ class ProjectViewModel: ObservableObject {
             isDirty = false
             lastSaved = Date()
             hasProject = true
+            startStorageSizeTimer()
+            AIUsageTracker.shared.setProjectName(loadedProject.name)
 
             // Warn if location is read-only
             if !isWritable(url: path) {
@@ -280,11 +290,13 @@ class ProjectViewModel: ObservableObject {
             await forceSave()
         }
 
+        stopStorageSizeTimer()
         project = Project.empty()
         projectPath = nil
         isDirty = false
         lastSaved = nil
         hasProject = false
+        projectStorageSize = 0
     }
 
     // MARK: - Project Modification Methods
@@ -369,6 +381,35 @@ class ProjectViewModel: ObservableObject {
     /// Get all sequences in the project
     var sequences: [DirectorsChairCore.Sequence] {
         project.sequences
+    }
+
+    // MARK: - Storage Size
+
+    func updateStorageSize() {
+        guard let path = projectPath else {
+            projectStorageSize = 0
+            return
+        }
+        let projectDir = path.deletingLastPathComponent()
+        Task.detached {
+            let size = StorageSizeCalculator.directorySize(at: projectDir)
+            await MainActor.run { self.projectStorageSize = size }
+        }
+    }
+
+    func startStorageSizeTimer() {
+        storageSizeTimer?.invalidate()
+        updateStorageSize()
+        storageSizeTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateStorageSize()
+            }
+        }
+    }
+
+    func stopStorageSizeTimer() {
+        storageSizeTimer?.invalidate()
+        storageSizeTimer = nil
     }
 }
 

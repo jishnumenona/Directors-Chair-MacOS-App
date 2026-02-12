@@ -514,12 +514,8 @@ class AIChatViewModel: ObservableObject {
             prompt += "\n\n" + context
         }
 
-        // Add feature reference if user asks about the app
-        let lowerQuery = query.lowercased()
-        if lowerQuery.contains("how") || lowerQuery.contains("feature") || lowerQuery.contains("app") ||
-           lowerQuery.contains("shortcut") || lowerQuery.contains("keyboard") || lowerQuery.contains("where") {
-            prompt += "\n\n--- FEATURE GUIDE ---\n" + featureReference
-        }
+        // Always include feature reference so the assistant knows what the app can do
+        prompt += "\n\n--- FEATURE GUIDE ---\n" + featureReference
 
         return prompt
     }
@@ -591,31 +587,49 @@ class AIChatViewModel: ObservableObject {
         - Scenes (Cmd+3): Scene list with detail panels, location images
         - Assets (Cmd+4): Media library with images, videos, audio
         - Vision Board (Cmd+5): Drag-and-drop mood board cards
-        - Shot List (Cmd+6): Cinematography view with camera angles, lens, movement
+        - Shot List / Cinematography (Cmd+6): Camera angles, lens, movement, shot detail with video generation
         - Production (Cmd+7): Schedule, Cast & Crew, Accounting, Equipment tabs
-        - Story Design (Cmd+8): Character profiles (traits, appearance, biography), Locations
+        - Story Design (Cmd+8): Character profiles (traits, appearance, costumes, biography), Locations
         - Settings (Cmd+9): Project metadata configuration
 
         PANELS:
         - Navigator (Cmd+Opt+1): Left sidebar with Outline, Markers, Versions, Comments tabs
-        - Timeline (Cmd+Opt+2): Bottom timeline with drag-to-reorder segments
+        - Timeline (Cmd+Opt+2): Bottom timeline with drag-to-reorder segments, playhead, markers
         - Right Panel (Cmd+Opt+3): Context-dependent detail panel
 
         KEY FEATURES:
-        - Script View: Formatted screenplay with scene headings, dialogue, action
-        - Timeline: Visual timeline with segments per scene, drag-to-reorder shots
-        - Scene Connections: Bezier curves linking script items to shots
-        - Character Design: 25 personality traits across 5 categories, physical appearance
-        - Budget tracking with receipt scanning and AI analysis
+        - Script View: Professional formatted screenplay with scene headings, dialogue, action, Cmd+Click character navigation
+        - Timeline: Visual timeline with segments per scene, drag-to-reorder shots, playhead cursor, custom markers
+        - Scene Connections: Bezier curves linking script items to camera shots
+        - Character Design: 25 personality traits across 5 categories, physical appearance, costumes, relationships
+        - Budget tracking with receipt scanning and AI-powered analysis
         - Equipment library with allocation to schedule items
-        - AI-powered character analysis, biography generation, and image generation
         - Export to FDX (Final Draft), Fountain, HTML, PDF
+
+        AI CAPABILITIES (the app HAS these features):
+        - AI Chat Assistant: Double-Shift or Cmd+Shift+Space to open. Ask questions about the project, get suggestions, search the web
+        - AI Image Generation: Generate keyframe images for shots using Google Imagen. Found in Shot List > select a shot > Video Generation > Keyframes > Generate
+        - AI Video Generation: Generate videos from keyframes using Veo 3, Sora 2, or Kling. Found in Shot List > select a shot > Video Generation section
+        - Keyframe Annotation & Edit: Click the pencil icon on a generated keyframe to open the annotation overlay. Place pins on the image, describe changes, and regenerate with spatial edit instructions
+        - AI Character Analysis: Generate character biographies, personality insights, and profile images
+        - AI Screenplay Import: Import screenplays from text/PDF with AI-powered 5-pass parsing (metadata, characters, props/locations, scene list, scene contents)
+        - AI-powered scene generation and project creation from scratch
+
+        VIDEO GENERATION WORKFLOW:
+        1. Go to Shot List (Cmd+6) and select a shot
+        2. In the Video Generation section, configure keyframes (Start/End frames)
+        3. Click "Generate" on a keyframe to create an AI-generated image for that frame
+        4. Optionally use the annotation editor (pencil icon) to refine keyframe images with point-and-click edits
+        5. Choose a video provider (Veo 3, Sora 2, Kling), set duration, quality, aspect ratio, camera motion
+        6. Click "Generate Video" to create the video from keyframes
+        7. Multiple takes are saved and can be compared in the Video Takes section
 
         KEYBOARD SHORTCUTS:
         - Cmd+[ / Cmd+]: Navigate back/forward
         - Cmd+Opt+A: Show all panels | Cmd+Opt+H: Hide all panels
         - Cmd+Shift+Space: AI Chat Assistant
         - Double-Shift: AI Chat Assistant (quick toggle)
+        - Cmd+Shift+N: New scene (in script view)
         """
     }
 }

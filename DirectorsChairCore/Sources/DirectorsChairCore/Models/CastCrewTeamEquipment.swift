@@ -29,7 +29,9 @@ public struct CastMember: Codable, Identifiable, Hashable {
 
     // Availability
     public var availabilityNotes: String
+    public var paymentType: String  // "Daily Rate" or "One Time"
     public var dailyRate: Double
+    public var oneTimePayment: Double
     public var overtimeRate: Double
 
     // Physical Details
@@ -72,7 +74,9 @@ public struct CastMember: Codable, Identifiable, Hashable {
         roleType: String = "Principal",
         unionStatus: String = "Non-Union",
         availabilityNotes: String = "",
+        paymentType: String = "Daily Rate",
         dailyRate: Double = 0.0,
+        oneTimePayment: Double = 0.0,
         overtimeRate: Double = 0.0,
         height: String = "",
         hairColor: String = "",
@@ -106,7 +110,9 @@ public struct CastMember: Codable, Identifiable, Hashable {
         self.roleType = roleType
         self.unionStatus = unionStatus
         self.availabilityNotes = availabilityNotes
+        self.paymentType = paymentType
         self.dailyRate = dailyRate
+        self.oneTimePayment = oneTimePayment
         self.overtimeRate = overtimeRate
         self.height = height
         self.hairColor = hairColor
@@ -140,7 +146,9 @@ public struct CastMember: Codable, Identifiable, Hashable {
         case roleType = "role_type"
         case unionStatus = "union_status"
         case availabilityNotes = "availability_notes"
+        case paymentType = "payment_type"
         case dailyRate = "daily_rate"
+        case oneTimePayment = "one_time_payment"
         case overtimeRate = "overtime_rate"
         case height
         case hairColor = "hair_color"
@@ -184,7 +192,9 @@ public struct CastMember: Codable, Identifiable, Hashable {
         roleType = try container.decodeIfPresent(String.self, forKey: .roleType) ?? "Principal"
         unionStatus = try container.decodeIfPresent(String.self, forKey: .unionStatus) ?? "Non-Union"
         availabilityNotes = try container.decodeIfPresent(String.self, forKey: .availabilityNotes) ?? ""
+        paymentType = try container.decodeIfPresent(String.self, forKey: .paymentType) ?? "Daily Rate"
         dailyRate = try container.decodeIfPresent(Double.self, forKey: .dailyRate) ?? 0.0
+        oneTimePayment = try container.decodeIfPresent(Double.self, forKey: .oneTimePayment) ?? 0.0
         overtimeRate = try container.decodeIfPresent(Double.self, forKey: .overtimeRate) ?? 0.0
         height = try container.decodeIfPresent(String.self, forKey: .height) ?? ""
         hairColor = try container.decodeIfPresent(String.self, forKey: .hairColor) ?? ""
@@ -226,7 +236,9 @@ public struct CrewMember: Codable, Identifiable, Hashable {
 
     // Employment Details
     public var employmentType: String  // "Staff", "Freelance", "Intern", "Volunteer"
+    public var paymentType: String  // "Daily Rate" or "One Time"
     public var dailyRate: Double
+    public var oneTimePayment: Double
     public var overtimeRate: Double
     public var kitFee: Double
 
@@ -266,7 +278,9 @@ public struct CrewMember: Codable, Identifiable, Hashable {
         emergencyContact: String = "",
         emergencyPhone: String = "",
         employmentType: String = "Freelance",
+        paymentType: String = "Daily Rate",
         dailyRate: Double = 0.0,
+        oneTimePayment: Double = 0.0,
         overtimeRate: Double = 0.0,
         kitFee: Double = 0.0,
         availabilityNotes: String = "",
@@ -293,7 +307,9 @@ public struct CrewMember: Codable, Identifiable, Hashable {
         self.emergencyContact = emergencyContact
         self.emergencyPhone = emergencyPhone
         self.employmentType = employmentType
+        self.paymentType = paymentType
         self.dailyRate = dailyRate
+        self.oneTimePayment = oneTimePayment
         self.overtimeRate = overtimeRate
         self.kitFee = kitFee
         self.availabilityNotes = availabilityNotes
@@ -318,7 +334,9 @@ public struct CrewMember: Codable, Identifiable, Hashable {
         case emergencyContact = "emergency_contact"
         case emergencyPhone = "emergency_phone"
         case employmentType = "employment_type"
+        case paymentType = "payment_type"
         case dailyRate = "daily_rate"
+        case oneTimePayment = "one_time_payment"
         case overtimeRate = "overtime_rate"
         case kitFee = "kit_fee"
         case availabilityNotes = "availability_notes"
@@ -355,7 +373,9 @@ public struct CrewMember: Codable, Identifiable, Hashable {
         emergencyContact = try container.decodeIfPresent(String.self, forKey: .emergencyContact) ?? ""
         emergencyPhone = try container.decodeIfPresent(String.self, forKey: .emergencyPhone) ?? ""
         employmentType = try container.decodeIfPresent(String.self, forKey: .employmentType) ?? "Freelance"
+        paymentType = try container.decodeIfPresent(String.self, forKey: .paymentType) ?? "Daily Rate"
         dailyRate = try container.decodeIfPresent(Double.self, forKey: .dailyRate) ?? 0.0
+        oneTimePayment = try container.decodeIfPresent(Double.self, forKey: .oneTimePayment) ?? 0.0
         overtimeRate = try container.decodeIfPresent(Double.self, forKey: .overtimeRate) ?? 0.0
         kitFee = try container.decodeIfPresent(Double.self, forKey: .kitFee) ?? 0.0
         availabilityNotes = try container.decodeIfPresent(String.self, forKey: .availabilityNotes) ?? ""
@@ -627,5 +647,58 @@ public struct EquipmentItem: Codable, Identifiable, Hashable {
         externalManagementSystem = try container.decodeIfPresent(String.self, forKey: .externalManagementSystem) ?? ""
         createdDate = try container.decodeIfPresent(String.self, forKey: .createdDate) ?? ISO8601DateFormatter().string(from: Date())
         modifiedDate = try container.decodeIfPresent(String.self, forKey: .modifiedDate) ?? ISO8601DateFormatter().string(from: Date())
+    }
+}
+
+// MARK: - Production Allocation
+
+/// How a resource (equipment, cast, crew) is allocated to the production
+public enum ProductionAllocationMode: String, Codable, Hashable {
+    case fullProduction = "full_production"
+    case specificDays = "specific_days"
+}
+
+/// Tracks allocation of an equipment item to specific shoot dates
+public struct EquipmentAllocation: Codable, Identifiable, Hashable {
+    public var id: String
+    public var equipmentItemId: String
+    public var allocationMode: ProductionAllocationMode
+    public var allocatedDates: [String]
+    public var quantityAllocated: Int
+    public var notes: String
+
+    public init(
+        id: String = "alloc_\(UUID().uuidString.prefix(12))",
+        equipmentItemId: String = "",
+        allocationMode: ProductionAllocationMode = .fullProduction,
+        allocatedDates: [String] = [],
+        quantityAllocated: Int = 1,
+        notes: String = ""
+    ) {
+        self.id = id
+        self.equipmentItemId = equipmentItemId
+        self.allocationMode = allocationMode
+        self.allocatedDates = allocatedDates
+        self.quantityAllocated = quantityAllocated
+        self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case equipmentItemId = "equipment_item_id"
+        case allocationMode = "allocation_mode"
+        case allocatedDates = "allocated_dates"
+        case quantityAllocated = "quantity_allocated"
+        case notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? "alloc_\(UUID().uuidString.prefix(12))"
+        equipmentItemId = try container.decodeIfPresent(String.self, forKey: .equipmentItemId) ?? ""
+        allocationMode = try container.decodeIfPresent(ProductionAllocationMode.self, forKey: .allocationMode) ?? .fullProduction
+        allocatedDates = try container.decodeIfPresent([String].self, forKey: .allocatedDates) ?? []
+        quantityAllocated = try container.decodeIfPresent(Int.self, forKey: .quantityAllocated) ?? 1
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
     }
 }

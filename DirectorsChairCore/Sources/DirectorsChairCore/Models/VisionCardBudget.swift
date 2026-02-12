@@ -193,6 +193,8 @@ public struct BudgetCategory: Codable, Hashable {
     public var spent: Double  // Actual spent
     public var description: String
     public var isCustom: Bool  // User-added category
+    public var accountCode: String  // Industry standard account code (e.g., "1100")
+    public var categoryGroup: String  // "ATL", "BTL", "Post", "Other"
 
     public var remaining: Double {
         allocated - spent
@@ -208,18 +210,24 @@ public struct BudgetCategory: Codable, Hashable {
         allocated: Double = 0.0,
         spent: Double = 0.0,
         description: String = "",
-        isCustom: Bool = false
+        isCustom: Bool = false,
+        accountCode: String = "",
+        categoryGroup: String = ""
     ) {
         self.name = name
         self.allocated = allocated
         self.spent = spent
         self.description = description
         self.isCustom = isCustom
+        self.accountCode = accountCode
+        self.categoryGroup = categoryGroup
     }
 
     enum CodingKeys: String, CodingKey {
         case name, allocated, spent, description
         case isCustom = "is_custom"
+        case accountCode = "account_code"
+        case categoryGroup = "category_group"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -233,6 +241,8 @@ public struct BudgetCategory: Codable, Hashable {
         spent = try container.decodeIfPresent(Double.self, forKey: .spent) ?? 0.0
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         isCustom = try container.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
+        accountCode = try container.decodeIfPresent(String.self, forKey: .accountCode) ?? ""
+        categoryGroup = try container.decodeIfPresent(String.self, forKey: .categoryGroup) ?? ""
     }
 }
 
@@ -249,6 +259,15 @@ public struct Expense: Codable, Identifiable, Hashable {
     public var sceneId: String?  // Link to scene
     public var shotId: String?  // Link to shot
     public var receiptPath: String?  // Path to receipt image/PDF
+    public var department: String  // Links to department for departmental reporting
+    public var accountCode: String  // Industry account code
+    public var paymentMethod: String  // "Check", "Card", "PettyCash", "Wire", "PO"
+    public var purchaseOrderId: String?  // Links to PO
+    public var status: String  // "Pending", "Approved", "Paid"
+    public var isQualifyingExpense: Bool  // For tax incentive tracking
+    public var addedBy: String  // Name of person who added the expense
+    public var locationId: String?  // Links to location
+    public var equipmentId: String?  // Links to equipment
 
     public init(
         id: String = UUID().uuidString,
@@ -263,7 +282,16 @@ public struct Expense: Codable, Identifiable, Hashable {
         vendor: String = "",
         sceneId: String? = nil,
         shotId: String? = nil,
-        receiptPath: String? = nil
+        receiptPath: String? = nil,
+        department: String = "",
+        accountCode: String = "",
+        paymentMethod: String = "Card",
+        purchaseOrderId: String? = nil,
+        status: String = "Pending",
+        isQualifyingExpense: Bool = false,
+        addedBy: String = "",
+        locationId: String? = nil,
+        equipmentId: String? = nil
     ) {
         self.id = id
         self.date = date
@@ -274,6 +302,15 @@ public struct Expense: Codable, Identifiable, Hashable {
         self.sceneId = sceneId
         self.shotId = shotId
         self.receiptPath = receiptPath
+        self.department = department
+        self.accountCode = accountCode
+        self.paymentMethod = paymentMethod
+        self.purchaseOrderId = purchaseOrderId
+        self.status = status
+        self.isQualifyingExpense = isQualifyingExpense
+        self.addedBy = addedBy
+        self.locationId = locationId
+        self.equipmentId = equipmentId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -281,6 +318,15 @@ public struct Expense: Codable, Identifiable, Hashable {
         case sceneId = "scene_id"
         case shotId = "shot_id"
         case receiptPath = "receipt_path"
+        case department
+        case accountCode = "account_code"
+        case paymentMethod = "payment_method"
+        case purchaseOrderId = "purchase_order_id"
+        case status
+        case isQualifyingExpense = "is_qualifying_expense"
+        case addedBy = "added_by"
+        case locationId = "location_id"
+        case equipmentId = "equipment_id"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -308,6 +354,113 @@ public struct Expense: Codable, Identifiable, Hashable {
         sceneId = try container.decodeIfPresent(String.self, forKey: .sceneId)
         shotId = try container.decodeIfPresent(String.self, forKey: .shotId)
         receiptPath = try container.decodeIfPresent(String.self, forKey: .receiptPath)
+        department = try container.decodeIfPresent(String.self, forKey: .department) ?? ""
+        accountCode = try container.decodeIfPresent(String.self, forKey: .accountCode) ?? ""
+        paymentMethod = try container.decodeIfPresent(String.self, forKey: .paymentMethod) ?? "Card"
+        purchaseOrderId = try container.decodeIfPresent(String.self, forKey: .purchaseOrderId)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Pending"
+        isQualifyingExpense = try container.decodeIfPresent(Bool.self, forKey: .isQualifyingExpense) ?? false
+        addedBy = try container.decodeIfPresent(String.self, forKey: .addedBy) ?? ""
+        locationId = try container.decodeIfPresent(String.self, forKey: .locationId)
+        equipmentId = try container.decodeIfPresent(String.self, forKey: .equipmentId)
+    }
+}
+
+// MARK: - PurchaseOrder
+
+/// A purchase order for production expenses
+public struct PurchaseOrder: Codable, Identifiable, Hashable {
+    public var id: String
+    public var poNumber: String           // User-facing PO number (e.g., "PO-001")
+    public var vendor: String
+    public var department: String          // Camera, Lighting, Art, etc.
+    public var accountCode: String         // Industry account code (e.g., "3300")
+    public var description: String
+    public var amount: Double
+    public var status: String              // "Draft", "Approved", "Committed", "Paid", "Cancelled"
+    public var dateCreated: String
+    public var dateApproved: String?
+    public var datePaid: String?
+    public var notes: String
+    public var sceneId: String?
+    public var approvedBy: String
+    public var attachments: [String]  // Relative paths to attached files
+
+    public init(
+        id: String = UUID().uuidString,
+        poNumber: String = "",
+        vendor: String = "",
+        department: String = "",
+        accountCode: String = "",
+        description: String = "",
+        amount: Double = 0.0,
+        status: String = "Draft",
+        dateCreated: String = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.string(from: Date())
+        }(),
+        dateApproved: String? = nil,
+        datePaid: String? = nil,
+        notes: String = "",
+        sceneId: String? = nil,
+        approvedBy: String = "",
+        attachments: [String] = []
+    ) {
+        self.id = id
+        self.poNumber = poNumber
+        self.vendor = vendor
+        self.department = department
+        self.accountCode = accountCode
+        self.description = description
+        self.amount = amount
+        self.status = status
+        self.dateCreated = dateCreated
+        self.dateApproved = dateApproved
+        self.datePaid = datePaid
+        self.notes = notes
+        self.sceneId = sceneId
+        self.approvedBy = approvedBy
+        self.attachments = attachments
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, vendor, department, description, amount, status, notes, attachments
+        case poNumber = "po_number"
+        case accountCode = "account_code"
+        case dateCreated = "date_created"
+        case dateApproved = "date_approved"
+        case datePaid = "date_paid"
+        case sceneId = "scene_id"
+        case approvedBy = "approved_by"
+    }
+
+    // MARK: - Custom Decoder (Python Compatibility)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        poNumber = try container.decodeIfPresent(String.self, forKey: .poNumber) ?? ""
+        vendor = try container.decodeIfPresent(String.self, forKey: .vendor) ?? ""
+        department = try container.decodeIfPresent(String.self, forKey: .department) ?? ""
+        accountCode = try container.decodeIfPresent(String.self, forKey: .accountCode) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0.0
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Draft"
+
+        let defaultDate: String = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.string(from: Date())
+        }()
+        dateCreated = try container.decodeIfPresent(String.self, forKey: .dateCreated) ?? defaultDate
+        dateApproved = try container.decodeIfPresent(String.self, forKey: .dateApproved)
+        datePaid = try container.decodeIfPresent(String.self, forKey: .datePaid)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        sceneId = try container.decodeIfPresent(String.self, forKey: .sceneId)
+        approvedBy = try container.decodeIfPresent(String.self, forKey: .approvedBy) ?? ""
+        attachments = try container.decodeIfPresent([String].self, forKey: .attachments) ?? []
     }
 }
 
@@ -321,6 +474,9 @@ public struct ProjectBudget: Codable, Hashable {
     public var currency: String
     public var aiBudgetLimit: Double  // Custom limit for AI services
     public var aiProductionEstimates: [String: Double]?  // AI video production cost estimates
+    public var purchaseOrders: [PurchaseOrder]
+    public var contingencyPercentage: Double  // Typically 10% of BTL+Post
+    public var fringeRate: Double  // Default fringe percentage (e.g., 0.30 = 30%)
 
     public var totalSpent: Double {
         categories.reduce(0) { $0 + $1.spent }
@@ -336,7 +492,10 @@ public struct ProjectBudget: Codable, Hashable {
         totalBudget: Double = 0.0,
         currency: String = "USD",
         aiBudgetLimit: Double = 0.0,
-        aiProductionEstimates: [String: Double]? = nil
+        aiProductionEstimates: [String: Double]? = nil,
+        purchaseOrders: [PurchaseOrder] = [],
+        contingencyPercentage: Double = 0.10,
+        fringeRate: Double = 0.30
     ) {
         self.categories = categories
         self.expenses = expenses
@@ -344,6 +503,9 @@ public struct ProjectBudget: Codable, Hashable {
         self.currency = currency
         self.aiBudgetLimit = aiBudgetLimit
         self.aiProductionEstimates = aiProductionEstimates
+        self.purchaseOrders = purchaseOrders
+        self.contingencyPercentage = contingencyPercentage
+        self.fringeRate = fringeRate
     }
 
     enum CodingKeys: String, CodingKey {
@@ -352,6 +514,9 @@ public struct ProjectBudget: Codable, Hashable {
         case currency
         case aiBudgetLimit = "ai_budget_limit"
         case aiProductionEstimates = "ai_production_estimates"
+        case purchaseOrders = "purchase_orders"
+        case contingencyPercentage = "contingency_percentage"
+        case fringeRate = "fringe_rate"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -366,5 +531,8 @@ public struct ProjectBudget: Codable, Hashable {
         currency = try container.decodeIfPresent(String.self, forKey: .currency) ?? "USD"
         aiBudgetLimit = try container.decodeIfPresent(Double.self, forKey: .aiBudgetLimit) ?? 0.0
         aiProductionEstimates = try container.decodeIfPresent([String: Double].self, forKey: .aiProductionEstimates)
+        purchaseOrders = try container.decodeIfPresent([PurchaseOrder].self, forKey: .purchaseOrders) ?? []
+        contingencyPercentage = try container.decodeIfPresent(Double.self, forKey: .contingencyPercentage) ?? 0.10
+        fringeRate = try container.decodeIfPresent(Double.self, forKey: .fringeRate) ?? 0.30
     }
 }
