@@ -17,6 +17,8 @@ struct ContentView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @StateObject private var timelineViewModel = TimelineViewModel()
+    @EnvironmentObject var onboardingState: OnboardingState
+    @EnvironmentObject var tourManager: GuidedTourManager
 
     /// Timeline height as percentage of available space (default 20%)
     @State private var timelineHeightRatio: CGFloat = 0.20
@@ -56,6 +58,7 @@ struct ContentView: View {
                                 .frame(width: sidebarWidth)
                                 .frame(maxHeight: .infinity)
                                 .background(Color(nsColor: .controlBackgroundColor))
+                                .spotlightTarget(id: "navigator-sidebar")
 
                             // Sidebar resize handle
                             SidebarDivider(sidebarWidth: $sidebarWidth)
@@ -83,12 +86,14 @@ struct ContentView: View {
                             timelineHeightRatio: $timelineHeightRatio,
                             totalHeight: totalHeight
                         )
+                        .hintDot(id: "hint-timeline-resize", title: "Resize Timeline", description: "Double-click to expand, drag to resize", alignment: .center)
 
                         // Bottom Timeline (20% of space, resizable) - full width
                         TimelineContainer()
                             .environmentObject(timelineViewModel)
                             .frame(maxWidth: .infinity)
                             .frame(height: timelineHeight)
+                            .spotlightTarget(id: "timeline-panel")
                     }
                 }
             }
@@ -103,12 +108,33 @@ struct ContentView: View {
                 AIChatOverlayView()
                     .transition(.opacity)
             }
+
+            // Guided tour spotlight overlay
+            if tourManager.isSpotlightTourActive {
+                SpotlightOverlayView()
+                    .transition(.opacity)
+                    .zIndex(90)
+            }
+
+            // First-launch onboarding overlay
+            if onboardingState.showOnboarding {
+                OnboardingView {
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        onboardingState.complete()
+                    }
+                }
+            }
         }
         .onAppear {
             DoubleShiftMonitor.shared.onDoubleShift = {
                 coordinator.toggleAIChat()
             }
             DoubleShiftMonitor.shared.install()
+        }
+        .onPreferenceChange(SpotlightTargetKey.self) { targets in
+            for target in targets {
+                tourManager.targetFrames[target.id] = target.frame
+            }
         }
         .focusedValue(\.projectViewModel, projectViewModel)
         .focusedValue(\.appCoordinator, coordinator)
@@ -990,13 +1016,14 @@ struct CentralViewStack: View {
 struct AppToolbar: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @EnvironmentObject var tourManager: GuidedTourManager
 
     var body: some View {
         HStack(spacing: 0) {
             // View Selection (Radio Button Group) — excludes Projects (moved to right)
             HStack(spacing: 4) {
                 ForEach(AppView.allCases.filter { $0 != .projects }) { view in
-                    Button(action: {
+                    let button = Button(action: {
                         debugLog("🖱️ Button pressed: \(view.rawValue)")
                         coordinator.navigateTo(view)
                         debugLog("🖱️ Button action complete: \(view.rawValue)")
@@ -1006,6 +1033,14 @@ struct AppToolbar: View {
                             .frame(width: 32, height: 32)
                     }
                     .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == view, tooltipText: view.rawValue))
+                    .spotlightTarget(id: "toolbar-\(view.rawValue)")
+
+                    // Add hint dots on specific toolbar buttons
+                    if view == .visionBoard {
+                        button.hintDot(id: "hint-vision-board", title: "Vision Board", description: "Create mood boards and visual references")
+                    } else {
+                        button
+                    }
                 }
             }
             .padding(.leading, 12)
@@ -1038,6 +1073,7 @@ struct AppToolbar: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingNavigator, tooltipText: "Navigator (⌘⌥1)"))
+                .spotlightTarget(id: "toggle-navigator")
 
                 Button(action: {
                     coordinator.toggleTimeline()
@@ -1046,6 +1082,7 @@ struct AppToolbar: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingTimeline, tooltipText: "Timeline (⌘⌥2)"))
+                .hintDot(id: "hint-ai-chat", title: "AI Chat Assistant", description: "Press Shift twice to open the AI Chat assistant")
 
                 Button(action: {
                     coordinator.toggleRightPanel()
@@ -1369,6 +1406,13 @@ struct TimelineContainer: View {
                     coordinator.navigateTo(.shotList)
                 }
             },
+            onSceneMarkerDoubleClicked: { sceneName in
+                // Double-click scene marker → open scene in Scenes view
+                if let scene = projectViewModel.allScenes.first(where: { $0.name == sceneName }) {
+                    coordinator.selectScene(scene)
+                    coordinator.navigateTo(.scenes)
+                }
+            },
             onShotLabelMoved: { _, _, _ in
                 // Sync updated project and save silently (no loading overlay)
                 if let updatedProject = timelineViewModel.getProject() {
@@ -1419,6 +1463,7 @@ struct TimelineContainer: View {
         }
         // Subscribe to project changed events (e.g., when bubbles are reordered)
         .onReceive(coordinator.projectChanged) { _ in
+            debugLog("🎬 TimelineContainer: projectChanged received, refreshing timeline")
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.refresh()
         }
@@ -1900,4 +1945,6 @@ struct CinematographyViewAdapter: View {
     ContentView()
         .environmentObject(AppCoordinator())
         .environmentObject(ProjectViewModel())
+        .environmentObject(OnboardingState())
+        .environmentObject(GuidedTourManager())
 }

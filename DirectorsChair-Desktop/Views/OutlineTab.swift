@@ -14,6 +14,7 @@ struct OutlineTab: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var timelineViewModel: TimelineViewModel
+    @State private var refreshToken = UUID()
 
     var body: some View {
         ScrollView {
@@ -24,12 +25,17 @@ struct OutlineTab: View {
                     VStack(alignment: .leading, spacing: 0) {
                         OutlineList()
                     }
+                    .id(refreshToken)
                 }
             } else {
                 NoProjectView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onReceive(coordinator.projectChanged) { _ in
+            debugLog("📋 OutlineTab: projectChanged received, sequences=\(projectViewModel.project.sequences.count), scenes=\(projectViewModel.project.sequences.flatMap(\.scenes).count)")
+            refreshToken = UUID()
+        }
     }
 }
 
@@ -409,7 +415,11 @@ struct SceneRow: View {
             .help(sceneTooltip)
             .onTapGesture(count: 2) {
                 coordinator.selectScene(scene)
-                coordinator.navigateTo(.bubble)
+                if NSEvent.modifierFlags.contains(.command) {
+                    coordinator.navigateTo(.bubble)
+                } else {
+                    coordinator.navigateTo(.scenes)
+                }
             }
             .onTapGesture(count: 1) {
                 coordinator.selectScene(scene)

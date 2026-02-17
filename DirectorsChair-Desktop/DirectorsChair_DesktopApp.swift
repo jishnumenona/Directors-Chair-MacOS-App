@@ -9,15 +9,32 @@
 import SwiftUI
 import DirectorsChairCore
 import AppKit
+import Sparkle
+
+// MARK: - Onboarding State
+
+/// Observable flag shared between AppDelegate and SwiftUI views.
+/// The AppDelegate sets `showOnboarding` after checking UserDefaults in
+/// `applicationDidFinishLaunching` (which always runs fresh, immune to
+/// SwiftUI scene-state restoration).
+class OnboardingState: ObservableObject {
+    @Published var showOnboarding = false
+
+    func complete() {
+        showOnboarding = false
+        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+    }
+}
 
 @main
 struct DirectorsChair_DesktopApp: App {
     @StateObject private var coordinator = AppCoordinator()
     @StateObject private var projectViewModel: ProjectViewModel
+    @StateObject private var onboardingState = OnboardingState()
+    @StateObject private var tourManager = GuidedTourManager()
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
-        // Initialize with empty project (no project loaded initially)
         _projectViewModel = StateObject(wrappedValue: ProjectViewModel())
     }
 
@@ -26,6 +43,8 @@ struct DirectorsChair_DesktopApp: App {
             ContentView()
                 .environmentObject(coordinator)
                 .environmentObject(projectViewModel)
+                .environmentObject(onboardingState)
+                .environmentObject(tourManager)
                 .focusedValue(\.projectViewModel, projectViewModel)
                 .focusedValue(\.appCoordinator, coordinator)
                 .frame(minWidth: 1200, minHeight: 800)
@@ -33,10 +52,18 @@ struct DirectorsChair_DesktopApp: App {
                     // Register references with AppDelegate for post-splash actions
                     appDelegate.coordinator = coordinator
                     appDelegate.projectViewModel = projectViewModel
+                    appDelegate.onboardingState = onboardingState
+
+                    // AppDelegate fires fresh every launch — check onboarding there
+                    if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+                        onboardingState.showOnboarding = true
+                    }
                 }
         }
         .commands {
-            // Phase 8C: Menu Bar & Commands
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: appDelegate.updaterController.updater)
+            }
             FileCommands()
             ViewCommands()
             ExportCommands()
@@ -44,7 +71,6 @@ struct DirectorsChair_DesktopApp: App {
 
         #if os(macOS)
         Settings {
-            // TODO: Add preferences view in Phase 8E
             Text("Preferences")
                 .frame(width: 600, height: 400)
         }
@@ -58,6 +84,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var splashController: SplashWindowController?
     var coordinator: AppCoordinator?
     var projectViewModel: ProjectViewModel?
+    var onboardingState: OnboardingState?
+
+    /// Sparkle auto-update controller
+    let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide main window initially
@@ -73,7 +107,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func hideMainWindow() {
-        // Hide the main window while splash is showing
         DispatchQueue.main.async {
             for window in NSApplication.shared.windows {
                 if window.contentView is NSHostingView<ContentView> ||
@@ -87,14 +120,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showMainWindow() {
         DispatchQueue.main.async {
-            // Find and show the main window
             if let window = NSApplication.shared.windows.first(where: { $0.contentView is NSHostingView<ContentView> }) ?? NSApplication.shared.windows.first {
-                // Maximize to fill screen
                 if let screen = window.screen ?? NSScreen.main {
                     window.setFrame(screen.visibleFrame, display: true, animate: false)
                 }
 
-                // Show with fade in
                 window.alphaValue = 0
                 window.makeKeyAndOrderFront(nil)
 
@@ -108,19 +138,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func postLaunchSetup() {
         guard let projectViewModel = projectViewModel,
-              let coordinator = coordinator else { return }
+              let coordinator = coordinator,
+              let onboardingState = onboardingState else { return }
 
-        Task { @MainActor in
-            // Check if there's a last project to restore
-            if ProjectViewModel.getLastProjectPath() != nil {
-                await projectViewModel.restoreLastProject()
+        // TESTING ONLY: Ask user whether to show onboarding
+        // TODO: Remove this prompt before packaging/shipping
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let alert = NSAlert()
+            alert.messageText = "First-time launch?"
+            alert.informativeText = "(Testing only) Show the first-time onboarding screen?"
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Yes — Show Onboarding")
+            alert.addButton(withTitle: "No — Go to Projects")
+
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                // Show onboarding
+                onboardingState.showOnboarding = true
             } else {
-                // Check if any projects exist in Directors Chair folder
-                let existingProjects = ProjectDirectoryManager.listProjects()
-                if existingProjects.isEmpty {
-                    // First time user - show welcome and prompt to create project
-                    coordinator.navigateTo(.settings)
-                    showNewProjectPrompt(projectViewModel: projectViewModel, coordinator: coordinator)
+                // Normal launch — restore last project or show projects
+                Task { @MainActor in
+                    if ProjectViewModel.getLastProjectPath() != nil {
+                        await projectViewModel.restoreLastProject()
+                    } else {
+                        let existingProjects = ProjectDirectoryManager.listProjects()
+                        if existingProjects.isEmpty {
+                            coordinator.navigateTo(.projects)
+                        }
+                    }
                 }
             }
         }

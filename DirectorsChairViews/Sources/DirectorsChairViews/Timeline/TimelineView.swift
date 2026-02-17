@@ -25,6 +25,9 @@ public struct TimelineView: View {
     /// Callback when a shot label is double-clicked (passes shotId and sceneName)
     public var onShotLabelDoubleClicked: ((Int, String) -> Void)?
 
+    /// Callback when a scene marker is double-clicked (passes sceneName)
+    public var onSceneMarkerDoubleClicked: ((String) -> Void)?
+
     /// Callback when a shot label is dragged to a new time (shotId, sceneName, newTime)
     public var onShotLabelMoved: ((Int, String, CGFloat) -> Void)?
 
@@ -53,6 +56,7 @@ public struct TimelineView: View {
         onOptionClickSegment: ((TimelineSegment) -> Void)? = nil,
         onOptionClickShotLabel: ((Int, String) -> Void)? = nil,
         onShotLabelDoubleClicked: ((Int, String) -> Void)? = nil,
+        onSceneMarkerDoubleClicked: ((String) -> Void)? = nil,
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
         onShotLabelResized: ((Int, String, CGFloat) -> Void)? = nil,
         onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)? = nil,
@@ -65,6 +69,7 @@ public struct TimelineView: View {
         self.onOptionClickSegment = onOptionClickSegment
         self.onOptionClickShotLabel = onOptionClickShotLabel
         self.onShotLabelDoubleClicked = onShotLabelDoubleClicked
+        self.onSceneMarkerDoubleClicked = onSceneMarkerDoubleClicked
         self.onShotLabelMoved = onShotLabelMoved
         self.onShotLabelResized = onShotLabelResized
         self.onSegmentMoved = onSegmentMoved
@@ -99,65 +104,7 @@ public struct TimelineView: View {
                     ScrollView(.horizontal, showsIndicators: true) {
                         VStack(spacing: 0) {
                             // Fixed header: time ruler, shot labels, scope marker labels
-                            TimelineHeaderCanvas(
-                                segments: viewModel.visibleSegments,
-                                sceneBoundaries: viewModel.sceneBoundaries,
-                                sequenceBoundaries: viewModel.sequenceBoundaries,
-                                shotLabels: viewModel.shotLabels,
-                                showShotLabels: viewModel.showShotLabels,
-                                pxPerSec: viewModel.pxPerSec,
-                                mode: viewModel.mode,
-                                viewportSize: geometry.size,
-                                shotSubLaneAssignments: viewModel.shotSubLaneAssignments,
-                                shotLaneSubLaneCount: viewModel.shotLaneSubLaneCount,
-                                shotDialogueConnections: viewModel.shotDialogueConnections,
-                                showShotConnections: viewModel.showShotConnections,
-                                playheadTime: viewModel.playheadTime,
-                                playheadActive: viewModel.playheadActive,
-                                userMarkers: viewModel.showUserMarkers ? viewModel.userMarkers : [],
-                                projectBasePath: projectBasePath,
-                                onShotLabelDoubleClicked: { shotId, sceneName in
-                                    onShotLabelDoubleClicked?(shotId, sceneName)
-                                },
-                                onShotLabelMoved: { shotId, sceneName, newTime in
-                                    viewModel.moveShotLabel(shotId: shotId, sceneName: sceneName, newTime: newTime)
-                                    onShotLabelMoved?(shotId, sceneName, newTime)
-                                },
-                                onShotLabelSelected: { labelId in
-                                    viewModel.selectedShotLabelId = labelId
-                                },
-                                onOptionClickShotLabel: { shotId, sceneName in
-                                    onOptionClickShotLabel?(shotId, sceneName)
-                                },
-                                onShotTrackToggled: {
-                                    viewModel.showShotLabels.toggle()
-                                },
-                                onShotLabelResized: { shotId, sceneName, newDuration in
-                                    viewModel.resizeShotLabel(shotId: shotId, sceneName: sceneName, newDuration: newDuration)
-                                    onShotLabelResized?(shotId, sceneName, newDuration)
-                                },
-                                onSceneBoundaryMoved: { name, newTime in
-                                    viewModel.moveSceneBoundary(name: name, newTime: newTime)
-                                },
-                                onSequenceBoundaryMoved: { name, newTime in
-                                    viewModel.moveSequenceBoundary(name: name, newTime: newTime)
-                                },
-                                onRulerClicked: { x in
-                                    viewModel.togglePlayhead(at: x)
-                                },
-                                onPlayheadDragged: { x in
-                                    viewModel.setPlayheadFromX(x)
-                                },
-                                onMarkerDeleted: { id in
-                                    viewModel.deleteUserMarker(id: id)
-                                },
-                                onMarkerUpdated: { id, label, icon, color in
-                                    viewModel.updateUserMarker(id: id, label: label, icon: icon, color: color)
-                                },
-                                onMarkerAdded: { time, label, icon, color in
-                                    viewModel.addUserMarker(at: time, label: label, icon: icon, color: color)
-                                }
-                            )
+                            makeHeaderCanvas(geometry: geometry)
 
                             // Vertically-scrollable tracks: character lanes + segments
                             ScrollView(.vertical, showsIndicators: true) {
@@ -228,6 +175,72 @@ public struct TimelineView: View {
                 UserDefaults.standard.set(0, forKey: "NSInitialToolTipDelay")
             }
         }
+    }
+
+    // MARK: - Helpers
+
+    /// Extracted to reduce body expression complexity for the Swift type-checker
+    private func makeHeaderCanvas(geometry: GeometryProxy) -> TimelineHeaderCanvas {
+        TimelineHeaderCanvas(
+            segments: viewModel.visibleSegments,
+            sceneBoundaries: viewModel.sceneBoundaries,
+            sequenceBoundaries: viewModel.sequenceBoundaries,
+            shotLabels: viewModel.shotLabels,
+            showShotLabels: viewModel.showShotLabels,
+            pxPerSec: viewModel.pxPerSec,
+            mode: viewModel.mode,
+            viewportSize: geometry.size,
+            shotSubLaneAssignments: viewModel.shotSubLaneAssignments,
+            shotLaneSubLaneCount: viewModel.shotLaneSubLaneCount,
+            shotDialogueConnections: viewModel.shotDialogueConnections,
+            showShotConnections: viewModel.showShotConnections,
+            playheadTime: viewModel.playheadTime,
+            playheadActive: viewModel.playheadActive,
+            userMarkers: viewModel.showUserMarkers ? viewModel.userMarkers : [],
+            projectBasePath: projectBasePath,
+            onShotLabelDoubleClicked: { shotId, sceneName in
+                onShotLabelDoubleClicked?(shotId, sceneName)
+            },
+            onSceneMarkerDoubleClicked: onSceneMarkerDoubleClicked,
+            onShotLabelMoved: { shotId, sceneName, newTime in
+                viewModel.moveShotLabel(shotId: shotId, sceneName: sceneName, newTime: newTime)
+                onShotLabelMoved?(shotId, sceneName, newTime)
+            },
+            onShotLabelSelected: { labelId in
+                viewModel.selectedShotLabelId = labelId
+            },
+            onOptionClickShotLabel: { shotId, sceneName in
+                onOptionClickShotLabel?(shotId, sceneName)
+            },
+            onShotTrackToggled: {
+                viewModel.showShotLabels.toggle()
+            },
+            onShotLabelResized: { shotId, sceneName, newDuration in
+                viewModel.resizeShotLabel(shotId: shotId, sceneName: sceneName, newDuration: newDuration)
+                onShotLabelResized?(shotId, sceneName, newDuration)
+            },
+            onSceneBoundaryMoved: { name, newTime in
+                viewModel.moveSceneBoundary(name: name, newTime: newTime)
+            },
+            onSequenceBoundaryMoved: { name, newTime in
+                viewModel.moveSequenceBoundary(name: name, newTime: newTime)
+            },
+            onRulerClicked: { x in
+                viewModel.togglePlayhead(at: x)
+            },
+            onPlayheadDragged: { x in
+                viewModel.setPlayheadFromX(x)
+            },
+            onMarkerDeleted: { id in
+                viewModel.deleteUserMarker(id: id)
+            },
+            onMarkerUpdated: { id, label, icon, color in
+                viewModel.updateUserMarker(id: id, label: label, icon: icon, color: color)
+            },
+            onMarkerAdded: { time, label, icon, color in
+                viewModel.addUserMarker(at: time, label: label, icon: icon, color: color)
+            }
+        )
     }
 
     // MARK: - Gestures

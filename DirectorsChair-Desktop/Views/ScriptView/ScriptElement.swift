@@ -23,7 +23,7 @@ enum ScriptElementType: String, CaseIterable {
 }
 
 /// A single element in the linear screenplay representation
-struct ScriptElement: Identifiable {
+struct ScriptElement: Identifiable, Equatable {
     let id: UUID
     var type: ScriptElementType
     var text: String
@@ -42,6 +42,16 @@ struct ScriptElement: Identifiable {
 
     // Placeholder state (gray italic hint text that clears on edit)
     var isPlaceholder: Bool = false
+
+    /// Display text with auto-capitalization for character names, scene headings, transitions
+    var displayText: String {
+        switch type {
+        case .sceneHeading, .character, .transition:
+            return text.uppercased()
+        default:
+            return text
+        }
+    }
 
     init(
         id: UUID = UUID(),
@@ -65,6 +75,16 @@ struct ScriptElement: Identifiable {
         self.sceneNumber = sceneNumber
         self.isContinued = isContinued
         self.isPlaceholder = isPlaceholder
+    }
+
+    static func == (lhs: ScriptElement, rhs: ScriptElement) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.type == rhs.type &&
+        lhs.text == rhs.text &&
+        lhs.sourceSequenceIndex == rhs.sourceSequenceIndex &&
+        lhs.sourceSceneIndex == rhs.sourceSceneIndex &&
+        lhs.sourceItemId == rhs.sourceItemId &&
+        lhs.isPlaceholder == rhs.isPlaceholder
     }
 }
 

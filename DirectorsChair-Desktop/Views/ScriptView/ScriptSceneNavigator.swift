@@ -69,6 +69,7 @@ struct ScriptSceneNavigator: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .id(viewModel.elementsVersion)
                 }
             }
         }

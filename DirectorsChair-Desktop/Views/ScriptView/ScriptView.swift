@@ -30,10 +30,11 @@ struct ScriptView: View {
                 // Screenplay Editor
                 ScreenplayTextView(
                     elements: $viewModel.elements,
+                    elementsVersion: viewModel.elementsVersion,
                     showSceneNumbers: viewModel.showSceneNumbers,
                     scrollToElementId: viewModel.scrollToElementId,
                     onTextChanged: { index, text in
-                        viewModel.handleTextChanged(elementIndex: index, newText: text)
+                        viewModel.handleTextEdit(elementIndex: index, newText: text)
                     },
                     autocompleteItems: viewModel.autocompleteItems,
                     showingAutocomplete: viewModel.showingAutocomplete,
@@ -41,12 +42,10 @@ struct ScriptView: View {
                     projectBasePath: viewModel.projectBasePath,
                     onAutocompleteSelected: { item in
                         if viewModel.isWizardActive {
-                            // During wizard, route selection to wizard state machine
                             viewModel.advanceWizard(selectedText: item)
                         } else if viewModel.showingAutocomplete {
                             viewModel.selectAutocompleteItem(item)
                         } else {
-                            // This is a trigger character
                             viewModel.handleAutocompleteTrigger(item)
                         }
                     },
@@ -62,13 +61,43 @@ struct ScriptView: View {
                     onCommandClick: { element in
                         viewModel.navigateToElement(element)
                     },
+                    onDoubleClickScene: { element in
+                        viewModel.openSceneInTimeline(element)
+                    },
+                    // Model-authoritative structural edit callbacks
+                    onReturn: { elementIndex, cursorOffset in
+                        viewModel.handleReturn(atElementIndex: elementIndex, cursorOffset: cursorOffset)
+                    },
+                    onBackspace: { elementIndex, cursorOffset in
+                        viewModel.handleBackspace(atElementIndex: elementIndex, cursorOffset: cursorOffset)
+                    },
+                    onTabCycle: { elementIndex in
+                        viewModel.handleTabCycle(atElementIndex: elementIndex)
+                    },
+                    onAutocompleteInsert: { text, elementIndex in
+                        viewModel.handleAutocompleteSelection(item: text, atElementIndex: elementIndex)
+                    },
+                    onPlaceholderEdit: { index, text in
+                        viewModel.handlePlaceholderEdit(elementIndex: index, newText: text)
+                    },
+                    onAutocompleteFilter: { prefix in
+                        viewModel.filterAutocomplete(prefix: prefix)
+                    },
                     isWizardActive: viewModel.isWizardActive,
                     focusElementId: viewModel.focusElementId,
+                    focusCursorOffset: viewModel.focusCursorOffset,
                     showPagesMode: viewModel.showPagesMode,
                     projectName: projectViewModel.project.name,
                     directorName: projectViewModel.project.director,
                     productionCompany: projectViewModel.project.productionCompany,
                     genre: projectViewModel.project.genre,
+                    spellCheckEnabled: viewModel.spellCheckEnabled,
+                    typewriterMode: viewModel.typewriterMode,
+                    transliterationEnabled: viewModel.transliterationEnabled,
+                    transliterationService: viewModel.transliterationService,
+                    characterImageMap: Dictionary(uniqueKeysWithValues: viewModel.characters.map { char in
+                        (char.name.uppercased(), (imagePath: char.avatar ?? char.baseImage ?? char.imageFront, color: char.color))
+                    }),
                     magnification: $viewModel.currentZoom,
                     onScrollYChanged: { y in
                         coordinator.scriptScrollY = y

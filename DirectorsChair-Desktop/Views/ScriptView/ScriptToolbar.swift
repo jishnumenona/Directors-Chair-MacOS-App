@@ -14,17 +14,36 @@ struct ScriptToolbar: View {
     @ObservedObject var viewModel: ScriptViewModel
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @State private var showShortcutsPopover = false
+    @State private var showStatsPopover = false
 
     var body: some View {
         HStack(spacing: 12) {
-            // Page count
-            HStack(spacing: 4) {
-                Image(systemName: "doc.text")
+            // Page count & word count
+            HStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.text")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                    Text("~\(viewModel.estimatedPageCount) \(viewModel.estimatedPageCount == 1 ? "page" : "pages")")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                Text("\(viewModel.wordCount) words")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.secondary)
-                    .font(.system(size: 11))
-                Text("~\(viewModel.estimatedPageCount) \(viewModel.estimatedPageCount == 1 ? "page" : "pages")")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.secondary)
+
+                Button {
+                    showStatsPopover.toggle()
+                } label: {
+                    Image(systemName: "chart.bar")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help("Script statistics")
+                .popover(isPresented: $showStatsPopover, arrowEdge: .bottom) {
+                    ScriptStatsPopoverView(stats: viewModel.scriptStats, pageCount: viewModel.estimatedPageCount)
+                }
             }
 
             Divider()
@@ -65,6 +84,42 @@ struct ScriptToolbar: View {
             }
             .toggleStyle(.checkbox)
             .help("Show screenplay as distinct pages")
+
+            // Spell check toggle
+            Toggle(isOn: $viewModel.spellCheckEnabled) {
+                HStack(spacing: 4) {
+                    Image(systemName: "textformat.abc")
+                        .font(.system(size: 11))
+                    Text("Spelling")
+                        .font(.system(size: 11))
+                }
+            }
+            .toggleStyle(.checkbox)
+            .help("Enable continuous spell checking")
+
+            // Typewriter mode toggle
+            Toggle(isOn: $viewModel.typewriterMode) {
+                HStack(spacing: 4) {
+                    Image(systemName: "text.cursor")
+                        .font(.system(size: 11))
+                    Text("Typewriter")
+                        .font(.system(size: 11))
+                }
+            }
+            .toggleStyle(.checkbox)
+            .help("Keep cursor centered while typing")
+
+            // Malayalam transliteration toggle
+            Toggle(isOn: $viewModel.transliterationEnabled) {
+                HStack(spacing: 4) {
+                    Image(systemName: "character.textbox")
+                        .font(.system(size: 11))
+                    Text("മലയാളം")
+                        .font(.system(size: 11))
+                }
+            }
+            .toggleStyle(.checkbox)
+            .help("Type in English, get Malayalam (Manglish transliteration)")
 
             Divider()
                 .frame(height: 16)
@@ -194,12 +249,137 @@ struct ScriptToolbar: View {
     }
 }
 
+// MARK: - Script Stats Popover
+
+struct ScriptStatsPopoverView: View {
+    let stats: ScreenplayFormatting.ScriptStats
+    let pageCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Script Statistics")
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Overview
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("OVERVIEW")
+                        .font(.system(size: 9, weight: .medium))
+                        .tracking(1.2)
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 16) {
+                        statItem(value: "\(pageCount)", label: "Pages")
+                        statItem(value: "\(stats.wordCount)", label: "Words")
+                        statItem(value: "\(stats.sceneCount)", label: "Scenes")
+                        statItem(value: "\(stats.characterCount)", label: "Characters")
+                    }
+                }
+
+                Divider()
+
+                // Content breakdown
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CONTENT BREAKDOWN")
+                        .font(.system(size: 9, weight: .medium))
+                        .tracking(1.2)
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Dialogue")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Text("\(stats.dialogueWordCount) words (\(Int(stats.dialoguePercentage))%)")
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Action")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Text("\(stats.actionWordCount) words (\(Int(stats.actionPercentage))%)")
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        }
+                    }
+
+                    // Ratio bar
+                    GeometryReader { geo in
+                        HStack(spacing: 1) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.blue.opacity(0.7))
+                                .frame(width: max(4, geo.size.width * stats.dialoguePercentage / 100))
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.orange.opacity(0.7))
+                                .frame(width: max(4, geo.size.width * stats.actionPercentage / 100))
+                        }
+                    }
+                    .frame(height: 6)
+                }
+
+                // Character dialogue breakdown (top 10)
+                if !stats.characterStats.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("CHARACTER DIALOGUE")
+                            .font(.system(size: 9, weight: .medium))
+                            .tracking(1.2)
+                            .foregroundColor(.secondary)
+
+                        ForEach(Array(stats.characterStats.prefix(10))) { stat in
+                            HStack {
+                                Text(stat.name)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .lineLimit(1)
+                                    .frame(maxWidth: 120, alignment: .leading)
+
+                                Spacer()
+
+                                Text("\(stat.lineCount) lines")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 60, alignment: .trailing)
+
+                                Text("\(stat.wordCount) words")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 70, alignment: .trailing)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 340)
+    }
+
+    private func statItem(value: String, label: String) -> some View {
+        VStack(alignment: .center, spacing: 2) {
+            Text(value)
+                .font(.system(size: 16, weight: .bold, design: .monospaced))
+            Text(label)
+                .font(.system(size: 9, weight: .medium))
+                .tracking(1.0)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
 // MARK: - Shortcuts Popover
 
 struct ShortcutsPopoverView: View {
     private let shortcuts: [(key: String, description: String)] = [
         ("Cmd + Shift + N", "New Scene"),
         ("Cmd + Click", "Navigate to element"),
+        ("Cmd + F", "Find & Replace"),
         ("Cmd + [", "Navigate back"),
         ("Cmd + ]", "Navigate forward"),
         ("Tab", "Cycle element type"),

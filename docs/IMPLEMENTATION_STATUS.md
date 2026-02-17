@@ -479,6 +479,25 @@
 
 ---
 
+## 📋 TODO — Planned Features
+
+### Bundled Sample Project
+- **Priority**: Medium
+- **Status**: Planned
+- **Description**: Create a pre-populated sample project (e.g. "Sample Film" or "Director's Chair Demo") that ships inside the app bundle. On first launch (or from Projects explorer), users can open this project to explore every feature — scenes, characters, dialogue, shots, locations, timeline data, etc. The project should be copied to the user's `~/Directors Chair/` folder so they can freely modify it without affecting the bundled original.
+- **Goals**:
+  - Serve as a hands-on tutorial complementing the Guided Tour spotlight walkthrough
+  - Demonstrate all major features: screenplay formatting, scene management, character design, shot list, timeline, production scheduling, budget tracking, vision board
+  - Include enough content to feel realistic (3-5 scenes, 4-6 characters, sample shots, a few schedule items and budget entries)
+  - Provide inline comments/notes within the project guiding users on what to try
+- **Implementation Notes**:
+  - Bundle a `.dcproject` JSON file + sample assets (character images, location images) in the app's Resources
+  - Add a "Sample Project" card in ProjectsExplorerView that copies from bundle on first use
+  - Mark the copy as user-editable; original stays pristine in bundle for re-creation
+  - Consider a "Reset Sample Project" option in Settings
+
+---
+
 ## 🎉 Achievements
 
 **Completed Phases**:

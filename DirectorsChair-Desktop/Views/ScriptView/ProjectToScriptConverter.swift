@@ -164,25 +164,68 @@ struct ProjectToScriptConverter {
 
     // MARK: - Reverse Sync (ScriptElement edits -> Project mutations)
 
-    /// Apply text edits from a ScriptElement back to the Project model
-    static func applyEdit(element: ScriptElement, newText: String, to project: inout Project) {
+    /// Apply text edits from a ScriptElement back to the Project model.
+    /// Handles both editing existing items and creating new ones (e.g. when the user
+    /// types a character name + dialogue in the script that has no backing model object).
+    /// Returns the sourceItemId of the created/edited item (nil if no creation).
+    @discardableResult
+    static func applyEdit(element: ScriptElement, newText: String, to project: inout Project) -> String? {
         guard let seqIdx = element.sourceSequenceIndex,
               let sceneIdx = element.sourceSceneIndex,
               seqIdx < project.sequences.count,
-              sceneIdx < project.sequences[seqIdx].scenes.count else { return }
+              sceneIdx < project.sequences[seqIdx].scenes.count else { return nil }
 
         guard let itemId = element.sourceItemId,
               let itemType = element.sourceItemType else {
-            // Scene heading or description edit (no sourceItemId = scene-level element)
+            // No sourceItemId — could be a scene-level element or a new element
+            // created via Tab cycling / autocomplete that doesn't yet have a backing model object.
             if element.type == .sceneHeading {
-                // Update scene location from heading
                 let parsed = parseSceneHeading(newText)
                 project.sequences[seqIdx].scenes[sceneIdx].location = parsed
-            } else if element.type == .action {
-                // Scene description (action element without sourceItemId)
+            } else if element.type == .action && element.sourceItemId == nil && element.sourceItemType == nil {
+                // Scene description (no sourceItemId) — update scene.description
                 project.sequences[seqIdx].scenes[sceneIdx].description = newText
+            } else if element.type == .dialogue {
+                // Dialogue element with no backing object — try to find the most recently
+                // created Dialogue with empty text (from the preceding character element)
+                let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+
+                let dialogues = project.sequences[seqIdx].scenes[sceneIdx].dialogues
+                if let dIdx = dialogues.lastIndex(where: {
+                    $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.character.isEmpty
+                }) {
+                    project.sequences[seqIdx].scenes[sceneIdx].dialogues[dIdx].text = trimmed
+                    return project.sequences[seqIdx].scenes[sceneIdx].dialogues[dIdx].uuid
+                }
+
+                // No matching Dialogue found — create a new one
+                let nextChronology = (dialogues.map(\.chronologyNumber).max() ?? 0) + 1
+                let newDialogue = Dialogue(
+                    character: "",
+                    text: trimmed,
+                    chronologyNumber: nextChronology,
+                    globalChronologyNumber: nextChronology
+                )
+                project.sequences[seqIdx].scenes[sceneIdx].dialogues.append(newDialogue)
+                return newDialogue.uuid
+            } else if element.type == .character {
+                // Character element with no backing object — create a new Dialogue
+                let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: " (CONT'D)", with: "")
+                guard !trimmed.isEmpty else { return nil }
+
+                let nextChronology = (project.sequences[seqIdx].scenes[sceneIdx].dialogues.map(\.chronologyNumber).max() ?? 0) + 1
+                let newDialogue = Dialogue(
+                    character: trimmed,
+                    text: "",
+                    chronologyNumber: nextChronology,
+                    globalChronologyNumber: nextChronology
+                )
+                project.sequences[seqIdx].scenes[sceneIdx].dialogues.append(newDialogue)
+                return newDialogue.uuid
             }
-            return
+            return nil
         }
 
         switch itemType {
@@ -192,7 +235,6 @@ struct ProjectToScriptConverter {
                     project.sequences[seqIdx].scenes[sceneIdx].dialogues[dIdx].text = newText
                 }
             } else if element.type == .character {
-                // Character name edit - strip (CONT'D) and update character field
                 let cleanName = newText.replacingOccurrences(of: " (CONT'D)", with: "")
                 if let dIdx = project.sequences[seqIdx].scenes[sceneIdx].dialogues.firstIndex(where: { $0.uuid == itemId }) {
                     project.sequences[seqIdx].scenes[sceneIdx].dialogues[dIdx].character = cleanName
@@ -209,9 +251,92 @@ struct ProjectToScriptConverter {
                 project.sequences[seqIdx].scenes[sceneIdx].narrations[nIdx].text = newText
             }
 
+        case "scene":
+            // Editing scene heading — update location
+            project.sequences[seqIdx].scenes[sceneIdx].location = parseSceneHeading(newText)
+
         default:
             break
         }
+        return nil
+    }
+
+    // MARK: - Scene Management Helpers
+
+    /// Create a new scene in the project after the given element index.
+    /// Returns (sequenceIndex, sceneIndex) of the newly created scene, or nil on failure.
+    static func createScene(
+        afterElementIndex: Int,
+        elements: [ScriptElement],
+        in project: inout Project
+    ) -> (sequenceIndex: Int, sceneIndex: Int)? {
+        // Determine target sequence from the element at cursor
+        var targetSeqIdx: Int? = nil
+        var insertAfterSceneIdx: Int? = nil
+
+        if afterElementIndex < elements.count {
+            let element = elements[afterElementIndex]
+            targetSeqIdx = element.sourceSequenceIndex
+            insertAfterSceneIdx = element.sourceSceneIndex
+        }
+
+        // If no sequences exist, create a default "Act 1"
+        if project.sequences.isEmpty {
+            let newSequence = DirectorsChairCore.Sequence(name: "Act 1")
+            project.sequences.append(newSequence)
+            targetSeqIdx = 0
+        }
+
+        let seqIdx = targetSeqIdx ?? 0
+        guard seqIdx < project.sequences.count else { return nil }
+
+        // Generate a unique scene name
+        let existingNames = Set(project.sequences.flatMap { $0.scenes.map { $0.name } })
+        var counter = project.sequences.flatMap({ $0.scenes }).count + 1
+        var sceneName = "Scene \(counter)"
+        while existingNames.contains(sceneName) {
+            counter += 1
+            sceneName = "Scene \(counter)"
+        }
+
+        // Create the scene with placeholder location
+        let newScene = DirectorsChairCore.Scene(
+            name: sceneName,
+            location: "INT. LOCATION - TIME OF DAY"
+        )
+
+        // Insert at the correct position
+        let sceneInsertIdx: Int
+        if let afterIdx = insertAfterSceneIdx {
+            sceneInsertIdx = afterIdx + 1
+        } else {
+            sceneInsertIdx = project.sequences[seqIdx].scenes.count
+        }
+
+        project.sequences[seqIdx].scenes.insert(newScene, at: sceneInsertIdx)
+
+        return (sequenceIndex: seqIdx, sceneIndex: sceneInsertIdx)
+    }
+
+    /// Delete the scene referenced by the given scene heading element.
+    /// Returns true if the scene was successfully removed.
+    @discardableResult
+    static func deleteScene(
+        elementId: UUID,
+        elements: [ScriptElement],
+        from project: inout Project
+    ) -> Bool {
+        guard let element = elements.first(where: { $0.id == elementId }),
+              element.type == .sceneHeading,
+              let seqIdx = element.sourceSequenceIndex,
+              let sceneIdx = element.sourceSceneIndex,
+              seqIdx < project.sequences.count,
+              sceneIdx < project.sequences[seqIdx].scenes.count else {
+            return false
+        }
+
+        project.sequences[seqIdx].scenes.remove(at: sceneIdx)
+        return true
     }
 
     // MARK: - Scene Outline
@@ -227,6 +352,20 @@ struct ProjectToScriptConverter {
                 elementId: element.id
             )
         }
+    }
+
+    // MARK: - Utility: Find Scene Context
+
+    /// Walk backwards from the given element index to find the nearest scene heading's
+    /// sequence/scene indices. Useful for elements that lack their own source indices.
+    static func findSceneContext(at elementIndex: Int, in elements: [ScriptElement]) -> (sequenceIndex: Int, sceneIndex: Int)? {
+        for i in stride(from: elementIndex, through: 0, by: -1) {
+            let el = elements[i]
+            if let seqIdx = el.sourceSequenceIndex, let scnIdx = el.sourceSceneIndex {
+                return (seqIdx, scnIdx)
+            }
+        }
+        return nil
     }
 
     // MARK: - Private Helpers

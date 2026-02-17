@@ -16,26 +16,18 @@ struct SplashScreenView: View {
 
     var body: some View {
         ZStack {
-            // Background - dark gradient matching the image
-            LinearGradient(
-                colors: [
-                    Color(red: 0.05, green: 0.08, blue: 0.12),
-                    Color(red: 0.02, green: 0.04, blue: 0.06)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // Background — matched to LaunchHero image outer edge color
+            Color(red: 0.0, green: 0.02, blue: 0.04)
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Spacer()
 
-                // Launch Hero Image
+                // Launch Hero Image — blends seamlessly with matched background
                 Image("LaunchHero")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: 500, maxHeight: 400)
-                    .shadow(color: Color.cyan.opacity(0.3), radius: 30)
+                    .frame(maxWidth: 540, maxHeight: 420)
 
                 Spacer()
                     .frame(height: 40)

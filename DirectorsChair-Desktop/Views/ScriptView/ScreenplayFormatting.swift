@@ -12,12 +12,46 @@ import SwiftUI
 /// Based on Final Draft / Movie Magic Screenwriter conventions
 enum ScreenplayFormatting {
 
+    // MARK: - Font Cascade (Non-Latin Script Support)
+
+    /// Adds a cascade list of Indic/non-Latin fallback fonts to a base font.
+    /// Core Text walks this list when the primary font can't render a glyph,
+    /// enabling Malayalam, Hindi, Tamil, etc. while keeping Courier primary.
+    static func withCascade(_ base: NSFont) -> NSFont {
+        let cascadeDescriptors: [NSFontDescriptor] = [
+            "Malayalam MN",
+            "Kohinoor Malayalam",
+            "Kohinoor Devanagari",
+            "Tamil MN",
+            "Kohinoor Telugu",
+            "Kohinoor Bangla",
+            "Kohinoor Kannada",
+            "Kohinoor Gujarati",
+        ].compactMap { name -> NSFontDescriptor? in
+            if NSFont(name: name, size: base.pointSize) != nil {
+                return NSFontDescriptor(fontAttributes: [.name: name])
+            }
+            return nil
+        }
+        guard !cascadeDescriptors.isEmpty else { return base }
+        let newDescriptor = base.fontDescriptor.addingAttributes([
+            .cascadeList: cascadeDescriptors
+        ])
+        return NSFont(descriptor: newDescriptor, size: base.pointSize) ?? base
+    }
+
     // MARK: - Font
 
-    /// Courier 12pt - industry standard screenplay font
-    static let font: NSFont = NSFont(name: "Courier", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    static let boldFont: NSFont = NSFont(name: "Courier-Bold", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-    static let italicFont: NSFont = NSFont(name: "Courier-Oblique", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    /// Courier 12pt - industry standard screenplay font, with Indic script fallbacks
+    static let font: NSFont = withCascade(
+        NSFont(name: "Courier", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    )
+    static let boldFont: NSFont = withCascade(
+        NSFont(name: "Courier-Bold", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+    )
+    static let italicFont: NSFont = withCascade(
+        NSFont(name: "Courier-Oblique", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    )
 
     // MARK: - Page Dimensions (US Letter in points: 72pt = 1 inch)
 
@@ -181,6 +215,90 @@ enum ScreenplayFormatting {
         }
 
         return attrs
+    }
+
+    // MARK: - Script Statistics
+
+    /// Character dialogue statistics
+    struct CharacterDialogueStat: Identifiable {
+        let id = UUID()
+        let name: String
+        var lineCount: Int = 0
+        var wordCount: Int = 0
+    }
+
+    /// Comprehensive script statistics
+    struct ScriptStats {
+        var wordCount: Int = 0
+        var dialogueWordCount: Int = 0
+        var actionWordCount: Int = 0
+        var sceneCount: Int = 0
+        var characterCount: Int = 0  // unique speaking characters
+        var dialoguePercentage: Double = 0
+        var actionPercentage: Double = 0
+        var characterStats: [CharacterDialogueStat] = []
+    }
+
+    /// Compute comprehensive script statistics
+    static func computeStats(from elements: [ScriptElement]) -> ScriptStats {
+        var stats = ScriptStats()
+        var characterDialogue: [String: (lines: Int, words: Int)] = [:]
+        var currentCharacter: String?
+
+        for element in elements {
+            let words = element.text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+
+            switch element.type {
+            case .sceneHeading:
+                stats.sceneCount += 1
+                currentCharacter = nil
+            case .action:
+                stats.actionWordCount += words
+                stats.wordCount += words
+                currentCharacter = nil
+            case .character:
+                let name = element.text
+                    .replacingOccurrences(of: " (CONT'D)", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                    .uppercased()
+                currentCharacter = name
+                if characterDialogue[name] == nil {
+                    characterDialogue[name] = (lines: 0, words: 0)
+                }
+            case .dialogue:
+                stats.dialogueWordCount += words
+                stats.wordCount += words
+                if let char = currentCharacter {
+                    characterDialogue[char, default: (lines: 0, words: 0)].lines += 1
+                    characterDialogue[char, default: (lines: 0, words: 0)].words += words
+                }
+            case .parenthetical:
+                if let char = currentCharacter {
+                    characterDialogue[char, default: (lines: 0, words: 0)].lines += 1
+                }
+            default:
+                stats.wordCount += words
+            }
+        }
+
+        stats.characterCount = characterDialogue.count
+
+        let totalContent = max(1, stats.dialogueWordCount + stats.actionWordCount)
+        stats.dialoguePercentage = Double(stats.dialogueWordCount) / Double(totalContent) * 100
+        stats.actionPercentage = Double(stats.actionWordCount) / Double(totalContent) * 100
+
+        stats.characterStats = characterDialogue
+            .map { CharacterDialogueStat(name: $0.key, lineCount: $0.value.lines, wordCount: $0.value.words) }
+            .sorted { $0.wordCount > $1.wordCount }
+
+        return stats
+    }
+
+    /// Compute total word count from script elements
+    static func wordCount(from elements: [ScriptElement]) -> Int {
+        elements.reduce(0) { total, element in
+            total + element.text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+        }
     }
 
     // MARK: - Page Estimation

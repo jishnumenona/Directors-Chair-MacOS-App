@@ -2,13 +2,30 @@
 //  ScriptViewModel.swift
 //  DirectorsChair-Desktop
 //
-//  Script View: ViewModel managing script elements, page count, scene outline, and autocomplete
+//  Script View: ViewModel managing script elements with model-authoritative editing.
+//  [ScriptElement] is the single source of truth. NSTextView is a derived view.
+//  Key invariant: Paragraph N in NSTextView == elements[N]. Always.
+//
+//  PERFORMANCE: Text-only edits do NOT touch @Published properties.
+//  Pending text is held in a shadow buffer and flushed on structural edits or timer.
 //
 
 import Foundation
 import SwiftUI
 import Combine
 import DirectorsChairCore
+
+// MARK: - Rebuild Instruction
+
+/// Instruction returned by structural edit methods telling the Coordinator
+/// how to update NSTextView after elements[] has been mutated.
+enum RebuildInstruction {
+    case none
+    case updateParagraph(Int)
+    case insertParagraph(Int, UUID)
+    case removeParagraph(Int)
+    case fullRebuild(focusElementId: UUID?, cursorOffset: Int?)
+}
 
 // MARK: - New Scene Wizard
 
@@ -23,13 +40,23 @@ class ScriptViewModel: ObservableObject {
     @Published var elements: [ScriptElement] = []
     @Published var sceneOutline: [SceneOutlineItem] = []
     @Published var estimatedPageCount: Int = 0
+    @Published var wordCount: Int = 0
+    @Published var scriptStats: ScreenplayFormatting.ScriptStats = .init()
     @Published var currentElementIndex: Int = 0
     @Published var scrollToElementId: UUID?
+
+    /// Monotonic version counter — incremented on every structural elements change.
+    @Published var elementsVersion: Int = 0
 
     // Autocomplete state
     @Published var showingAutocomplete: Bool = false
     @Published var autocompleteItems: [AutocompleteItem] = []
     @Published var autocompleteTrigger: String = ""
+
+    // Inline filtering support
+    private var allAutocompleteItems: [AutocompleteItem] = []
+    var autocompleteElementId: UUID?
+    var autocompleteAnchorOffset: Int = 0
 
     // New scene wizard
     @Published var newSceneWizardStep: NewSceneWizardStep = .idle
@@ -38,6 +65,7 @@ class ScriptViewModel: ObservableObject {
 
     // Element to focus cursor on after rebuild
     @Published var focusElementId: UUID?
+    var focusCursorOffset: Int = 0
 
     // Project base path for resolving image paths
     var projectBasePath: URL?
@@ -46,6 +74,12 @@ class ScriptViewModel: ObservableObject {
     @Published var showSceneNumbers: Bool = true
     @Published var showSceneNavigator: Bool = true
     @Published var showPagesMode: Bool = false
+    @Published var spellCheckEnabled: Bool = false
+    @Published var typewriterMode: Bool = false
+
+    // Transliteration
+    @Published var transliterationEnabled: Bool = false
+    let transliterationService = TransliterationService()
 
     // Zoom
     @Published var currentZoom: CGFloat = 2.0
@@ -64,13 +98,28 @@ class ScriptViewModel: ObservableObject {
     // Project reference for reverse sync
     private weak var projectViewModel: ProjectViewModel?
     private weak var coordinator: AppCoordinator?
-    private var syncDebounceTask: Task<Void, Never>?
+
+    // MARK: - Performance: Shadow Text Buffer
+    // Text-only edits are stored here instead of modifying @Published elements,
+    // avoiding SwiftUI re-renders on every keystroke. Merged into elements on
+    // structural edits or flush timer.
+    private var pendingTexts: [UUID: String] = [:]
+
+    /// Per-element dirty tracking: set of element IDs that have pending text changes
+    private var dirtyElements: Set<UUID> = []
+    /// Flush timer for dirty elements
+    private var flushTask: Task<Void, Never>?
+    /// Stats debounce timer (separate from dirty flush)
+    private var statsTask: Task<Void, Never>?
+
+    /// When true, the next `refresh(from:)` call is skipped.
+    private var skipNextRefresh = false
 
     // Tracks where wizard scene was inserted so we can remove on cancel
     private var wizardScenePlacement: (sequenceIndex: Int, sceneIndex: Int)?
 
     // Character/location lists for autocomplete
-    private var characters: [DirectorsChairCore.Character] = []
+    private(set) var characters: [DirectorsChairCore.Character] = []
     private var locationNames: [String] = []
     private var propNames: [String] = []
 
@@ -100,33 +149,39 @@ class ScriptViewModel: ObservableObject {
         self.coordinator = coordinator
         self.projectBasePath = projectViewModel.projectPath?.deletingLastPathComponent()
 
-        // Cache character/location/prop data for autocomplete
         characters = project.characters
         locationNames = project.locations.map { $0.name }
         propNames = project.props.map { $0.name }
 
-        // Convert project to script elements
         elements = ProjectToScriptConverter.convert(from: project)
+        elementsVersion += 1
 
-        // Build scene outline
         sceneOutline = ProjectToScriptConverter.extractSceneOutline(from: elements)
-
-        // Estimate page count
         estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: elements)
+        wordCount = ScreenplayFormatting.wordCount(from: elements)
+        scriptStats = ScreenplayFormatting.computeStats(from: elements)
     }
 
     // MARK: - Refresh (after external project changes)
 
     func refresh(from project: Project) {
-        // Suppress external refresh during wizard — regenerating elements would
-        // create new UUIDs and break the wizard's ID-based tracking
         guard !isWizardActive else { return }
 
+        if skipNextRefresh {
+            skipNextRefresh = false
+            return
+        }
+
+        flushDirtyElements()
+
         elements = ProjectToScriptConverter.convert(from: project)
+        pendingTexts.removeAll()
+        elementsVersion += 1
         sceneOutline = ProjectToScriptConverter.extractSceneOutline(from: elements)
         estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: elements)
+        wordCount = ScreenplayFormatting.wordCount(from: elements)
+        scriptStats = ScreenplayFormatting.computeStats(from: elements)
 
-        // Update autocomplete data
         characters = project.characters
         locationNames = project.locations.map { $0.name }
         propNames = project.props.map { $0.name }
@@ -137,14 +192,12 @@ class ScriptViewModel: ObservableObject {
     func scrollToScene(_ sceneNumber: String) {
         if let outlineItem = sceneOutline.first(where: { $0.sceneNumber == sceneNumber }) {
             scrollToElementId = outlineItem.elementId
-            // Clear after brief delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.scrollToElementId = nil
             }
         }
     }
 
-    /// Scroll to a script element by its source item ID (dialogue/action/narration UUID)
     func scrollToSourceItem(_ sourceItemId: String) {
         if let element = elements.first(where: { $0.sourceItemId == sourceItemId }) {
             scrollToElementId = element.id
@@ -154,33 +207,292 @@ class ScriptViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Handle Text Changes (reverse sync)
+    // MARK: - Shadow Buffer Management
 
-    func handleTextChanged(elementIndex: Int, newText: String) {
-        guard elementIndex < elements.count else { return }
+    /// Merge pending text edits into the elements array.
+    /// Called before any structural edit so that elements[] is up to date.
+    private func syncPendingTexts() {
+        guard !pendingTexts.isEmpty else { return }
+        for (id, text) in pendingTexts {
+            if let idx = elements.firstIndex(where: { $0.id == id }) {
+                elements[idx].text = text
+                if elements[idx].isPlaceholder {
+                    elements[idx].isPlaceholder = false
+                }
+            }
+        }
+        pendingTexts.removeAll()
+    }
+
+    /// Get the current text for an element, considering pending edits.
+    private func currentText(for element: ScriptElement) -> String {
+        return pendingTexts[element.id] ?? element.text
+    }
+
+    // MARK: - Model-Authoritative Edit Methods
+
+    /// Handle a text-only edit within a single element (no structural change).
+    /// PERFORMANCE: Does NOT touch any @Published property — no SwiftUI re-render.
+    func handleTextEdit(elementIndex: Int, newText: String) {
+        guard elementIndex >= 0, elementIndex < elements.count else { return }
 
         let element = elements[elementIndex]
 
-        // Update local element
-        elements[elementIndex].text = newText
+        // Store in shadow buffer — NO @Published mutation
+        pendingTexts[element.id] = newText
 
-        // Update page count
-        estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: elements)
+        // Mark as dirty for debounced sync to project model
+        dirtyElements.insert(element.id)
+        scheduleDirtyFlush()
 
-        // Debounced reverse sync to project
-        syncDebounceTask?.cancel()
-        syncDebounceTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms debounce
-            guard !Task.isCancelled else { return }
-            await self?.syncToProject(element: element, newText: newText)
+        // Debounce stats update (don't block the typing path)
+        scheduleStatsUpdate()
+    }
+
+    /// Handle Return key press — create a new element after the current one.
+    func handleReturn(atElementIndex index: Int, cursorOffset: Int) -> RebuildInstruction {
+        guard index >= 0, index < elements.count else { return .none }
+
+        // Merge any pending text so elements[] is current
+        syncPendingTexts()
+        flushDirtyElement(at: index)
+
+        let currentElement = elements[index]
+
+        let nextType: ScriptElementType
+        switch currentElement.type {
+        case .sceneHeading: nextType = .action
+        case .action: nextType = .action
+        case .character: nextType = .dialogue
+        case .dialogue: nextType = .character
+        case .parenthetical: nextType = .dialogue
+        case .blankLine: nextType = .action
+        default: nextType = .action
+        }
+
+        let context = ProjectToScriptConverter.findSceneContext(at: index, in: elements)
+
+        // Handle splitting
+        let currentText = currentElement.text
+        var newElementText = ""
+        if cursorOffset > 0 && cursorOffset < currentText.count {
+            let splitIndex = currentText.index(currentText.startIndex, offsetBy: cursorOffset)
+            elements[index].text = String(currentText[..<splitIndex])
+            newElementText = String(currentText[splitIndex...])
+            dirtyElements.insert(elements[index].id)
+            flushDirtyElement(at: index)
+        }
+
+        let newElement = ScriptElement(
+            type: nextType,
+            text: newElementText,
+            sourceSequenceIndex: context?.sequenceIndex,
+            sourceSceneIndex: context?.sceneIndex
+        )
+
+        elements.insert(newElement, at: index + 1)
+        elementsVersion += 1
+        updateOutlineAndStats()
+
+        return .fullRebuild(focusElementId: newElement.id, cursorOffset: 0)
+    }
+
+    /// Handle Backspace at the beginning of an element — merge with previous or delete.
+    func handleBackspace(atElementIndex index: Int, cursorOffset: Int) -> RebuildInstruction {
+        guard index > 0, index < elements.count else { return .none }
+
+        syncPendingTexts()
+
+        let currentElement = elements[index]
+        let previousElement = elements[index - 1]
+
+        if currentElement.type == .sceneHeading {
+            deleteScene(elementId: currentElement.id)
+            return .none
+        }
+
+        flushDirtyElement(at: index)
+        flushDirtyElement(at: index - 1)
+
+        let cursorInMerged: Int
+
+        if previousElement.type == .blankLine {
+            elements.remove(at: index - 1)
+            cursorInMerged = 0
+            let focusId = elements[max(0, index - 1)].id
+            elementsVersion += 1
+            updateOutlineAndStats()
+            return .fullRebuild(focusElementId: focusId, cursorOffset: cursorInMerged)
+        } else {
+            cursorInMerged = previousElement.text.count
+            if !currentElement.text.isEmpty && !currentElement.isPlaceholder {
+                elements[index - 1].text += currentElement.text
+            }
+            elements.remove(at: index)
+
+            dirtyElements.insert(elements[index - 1].id)
+            flushDirtyElement(at: index - 1)
+
+            let focusId = elements[index - 1].id
+            elementsVersion += 1
+            updateOutlineAndStats()
+            return .fullRebuild(focusElementId: focusId, cursorOffset: cursorInMerged)
         }
     }
 
-    private func syncToProject(element: ScriptElement, newText: String) {
+    /// Handle Tab key — cycle element type.
+    func handleTabCycle(atElementIndex index: Int) -> RebuildInstruction {
+        guard index >= 0, index < elements.count else { return .none }
+
+        syncPendingTexts()
+        flushDirtyElement(at: index)
+
+        let nextType: ScriptElementType
+        switch elements[index].type {
+        case .action: nextType = .character
+        case .character: nextType = .dialogue
+        case .dialogue: nextType = .parenthetical
+        case .parenthetical: nextType = .action
+        case .blankLine: nextType = .action
+        default: return .none
+        }
+
+        elements[index].type = nextType
+        elementsVersion += 1
+
+        dirtyElements.insert(elements[index].id)
+        flushDirtyElement(at: index)
+
+        return .fullRebuild(focusElementId: elements[index].id, cursorOffset: elements[index].text.count)
+    }
+
+    /// Handle autocomplete selection — insert the selected text as a character element.
+    func handleAutocompleteSelection(item: String, atElementIndex index: Int) -> RebuildInstruction {
+        guard index >= 0, index < elements.count else { return .none }
+
+        syncPendingTexts()
+
+        elements[index].type = .character
+        elements[index].text = item
+        elements[index].isPlaceholder = false
+
+        if elements[index].sourceSequenceIndex == nil {
+            if let context = ProjectToScriptConverter.findSceneContext(at: index, in: elements) {
+                elements[index].sourceSequenceIndex = context.sequenceIndex
+                elements[index].sourceSceneIndex = context.sceneIndex
+            }
+        }
+
+        dirtyElements.insert(elements[index].id)
+        flushDirtyElement(at: index)
+
+        let context = ProjectToScriptConverter.findSceneContext(at: index, in: elements)
+        let dialogueElement = ScriptElement(
+            type: .dialogue,
+            text: "",
+            sourceSequenceIndex: context?.sequenceIndex,
+            sourceSceneIndex: context?.sceneIndex
+        )
+
+        elements.insert(dialogueElement, at: index + 1)
+        elementsVersion += 1
+
+        showingAutocomplete = false
+        autocompleteItems = []
+        allAutocompleteItems = []
+        autocompleteElementId = nil
+        updateOutlineAndStats()
+
+        return .fullRebuild(focusElementId: dialogueElement.id, cursorOffset: 0)
+    }
+
+    // MARK: - Dirty Element Flushing
+
+    private func scheduleDirtyFlush() {
+        flushTask?.cancel()
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms debounce
+            guard !Task.isCancelled else { return }
+            self?.flushDirtyElements()
+        }
+    }
+
+    private func scheduleStatsUpdate() {
+        statsTask?.cancel()
+        statsTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000) // 800ms debounce for stats
+            guard !Task.isCancelled else { return }
+            self?.updateStatsFromPending()
+        }
+    }
+
+    /// Update stats using pending texts merged temporarily (without publishing element changes).
+    private func updateStatsFromPending() {
+        // Build a temporary snapshot with pending texts applied
+        var snapshot = elements
+        for (id, text) in pendingTexts {
+            if let idx = snapshot.firstIndex(where: { $0.id == id }) {
+                snapshot[idx].text = text
+            }
+        }
+        estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: snapshot)
+        wordCount = ScreenplayFormatting.wordCount(from: snapshot)
+    }
+
+    /// Flush all dirty elements to the project model
+    func flushDirtyElements() {
+        // Merge pending texts into elements first
+        syncPendingTexts()
+
+        guard let projectViewModel = projectViewModel, !dirtyElements.isEmpty else { return }
+
+        var project = projectViewModel.project
+        var anyChanged = false
+
+        for elementId in dirtyElements {
+            guard let element = elements.first(where: { $0.id == elementId }) else { continue }
+            let createdId = ProjectToScriptConverter.applyEdit(element: element, newText: element.text, to: &project)
+
+            if let newId = createdId,
+               let idx = elements.firstIndex(where: { $0.id == elementId }) {
+                elements[idx].sourceItemId = newId
+                elements[idx].sourceItemType = "dialogue"
+            }
+            anyChanged = true
+        }
+
+        dirtyElements.removeAll()
+
+        if anyChanged {
+            projectViewModel.project = project
+            projectViewModel.isDirty = true
+
+            skipNextRefresh = true
+            coordinator?.notifyProjectChanged()
+        }
+    }
+
+    /// Flush a specific dirty element by index
+    private func flushDirtyElement(at index: Int) {
+        guard index >= 0, index < elements.count else { return }
+        let element = elements[index]
+        guard dirtyElements.contains(element.id) else { return }
+
         guard let projectViewModel = projectViewModel else { return }
         var project = projectViewModel.project
-        ProjectToScriptConverter.applyEdit(element: element, newText: newText, to: &project)
+        let createdId = ProjectToScriptConverter.applyEdit(element: element, newText: element.text, to: &project)
+
+        if let newId = createdId {
+            elements[index].sourceItemId = newId
+            elements[index].sourceItemType = "dialogue"
+        }
+
+        dirtyElements.remove(element.id)
         projectViewModel.project = project
+        projectViewModel.isDirty = true
+
+        skipNextRefresh = true
+        coordinator?.notifyProjectChanged()
     }
 
     // MARK: - Autocomplete
@@ -218,88 +530,226 @@ class ScriptViewModel: ObservableObject {
             autocompleteItems = []
         }
 
+        allAutocompleteItems = autocompleteItems
         showingAutocomplete = !autocompleteItems.isEmpty
     }
 
     func selectAutocompleteItem(_ text: String) {
         showingAutocomplete = false
         autocompleteItems = []
+        allAutocompleteItems = []
+        autocompleteElementId = nil
+    }
+
+    func filterAutocomplete(prefix: String) {
+        guard !prefix.isEmpty else {
+            autocompleteItems = allAutocompleteItems
+            showingAutocomplete = !autocompleteItems.isEmpty
+            return
+        }
+        let lowered = prefix.lowercased()
+        autocompleteItems = allAutocompleteItems
+            .filter { $0.text.lowercased().hasPrefix(lowered) || $0.text.lowercased().contains(lowered) }
+            .sorted { a, b in
+                let aPrefix = a.text.lowercased().hasPrefix(lowered)
+                let bPrefix = b.text.lowercased().hasPrefix(lowered)
+                if aPrefix != bPrefix { return aPrefix }
+                return a.text < b.text
+            }
+        if autocompleteItems.isEmpty {
+            showingAutocomplete = false
+        }
+    }
+
+    func handlePlaceholderEdit(elementIndex: Int, newText: String) -> RebuildInstruction {
+        elements[elementIndex].text = newText
+        elements[elementIndex].isPlaceholder = false
+        elementsVersion += 1
+        return .fullRebuild(focusElementId: elements[elementIndex].id, cursorOffset: newText.count)
     }
 
     func dismissAutocomplete() {
         showingAutocomplete = false
         autocompleteItems = []
+        allAutocompleteItems = []
         autocompleteTrigger = ""
+        autocompleteElementId = nil
 
-        // Cancel wizard if user dismisses during it
         if isWizardActive {
-            // Remove the scene we added to the project model
             removeWizardScene()
             newSceneWizardStep = .idle
 
-            // Refresh elements to clean up local placeholders
             if let projectViewModel = projectViewModel {
                 refresh(from: projectViewModel.project)
             }
         }
     }
 
-    // MARK: - Project Scene Management
+    // MARK: - Insert Helpers
 
-    /// Add a new scene to the project model and return its placement indices
-    private func addSceneToProject(afterElementIndex: Int) -> (sequenceIndex: Int, sceneIndex: Int)? {
-        guard let projectViewModel = projectViewModel else { return nil }
-
-        // Determine target sequence from the element at cursor
-        var targetSeqIdx: Int? = nil
-        var insertAfterSceneIdx: Int? = nil
-
-        if afterElementIndex < elements.count {
-            let element = elements[afterElementIndex]
-            targetSeqIdx = element.sourceSequenceIndex
-            insertAfterSceneIdx = element.sourceSceneIndex
-        }
-
-        // If no sequences exist, create a default "Act 1"
-        if projectViewModel.project.sequences.isEmpty {
-            let newSequence = DirectorsChairCore.Sequence(name: "Act 1")
-            projectViewModel.addSequence(newSequence)
-            targetSeqIdx = 0
-        }
-
-        let seqIdx = targetSeqIdx ?? 0
-        guard seqIdx < projectViewModel.project.sequences.count else { return nil }
-
-        // Generate a unique scene name (Scene.id == name, must be unique)
-        let existingNames = Set(projectViewModel.project.sequences.flatMap { $0.scenes.map { $0.name } })
-        var counter = projectViewModel.project.sequences.flatMap({ $0.scenes }).count + 1
-        var sceneName = "Scene \(counter)"
-        while existingNames.contains(sceneName) {
-            counter += 1
-            sceneName = "Scene \(counter)"
-        }
-
-        // Create the scene with placeholder location
-        let newScene = DirectorsChairCore.Scene(
-            name: sceneName,
-            location: "INT. LOCATION - TIME OF DAY"
+    private func insertScriptNote() {
+        let noteElement = ScriptElement(
+            type: .scriptNote,
+            text: "[[Note: ]]"
         )
-
-        // Insert at the correct position
-        let sceneInsertIdx: Int
-        if let afterIdx = insertAfterSceneIdx {
-            sceneInsertIdx = afterIdx + 1
-        } else {
-            sceneInsertIdx = projectViewModel.project.sequences[seqIdx].scenes.count
-        }
-
-        projectViewModel.project.sequences[seqIdx].scenes.insert(newScene, at: sceneInsertIdx)
-        projectViewModel.isDirty = true
-
-        return (sequenceIndex: seqIdx, sceneIndex: sceneInsertIdx)
+        let insertIndex = min(currentElementIndex + 1, elements.count)
+        elements.insert(noteElement, at: insertIndex)
+        elementsVersion += 1
     }
 
-    /// Remove the scene added by the wizard (called on cancel)
+    // MARK: - New Scene Wizard (Cmd+Shift+N)
+
+    func insertNewScene(afterElementIndex: Int) {
+        guard !isWizardActive else { return }
+        guard let projectViewModel = projectViewModel else { return }
+
+        syncPendingTexts()
+
+        var project = projectViewModel.project
+        guard let placement = ProjectToScriptConverter.createScene(
+            afterElementIndex: afterElementIndex,
+            elements: elements,
+            in: &project
+        ) else { return }
+
+        projectViewModel.project = project
+        projectViewModel.isDirty = true
+        wizardScenePlacement = placement
+
+        let existingSceneCount = elements.filter { $0.type == .sceneHeading }.count
+        let nextSceneNum = "\(existingSceneCount + 1)"
+
+        let blankLine = ScriptElement(type: .blankLine, text: "")
+
+        let heading = ScriptElement(
+            type: .sceneHeading,
+            text: "INT. LOCATION - TIME OF DAY",
+            sourceSequenceIndex: placement.sequenceIndex,
+            sourceSceneIndex: placement.sceneIndex,
+            sceneNumber: nextSceneNum,
+            isPlaceholder: true
+        )
+
+        let descPlaceholder = ScriptElement(
+            type: .action,
+            text: "Scene description...",
+            sourceSequenceIndex: placement.sequenceIndex,
+            sourceSceneIndex: placement.sceneIndex,
+            isPlaceholder: true
+        )
+
+        let insertIndex = min(afterElementIndex + 1, elements.count)
+        elements.insert(contentsOf: [blankLine, heading, descPlaceholder], at: insertIndex)
+        elementsVersion += 1
+        updateOutlineAndStats()
+
+        // Focus cursor on the heading at the LOCATION part (after scene number + "INT. ")
+        let sceneNumPrefixLen = showSceneNumbers ? (nextSceneNum.count + 4) : 0  // "8    " = num + 4 spaces
+        focusCursorOffset = sceneNumPrefixLen + 5  // + "INT. "
+        focusElementId = heading.id
+        scrollToElementId = heading.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.scrollToElementId = nil
+            self?.focusElementId = nil
+        }
+
+        newSceneWizardStep = .selectingLocation(headingId: heading.id, descId: descPlaceholder.id)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self = self else { return }
+            let items = self.locationNames.map { AutocompleteItem(text: $0) }
+            self.autocompleteItems = items
+            self.allAutocompleteItems = items
+            self.autocompleteAnchorOffset = 0
+            self.autocompleteTrigger = "location"
+            self.showingAutocomplete = true
+        }
+    }
+
+    func advanceWizard(selectedText: String) {
+        switch newSceneWizardStep {
+        case .selectingLocation(let headingId, let descId):
+            let locationStr = selectedText.uppercased()
+            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
+                elements[idx].text = "INT. \(locationStr) - TIME OF DAY"
+            }
+
+            showingAutocomplete = false
+            autocompleteItems = []
+
+            // Bump version to trigger immediate visual update showing the selected location
+            elementsVersion += 1
+
+            // Position cursor at "TIME OF DAY" part: after scene number + "INT. " + location + " - "
+            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
+                let sceneNum = elements[idx].sceneNumber ?? ""
+                let sceneNumPrefixLen = showSceneNumbers ? (sceneNum.count + 4) : 0
+                focusCursorOffset = sceneNumPrefixLen + 5 + locationStr.count + 3  // "INT. " + LOCATION + " - "
+            }
+            focusElementId = headingId
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.focusElementId = nil
+            }
+
+            newSceneWizardStep = .selectingTime(headingId: headingId, descId: descId, location: locationStr)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self = self else { return }
+                let items = self.timeOfDayOptions.map { AutocompleteItem(text: $0) }
+                self.autocompleteItems = items
+                self.allAutocompleteItems = items
+                self.autocompleteAnchorOffset = 0
+                self.autocompleteTrigger = "time"
+                self.showingAutocomplete = true
+            }
+
+        case .selectingTime(let headingId, let descId, let location):
+            let finalLocation = "INT. \(location) - \(selectedText.uppercased())"
+
+            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
+                elements[idx].text = finalLocation
+                elements[idx].isPlaceholder = false
+            }
+
+            if let placement = wizardScenePlacement,
+               let projectViewModel = projectViewModel {
+                let seqIdx = placement.sequenceIndex
+                let sceneIdx = placement.sceneIndex
+                if seqIdx < projectViewModel.project.sequences.count,
+                   sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count {
+                    projectViewModel.project.sequences[seqIdx].scenes[sceneIdx].location = finalLocation
+                    projectViewModel.isDirty = true
+                }
+            }
+            wizardScenePlacement = nil
+
+            // Keep the description placeholder — it will be cleared when the user starts typing
+            // (handled by handlePlaceholderEdit)
+
+            showingAutocomplete = false
+            autocompleteItems = []
+
+            newSceneWizardStep = .idle
+            elementsVersion += 1
+
+            // Skip the refresh triggered by this notification — our elements already have
+            // the correct state including the description placeholder
+            skipNextRefresh = true
+            coordinator?.notifyProjectChanged()
+
+            focusCursorOffset = 0
+            focusElementId = descId
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.focusElementId = nil
+            }
+
+        case .idle:
+            break
+        }
+    }
+
+    // MARK: - Wizard Scene Cleanup
+
     private func removeWizardScene() {
         guard let placement = wizardScenePlacement,
               let projectViewModel = projectViewModel else { return }
@@ -315,157 +765,6 @@ class ScriptViewModel: ObservableObject {
         wizardScenePlacement = nil
     }
 
-    // MARK: - Insert Helpers
-
-    private func insertScriptNote() {
-        let noteElement = ScriptElement(
-            type: .scriptNote,
-            text: "[[Note: ]]"
-        )
-        // Insert after current element
-        let insertIndex = min(currentElementIndex + 1, elements.count)
-        elements.insert(noteElement, at: insertIndex)
-    }
-
-    // MARK: - New Scene Wizard (Cmd+Shift+N)
-
-    /// Insert a new scene and start the guided wizard
-    func insertNewScene(afterElementIndex: Int) {
-        // Prevent double-wizard
-        guard !isWizardActive else { return }
-
-        // Add scene to project model first
-        guard let placement = addSceneToProject(afterElementIndex: afterElementIndex) else { return }
-        wizardScenePlacement = placement
-
-        // Calculate the next scene number
-        let existingSceneCount = elements.filter { $0.type == .sceneHeading }.count
-        let nextSceneNum = "\(existingSceneCount + 1)"
-
-        // Blank line separator
-        let blankLine = ScriptElement(type: .blankLine, text: "")
-
-        // Scene heading — starts with "INT. " and placeholder hint
-        // Set source indices so reverse sync works
-        let heading = ScriptElement(
-            type: .sceneHeading,
-            text: "INT. LOCATION - TIME OF DAY",
-            sourceSequenceIndex: placement.sequenceIndex,
-            sourceSceneIndex: placement.sceneIndex,
-            sceneNumber: nextSceneNum,
-            isPlaceholder: true
-        )
-
-        // Action placeholder for scene description
-        let descPlaceholder = ScriptElement(
-            type: .action,
-            text: "Scene description...",
-            sourceSequenceIndex: placement.sequenceIndex,
-            sourceSceneIndex: placement.sceneIndex,
-            isPlaceholder: true
-        )
-
-        // Insert after current element
-        let insertIndex = min(afterElementIndex + 1, elements.count)
-        elements.insert(contentsOf: [blankLine, heading, descPlaceholder], at: insertIndex)
-
-        // Update scene outline and page count
-        sceneOutline = ProjectToScriptConverter.extractSceneOutline(from: elements)
-        estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: elements)
-
-        // Scroll to the new heading
-        scrollToElementId = heading.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.scrollToElementId = nil
-        }
-
-        // Start wizard: step 1 — show location autocomplete
-        newSceneWizardStep = .selectingLocation(headingId: heading.id, descId: descPlaceholder.id)
-
-        // Show location autocomplete after a brief delay for the rebuild to finish
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self else { return }
-            self.autocompleteItems = self.locationNames.map { AutocompleteItem(text: $0) }
-            self.autocompleteTrigger = "location"
-            self.showingAutocomplete = true
-        }
-    }
-
-    /// Called when user selects an autocomplete item during wizard mode
-    func advanceWizard(selectedText: String) {
-        switch newSceneWizardStep {
-        case .selectingLocation(let headingId, let descId):
-            // Update heading: "INT. {LOCATION} - TIME OF DAY"
-            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
-                elements[idx].text = "INT. \(selectedText.uppercased()) - TIME OF DAY"
-                // Still a partial placeholder (time part is still placeholder-like)
-                // but we keep isPlaceholder for the gray time hint
-            }
-
-            // Dismiss current autocomplete
-            showingAutocomplete = false
-            autocompleteItems = []
-
-            // Move to step 2: time selection
-            newSceneWizardStep = .selectingTime(headingId: headingId, descId: descId, location: selectedText.uppercased())
-
-            // Show time autocomplete after brief delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self = self else { return }
-                self.autocompleteItems = self.timeOfDayOptions.map { AutocompleteItem(text: $0) }
-                self.autocompleteTrigger = "time"
-                self.showingAutocomplete = true
-            }
-
-        case .selectingTime(let headingId, let descId, let location):
-            let finalLocation = "INT. \(location) - \(selectedText.uppercased())"
-
-            // Finalize heading: "INT. {LOCATION} - {TIME}"
-            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
-                elements[idx].text = finalLocation
-                elements[idx].isPlaceholder = false
-            }
-
-            // Sync scene location to project model
-            if let placement = wizardScenePlacement,
-               let projectViewModel = projectViewModel {
-                let seqIdx = placement.sequenceIndex
-                let sceneIdx = placement.sceneIndex
-                if seqIdx < projectViewModel.project.sequences.count,
-                   sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count {
-                    projectViewModel.project.sequences[seqIdx].scenes[sceneIdx].location = finalLocation
-                    projectViewModel.isDirty = true
-                }
-            }
-            wizardScenePlacement = nil
-
-            // Clear description placeholder and focus it
-            if let descIdx = elements.firstIndex(where: { $0.id == descId }) {
-                elements[descIdx].text = ""
-                elements[descIdx].isPlaceholder = false
-            }
-
-            // Dismiss autocomplete
-            showingAutocomplete = false
-            autocompleteItems = []
-
-            // Done with wizard — set idle BEFORE notifying so refresh is not suppressed
-            newSceneWizardStep = .idle
-
-            // Notify global project change so other views refresh
-            coordinator?.notifyProjectChanged()
-
-            // Focus cursor at description element
-            focusElementId = descId
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.focusElementId = nil
-            }
-
-        case .idle:
-            break
-        }
-    }
-
     // MARK: - Cmd+Click Navigation
 
     func navigateToElement(_ element: ScriptElement) {
@@ -476,8 +775,6 @@ class ScriptViewModel: ObservableObject {
 
         switch element.type {
         case .character:
-            // Navigate to the character in Story Design
-            // Character name is stored in text, strip (CONT'D) suffix
             let charName = element.text
                 .replacingOccurrences(of: " (CONT'D)", with: "")
                 .trimmingCharacters(in: .whitespaces)
@@ -488,7 +785,6 @@ class ScriptViewModel: ObservableObject {
             }
 
         case .dialogue, .parenthetical:
-            // Navigate to the character who speaks this dialogue
             if let itemId = element.sourceItemId,
                let seqIdx = element.sourceSequenceIndex,
                let sceneIdx = element.sourceSceneIndex,
@@ -505,27 +801,23 @@ class ScriptViewModel: ObservableObject {
             }
 
         case .sceneHeading:
-            // Navigate to the scene's location in Story Design
             if let seqIdx = element.sourceSequenceIndex,
                let sceneIdx = element.sourceSceneIndex,
                seqIdx < project.sequences.count,
                sceneIdx < project.sequences[seqIdx].scenes.count {
                 let scene = project.sequences[seqIdx].scenes[sceneIdx]
                 let sceneLocation = (scene.location ?? scene.name).uppercased()
-                // Try to match against project locations
                 if let location = project.locations.first(where: {
                     sceneLocation.contains($0.name.uppercased())
                 }) {
                     coordinator.selectLocation(location)
                 } else {
-                    // Navigate to bubble view for the scene
                     coordinator.selectScene(scene)
                     coordinator.navigateTo(.bubble)
                 }
             }
 
         case .action:
-            // If it's a scene description (no sourceItemId), navigate to bubble for that scene
             if element.sourceItemId == nil,
                let seqIdx = element.sourceSequenceIndex,
                let sceneIdx = element.sourceSceneIndex,
@@ -541,26 +833,61 @@ class ScriptViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Double-Click Scene Heading → Open Scene in Bubble/Timeline
+
+    func openSceneInTimeline(_ element: ScriptElement) {
+        guard let projectViewModel = projectViewModel,
+              let coordinator = coordinator else { return }
+        guard element.type == .sceneHeading,
+              let seqIdx = element.sourceSequenceIndex,
+              let sceneIdx = element.sourceSceneIndex,
+              seqIdx < projectViewModel.project.sequences.count,
+              sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count else { return }
+
+        let scene = projectViewModel.project.sequences[seqIdx].scenes[sceneIdx]
+        coordinator.selectScene(scene)
+        coordinator.navigateTo(.scenes)
+    }
+
     // MARK: - Delete Scene
 
     func deleteScene(elementId: UUID) {
         guard let projectViewModel = projectViewModel,
               let coordinator = coordinator else { return }
 
-        // Find the scene heading element
         guard let element = elements.first(where: { $0.id == elementId }),
               element.type == .sceneHeading,
               let seqIdx = element.sourceSequenceIndex,
               let sceneIdx = element.sourceSceneIndex else { return }
 
-        let project = projectViewModel.project
-        guard seqIdx < project.sequences.count,
-              sceneIdx < project.sequences[seqIdx].scenes.count else { return }
+        guard seqIdx < projectViewModel.project.sequences.count,
+              sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count else { return }
 
-        let scene = project.sequences[seqIdx].scenes[sceneIdx]
-        let sequence = project.sequences[seqIdx]
+        let scene = projectViewModel.project.sequences[seqIdx].scenes[sceneIdx]
+        if coordinator.selectedScene?.id == scene.id {
+            coordinator.clearSelections()
+        }
 
-        projectViewModel.removeScene(scene, fromSequenceId: sequence.id)
+        var updatedProject = projectViewModel.project
+        updatedProject.sequences[seqIdx].scenes.remove(at: sceneIdx)
+        projectViewModel.project = updatedProject
+        projectViewModel.isDirty = true
+
+        let freshProject = projectViewModel.project
+        elements = ProjectToScriptConverter.convert(from: freshProject)
+        pendingTexts.removeAll()
+        elementsVersion += 1
+        updateOutlineAndStats()
+
         coordinator.notifyProjectChanged()
+    }
+
+    // MARK: - Private Helpers
+
+    private func updateOutlineAndStats() {
+        sceneOutline = ProjectToScriptConverter.extractSceneOutline(from: elements)
+        estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: elements)
+        wordCount = ScreenplayFormatting.wordCount(from: elements)
+        scriptStats = ScreenplayFormatting.computeStats(from: elements)
     }
 }

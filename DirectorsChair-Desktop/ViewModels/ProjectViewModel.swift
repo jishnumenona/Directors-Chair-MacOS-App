@@ -316,7 +316,12 @@ class ProjectViewModel: ObservableObject {
     /// Remove a scene from a specific sequence
     func removeScene(_ scene: DirectorsChairCore.Scene, fromSequenceId sequenceId: String) {
         guard let index = project.sequences.firstIndex(where: { $0.id == sequenceId }) else { return }
-        project.sequences[index].scenes.removeAll { $0.id == scene.id }
+        // Explicit copy-and-reassign to guarantee @Published fires objectWillChange
+        // for all observers (OutlineTab, ScenesListView, etc.).
+        // In-place mutation of nested structs can be missed by SwiftUI change detection.
+        var updated = project
+        updated.sequences[index].scenes.removeAll { $0.id == scene.id }
+        project = updated
         isDirty = true
     }
 

@@ -77,6 +77,9 @@ public struct TimelineHeaderCanvas: View {
     /// Callback when a shot label is resized to a new duration (shotId, sceneName, newDuration)
     public var onShotLabelResized: ((Int, String, CGFloat) -> Void)?
 
+    /// Callback when a scene boundary marker is double-clicked (sceneName)
+    public var onSceneMarkerDoubleClicked: ((String) -> Void)?
+
     /// Callback when a scene boundary marker is moved (sceneName, newTime)
     public var onSceneBoundaryMoved: ((String, CGFloat) -> Void)?
 
@@ -219,6 +222,7 @@ public struct TimelineHeaderCanvas: View {
         userMarkers: [TimelineMarker] = [],
         projectBasePath: URL? = nil,
         onShotLabelDoubleClicked: ((Int, String) -> Void)? = nil,
+        onSceneMarkerDoubleClicked: ((String) -> Void)? = nil,
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
         onShotLabelSelected: ((UUID) -> Void)? = nil,
         onOptionClickShotLabel: ((Int, String) -> Void)? = nil,
@@ -249,6 +253,7 @@ public struct TimelineHeaderCanvas: View {
         self.userMarkers = userMarkers
         self.projectBasePath = projectBasePath
         self.onShotLabelDoubleClicked = onShotLabelDoubleClicked
+        self.onSceneMarkerDoubleClicked = onSceneMarkerDoubleClicked
         self.onShotLabelMoved = onShotLabelMoved
         self.onShotLabelSelected = onShotLabelSelected
         self.onOptionClickShotLabel = onOptionClickShotLabel
@@ -285,6 +290,11 @@ public struct TimelineHeaderCanvas: View {
             let rulerBottom = rulerTop + TimelineLayoutConstants.rulerHeight
             if location.y >= rulerTop && location.y <= rulerBottom && location.x >= originX {
                 onRulerClicked?(location.x)
+                return
+            }
+            // Check for scene marker double-click
+            if let (boundary, isSequence) = findBoundaryMarker(at: location), !isSequence {
+                onSceneMarkerDoubleClicked?(boundary.name)
                 return
             }
             if showShotLabels, let shotLabel = findShotLabel(at: location) {
