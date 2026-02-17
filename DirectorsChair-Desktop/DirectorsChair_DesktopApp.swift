@@ -141,77 +141,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               let coordinator = coordinator,
               let onboardingState = onboardingState else { return }
 
-        // TESTING ONLY: Ask user whether to show onboarding
-        // TODO: Remove this prompt before packaging/shipping
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let alert = NSAlert()
-            alert.messageText = "First-time launch?"
-            alert.informativeText = "(Testing only) Show the first-time onboarding screen?"
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "Yes — Show Onboarding")
-            alert.addButton(withTitle: "No — Go to Projects")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                // Show onboarding
+            // First-time users see onboarding; returning users restore their project
+            if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
                 onboardingState.showOnboarding = true
             } else {
-                // Normal launch — restore last project or show projects
                 Task { @MainActor in
                     if ProjectViewModel.getLastProjectPath() != nil {
                         await projectViewModel.restoreLastProject()
                     } else {
-                        let existingProjects = ProjectDirectoryManager.listProjects()
-                        if existingProjects.isEmpty {
-                            coordinator.navigateTo(.projects)
-                        }
+                        coordinator.navigateTo(.projects)
                     }
                 }
             }
         }
     }
 
-    private func showNewProjectPrompt(projectViewModel: ProjectViewModel, coordinator: AppCoordinator) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            let alert = NSAlert()
-            alert.messageText = "Welcome to Director's Chair!"
-            alert.informativeText = "It looks like this is your first time here. Would you like to create a new project to get started?"
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "Create New Project")
-            alert.addButton(withTitle: "Later")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                self.showNewProjectDialog(projectViewModel: projectViewModel, coordinator: coordinator)
-            }
-        }
-    }
-
-    private func showNewProjectDialog(projectViewModel: ProjectViewModel, coordinator: AppCoordinator) {
-        let alert = NSAlert()
-        alert.messageText = "New Project"
-        alert.informativeText = "Enter a name for your new project.\nIt will be created in ~/Directors Chair/"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Create")
-        alert.addButton(withTitle: "Cancel")
-
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        textField.stringValue = "My First Project"
-        textField.placeholderString = "Project Name"
-        alert.accessoryView = textField
-        alert.window.initialFirstResponder = textField
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            let projectName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            Task { @MainActor in
-                if !projectName.isEmpty {
-                    projectViewModel.createNew(named: projectName)
-                } else {
-                    projectViewModel.createNew(named: "My First Project")
-                }
-                coordinator.navigateTo(.overview)
-            }
-        }
-    }
 }
