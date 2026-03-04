@@ -8,9 +8,11 @@
 
 import SwiftUI
 import AppKit
+import DirectorsChairServices
 
 struct FileCommands: Commands {
     @FocusedValue(\.projectViewModel) var projectViewModel: ProjectViewModel?
+    @FocusedValue(\.appCoordinator) var coordinator: AppCoordinator?
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {

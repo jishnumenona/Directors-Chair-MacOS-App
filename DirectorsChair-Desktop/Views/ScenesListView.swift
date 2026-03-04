@@ -76,6 +76,15 @@ struct ScenesListView: View {
                         },
                         onPromptUsed: { prompt in
                             updateSceneOverviewPrompt(scene, prompt: prompt)
+                        },
+                        onSceneAboutChanged: { text in
+                            updateSceneField(scene) { $0.sceneOverviewSummary = text }
+                        },
+                        onSceneDescriptionChanged: { text in
+                            updateSceneField(scene) { $0.description = text }
+                        },
+                        onSceneNotesChanged: { text in
+                            updateSceneField(scene) { $0.notes = text }
                         }
                     )
                 } else {
@@ -288,6 +297,16 @@ struct ScenesListView: View {
                 projectViewModel.project.sequences[seqIndex].scenes[sceneIndex].sceneOverviewPrompt = prompt
                 projectViewModel.isDirty = true
                 Task { await projectViewModel.forceSave() }
+                return
+            }
+        }
+    }
+
+    private func updateSceneField(_ scene: DirectorsChairCore.Scene, update: (inout DirectorsChairCore.Scene) -> Void) {
+        for seqIndex in projectViewModel.project.sequences.indices {
+            if let sceneIndex = projectViewModel.project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+                update(&projectViewModel.project.sequences[seqIndex].scenes[sceneIndex])
+                projectViewModel.isDirty = true
                 return
             }
         }

@@ -26,10 +26,34 @@
 	<string>https://directorschair.app/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>REPLACE_WITH_GENERATED_ED25519_PUBLIC_KEY</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.directorschair.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>directorschair</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>DirectorsChair needs camera access to capture video from your HDMI capture card for recording takes during production.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>DirectorsChair needs microphone access to capture audio alongside video during take recording.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
 			<key>165.22.172.244</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>

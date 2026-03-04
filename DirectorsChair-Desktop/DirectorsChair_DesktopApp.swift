@@ -8,6 +8,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 import AppKit
 import Sparkle
 
@@ -32,6 +33,8 @@ struct DirectorsChair_DesktopApp: App {
     @StateObject private var projectViewModel: ProjectViewModel
     @StateObject private var onboardingState = OnboardingState()
     @StateObject private var tourManager = GuidedTourManager()
+    @StateObject private var authManager = AuthManager()
+    @StateObject private var cloudSyncManager = CloudSyncManager()
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
@@ -45,6 +48,8 @@ struct DirectorsChair_DesktopApp: App {
                 .environmentObject(projectViewModel)
                 .environmentObject(onboardingState)
                 .environmentObject(tourManager)
+                .environmentObject(authManager)
+                .environmentObject(cloudSyncManager)
                 .focusedValue(\.projectViewModel, projectViewModel)
                 .focusedValue(\.appCoordinator, coordinator)
                 .frame(minWidth: 1200, minHeight: 800)
@@ -53,10 +58,34 @@ struct DirectorsChair_DesktopApp: App {
                     appDelegate.coordinator = coordinator
                     appDelegate.projectViewModel = projectViewModel
                     appDelegate.onboardingState = onboardingState
+                    appDelegate.authManager = authManager
 
                     // AppDelegate fires fresh every launch — check onboarding there
                     if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
                         onboardingState.showOnboarding = true
+                    }
+                }
+                .task {
+                    // Restore auth session from Keychain on launch
+                    await authManager.restoreSession()
+                    // Sync auth token to AI service client
+                    if let token = authManager.currentAccessToken {
+                        await AIServiceClient.shared.setAuthToken(token)
+                        await cloudSyncManager.setAuthToken(token)
+                    }
+                }
+                .onOpenURL { url in
+                    // Handle OAuth callback URL scheme
+                    print("[App] onOpenURL: \(url)")
+                    if url.scheme == "directorschair" {
+                        Task {
+                            do {
+                                try await authManager.handleCallback(url: url)
+                            } catch {
+                                print("[App] onOpenURL callback error: \(error)")
+                                authManager.errorMessage = error.localizedDescription
+                            }
+                        }
                     }
                 }
         }
@@ -71,8 +100,7 @@ struct DirectorsChair_DesktopApp: App {
 
         #if os(macOS)
         Settings {
-            Text("Preferences")
-                .frame(width: 600, height: 400)
+            SoftwarePreferencesView()
         }
         #endif
     }
@@ -85,6 +113,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var coordinator: AppCoordinator?
     var projectViewModel: ProjectViewModel?
     var onboardingState: OnboardingState?
+    var authManager: AuthManager?
 
     /// Sparkle auto-update controller
     let updaterController = SPUStandardUpdaterController(

@@ -30,6 +30,7 @@ struct ProjectDirectoryManager {
         case audio = "audio"
         case exports = "exports"
         case backups = ".backups"
+        case footage = "footage"
 
         /// Subfolders for character assets
         static var characterSubfolders: [String] {
@@ -234,5 +235,148 @@ struct ProjectDirectoryManager {
         }
 
         return sanitized
+    }
+
+    // MARK: - Footage Directory Operations
+
+    /// Creates a footage directory for a specific scene and shot
+    /// - Parameters:
+    ///   - sceneName: Name of the scene (e.g. "Scene_01_INT_OFFICE")
+    ///   - shotId: Shot ID number
+    ///   - projectDir: URL to the project directory
+    /// - Returns: URL to the shot's footage folder
+    @discardableResult
+    static func createFootageDirectory(
+        sceneName: String,
+        shotId: Int,
+        in projectDir: URL
+    ) throws -> URL {
+        let sanitizedScene = sanitizeDirectoryName(sceneName)
+        let shotFolder = String(format: "Shot_%03d", shotId)
+        let footageDir = projectDir
+            .appendingPathComponent(AssetFolder.footage.rawValue)
+            .appendingPathComponent(sanitizedScene)
+            .appendingPathComponent(shotFolder)
+
+        if !FileManager.default.fileExists(atPath: footageDir.path) {
+            try FileManager.default.createDirectory(
+                at: footageDir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        }
+
+        return footageDir
+    }
+
+    /// Returns the file path for a take video within the footage directory
+    /// - Parameters:
+    ///   - sceneName: Name of the scene
+    ///   - shotId: Shot ID number
+    ///   - takeNumber: Take number
+    ///   - fileExtension: File extension (default: "mov")
+    ///   - projectDir: URL to the project directory
+    /// - Returns: URL to the take video file
+    static func footageFilePath(
+        sceneName: String,
+        shotId: Int,
+        takeNumber: Int,
+        fileExtension: String = "mov",
+        in projectDir: URL
+    ) -> URL {
+        let sanitizedScene = sanitizeDirectoryName(sceneName)
+        let shotFolder = String(format: "Shot_%03d", shotId)
+        let fileName = String(format: "Take_%03d.\(fileExtension)", takeNumber)
+        return projectDir
+            .appendingPathComponent(AssetFolder.footage.rawValue)
+            .appendingPathComponent(sanitizedScene)
+            .appendingPathComponent(shotFolder)
+            .appendingPathComponent(fileName)
+    }
+
+    /// Generates a _best_takes/ folder with symlinks to all circled takes
+    /// - Parameters:
+    ///   - scenes: Array of (sceneName, shots) tuples
+    ///   - projectDir: URL to the project directory
+    static func generateBestTakesFolder(
+        scenes: [(name: String, shots: [(shotId: Int, takes: [(takeNumber: Int, rating: String, videoPath: String?)])])],
+        in projectDir: URL
+    ) throws {
+        let bestTakesDir = projectDir
+            .appendingPathComponent(AssetFolder.footage.rawValue)
+            .appendingPathComponent("_best_takes")
+
+        // Clean and recreate
+        if FileManager.default.fileExists(atPath: bestTakesDir.path) {
+            try FileManager.default.removeItem(at: bestTakesDir)
+        }
+        try FileManager.default.createDirectory(at: bestTakesDir, withIntermediateDirectories: true)
+
+        let fm = FileManager.default
+
+        for scene in scenes {
+            let sanitizedScene = sanitizeDirectoryName(scene.name)
+            for shot in scene.shots {
+                for take in shot.takes {
+                    guard take.rating == "Circle", let videoPath = take.videoPath else { continue }
+
+                    let sourceURL = projectDir.appendingPathComponent(videoPath)
+                    guard fm.fileExists(atPath: sourceURL.path) else { continue }
+
+                    let ext = sourceURL.pathExtension
+                    let linkName = String(format: "%@_Shot_%03d_Take_%03d.%@",
+                                          sanitizedScene, shot.shotId, take.takeNumber, ext)
+                    let linkURL = bestTakesDir.appendingPathComponent(linkName)
+
+                    // Create relative symlink
+                    let relativePath = "../\(sanitizedScene)/\(String(format: "Shot_%03d", shot.shotId))/\(sourceURL.lastPathComponent)"
+                    try fm.createSymbolicLink(atPath: linkURL.path, withDestinationPath: relativePath)
+                }
+            }
+        }
+    }
+
+    /// Creates a curated structure with symlinks from camera source files
+    /// - Parameters:
+    ///   - scenes: Scene/shot/take hierarchy
+    ///   - projectDir: URL to the project directory
+    ///   - cameraSourceDir: URL to the camera's source directory (e.g., SD card)
+    static func createCuratedStructure(
+        scenes: [(name: String, shots: [(shotId: Int, takes: [(takeNumber: Int, cameraFileName: String?)])])],
+        in projectDir: URL,
+        cameraSourceDir: URL
+    ) throws {
+        let curatedDir = projectDir
+            .appendingPathComponent(AssetFolder.footage.rawValue)
+            .appendingPathComponent("_curated")
+
+        // Clean and recreate
+        if FileManager.default.fileExists(atPath: curatedDir.path) {
+            try FileManager.default.removeItem(at: curatedDir)
+        }
+        try FileManager.default.createDirectory(at: curatedDir, withIntermediateDirectories: true)
+
+        let fm = FileManager.default
+
+        for scene in scenes {
+            let sanitizedScene = sanitizeDirectoryName(scene.name)
+            for shot in scene.shots {
+                let shotFolder = String(format: "Shot_%03d", shot.shotId)
+                let shotDir = curatedDir
+                    .appendingPathComponent(sanitizedScene)
+                    .appendingPathComponent(shotFolder)
+
+                for take in shot.takes {
+                    guard let cameraFile = take.cameraFileName, !cameraFile.isEmpty else { continue }
+
+                    let sourceURL = cameraSourceDir.appendingPathComponent(cameraFile)
+                    guard fm.fileExists(atPath: sourceURL.path) else { continue }
+
+                    try fm.createDirectory(at: shotDir, withIntermediateDirectories: true)
+                    let linkURL = shotDir.appendingPathComponent(cameraFile)
+                    try fm.createSymbolicLink(atPath: linkURL.path, withDestinationPath: sourceURL.path)
+                }
+            }
+        }
     }
 }

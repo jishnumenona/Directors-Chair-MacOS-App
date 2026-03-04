@@ -75,6 +75,7 @@ struct AIChatOverlayView: View {
         .onAppear {
             viewModel.coordinator = coordinator
             viewModel.projectViewModel = projectViewModel
+            viewModel.addWelcomeMessageIfNeeded()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isInputFocused = true
             }
@@ -189,6 +190,11 @@ struct AIChatOverlayView: View {
                         .id(message.id)
                     }
 
+                    // Show suggestions after the welcome message (no user messages yet)
+                    if !viewModel.messages.isEmpty && !viewModel.messages.contains(where: { $0.role == .user }) {
+                        suggestionsList
+                    }
+
                     if viewModel.isGenerating {
                         TypingIndicator()
                             .id("typing")
@@ -213,6 +219,18 @@ struct AIChatOverlayView: View {
         }
     }
 
+    private var suggestionsList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            suggestionChip("What can you do?")
+            suggestionChip("How do I get to the screenplay view?")
+            suggestionChip("How can I create a shot in a scene?")
+            suggestionChip("Do a psychological evaluation of the main character")
+            suggestionChip("Suggest a dad joke for the antagonist")
+        }
+        .padding(.top, 8)
+        .padding(.horizontal, 16)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
@@ -227,10 +245,11 @@ struct AIChatOverlayView: View {
                 .foregroundColor(.secondary)
 
             VStack(alignment: .leading, spacing: 6) {
-                suggestionChip("What scenes feature the main character?")
-                suggestionChip("Analyze the mood of Scene 3")
-                suggestionChip("Search for noir lighting techniques")
-                suggestionChip("How do I use the timeline?")
+                suggestionChip("What can you do?")
+                suggestionChip("How do I get to the screenplay view?")
+                suggestionChip("How can I create a shot in a scene?")
+                suggestionChip("Do a psychological evaluation of the main character")
+                suggestionChip("Suggest a dad joke for the antagonist")
             }
         }
     }

@@ -459,6 +459,7 @@ enum AppView: String, CaseIterable, Identifiable {
     case visionBoard = "Vision Board"
     case production = "Production"
     case storyDesign = "Story Design"
+    case curation = "Curation"
     case settings = "Settings"
     case projects = "Projects"
 
@@ -476,6 +477,7 @@ enum AppView: String, CaseIterable, Identifiable {
         case .shotList: return "camera"
         case .production: return "theatermasks"
         case .storyDesign: return "book"
+        case .curation: return "film.stack"
         case .settings: return "gear"
         case .projects: return "folder"
         }

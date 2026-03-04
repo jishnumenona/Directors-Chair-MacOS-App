@@ -12,7 +12,7 @@ public struct Shot: Codable, Identifiable, Hashable {
     public var shotId: Int  // Unique shot ID across project
     public var itemChronology: Int  // Links to dialogue/action/narration chronology
     public var description: String
-    public var status: String  // "Planning", "Ready", "Shooting", "Shot", "Approved"
+    public var status: String  // "Planning", "Ready", "Shooting", "Review", "Approved"
     public var cameraAngle: String
     public var lensMm: Int?
     public var aperture: String
@@ -26,6 +26,9 @@ public struct Shot: Codable, Identifiable, Hashable {
     public var linkedActionIds: [String]  // IDs of actions connected to this shot
     public var linkedNarrationIds: [String]  // IDs of narrations connected to this shot
     public var timelinePosition: Double?  // User-specified timeline position override (seconds)
+
+    // Takes (production shooting)
+    public var takes: [Take]
 
     // Video generation
     public var videoPath: String?                    // Relative path to generated video
@@ -54,6 +57,7 @@ public struct Shot: Codable, Identifiable, Hashable {
         linkedActionIds: [String] = [],
         linkedNarrationIds: [String] = [],
         timelinePosition: Double? = nil,
+        takes: [Take] = [],
         videoPath: String? = nil,
         videoKeyframes: [VideoKeyframe]? = nil,
         videoGenerationJobId: String? = nil,
@@ -79,6 +83,7 @@ public struct Shot: Codable, Identifiable, Hashable {
         self.linkedActionIds = linkedActionIds
         self.linkedNarrationIds = linkedNarrationIds
         self.timelinePosition = timelinePosition
+        self.takes = takes
         self.videoPath = videoPath
         self.videoKeyframes = videoKeyframes
         self.videoGenerationJobId = videoGenerationJobId
@@ -106,6 +111,7 @@ public struct Shot: Codable, Identifiable, Hashable {
         case linkedActionIds = "linked_action_ids"
         case linkedNarrationIds = "linked_narration_ids"
         case timelinePosition = "timeline_position"
+        case takes
         case videoPath = "video_path"
         case videoKeyframes = "video_keyframes"
         case videoGenerationJobId = "video_generation_job_id"
@@ -185,6 +191,7 @@ public struct Shot: Codable, Identifiable, Hashable {
         linkedActionIds = try container.decodeIfPresent([String].self, forKey: .linkedActionIds) ?? []
         linkedNarrationIds = try container.decodeIfPresent([String].self, forKey: .linkedNarrationIds) ?? []
         timelinePosition = try container.decodeIfPresent(Double.self, forKey: .timelinePosition)
+        takes = try container.decodeIfPresent([Take].self, forKey: .takes) ?? []
 
         // Video generation fields
         videoPath = try container.decodeIfPresent(String.self, forKey: .videoPath)
@@ -194,6 +201,23 @@ public struct Shot: Codable, Identifiable, Hashable {
         videoDuration = try container.decodeIfPresent(Double.self, forKey: .videoDuration)
         videoProvider = try container.decodeIfPresent(String.self, forKey: .videoProvider)
         videoQuality = try container.decodeIfPresent(String.self, forKey: .videoQuality)
+    }
+
+    // MARK: - Take Helpers
+
+    /// Next take number for this shot
+    public var nextTakeNumber: Int {
+        (takes.map { $0.takeNumber }.max() ?? 0) + 1
+    }
+
+    /// Takes rated as Circle (best/print)
+    public var circledTakes: [Take] {
+        takes.filter { $0.rating == .circle }
+    }
+
+    /// Whether this shot has any takes recorded
+    public var hasTakes: Bool {
+        !takes.isEmpty
     }
 }
 

@@ -896,83 +896,61 @@ private struct OverviewLoglineSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Logline in cinematic quote style
-            if !project.overviewLogline.isEmpty && !isEditing {
-                Text("\"\(project.overviewLogline)\"")
-                    .font(.system(size: 20, weight: .regular).italic())
-                    .foregroundColor(.primary.opacity(0.9))
-                    .lineSpacing(4)
-                    .padding(.vertical, 4)
+            // Logline — inline editable
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Logline")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+
+                ZStack(alignment: .topLeading) {
+                    if project.overviewLogline.isEmpty {
+                        Text("Write a one-sentence logline...")
+                            .font(.system(size: 20, weight: .regular).italic())
+                            .foregroundColor(.secondary.opacity(0.4))
+                            .padding(.vertical, 2)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: $project.overviewLogline)
+                        .font(.system(size: 20, weight: .regular).italic())
+                        .foregroundColor(.primary.opacity(0.9))
+                        .lineSpacing(4)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 30)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onChange(of: project.overviewLogline) { _, _ in onProjectChanged() }
+                }
             }
 
-            // Description / pitch body
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("The Pitch")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .textCase(.uppercase)
-                            .tracking(1.2)
+            // The Pitch — inline editable
+            VStack(alignment: .leading, spacing: 4) {
+                Text("The Pitch")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(1.2)
 
-                        Spacer()
-
-                        Button(action: {
-                            isEditing.toggle()
-                            if !isEditing { onProjectChanged() }
-                        }) {
-                            Label(isEditing ? "Done" : "Edit", systemImage: isEditing ? "checkmark" : "pencil")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                ZStack(alignment: .topLeading) {
+                    if project.description.isEmpty {
+                        Text("Write your pitch here...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary.opacity(0.4))
+                            .italic()
+                            .padding(.vertical, 2)
+                            .allowsHitTesting(false)
                     }
-
-                    if isEditing {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Logline")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            TextField("Enter a 1-2 sentence logline...", text: $project.overviewLogline, axis: .vertical)
-                                .textFieldStyle(.plain)
-                                .padding(8)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(6)
-
-                            Text("Tagline")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            TextField("Enter a tagline...", text: $project.overviewTagline)
-                                .textFieldStyle(.plain)
-                                .padding(8)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(6)
-
-                            Text("Description")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            TextEditor(text: Binding(
-                                get: { project.description },
-                                set: { project.description = $0 }
-                            ))
-                            .frame(minHeight: 120)
-                            .padding(8)
-                            .background(Color(nsColor: .controlBackgroundColor))
-                            .cornerRadius(6)
-                        }
-                    } else {
-                        if !project.description.isEmpty {
-                            Text(project.description)
-                                .font(.system(size: 14))
-                                .foregroundColor(.primary.opacity(0.85))
-                                .lineSpacing(3)
-                        } else {
-                            Text("No pitch written yet. Click Edit to add a pitch.")
-                                .font(.system(size: 14))
-                                .foregroundColor(.secondary)
-                                .italic()
-                        }
-                    }
+                    TextEditor(text: Binding(
+                        get: { project.description },
+                        set: { project.description = $0 }
+                    ))
+                    .font(.system(size: 14))
+                    .foregroundColor(.primary.opacity(0.85))
+                    .lineSpacing(3)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 40)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onChange(of: project.description) { _, _ in onProjectChanged() }
                 }
             }
         }

@@ -143,6 +143,21 @@ class AIChatViewModel: ObservableObject {
         messages = []
     }
 
+    /// Injects a welcome message for first-time users
+    func addWelcomeMessageIfNeeded() {
+        let key = "hasShownAIChatWelcome"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+
+        let welcome = """
+        **Welcome to Director's Chair!** I'm your AI assistant.
+
+        You can open me anytime by pressing **Shift** twice quickly. Just type your question below and hit Enter — try one of the suggestions to get started!
+        """
+
+        messages.append(ChatMessage(role: .assistant, content: welcome))
+    }
+
     func loadConversation(_ conversation: ChatConversation) {
         saveCurrentConversation()
         currentConversationId = conversation.id

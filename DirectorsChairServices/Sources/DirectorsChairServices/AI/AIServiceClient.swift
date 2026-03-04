@@ -42,7 +42,10 @@ public enum AIClientError: LocalizedError, Sendable {
     case timeout
     case networkError(String)
     case invalidConfiguration(String)
-    
+    case authenticationRequired
+    case quotaExceeded(String)
+    case rateLimited(retryAfter: Int)
+
     public var errorDescription: String? {
         switch self {
         case .serverUnavailable(let url):
@@ -61,6 +64,12 @@ public enum AIClientError: LocalizedError, Sendable {
             return "Network error: \(message)"
         case .invalidConfiguration(let reason):
             return "Invalid configuration: \(reason)"
+        case .authenticationRequired:
+            return "Authentication required. Please log in to use AI features."
+        case .quotaExceeded(let detail):
+            return "Usage quota exceeded: \(detail)"
+        case .rateLimited(let retryAfter):
+            return "Rate limited. Please wait \(retryAfter) seconds."
         }
     }
 }
@@ -317,37 +326,53 @@ public actor AIServiceClient {
     private let timeout: TimeInterval
     private let session: URLSession
     private var projectName: String
-    
+
+    /// Auth token for authenticated API requests.
+    /// Set by AuthManager on login/refresh/logout.
+    private var authToken: String?
+
     /// Shared instance with default configuration
     public static let shared = AIServiceClient()
-    
+
     // MARK: - Initialization
-    
+
     /// Initialize with custom configuration
     /// - Parameters:
-    ///   - baseURL: AI Proxy server URL (default: http://165.22.172.244:8002)
+    ///   - baseURL: AI Proxy server URL (default: http://localhost:8002)
     ///   - timeout: Request timeout in seconds (default: 120)
     ///   - projectName: Current project name for usage tracking
     public init(
-        baseURL: String = "http://165.22.172.244:8002",
+        baseURL: String = "http://localhost:8002",
         timeout: TimeInterval = 120,
         projectName: String = ""
     ) {
         self.baseURL = URL(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
         self.timeout = timeout
         self.projectName = projectName
-        
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout * 2
         self.session = URLSession(configuration: config)
     }
-    
+
     // MARK: - Configuration
-    
+
     /// Update the project name for usage tracking
     public func setProjectName(_ name: String) {
         self.projectName = name
+    }
+
+    /// Update the auth token (called by AuthManager on login/refresh/logout).
+    public func setAuthToken(_ token: String?) {
+        self.authToken = token
+    }
+
+    /// Apply auth header to a URLRequest if a token is available.
+    private func applyAuthHeader(to request: inout URLRequest) {
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
     }
     
     // MARK: - Health & Status
@@ -423,7 +448,8 @@ public actor AIServiceClient {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+        applyAuthHeader(to: &urlRequest)
+
         var body: [String: Any] = [
             "prompt": request.prompt,
             "provider": request.provider.rawValue,
@@ -450,20 +476,33 @@ public actor AIServiceClient {
             throw AIClientError.invalidResponse("Not an HTTP response")
         }
         
-        guard httpResponse.statusCode == 200 else {
+        // Handle auth/quota/rate-limit errors
+        switch httpResponse.statusCode {
+        case 401:
+            throw AIClientError.authenticationRequired
+        case 429:
+            let retryAfter = Int(httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60
+            let errorBody = String(data: data, encoding: .utf8) ?? ""
+            if errorBody.contains("quota") {
+                throw AIClientError.quotaExceeded(errorBody)
+            }
+            throw AIClientError.rateLimited(retryAfter: retryAfter)
+        case 200:
+            break
+        default:
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw AIClientError.requestFailed("HTTP \(httpResponse.statusCode): \(errorMessage)")
         }
-        
+
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AIClientError.invalidResponse("Invalid JSON response")
         }
-        
+
         guard json["success"] as? Bool == true else {
             let error = json["error"] as? String ?? "Unknown error"
             throw AIClientError.generationFailed(error)
         }
-        
+
         guard let dataDict = json["data"] as? [String: Any],
               let text = dataDict["text"] as? String else {
             throw AIClientError.invalidResponse("Missing text in response")
@@ -510,7 +549,8 @@ public actor AIServiceClient {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+        applyAuthHeader(to: &urlRequest)
+
         var body: [String: Any] = [
             "prompt": request.prompt,
             "provider": request.provider.rawValue,
@@ -745,6 +785,7 @@ public actor AIServiceClient {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyAuthHeader(to: &urlRequest)
 
         var body: [String: Any] = [
             "prompt": request.prompt,
@@ -815,6 +856,7 @@ public actor AIServiceClient {
         var urlRequest = URLRequest(url: components.url!)
         urlRequest.httpMethod = "GET"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyAuthHeader(to: &urlRequest)
 
         let (data, response) = try await session.data(for: urlRequest)
 
@@ -851,6 +893,7 @@ public actor AIServiceClient {
         var urlRequest = URLRequest(url: components.url!)
         urlRequest.httpMethod = "DELETE"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyAuthHeader(to: &urlRequest)
 
         let (data, response) = try await session.data(for: urlRequest)
 
@@ -873,6 +916,7 @@ public actor AIServiceClient {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "GET"
         urlRequest.timeoutInterval = 120
+        applyAuthHeader(to: &urlRequest)
 
         let (data, response) = try await session.data(for: urlRequest)
 

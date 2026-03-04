@@ -470,14 +470,19 @@ struct ShotRow: View {
     @EnvironmentObject var coordinator: AppCoordinator
     let shot: Shot
 
+    /// Resolve the shot's status string to a ShotStatus enum for icon/color
+    private var shotStatus: ShotStatus {
+        ShotStatus(rawValue: shot.status) ?? .planning
+    }
+
     var body: some View {
         Button(action: {
             coordinator.selectShot(shot)
         }) {
             HStack(spacing: 6) {
-                Image(systemName: "camera.fill")
+                Image(systemName: shotStatus.systemImage)
                     .font(.caption2)
-                    .foregroundColor(.orange)
+                    .foregroundColor(shotStatus.color)
 
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {

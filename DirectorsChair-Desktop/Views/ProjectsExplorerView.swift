@@ -9,6 +9,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import DirectorsChairCore
+import DirectorsChairServices
 
 // MARK: - Project Info Model
 
@@ -69,6 +70,8 @@ struct ProjectInfo: Identifiable {
 struct ProjectsExplorerView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var coordinator: AppCoordinator
+    @EnvironmentObject var authManager: AuthManager
+    @EnvironmentObject var cloudSyncManager: CloudSyncManager
 
     @State private var projects: [ProjectInfo] = []
     @State private var isLoading = true
@@ -94,12 +97,28 @@ struct ProjectsExplorerView: View {
             Color(nsColor: .textBackgroundColor)
                 .ignoresSafeArea()
 
-            if isLoading {
-                ProgressView("Discovering projects...")
-            } else if projects.isEmpty {
-                emptyStateView
-            } else {
-                projectsGridView
+            VStack(spacing: 0) {
+                // Account status bar
+                HStack(spacing: 12) {
+                    Spacer()
+
+                    SyncStatusView(syncManager: cloudSyncManager)
+                    AccountMenuView()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
+
+                // Main content
+                if isLoading {
+                    Spacer()
+                    ProgressView("Discovering projects...")
+                    Spacer()
+                } else if projects.isEmpty {
+                    emptyStateView
+                } else {
+                    projectsGridView
+                }
             }
 
             if isImporting {

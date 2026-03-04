@@ -13,6 +13,7 @@ public struct CinematographyView: View {
     // MARK: - Properties
 
     @StateObject private var viewModel: CinematographyViewModel
+    @EnvironmentObject var captureService: LiveCaptureService
 
     /// Scene context for shot preview generation
     let scene: DCScene?
@@ -418,11 +419,15 @@ public struct CinematographyView: View {
     @ViewBuilder
     private var shotDetailView: some View {
         if let shot = viewModel.selectedShot {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Shot header - shown first
-                    shotDetailHeader(shot)
+            VStack(alignment: .leading, spacing: 0) {
+                // Shot header - pinned outside scroll view
+                shotDetailHeader(shot)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
+                    .padding(.bottom, 12)
 
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
                     // Shot Preview - Main section
                     ShotPreviewSection(
                         shot: shot,
@@ -454,7 +459,19 @@ public struct CinematographyView: View {
                         )
                     }
 
-                    Divider()
+                    // Takes Section (visible when shooting or has takes)
+                    if shot.status == ShotStatus.shooting.rawValue || shot.hasTakes {
+                        TakesSectionView(
+                            shot: shot,
+                            projectBasePath: projectBasePath,
+                            onShotUpdated: { updatedShot in
+                                viewModel.updateShot(updatedShot)
+                            },
+                            captureService: captureService
+                        )
+
+                        Divider()
+                    }
 
                     // Camera settings grid
                     shotCameraSettings(shot)
@@ -500,6 +517,7 @@ public struct CinematographyView: View {
                 .padding(24)
             }
             .id(shot.id)  // Force entire scroll view to recreate when shot changes
+            }
         } else {
             VStack {
                 Image(systemName: "film")
@@ -523,7 +541,12 @@ public struct CinematographyView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.white)
 
-                    ShotStatusBadge(status: ShotStatus(rawValue: shot.status) ?? .planning)
+                    ShotStatusBadge(
+                        status: ShotStatus(rawValue: shot.status) ?? .planning,
+                        onStatusChange: { newStatus in
+                            updateShotField(shot) { $0.status = newStatus.rawValue }
+                        }
+                    )
                 }
 
                 Text(shot.shotType)
@@ -539,15 +562,23 @@ public struct CinematographyView: View {
                     viewModel.editShot(shot)
                 } label: {
                     Label("Edit", systemImage: "pencil")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .background(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.4)))
+                .contentShape(Rectangle())
 
                 Button {
                     viewModel.duplicateShot(shot.id)
                 } label: {
                     Label("Duplicate", systemImage: "doc.on.doc")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .background(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.4)))
+                .contentShape(Rectangle())
             }
         }
     }
@@ -894,19 +925,74 @@ private struct ShotListRow: View {
 
 private struct ShotStatusBadge: View {
     let status: ShotStatus
+    var onStatusChange: ((ShotStatus) -> Void)? = nil
+
+    @State private var showingPopover = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: status.systemImage)
-                .font(.caption2)
-            Text(status.rawValue)
-                .font(.caption)
+        if onStatusChange != nil {
+            Button {
+                showingPopover.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: status.systemImage)
+                        .font(.caption2)
+                    Text(status.rawValue)
+                        .font(.caption)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(status.color.opacity(0.2))
+                .foregroundColor(status.color)
+                .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showingPopover) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(ShotStatus.allCases) { option in
+                        Button {
+                            onStatusChange?(option)
+                            showingPopover = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: option.systemImage)
+                                    .frame(width: 16)
+                                    .foregroundColor(option.color)
+                                Text(option.rawValue)
+                                Spacer()
+                                if option == status {
+                                    Image(systemName: "checkmark")
+                                        .font(.caption)
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(option == status ? Color.accentColor.opacity(0.1) : Color.clear)
+                        .cornerRadius(4)
+                    }
+                }
+                .padding(8)
+                .frame(width: 180)
+            }
+        } else {
+            HStack(spacing: 4) {
+                Image(systemName: status.systemImage)
+                    .font(.caption2)
+                Text(status.rawValue)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(status.color.opacity(0.2))
+            .foregroundColor(status.color)
+            .cornerRadius(12)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(status.color.opacity(0.2))
-        .foregroundColor(status.color)
-        .cornerRadius(12)
     }
 }
 
@@ -941,10 +1027,8 @@ private struct ShotPreviewSection: View {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 280)
-                        .clipped()
-                        .cornerRadius(12)
+                        .frame(maxWidth: .infinity, maxHeight: 280)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else if isGenerating {
                     // Loading state
                     VStack(spacing: 16) {
@@ -2142,84 +2226,56 @@ private struct InlineDescriptionEditor: View {
     let description: String
     let onDescriptionChange: (String) -> Void
 
-    @State private var isEditing = false
     @State private var editText = ""
-    @FocusState private var isFocused: Bool
+    @State private var hasInitialized = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Header
-            HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "text.alignleft")
-                        .font(.system(size: 12))
-                        .foregroundColor(.accentColor)
-                    Text("Description")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.gray)
-                }
-
-                Spacer()
-
-                if isEditing {
-                    Button("Done") {
-                        commitEdit()
-                    }
-                    .font(.system(size: 12, weight: .medium))
+            HStack(spacing: 6) {
+                Image(systemName: "text.alignleft")
+                    .font(.system(size: 12))
                     .foregroundColor(.accentColor)
-                    .buttonStyle(.plain)
-                }
+                Text("Description")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray)
             }
 
-            // Content
-            if isEditing {
+            // Always-editable inline text — clean, no box
+            ZStack(alignment: .topLeading) {
+                if editText.isEmpty {
+                    Text("Write a description...")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray.opacity(0.35))
+                        .italic()
+                        .padding(.vertical, 2)
+                        .allowsHitTesting(false)
+                }
                 TextEditor(text: $editText)
                     .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.9))
                     .scrollContentBackground(.hidden)
-                    .padding(12)
-                    .frame(minHeight: 100)
-                    .background(Color(hex: "#1E1E1E"))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.accentColor, lineWidth: 1)
-                    )
-                    .focused($isFocused)
-            } else {
-                // Click to edit
-                Text(description.isEmpty ? "Click to add a description..." : description)
-                    .font(.system(size: 14))
-                    .foregroundColor(description.isEmpty ? .gray.opacity(0.5) : .white.opacity(0.9))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Color(hex: "#2A2A2A"))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        editText = description
-                        isEditing = true
-                        isFocused = true
-                    }
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.iBeam.push()
-                        } else {
-                            NSCursor.pop()
+                    .lineSpacing(3)
+                    .frame(minHeight: 20)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onChange(of: editText) { _, newValue in
+                        if hasInitialized && newValue != description {
+                            onDescriptionChange(newValue)
                         }
                     }
             }
         }
-    }
-
-    private func commitEdit() {
-        if editText != description {
-            onDescriptionChange(editText)
+        .onAppear {
+            editText = description
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                hasInitialized = true
+            }
         }
-        isEditing = false
+        .onChange(of: description) { _, newValue in
+            if newValue != editText {
+                editText = newValue
+            }
+        }
     }
 }
 
@@ -3303,7 +3359,7 @@ struct CinematographyView_Previews: PreviewProvider {
             Shot(
                 shotId: 3,
                 description: "Close-up reaction shot",
-                status: "Shot",
+                status: "Review",
                 cameraAngle: "Eye Level",
                 lensMm: 85,
                 aperture: "f/1.8",

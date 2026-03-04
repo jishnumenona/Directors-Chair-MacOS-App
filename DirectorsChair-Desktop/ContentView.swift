@@ -17,8 +17,13 @@ struct ContentView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @StateObject private var timelineViewModel = TimelineViewModel()
+    @StateObject private var captureService = LiveCaptureService()
     @EnvironmentObject var onboardingState: OnboardingState
     @EnvironmentObject var tourManager: GuidedTourManager
+    @EnvironmentObject var authManager: AuthManager
+
+    @State private var showLoginSuccess = false
+    @State private var loginSuccessUsername = ""
 
     /// Timeline height as percentage of available space (default 20%)
     @State private var timelineHeightRatio: CGFloat = 0.20
@@ -124,6 +129,66 @@ struct ContentView: View {
                     }
                 }
             }
+
+            // Login gate — shown when not authenticated
+            if !authManager.isAuthenticated && !authManager.isLoading {
+                LoginView()
+                    .transition(.opacity)
+                    .zIndex(200)
+            }
+
+            // Login success toast
+            if showLoginSuccess {
+                VStack {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Welcome back, \(loginSuccessUsername)!")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("You're signed in. AI and cloud features are active.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                showLoginSuccess = false
+                            }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(14)
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.green.opacity(0.3)))
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+                    .frame(maxWidth: 380)
+                    .padding(.top, 52)
+
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(250)
+            }
+        }
+        .onChange(of: authManager.currentUser?.username) { _, newUsername in
+            if let username = newUsername {
+                loginSuccessUsername = username
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    showLoginSuccess = true
+                }
+                // Auto-dismiss after 4 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        showLoginSuccess = false
+                    }
+                }
+            }
         }
         .onAppear {
             DoubleShiftMonitor.shared.onDoubleShift = {
@@ -136,6 +201,7 @@ struct ContentView: View {
                 tourManager.targetFrames[target.id] = target.frame
             }
         }
+        .environmentObject(captureService)
         .focusedValue(\.projectViewModel, projectViewModel)
         .focusedValue(\.appCoordinator, coordinator)
         .errorAlert($projectViewModel.errorAlert)
@@ -389,6 +455,15 @@ struct CentralViewStack: View {
                     }
                 )
                 .onAppear { debugLog("📱 StoryDesignView appeared") }
+            case .curation:
+                ProductionViewWrapper(
+                    project: projectViewModel.project,
+                    projectPath: projectViewModel.projectPath,
+                    subtitle: "Curation"
+                ) {
+                    CurationViewAdapter()
+                }
+                .onAppear { debugLog("📱 CurationView appeared") }
             case .settings:
                 ProjectSettingsView()
                     .onAppear { debugLog("📱 ProjectSettingsView appeared") }
@@ -413,7 +488,7 @@ struct CentralViewStack: View {
                 progressHandler(1.0) // Clear progress
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://165.22.172.244:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
                 )
             }
             return
@@ -746,7 +821,7 @@ struct CentralViewStack: View {
             await MainActor.run {
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://165.22.172.244:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
                 )
             }
             return
@@ -824,7 +899,7 @@ struct CentralViewStack: View {
             await MainActor.run {
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://165.22.172.244:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
                 )
             }
             return
@@ -881,7 +956,7 @@ struct CentralViewStack: View {
                 progressHandler(1.0)
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://165.22.172.244:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
                 )
             }
             return
@@ -1017,6 +1092,8 @@ struct AppToolbar: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var tourManager: GuidedTourManager
+    @EnvironmentObject var captureService: LiveCaptureService
+    @EnvironmentObject var cloudSyncManager: CloudSyncManager
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1066,6 +1143,21 @@ struct AppToolbar: View {
                 Divider()
                     .frame(height: 20)
 
+                // Global capture device selector
+                CaptureDeviceToolbarItem(captureService: captureService)
+
+                Divider()
+                    .frame(height: 20)
+
+                // Cloud sync status
+                SyncStatusView(syncManager: cloudSyncManager)
+
+                // Account menu
+                AccountMenuView()
+
+                Divider()
+                    .frame(height: 20)
+
                 Button(action: {
                     coordinator.toggleNavigator()
                 }) {
@@ -1102,6 +1194,106 @@ struct AppToolbar: View {
                 .foregroundColor(Color(nsColor: .separatorColor)),
             alignment: .bottom
         )
+    }
+}
+
+// MARK: - Capture Device Toolbar Item
+
+/// Compact capture device selector for the app toolbar — sets default video source globally.
+/// Does NOT start a capture session. The TakesSectionView auto-connects when it appears.
+struct CaptureDeviceToolbarItem: View {
+    @ObservedObject var captureService: LiveCaptureService
+
+    private var hasDefault: Bool { captureService.defaultDevice != nil }
+    private var isLive: Bool { captureService.isSessionRunning }
+
+    var body: some View {
+        Menu {
+            // Available devices
+            if captureService.availableDevices.isEmpty {
+                Text("No capture devices found")
+            } else {
+                ForEach(captureService.availableDevices, id: \.uniqueID) { device in
+                    Button {
+                        captureService.setDefaultDevice(device)
+                    } label: {
+                        HStack {
+                            if captureService.defaultDevice?.uniqueID == device.uniqueID {
+                                Image(systemName: "checkmark")
+                            }
+                            Label(device.localizedName, systemImage: "video.fill")
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            // Refresh devices
+            Button {
+                captureService.discoverDevices()
+            } label: {
+                Label("Refresh Devices", systemImage: "arrow.triangle.2.circlepath")
+            }
+
+            // Disconnect active session (keeps default)
+            if isLive {
+                Divider()
+                Button(role: .destructive) {
+                    captureService.disconnect()
+                } label: {
+                    Label("Stop Live Preview", systemImage: "stop.circle")
+                }
+            }
+
+            // Clear default device entirely
+            if hasDefault {
+                Button(role: .destructive) {
+                    captureService.tearDown()
+                } label: {
+                    Label("Clear Default Device", systemImage: "xmark.circle")
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                // Status indicator: green=live, blue=default set, gray=none
+                Circle()
+                    .fill(isLive ? Color.green : hasDefault ? Color.accentColor : Color.gray.opacity(0.35))
+                    .frame(width: 7, height: 7)
+
+                Image(systemName: "video.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(hasDefault ? .primary : .secondary)
+
+                if let device = captureService.defaultDevice {
+                    Text(device.localizedName)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 120)
+                } else {
+                    Text("No Device")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isLive ? Color.green.opacity(0.08)
+                          : hasDefault ? Color.accentColor.opacity(0.06)
+                          : Color(nsColor: .quaternarySystemFill))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isLive ? Color.green.opacity(0.2)
+                            : hasDefault ? Color.accentColor.opacity(0.15)
+                            : Color.clear, lineWidth: 1)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 }
 
@@ -1451,6 +1643,15 @@ struct TimelineContainer: View {
                 timelineViewModel.setProject(projectViewModel.project)
                 timelineViewModel.showGlobal()
                 lastSequenceCount = projectViewModel.project.sequences.count
+
+                // Auto-open AI chat on first launch after project loads
+                if !UserDefaults.standard.bool(forKey: "hasShownAIChatWelcome") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        if !coordinator.showingAIChat {
+                            coordinator.showingAIChat = true
+                        }
+                    }
+                }
             }
         }
         // Only refresh when sequence COUNT changes, not on every array comparison

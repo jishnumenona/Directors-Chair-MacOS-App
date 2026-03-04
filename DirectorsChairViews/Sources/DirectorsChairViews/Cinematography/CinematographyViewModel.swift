@@ -222,9 +222,9 @@ public class CinematographyViewModel: ObservableObject {
         updateShotStatus(shotId, status: .ready)
     }
 
-    /// Mark shot as shot (completed)
-    public func markAsShot(_ shotId: String) {
-        updateShotStatus(shotId, status: .shot)
+    /// Mark shot as review
+    public func markAsReview(_ shotId: String) {
+        updateShotStatus(shotId, status: .review)
     }
 
     /// Mark shot as approved
@@ -297,7 +297,7 @@ public class CinematographyViewModel: ObservableObject {
     /// Calculate completion percentage
     public var completionPercentage: Double {
         guard !shots.isEmpty else { return 0 }
-        let completed = shots.filter { $0.status == ShotStatus.shot.rawValue || $0.status == ShotStatus.approved.rawValue }
+        let completed = shots.filter { $0.status == ShotStatus.review.rawValue || $0.status == ShotStatus.approved.rawValue }
         return Double(completed.count) / Double(shots.count) * 100
     }
 
@@ -314,7 +314,7 @@ public enum ShotStatus: String, CaseIterable, Identifiable {
     case planning = "Planning"
     case ready = "Ready"
     case shooting = "Shooting"
-    case shot = "Shot"
+    case review = "Review"
     case approved = "Approved"
 
     public var id: String { rawValue }
@@ -324,7 +324,7 @@ public enum ShotStatus: String, CaseIterable, Identifiable {
         case .planning: return .gray
         case .ready: return .orange
         case .shooting: return .yellow
-        case .shot: return .blue
+        case .review: return .blue
         case .approved: return .green
         }
     }
@@ -334,7 +334,7 @@ public enum ShotStatus: String, CaseIterable, Identifiable {
         case .planning: return "pencil"
         case .ready: return "checkmark.circle"
         case .shooting: return "video.fill"
-        case .shot: return "film"
+        case .review: return "eye"
         case .approved: return "checkmark.seal.fill"
         }
     }

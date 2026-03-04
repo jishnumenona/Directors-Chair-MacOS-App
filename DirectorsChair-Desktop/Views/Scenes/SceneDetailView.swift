@@ -21,6 +21,9 @@ struct SceneDetailView: View {
     var onJumpShotToScript: ((DirectorsChairCore.Scene, Shot) -> Void)? = nil
     var onImageGenerated: ((String) -> Void)? = nil
     var onPromptUsed: ((String) -> Void)? = nil
+    var onSceneAboutChanged: ((String) -> Void)? = nil
+    var onSceneDescriptionChanged: ((String) -> Void)? = nil
+    var onSceneNotesChanged: ((String) -> Void)? = nil
 
     @State private var heroImage: NSImage?
     @State private var isGeneratingImage = false
@@ -330,41 +333,57 @@ struct SceneDetailView: View {
 
     // MARK: - About Card
 
+    @State private var editAbout: String = ""
+    @State private var editDescription: String = ""
+    @State private var editNotes: String = ""
+    @State private var aboutFieldsInitialized = false
+
     private var aboutCard: some View {
         DetailCard(title: "About", icon: "doc.text") {
             VStack(alignment: .leading, spacing: 12) {
-                if let summary = scene.sceneOverviewSummary, !summary.isEmpty {
-                    Text(summary)
-                        .font(.body)
-                        .lineSpacing(4)
+                // About / Summary — inline editable
+                inlineTextField(
+                    text: $editAbout,
+                    placeholder: "Write about this scene...",
+                    font: .body,
+                    lineSpacing: 4,
+                    foreground: .primary
+                ) { onSceneAboutChanged?($0) }
+
+                Divider()
+
+                // Description — inline editable
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Description")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+
+                    inlineTextField(
+                        text: $editDescription,
+                        placeholder: "Add a description...",
+                        font: .callout,
+                        lineSpacing: 3,
+                        foreground: .secondary
+                    ) { onSceneDescriptionChanged?($0) }
                 }
 
-                if !scene.description.isEmpty {
-                    if scene.sceneOverviewSummary != nil {
-                        Divider()
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Description")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                        Text(scene.description)
-                            .font(.callout)
-                            .foregroundColor(.secondary)
-                    }
-                }
+                Divider()
 
-                if !scene.notes.isEmpty {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Notes")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                        Text(scene.notes)
-                            .font(.callout)
-                            .foregroundColor(.secondary)
-                    }
+                // Notes — inline editable
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notes")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+
+                    inlineTextField(
+                        text: $editNotes,
+                        placeholder: "Add notes...",
+                        font: .callout,
+                        lineSpacing: 3,
+                        foreground: .secondary
+                    ) { onSceneNotesChanged?($0) }
                 }
 
                 if let context = scene.locationContext, !context.isEmpty {
@@ -372,6 +391,44 @@ struct SceneDetailView: View {
                     locationContextRows(context)
                 }
             }
+        }
+        .onAppear { initAboutFields() }
+        .onChange(of: scene.name) { _, _ in initAboutFields() }
+    }
+
+    private func initAboutFields() {
+        editAbout = scene.sceneOverviewSummary ?? ""
+        editDescription = scene.description
+        editNotes = scene.notes
+    }
+
+    private func inlineTextField(
+        text: Binding<String>,
+        placeholder: String,
+        font: Font,
+        lineSpacing: CGFloat,
+        foreground: Color,
+        onChange: @escaping (String) -> Void
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            if text.wrappedValue.isEmpty {
+                Text(placeholder)
+                    .font(font)
+                    .foregroundColor(.secondary.opacity(0.35))
+                    .italic()
+                    .padding(.vertical, 2)
+                    .allowsHitTesting(false)
+            }
+            TextEditor(text: text)
+                .font(font)
+                .foregroundColor(foreground)
+                .scrollContentBackground(.hidden)
+                .lineSpacing(lineSpacing)
+                .frame(minHeight: 20)
+                .fixedSize(horizontal: false, vertical: true)
+                .onChange(of: text.wrappedValue) { _, newValue in
+                    onChange(newValue)
+                }
         }
     }
 
