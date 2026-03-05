@@ -66,7 +66,7 @@ struct LoginView: View {
                             HStack(spacing: 10) {
                                 Image(systemName: "person.badge.key.fill")
                                     .font(.system(size: 16))
-                                Text("Login with Gitea")
+                                Text("Sign In")
                                     .font(.system(size: 15, weight: .semibold))
                             }
                             .frame(maxWidth: 280)

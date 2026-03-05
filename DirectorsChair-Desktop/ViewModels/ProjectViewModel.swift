@@ -19,7 +19,10 @@ class ProjectViewModel: ObservableObject {
     // MARK: - UserDefaults Keys
 
     private enum UserDefaultsKeys {
-        static let lastProjectPath = "lastProjectPath"
+        /// Per-user key so each login remembers their own last project
+        static var lastProjectPath: String {
+            "lastProjectPath_\(ProjectDirectoryManager.currentUsername)"
+        }
     }
 
     // MARK: - Published Properties

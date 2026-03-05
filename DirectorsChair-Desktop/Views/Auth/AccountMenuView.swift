@@ -98,7 +98,7 @@ struct AccountMenuView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .help("Sign in with Gitea to enable AI and cloud features")
+            .help("Sign in to enable AI and cloud features")
 
         } else {
             // Offline mode — allow login from here too

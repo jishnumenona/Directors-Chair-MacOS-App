@@ -129,7 +129,11 @@ struct ProjectsExplorerView: View {
             }
         }
         .onAppear {
-            discoverProjects()
+            syncUsernameAndDiscover()
+        }
+        .onChange(of: authManager.currentUser?.username) { _, newVal in
+            NSLog("[ProjectsExplorer] .onChange fired -> %@", newVal ?? "nil")
+            syncUsernameAndDiscover()
         }
         .sheet(isPresented: $showingNewProjectSheet) {
             newProjectSheet
@@ -327,12 +331,28 @@ struct ProjectsExplorerView: View {
 
     // MARK: - Actions
 
+    /// Ensures ProjectDirectoryManager.currentUsername matches authManager,
+    /// then triggers project discovery.
+    private func syncUsernameAndDiscover() {
+        let expected = authManager.currentUser?.username ?? "local"
+        if ProjectDirectoryManager.currentUsername != expected {
+            NSLog("[ProjectsExplorer] sync: correcting username %@ -> %@", ProjectDirectoryManager.currentUsername, expected)
+            ProjectDirectoryManager.setCurrentUser(authManager.currentUser?.username)
+        }
+        discoverProjects()
+    }
+
     private func discoverProjects() {
         isLoading = true
+
+        let username = ProjectDirectoryManager.currentUsername
+        let root = ProjectDirectoryManager.directorsChairRoot
+        NSLog("[ProjectsExplorer] discoverProjects — username=%@, root=%@, exists=%d", username, root.path, FileManager.default.fileExists(atPath: root.path) ? 1 : 0)
 
         // Run discovery on background thread
         DispatchQueue.global(qos: .userInitiated).async {
             let projectDirs = ProjectDirectoryManager.listProjects()
+            NSLog("[ProjectsExplorer] found %d project dirs", projectDirs.count)
 
             let discoveredProjects: [ProjectInfo] = projectDirs.compactMap { dir in
                 let projectFile = ProjectDirectoryManager.projectFileURL(in: dir)

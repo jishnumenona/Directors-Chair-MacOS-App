@@ -73,6 +73,28 @@ struct DirectorsChair_DesktopApp: App {
                         await AIServiceClient.shared.setAuthToken(token)
                         await cloudSyncManager.setAuthToken(token)
                     }
+                    // Set per-user project directory based on restored session
+                    if authManager.isAuthenticated, let username = authManager.currentUser?.username {
+                        NSLog("[App] .task: setting user to %@", username)
+                        ProjectDirectoryManager.setCurrentUser(username)
+                    } else {
+                        NSLog("[App] .task: no auth user, currentUsername=%@", ProjectDirectoryManager.currentUsername)
+                    }
+                }
+                .onChange(of: authManager.currentUser?.username) { _, newUsername in
+                    NSLog("[App] .onChange: username changed to %@", newUsername ?? "nil")
+                    // User logged in or switched accounts
+                    if let username = newUsername {
+                        ProjectDirectoryManager.setCurrentUser(username)
+                    } else {
+                        // Logged out — reset to offline namespace
+                        ProjectDirectoryManager.setCurrentUser(nil)
+                    }
+                    // Reset project state and navigate to projects list
+                    projectViewModel.projectPath = nil
+                    projectViewModel.hasProject = false
+                    projectViewModel.project = Project.empty()
+                    coordinator.navigateTo(.projects)
                 }
                 .onOpenURL { url in
                     // Handle OAuth callback URL scheme

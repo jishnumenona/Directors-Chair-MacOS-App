@@ -268,7 +268,7 @@ public class AuthManager: ObservableObject {
                     continuation.resume(throwing: AuthError.authorizationFailed("No callback URL received"))
                 }
             }
-            self.authSession?.prefersEphemeralWebBrowserSession = false
+            self.authSession?.prefersEphemeralWebBrowserSession = true
             #if canImport(AppKit)
             self.authSession?.presentationContextProvider = self.contextProvider
             #endif

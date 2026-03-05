@@ -8,15 +8,31 @@
 import Foundation
 
 /// Manages the Directors Chair project directory structure
-/// Creates and maintains folders at ~/Directors Chair/{ProjectName}/
+/// Creates and maintains folders at ~/Directors Chair/{username}/{ProjectName}/
 struct ProjectDirectoryManager {
+
+    // MARK: - User Isolation
+
+    /// Current username for per-user project isolation. Defaults to "local" for offline mode.
+    static var currentUsername: String = "local"
+
+    /// Set the current user for project isolation.
+    /// Pass nil to reset to offline "local" namespace.
+    static func setCurrentUser(_ username: String?) {
+        currentUsername = username ?? "local"
+    }
 
     // MARK: - Directory Structure
 
-    /// Root directory for all Directors Chair projects
-    static var directorsChairRoot: URL {
+    /// Base directory shared across all users: ~/Directors Chair/
+    static var baseRoot: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Directors Chair")
+    }
+
+    /// Root directory for the current user's projects: ~/Directors Chair/{username}/
+    static var directorsChairRoot: URL {
+        baseRoot.appendingPathComponent(currentUsername)
     }
 
     /// Asset subdirectory names within each project
