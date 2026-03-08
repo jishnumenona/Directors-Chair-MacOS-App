@@ -121,13 +121,14 @@ struct ContentView: View {
                     .zIndex(90)
             }
 
-            // First-launch onboarding overlay
+            // First-launch onboarding overlay (above tour, below login gate)
             if onboardingState.showOnboarding {
                 OnboardingView {
                     withAnimation(.easeOut(duration: 0.4)) {
                         onboardingState.complete()
                     }
                 }
+                .zIndex(150)
             }
 
             // Login gate — shown when not authenticated
@@ -488,7 +489,7 @@ struct CentralViewStack: View {
                 progressHandler(1.0) // Clear progress
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at directorschair.app. Please check your internet connection and try again."
                 )
             }
             return
@@ -821,7 +822,7 @@ struct CentralViewStack: View {
             await MainActor.run {
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at directorschair.app. Please check your internet connection and try again."
                 )
             }
             return
@@ -899,7 +900,7 @@ struct CentralViewStack: View {
             await MainActor.run {
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at directorschair.app. Please check your internet connection and try again."
                 )
             }
             return
@@ -956,7 +957,7 @@ struct CentralViewStack: View {
                 progressHandler(1.0)
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
-                    message: "Could not connect to AI server at http://localhost:8002. Please ensure the AI Proxy server is running."
+                    message: "Could not connect to AI server at directorschair.app. Please check your internet connection and try again."
                 )
             }
             return

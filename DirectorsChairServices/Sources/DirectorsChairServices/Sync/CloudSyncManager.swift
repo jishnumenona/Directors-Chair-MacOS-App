@@ -1,6 +1,7 @@
 // DirectorsChairServices/Sources/DirectorsChairServices/Sync/CloudSyncManager.swift
 //
 // Manages cloud sync of projects to/from Gitea repositories via REST API
+// Uses direct mirror sync — the remote repo is a byte-for-byte copy of the local project folder.
 
 import Foundation
 import DirectorsChairCore
@@ -37,8 +38,8 @@ public enum SyncError: LocalizedError {
 
 /// Manages push/pull of DirectorsChair projects to Gitea repos via the Contents API.
 ///
-/// Uses `GitSerializer` to serialize projects to a temp directory, then pushes
-/// individual files via the Gitea REST API (no local git required).
+/// Directly mirrors the local project folder — no serialization or transformation.
+/// The remote repo contains the exact same files and directory structure as basePath.
 @MainActor
 public class CloudSyncManager: ObservableObject {
 
@@ -51,15 +52,24 @@ public class CloudSyncManager: ObservableObject {
     // MARK: - Dependencies
 
     private let giteaClient: GiteaClient
-    private let serializer = GitSerializer()
 
     // MARK: - Configuration
 
     private let giteaBaseURL: String
 
+    // MARK: - LFS Extensions
+
+    private static let lfsTrackedExtensions = [
+        "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp",
+        "*.mp4", "*.mov", "*.avi", "*.mkv",
+        "*.mp3", "*.wav", "*.aiff", "*.flac",
+        "*.psd", "*.ai", "*.blend", "*.fbx",
+        "*.pdf"
+    ]
+
     // MARK: - Initialization
 
-    public init(giteaBaseURL: String = "http://localhost:3000") {
+    public init(giteaBaseURL: String = "https://git.directorschair.app") {
         self.giteaBaseURL = giteaBaseURL
         self.giteaClient = GiteaClient(
             baseURL: URL(string: giteaBaseURL)!,
@@ -90,14 +100,20 @@ public class CloudSyncManager: ObservableObject {
         pendingChanges += 1
     }
 
-    // MARK: - Push (Local → Cloud)
+    // MARK: - Push (Local → Cloud) — Direct Mirror
 
     /// Push a project to the user's Gitea repository.
     ///
+    /// Directly mirrors the local project folder (basePath) to the remote repo.
+    /// No serialization or transformation — the remote repo contains the exact
+    /// same files and directory structure as the local project folder.
+    ///
     /// 1. Ensures a private repo exists for the project
-    /// 2. Serializes the project to a temp directory
-    /// 3. Diffs against remote tree
-    /// 4. Creates/updates/deletes files as needed
+    /// 2. Walks basePath to collect ALL files (no serialization)
+    /// 3. Generates .gitattributes virtually for LFS tracking
+    /// 4. Diffs against remote tree via SHA comparison
+    /// 5. Uploads: LFS for binaries, Contents API for text/JSON
+    /// 6. Deletes remote files that no longer exist locally
     public func push(project: Project, username: String) async throws {
         debugLogs = []
         syncState = .syncing(progress: 0, message: "Preparing sync...")
@@ -105,6 +121,9 @@ public class CloudSyncManager: ObservableObject {
 
         let repoName = sanitizeRepoName(project.name)
         log("Sanitized repo name: '\(repoName)'")
+
+        let basePath = URL(fileURLWithPath: project.basePath)
+        log("Project basePath: \(basePath.path)")
 
         // 1. Ensure remote repo exists
         syncState = .syncing(progress: 0.1, message: "Checking remote repository...")
@@ -117,32 +136,25 @@ public class CloudSyncManager: ObservableObject {
         }
         log("Repo confirmed: '\(username)/\(repoName)'")
 
-        // 2. Serialize project to temp directory
-        syncState = .syncing(progress: 0.2, message: "Serializing project...")
-        log("Serializing project to temp directory...")
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("directorschair-sync-\(UUID().uuidString)")
+        // 2. Walk basePath directly to collect ALL project files
+        syncState = .syncing(progress: 0.2, message: "Scanning project files...")
+        log("Scanning project folder at \(basePath.path)...")
+        var localFiles = collectProjectFiles(at: basePath)
+        log("Found \(localFiles.count) project files")
 
-        do {
-            _ = try await serializer.serializeProject(project, to: tempDir)
-            log("Serialization complete: \(tempDir.path)")
-        } catch {
-            log("FAILED serialization: \(error.localizedDescription)")
-            syncState = .error("Serialization failed: \(error.localizedDescription)")
-            throw SyncError.serializationFailed(error.localizedDescription)
-        }
+        // 3. Generate .gitattributes content virtually and add to file list
+        let gitattributesContent = generateGitAttributesContent()
+        let gitattributesURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(".gitattributes-\(UUID().uuidString)")
+        try gitattributesContent.write(to: gitattributesURL, atomically: true, encoding: .utf8)
+        localFiles.append((".gitattributes", gitattributesURL))
 
         defer {
-            try? FileManager.default.removeItem(at: tempDir)
+            try? FileManager.default.removeItem(at: gitattributesURL)
         }
 
-        // 3. Collect local files
-        syncState = .syncing(progress: 0.3, message: "Scanning local files...")
-        let localFiles = collectLocalFiles(at: tempDir)
-        log("Found \(localFiles.count) local files to sync")
-
-        // 4. Get remote tree for SHAs
-        syncState = .syncing(progress: 0.4, message: "Fetching remote tree...")
+        // 4. Get remote tree for SHA diffing
+        syncState = .syncing(progress: 0.3, message: "Fetching remote tree...")
         log("Fetching remote tree...")
         var remoteSHAs: [String: String] = [:]
         do {
@@ -155,11 +167,27 @@ public class CloudSyncManager: ObservableObject {
             log("Remote tree fetch failed (empty repo?): \(error.localizedDescription)")
         }
 
-        // 5. Push files
-        let total = localFiles.count
-        log("Uploading \(total) files...")
-        for (index, (relativePath, fileURL)) in localFiles.enumerated() {
-            let progress = 0.5 + (Double(index) / Double(max(total, 1))) * 0.4
+        // 5. Sort: .gitattributes first → regular text files → LFS binary files
+        let sortedFiles = localFiles.sorted { a, b in
+            let aIsGitattributes = a.0 == ".gitattributes"
+            let bIsGitattributes = b.0 == ".gitattributes"
+            let aIsLFS = GiteaClient.isLFSFile(a.0)
+            let bIsLFS = GiteaClient.isLFSFile(b.0)
+
+            if aIsGitattributes { return true }
+            if bIsGitattributes { return false }
+            if !aIsLFS && bIsLFS { return true }
+            if aIsLFS && !bIsLFS { return false }
+            return a.0 < b.0
+        }
+
+        // 6. Upload each file
+        let total = sortedFiles.count
+        let lfsCount = sortedFiles.filter { GiteaClient.isLFSFile($0.0) }.count
+        log("Uploading \(total) files (\(lfsCount) via LFS, \(total - lfsCount) via Contents API)...")
+
+        for (index, (relativePath, fileURL)) in sortedFiles.enumerated() {
+            let progress = 0.4 + (Double(index) / Double(max(total, 1))) * 0.45
             syncState = .syncing(progress: progress, message: "Uploading \(relativePath)...")
 
             guard let content = try? Data(contentsOf: fileURL) else {
@@ -170,36 +198,70 @@ public class CloudSyncManager: ObservableObject {
             let commitMessage = "Sync from DirectorsChair Desktop"
 
             do {
-                if let existingSHA = remoteSHAs[relativePath] {
-                    try await giteaClient.updateFile(
+                if GiteaClient.isLFSFile(relativePath) {
+                    // LFS path: upload binary via LFS, then push pointer via Contents API
+                    log("LFS upload: \(relativePath) (\(content.count) bytes)")
+                    let pointer = try await giteaClient.lfsUpload(
                         owner: username,
                         repo: repoName,
-                        path: relativePath,
-                        content: content,
-                        sha: existingSHA,
-                        message: commitMessage
+                        data: content
                     )
-                    log("Updated: \(relativePath)")
+                    let pointerData = Data(pointer.utf8)
+
+                    if let existingSHA = remoteSHAs[relativePath] {
+                        try await giteaClient.updateFile(
+                            owner: username,
+                            repo: repoName,
+                            path: relativePath,
+                            content: pointerData,
+                            sha: existingSHA,
+                            message: commitMessage
+                        )
+                        log("LFS updated pointer: \(relativePath)")
+                    } else {
+                        try await giteaClient.createFile(
+                            owner: username,
+                            repo: repoName,
+                            path: relativePath,
+                            content: pointerData,
+                            message: commitMessage
+                        )
+                        log("LFS created pointer: \(relativePath)")
+                    }
                 } else {
-                    try await giteaClient.createFile(
-                        owner: username,
-                        repo: repoName,
-                        path: relativePath,
-                        content: content,
-                        message: commitMessage
-                    )
-                    log("Created: \(relativePath)")
+                    // Regular file: push via Contents API
+                    if let existingSHA = remoteSHAs[relativePath] {
+                        try await giteaClient.updateFile(
+                            owner: username,
+                            repo: repoName,
+                            path: relativePath,
+                            content: content,
+                            sha: existingSHA,
+                            message: commitMessage
+                        )
+                        log("Updated: \(relativePath)")
+                    } else {
+                        try await giteaClient.createFile(
+                            owner: username,
+                            repo: repoName,
+                            path: relativePath,
+                            content: content,
+                            message: commitMessage
+                        )
+                        log("Created: \(relativePath)")
+                    }
                 }
             } catch {
                 log("FAILED upload \(relativePath): \(error)")
             }
         }
 
-        // 6. Delete remote files that no longer exist locally
+        // 7. Delete remote files that no longer exist locally
         syncState = .syncing(progress: 0.9, message: "Cleaning up removed files...")
         let localPaths = Set(localFiles.map { $0.0 })
         for (remotePath, sha) in remoteSHAs {
             if !localPaths.contains(remotePath) {
+                log("Deleting remote file no longer local: \(remotePath)")
                 try? await giteaClient.deleteFile(
                     owner: username,
                     repo: repoName,
@@ -214,56 +276,95 @@ public class CloudSyncManager: ObservableObject {
         let now = Date()
         syncState = .lastSynced(now)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "lastSyncTime_\(repoName)")
+        log("Push complete: \(total) files synced")
     }
 
-    // MARK: - Pull (Cloud → Local)
+    // MARK: - Pull (Cloud → Local) — Direct Download to basePath
 
-    /// Pull a project from the user's Gitea repository.
+    /// Pull a project from the user's Gitea repository directly into basePath.
     ///
-    /// 1. Gets the remote tree
-    /// 2. Downloads all files to a temp directory
-    /// 3. Deserializes into a Project
-    public func pull(username: String, repoName: String) async throws -> Project {
+    /// Downloads all remote files directly to the project's base directory,
+    /// preserving the exact directory structure. Then reads project.json
+    /// from basePath and decodes it into a Project object.
+    ///
+    /// - Parameters:
+    ///   - username: The Gitea username (repo owner)
+    ///   - repoName: The repository name
+    ///   - basePath: The local project directory to download files into
+    /// - Returns: The decoded Project object
+    public func pull(username: String, repoName: String, basePath: URL) async throws -> Project {
+        debugLogs = []
         syncState = .syncing(progress: 0, message: "Fetching remote tree...")
+        log("Starting pull for '\(username)/\(repoName)' into \(basePath.path)")
 
-        // 1. Get tree
+        // 1. Get remote tree
         let tree = try await giteaClient.getTree(owner: username, repo: repoName)
         let blobs = tree.filter { $0.type == "blob" }
+        log("Remote tree: \(blobs.count) files")
 
-        // 2. Download all files
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("directorschair-pull-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        // 2. Ensure basePath exists
+        try FileManager.default.createDirectory(at: basePath, withIntermediateDirectories: true)
 
-        defer {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
+        // 3. Download each blob directly to basePath/{blob.path}
         let total = blobs.count
         for (index, blob) in blobs.enumerated() {
             let progress = 0.1 + (Double(index) / Double(max(total, 1))) * 0.7
             syncState = .syncing(progress: progress, message: "Downloading \(blob.path)...")
 
-            let data = try await giteaClient.getRawFile(
-                owner: username,
-                repo: repoName,
-                path: blob.path
-            )
+            // Skip .gitattributes — not needed locally
+            if blob.path == ".gitattributes" {
+                log("Skip .gitattributes (not needed locally)")
+                continue
+            }
 
-            let localPath = tempDir.appendingPathComponent(blob.path)
-            try FileManager.default.createDirectory(
-                at: localPath.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: localPath)
+            do {
+                let data = try await giteaClient.getRawFile(
+                    owner: username,
+                    repo: repoName,
+                    path: blob.path
+                )
+
+                let localPath = basePath.appendingPathComponent(blob.path)
+                try FileManager.default.createDirectory(
+                    at: localPath.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: localPath)
+                log("Downloaded: \(blob.path) (\(data.count) bytes)")
+            } catch {
+                log("FAILED download \(blob.path): \(error)")
+            }
         }
 
-        // 3. Deserialize
+        // 4. Read project.json from basePath and decode into Project
         syncState = .syncing(progress: 0.9, message: "Loading project...")
-        let project = try await serializer.deserializeProject(from: tempDir)
+        let projectJsonURL = basePath.appendingPathComponent("project.json")
+
+        guard FileManager.default.fileExists(atPath: projectJsonURL.path) else {
+            log("FAILED: project.json not found at \(projectJsonURL.path)")
+            throw SyncError.remoteFailed("project.json not found in remote repository")
+        }
+
+        let projectData = try Data(contentsOf: projectJsonURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var project = try decoder.decode(Project.self, from: projectData)
+
+        // Ensure basePath is set to the download location
+        project.basePath = basePath.path
+        log("Project decoded: '\(project.name)'")
 
         syncState = .lastSynced(Date())
+        log("Pull complete: \(total) files downloaded")
         return project
+    }
+
+    /// Legacy pull for backward compatibility (no basePath).
+    /// Downloads to a temp directory and decodes project.json directly.
+    public func pull(username: String, repoName: String) async throws -> Project {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("directorschair-pull-\(UUID().uuidString)")
+        return try await pull(username: username, repoName: repoName, basePath: tempDir)
     }
 
     // MARK: - Helpers
@@ -292,24 +393,66 @@ public class CloudSyncManager: ObservableObject {
         }
     }
 
-    /// Collect all files in a directory recursively, returning (relativePath, fileURL).
-    private func collectLocalFiles(at directory: URL) -> [(String, URL)] {
+    /// Collect all files in the project folder recursively.
+    ///
+    /// Excludes: .DS_Store, .backups/ directory, hidden files (dot-prefixed).
+    /// Returns (relativePath, fileURL) pairs.
+    private func collectProjectFiles(at directory: URL) -> [(String, URL)] {
         var files: [(String, URL)] = []
-        let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
+        let fm = FileManager.default
 
-        while let fileURL = enumerator?.nextObject() as? URL {
+        guard let enumerator = fm.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            options: [] // Don't skip hidden — we handle exclusions manually
+        ) else {
+            return files
+        }
+
+        let directoryPath = directory.path.hasSuffix("/") ? directory.path : directory.path + "/"
+
+        while let fileURL = enumerator.nextObject() as? URL {
+            let fileName = fileURL.lastPathComponent
+
+            // Skip .DS_Store
+            if fileName == ".DS_Store" {
+                continue
+            }
+
+            // Skip .backups directory entirely
+            if fileName == ".backups" {
+                enumerator.skipDescendants()
+                continue
+            }
+
+            // Skip other hidden files/directories (dot-prefixed)
+            if fileName.hasPrefix(".") {
+                if (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+
+            // Only include regular files
             guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {
                 continue
             }
-            let relativePath = fileURL.path.replacingOccurrences(of: directory.path + "/", with: "")
+
+            let relativePath = fileURL.path.replacingOccurrences(of: directoryPath, with: "")
             files.append((relativePath, fileURL))
         }
 
         return files
+    }
+
+    /// Generate .gitattributes content for LFS tracking.
+    private func generateGitAttributesContent() -> String {
+        var lines = ["# Git LFS tracking rules for DirectorsChair binary assets"]
+        for ext in Self.lfsTrackedExtensions {
+            lines.append("\(ext) filter=lfs diff=lfs merge=lfs -text")
+        }
+        lines.append("") // trailing newline
+        return lines.joined(separator: "\n")
     }
 
     /// Convert a project name into a valid repository name.

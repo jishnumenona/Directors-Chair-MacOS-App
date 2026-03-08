@@ -26,7 +26,7 @@ struct AccountMenuView: View {
 
                 Section {
                     Button {
-                        if let url = URL(string: "http://localhost:8001/dashboard") {
+                        if let url = URL(string: "https://directorschair.app/dashboard") {
                             NSWorkspace.shared.open(url)
                         }
                     } label: {

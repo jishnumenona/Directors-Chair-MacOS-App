@@ -54,6 +54,9 @@ public struct GitSerializer: GitSerializerProtocol {
         // Create directory structure
         try createDirectoryStructure(at: repoPath)
 
+        // Generate .gitattributes for LFS tracking
+        try generateGitAttributes(to: repoPath)
+
         // Serialize project metadata
         try await serializeProjectMetadata(project, to: repoPath)
 
@@ -114,7 +117,14 @@ public struct GitSerializer: GitSerializerProtocol {
         try await generateManifest(stats: stats, to: repoPath)
 
         // Copy assets
-        try await copyAssets(from: URL(fileURLWithPath: project.basePath), to: repoPath)
+        let projectBasePath = URL(fileURLWithPath: project.basePath)
+        try await copyAssets(from: projectBasePath, to: repoPath)
+
+        // Copy poster images
+        try copyPosterImages(from: projectBasePath, posterPaths: project.overviewPosterPaths, to: repoPath)
+
+        // Generate webapp-compatible root project.json
+        try generateCompatProjectJSON(project, to: repoPath)
 
         return stats
     }
@@ -216,6 +226,7 @@ public struct GitSerializer: GitSerializerProtocol {
         let directories = [
             ".directorschair",
             "characters/avatars",
+            "characters/images",
             "locations/images",
             "sequences",
             "scenes",
@@ -230,13 +241,28 @@ public struct GitSerializer: GitSerializerProtocol {
             "assets/video/references",
             "assets/video/footage",
             "assets/images/storyboards",
-            "assets/images/references"
+            "assets/images/references",
+            "assets/posters"
         ]
 
         for directory in directories {
             let dirPath = repoPath.appendingPathComponent(directory)
             try fileManager.createDirectory(at: dirPath, withIntermediateDirectories: true)
         }
+    }
+
+    // MARK: - Git Attributes Generation
+
+    /// Generate .gitattributes file with LFS tracking rules
+    private func generateGitAttributes(to repoPath: URL) throws {
+        var lines = ["# Git LFS tracking rules for DirectorsChair binary assets"]
+        for ext in Self.lfsTrackedExtensions {
+            lines.append("\(ext) filter=lfs diff=lfs merge=lfs -text")
+        }
+        lines.append("") // trailing newline
+        let content = lines.joined(separator: "\n")
+        let path = repoPath.appendingPathComponent(".gitattributes")
+        try content.write(to: path, atomically: true, encoding: .utf8)
     }
 
     // MARK: - Project Metadata Serialization
@@ -274,7 +300,26 @@ public struct GitSerializer: GitSerializerProtocol {
             "created_by": "directorschair-admin"
         ]
 
-        try writeJSON(metadata, to: repoPath.appendingPathComponent(".directorschair/project.json"))
+        // Serialize poster paths into repo-relative locations
+        var posterRefs: [String] = []
+        for (index, posterPath) in project.overviewPosterPaths.enumerated() {
+            guard !posterPath.isEmpty else { continue }
+            let ext = (posterPath as NSString).pathExtension.isEmpty ? "png" : (posterPath as NSString).pathExtension
+            let repoRelative = "assets/posters/poster-\(index).\(ext)"
+            posterRefs.append(repoRelative)
+        }
+        if !posterRefs.isEmpty {
+            (metadata["metadata"] as? NSMutableDictionary)?["poster_paths"] = posterRefs
+            // Since we used a literal dict, re-create with poster info
+            var meta = metadata
+            var innerMeta = meta["metadata"] as? [String: Any] ?? [:]
+            innerMeta["poster_paths"] = posterRefs
+            innerMeta["poster_current_index"] = project.overviewPosterCurrentIndex
+            meta["metadata"] = innerMeta
+            try writeJSON(meta, to: repoPath.appendingPathComponent(".directorschair/project.json"))
+        } else {
+            try writeJSON(metadata, to: repoPath.appendingPathComponent(".directorschair/project.json"))
+        }
     }
 
     // MARK: - Character Serialization
@@ -348,6 +393,49 @@ public struct GitSerializer: GitSerializerProtocol {
             "created_by": "directorschair-admin"
         ]
 
+        // Character image fields → repo-relative paths in images/{charName}/
+        let charImagesDir = "characters/images/\(filename)"
+        var imageMap: [String: String?] = [
+            "baseImage": character.baseImage,
+            "imageFront": character.imageFront,
+            "imageThreeQuarterLeft": character.imageThreeQuarterLeft,
+            "imageThreeQuarterRight": character.imageThreeQuarterRight,
+            "imageProfileLeft": character.imageProfileLeft,
+            "imageProfileRight": character.imageProfileRight,
+            "imageBackThreeQuarterLeft": character.imageBackThreeQuarterLeft,
+            "imageBackThreeQuarterRight": character.imageBackThreeQuarterRight,
+            "imageBack": character.imageBack,
+            "imageFaceCloseupFront": character.imageFaceCloseupFront,
+            "imageFaceCloseupThreeQuarter": character.imageFaceCloseupThreeQuarter,
+            "imageFaceCloseupProfile": character.imageFaceCloseupProfile,
+            "imageActionPose": character.imageActionPose,
+            "faceImageFront": character.faceImageFront,
+            "faceImageThreeQuarterLeft": character.faceImageThreeQuarterLeft,
+            "faceImageThreeQuarterRight": character.faceImageThreeQuarterRight,
+            "faceImageProfile": character.faceImageProfile,
+            "bodyImageFront": character.bodyImageFront,
+            "bodyImageThreeQuarterLeft": character.bodyImageThreeQuarterLeft,
+            "bodyImageThreeQuarterRight": character.bodyImageThreeQuarterRight,
+            "bodyImageProfile": character.bodyImageProfile,
+            "costumeImageFront": character.costumeImageFront,
+            "costumeImageThreeQuarterLeft": character.costumeImageThreeQuarterLeft,
+            "costumeImageThreeQuarterRight": character.costumeImageThreeQuarterRight,
+            "costumeImageProfile": character.costumeImageProfile,
+            "overviewPortrait": character.overviewPortrait,
+        ]
+
+        var imageRefs: [String: String] = [:]
+        for (key, localPath) in imageMap {
+            guard let localPath = localPath, !localPath.isEmpty else { continue }
+            let ext = (localPath as NSString).pathExtension.isEmpty ? "png" : (localPath as NSString).pathExtension
+            let repoRelative = "\(charImagesDir)/\(key).\(ext)"
+            imageRefs[key] = repoRelative
+        }
+
+        if !imageRefs.isEmpty {
+            charData["images"] = imageRefs
+        }
+
         try writeJSON(charData, to: repoPath.appendingPathComponent("characters/\(filename).json"))
 
         // Copy avatar if exists
@@ -356,6 +444,21 @@ public struct GitSerializer: GitSerializerProtocol {
             if fileManager.fileExists(atPath: srcAvatar.path) {
                 let dstAvatar = repoPath.appendingPathComponent("characters/avatars/\(filename).png")
                 try? fileManager.copyItem(at: srcAvatar, to: dstAvatar)
+            }
+        }
+
+        // Copy all character images into characters/images/{charName}/
+        if let basePath = basePath {
+            let dstImagesDir = repoPath.appendingPathComponent(charImagesDir)
+            try? fileManager.createDirectory(at: dstImagesDir, withIntermediateDirectories: true)
+
+            for (key, localPath) in imageMap {
+                guard let localPath = localPath, !localPath.isEmpty else { continue }
+                let srcFile = basePath.appendingPathComponent(localPath)
+                guard fileManager.fileExists(atPath: srcFile.path) else { continue }
+                let ext = srcFile.pathExtension.isEmpty ? "png" : srcFile.pathExtension
+                let dstFile = dstImagesDir.appendingPathComponent("\(key).\(ext)")
+                try? fileManager.copyItem(at: srcFile, to: dstFile)
             }
         }
     }
@@ -772,6 +875,145 @@ public struct GitSerializer: GitSerializerProtocol {
                 try? fileManager.copyItem(at: fileURL, to: dstPath)
             }
         }
+    }
+
+    /// Copy poster images from project base to repo assets/posters/
+    private func copyPosterImages(from basePath: URL, posterPaths: [String], to repoPath: URL) throws {
+        let postersDir = repoPath.appendingPathComponent("assets/posters")
+        try fileManager.createDirectory(at: postersDir, withIntermediateDirectories: true)
+
+        for (index, posterPath) in posterPaths.enumerated() {
+            guard !posterPath.isEmpty else { continue }
+            let srcFile = basePath.appendingPathComponent(posterPath)
+            guard fileManager.fileExists(atPath: srcFile.path) else { continue }
+            let ext = srcFile.pathExtension.isEmpty ? "png" : srcFile.pathExtension
+            let dstFile = postersDir.appendingPathComponent("poster-\(index).\(ext)")
+            try? fileManager.copyItem(at: srcFile, to: dstFile)
+        }
+    }
+
+    // MARK: - Webapp Compatibility
+
+    /// Generate a root-level project.json for webapp compatibility.
+    ///
+    /// Creates a combined JSON with metadata, characters, scenes, locations, and props
+    /// in the format expected by the webapp's ProjectService.
+    private func generateCompatProjectJSON(_ project: Project, to repoPath: URL) throws {
+        var metadata: [String: Any] = [
+            "title": project.name,
+            "logline": project.overviewLogline,
+            "tagline": project.overviewTagline,
+            "genre": project.genre,
+            "tone": "",
+            "setting": "",
+            "timePeriod": "",
+        ]
+
+        // Poster paths
+        var posterRefs: [String] = []
+        for (index, posterPath) in project.overviewPosterPaths.enumerated() {
+            guard !posterPath.isEmpty else { continue }
+            let ext = (posterPath as NSString).pathExtension.isEmpty ? "png" : (posterPath as NSString).pathExtension
+            posterRefs.append("assets/posters/poster-\(index).\(ext)")
+        }
+        if !posterRefs.isEmpty {
+            metadata["poster_paths"] = posterRefs
+            let idx = project.overviewPosterCurrentIndex < posterRefs.count ? project.overviewPosterCurrentIndex : 0
+            metadata["posterImageURL"] = posterRefs[idx]
+        }
+
+        // Characters
+        var chars: [[String: Any]] = []
+        for character in project.characters {
+            let filename = sanitizeFilename(character.name)
+            let charImagesDir = "characters/images/\(filename)"
+
+            // Best image URL for display
+            var imageURL = ""
+            if let path = character.overviewPortrait, !path.isEmpty {
+                let ext = (path as NSString).pathExtension.isEmpty ? "png" : (path as NSString).pathExtension
+                imageURL = "\(charImagesDir)/overviewPortrait.\(ext)"
+            } else if let path = character.imageFront, !path.isEmpty {
+                let ext = (path as NSString).pathExtension.isEmpty ? "png" : (path as NSString).pathExtension
+                imageURL = "\(charImagesDir)/imageFront.\(ext)"
+            } else if let path = character.baseImage, !path.isEmpty {
+                let ext = (path as NSString).pathExtension.isEmpty ? "png" : (path as NSString).pathExtension
+                imageURL = "\(charImagesDir)/baseImage.\(ext)"
+            }
+
+            chars.append([
+                "id": character.characterId,
+                "name": character.name,
+                "role": character.role,
+                "age": "\(character.age)",
+                "gender": character.gender,
+                "imageURL": imageURL,
+            ])
+        }
+
+        // Scenes
+        var scenes: [[String: Any]] = []
+        for sequence in project.sequences {
+            for scene in sequence.scenes {
+                // Extract unique character names from dialogues
+                var charNames = Set<String>()
+                for dialogue in scene.dialogues {
+                    if !dialogue.character.isEmpty {
+                        charNames.insert(dialogue.character)
+                    }
+                }
+                let sceneChars = charNames.sorted().map { ["name": $0] }
+
+                var sceneData: [String: Any] = [
+                    "id": scene.name,
+                    "slugline": scene.name,
+                    "setting": scene.location ?? "",
+                    "timeOfDay": "",
+                    "shots": scene.shots.map { ["id": $0.id] },
+                    "characters": sceneChars,
+                ]
+
+                if let analysis = scene.sceneEmotionalAnalysis {
+                    sceneData["emotionalAnalysis"] = analysis
+                }
+
+                // Element count from dialogues + actions + narrations
+                let elementCount = scene.dialogues.count + scene.actions.count + scene.narrations.count
+                sceneData["elements"] = Array(repeating: [String: Any](), count: elementCount)
+
+                scenes.append(sceneData)
+            }
+        }
+
+        // Locations
+        var locs: [[String: Any]] = []
+        for location in project.locations {
+            locs.append([
+                "id": location.name,
+                "name": location.name,
+                "type": location.locationType,
+                "description": location.description,
+            ])
+        }
+
+        // Props
+        var propsList: [[String: Any]] = []
+        for prop in project.props {
+            propsList.append([
+                "id": prop.name,
+                "name": prop.name,
+            ])
+        }
+
+        let projectJSON: [String: Any] = [
+            "metadata": metadata,
+            "characters": chars,
+            "scenes": scenes,
+            "locations": locs,
+            "props": propsList,
+        ]
+
+        try writeJSON(projectJSON, to: repoPath.appendingPathComponent("project.json"))
     }
 
     // MARK: - Deserialization Helpers

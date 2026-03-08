@@ -1244,7 +1244,7 @@ struct ProjectSettingsView: View {
         endDate = p.endDate
         defaultExpenseDepartment = p.defaultExpenseDepartment
         defaultExpenseAccountCode = p.defaultExpenseAccountCode
-        aiProxyURL = "http://localhost:8002"
+        aiProxyURL = "https://directorschair.app/ai"
         hasUnsavedChanges = false
     }
 

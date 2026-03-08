@@ -165,7 +165,7 @@ struct UsageStatsView: View {
         }
 
         // Fetch from API server
-        let baseURL = "http://localhost:8000"
+        let baseURL = "https://directorschair.app/ai"
         guard let url = URL(string: "\(baseURL)/api/usage/me") else {
             errorMessage = "Invalid server URL"
             return

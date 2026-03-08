@@ -19,8 +19,8 @@ public struct AuthConfiguration {
     public let localCallbackPort: Int
 
     public static let `default` = AuthConfiguration(
-        giteaBaseURL: "http://localhost:3000",
-        clientID: "da2d2a24-930d-4781-bcb2-73075e1a0152",
+        giteaBaseURL: "https://git.directorschair.app",
+        clientID: "c2091ed1-1094-4089-81ed-90a59ed4d307",
         redirectURI: "directorschair://oauth/callback",
         localCallbackPort: 19274
     )

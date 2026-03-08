@@ -137,9 +137,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var onboardingState: OnboardingState?
     var authManager: AuthManager?
 
-    /// Sparkle auto-update controller
+    /// Sparkle auto-update controller (disabled until appcast is configured)
     let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
+        startingUpdater: false,
         updaterDelegate: nil,
         userDriverDelegate: nil
     )

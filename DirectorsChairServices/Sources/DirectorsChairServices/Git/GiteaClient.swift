@@ -4,6 +4,7 @@
 // Handles all communication with the Gitea server for project collaboration
 
 import Foundation
+import CryptoKit
 import DirectorsChairCore
 
 // MARK: - Gitea Client
@@ -22,6 +23,7 @@ public actor GiteaClient: RemoteRepositoryProtocol {
     private let timeout: TimeInterval
 
     private let session: URLSession
+    private let lfsSession: URLSession
 
     // MARK: - Initialization
 
@@ -47,6 +49,11 @@ public actor GiteaClient: RemoteRepositoryProtocol {
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout * 2
         self.session = URLSession(configuration: config)
+
+        let lfsConfig = URLSessionConfiguration.default
+        lfsConfig.timeoutIntervalForRequest = 300
+        lfsConfig.timeoutIntervalForResource = 600
+        self.lfsSession = URLSession(configuration: lfsConfig)
     }
 
     // MARK: - RemoteRepositoryProtocol Implementation
@@ -805,6 +812,115 @@ public actor GiteaClient: RemoteRepositoryProtocol {
 
         return data
     }
+
+    // MARK: - Git LFS Support
+
+    /// Check if a file path matches LFS-tracked extensions.
+    public nonisolated static func isLFSFile(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty else { return false }
+        let lfsExts = ["png", "jpg", "jpeg", "gif", "bmp",
+                       "mp4", "mov", "avi", "mkv",
+                       "mp3", "wav", "aiff", "flac",
+                       "psd", "ai", "blend", "fbx"]
+        return lfsExts.contains(ext)
+    }
+
+    /// Upload binary data via Git LFS batch API and return the LFS pointer string.
+    ///
+    /// 1. Compute SHA-256 of the data
+    /// 2. POST to `/{owner}/{repo}.git/info/lfs/objects/batch` with operation "upload"
+    /// 3. If an upload action is returned, PUT the binary data to the provided href
+    /// 4. Return the LFS pointer string for the Contents API
+    public func lfsUpload(owner: String, repo: String, data: Data) async throws -> String {
+        let hash = SHA256.hash(data: data)
+        let oid = hash.compactMap { String(format: "%02x", $0) }.joined()
+        let size = data.count
+
+        // 1. Batch request to negotiate upload
+        let batchURL = baseURL
+            .appendingPathComponent("\(owner)/\(repo).git")
+            .appendingPathComponent("info/lfs/objects/batch")
+
+        var batchRequest = URLRequest(url: batchURL)
+        batchRequest.httpMethod = "POST"
+        batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Content-Type")
+        batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Accept")
+
+        if let token = token {
+            let prefix = useBearer ? "Bearer" : "token"
+            batchRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let batchBody: [String: Any] = [
+            "operation": "upload",
+            "transfers": ["basic"],
+            "objects": [
+                ["oid": oid, "size": size]
+            ]
+        ]
+        batchRequest.httpBody = try JSONSerialization.data(withJSONObject: batchBody)
+
+        let (batchData, batchResponse) = try await lfsSession.data(for: batchRequest)
+
+        guard let batchHTTP = batchResponse as? HTTPURLResponse,
+              (200...299).contains(batchHTTP.statusCode) else {
+            let statusCode = (batchResponse as? HTTPURLResponse)?.statusCode ?? 0
+            let body = String(data: batchData, encoding: .utf8) ?? ""
+            throw RemoteRepositoryError.serverError(statusCode, "LFS batch failed: \(body)")
+        }
+
+        let batchJSON = try JSONSerialization.jsonObject(with: batchData) as? [String: Any] ?? [:]
+        let objects = batchJSON["objects"] as? [[String: Any]] ?? []
+
+        // 2. Upload binary if server requests it
+        if let obj = objects.first,
+           let actions = obj["actions"] as? [String: Any],
+           let uploadAction = actions["upload"] as? [String: Any],
+           let hrefString = uploadAction["href"] as? String,
+           let uploadURL = URL(string: hrefString) {
+
+            var uploadRequest = URLRequest(url: uploadURL)
+            uploadRequest.httpMethod = "PUT"
+            uploadRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+
+            // Forward any headers the server specified
+            if let headers = uploadAction["header"] as? [String: String] {
+                for (key, value) in headers {
+                    uploadRequest.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+
+            // If no auth header was set by the server, add ours
+            if uploadRequest.value(forHTTPHeaderField: "Authorization") == nil, let token = token {
+                let prefix = useBearer ? "Bearer" : "token"
+                uploadRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+            }
+
+            uploadRequest.httpBody = data
+
+            let (_, uploadResponse) = try await lfsSession.data(for: uploadRequest)
+            guard let uploadHTTP = uploadResponse as? HTTPURLResponse,
+                  (200...299).contains(uploadHTTP.statusCode) else {
+                let code = (uploadResponse as? HTTPURLResponse)?.statusCode ?? 0
+                throw RemoteRepositoryError.serverError(code, "LFS upload PUT failed")
+            }
+        }
+        // If no upload action → object already exists on server (deduplication)
+
+        // 3. Return LFS pointer content
+        let pointer = """
+            version https://git-lfs.github.com/spec/v1
+            oid sha256:\(oid)
+            size \(size)
+
+            """
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+
+        return pointer
+    }
 }
 
 // MARK: - Convenience Factory
@@ -815,7 +931,7 @@ public actor GiteaClient: RemoteRepositoryProtocol {
 ///   - token: Authentication token
 /// - Returns: GiteaClient instance
 public func createGiteaClient(
-    serverURL: URL = URL(string: "http://localhost:3000")!,
+    serverURL: URL = URL(string: "https://git.directorschair.app")!,
     token: String? = nil
 ) -> GiteaClient {
     return GiteaClient(baseURL: serverURL, token: token)

@@ -248,7 +248,7 @@ class PreferencesManager: ObservableObject {
 
     // MARK: - AI > Connection
 
-    @AppStorage(PrefKey.aiProxyURL) var aiProxyURL: String = "http://localhost:8002"
+    @AppStorage(PrefKey.aiProxyURL) var aiProxyURL: String = "https://directorschair.app/ai"
     @AppStorage(PrefKey.aiTimeout) var aiTimeout: Double = 120
 
     // MARK: - AI > Defaults
@@ -373,7 +373,7 @@ class PreferencesManager: ObservableObject {
         resetShotColors()
 
         // AI
-        aiProxyURL = "http://localhost:8002"
+        aiProxyURL = "https://directorschair.app/ai"
         aiTimeout = 120
         aiTextProvider = "google"
         aiImageProvider = "google_imagen"
