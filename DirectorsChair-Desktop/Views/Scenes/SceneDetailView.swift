@@ -30,8 +30,11 @@ struct SceneDetailView: View {
     @State private var isHoveringHero = false
     @State private var showingFullSize = false
     @State private var showingPromptEditor = false
+    @State private var showingAnnotationEditor = false
     @State private var editablePrompt = ""
     @State private var lastUsedPrompt = ""
+    @State private var allOverviewImages: [URL] = []
+    @State private var currentImageIndex: Int = -1
 
     private var parsed: (prefix: String?, location: String, time: String?) {
         SceneCardHelpers.parseSceneLocation(scene.location)
@@ -54,12 +57,16 @@ struct SceneDetailView: View {
         .onAppear {
             loadHeroImage()
             lastUsedPrompt = scene.sceneOverviewPrompt ?? ""
+            discoverOverviewImages()
         }
         .onChange(of: scene.id) { _ in
             heroImage = nil
             isGeneratingImage = false
+            allOverviewImages = []
+            currentImageIndex = -1
             loadHeroImage()
             lastUsedPrompt = scene.sceneOverviewPrompt ?? ""
+            discoverOverviewImages()
         }
         .sheet(isPresented: $showingFullSize) {
             ScenePreviewFullSizeSheet(
@@ -77,6 +84,19 @@ struct SceneDetailView: View {
                     generateOverviewImage(with: prompt)
                 }
             )
+        }
+        .sheet(isPresented: $showingAnnotationEditor) {
+            if let image = heroImage {
+                ImageAnnotationEditor(
+                    image: image,
+                    title: "EDIT SCENE PREVIEW",
+                    subtitle: scene.name,
+                    isPresented: $showingAnnotationEditor,
+                    onApplyEdits: { annotations in
+                        generateOverviewWithAnnotations(annotations)
+                    }
+                )
+            }
         }
     }
 
@@ -119,7 +139,7 @@ struct SceneDetailView: View {
                         )
                     )
                     .overlay(alignment: .topTrailing) {
-                        if isHoveringHero {
+                        if isHoveringHero || isGeneratingImage {
                             heroControlButtons
                                 .padding(12)
                         }
@@ -160,6 +180,19 @@ struct SceneDetailView: View {
                             .font(.system(size: 42))
                             .foregroundColor(.secondary.opacity(0.3))
                     }
+                }
+            }
+
+            // Image history navigation
+            if allOverviewImages.count > 1 {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        imageHistoryNav
+                        Spacer()
+                    }
+                    .padding(.bottom, 8)
                 }
             }
 
@@ -220,19 +253,42 @@ struct SceneDetailView: View {
 
     private var heroControlButtons: some View {
         HStack(spacing: 6) {
-            heroControlButton(icon: "arrow.up.left.and.arrow.down.right", help: "View full size") {
-                showingFullSize = true
+            if !isGeneratingImage {
+                heroControlButton(icon: "arrow.up.left.and.arrow.down.right", help: "View full size") {
+                    showingFullSize = true
+                }
+                heroControlButton(icon: "pencil.and.outline", help: "Annotate & edit image") {
+                    showingAnnotationEditor = true
+                }
+                heroControlButton(icon: "text.badge.plus", help: "Edit prompt") {
+                    editablePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
+                    showingPromptEditor = true
+                }
+                heroControlButton(icon: "arrow.down.circle", help: "Download image") {
+                    downloadImage()
+                }
             }
-            heroControlButton(icon: "text.badge.plus", help: "Edit prompt") {
-                editablePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
-                showingPromptEditor = true
+
+            // Regenerate button with spinner during generation
+            Button(action: { generateOverviewImage() }) {
+                ZStack {
+                    if isGeneratingImage {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.6)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                }
+                .frame(width: 27, height: 27)
+                .background(isGeneratingImage ? Color.accentColor.opacity(0.8) : Color.black.opacity(0.6))
+                .clipShape(Circle())
             }
-            heroControlButton(icon: "arrow.down.circle", help: "Download image") {
-                downloadImage()
-            }
-            heroControlButton(icon: "arrow.clockwise", help: "Regenerate") {
-                generateOverviewImage()
-            }
+            .buttonStyle(.plain)
+            .disabled(isGeneratingImage)
+            .help(isGeneratingImage ? "Generating..." : "Regenerate")
         }
     }
 
@@ -247,6 +303,99 @@ struct SceneDetailView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+
+    // MARK: - Image History Navigation
+
+    private var imageHistoryNav: some View {
+        HStack(spacing: 10) {
+            Button {
+                if currentImageIndex > 0 {
+                    currentImageIndex -= 1
+                    loadImageAtIndex(currentImageIndex)
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(currentImageIndex > 0 ? .white : .white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+            .disabled(currentImageIndex <= 0)
+
+            Text("\(currentImageIndex + 1) / \(allOverviewImages.count)")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(.white)
+
+            Button {
+                if currentImageIndex < allOverviewImages.count - 1 {
+                    currentImageIndex += 1
+                    loadImageAtIndex(currentImageIndex)
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(currentImageIndex < allOverviewImages.count - 1 ? .white : .white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+            .disabled(currentImageIndex >= allOverviewImages.count - 1)
+
+            if currentImageIndex == allOverviewImages.count - 1 {
+                Text("Latest")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.7))
+                    .cornerRadius(4)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(20)
+    }
+
+    private func discoverOverviewImages() {
+        guard let basePath = projectBasePath else { return }
+        let sanitizedName = SceneCardHelpers.sanitizeFilename(scene.name)
+        let sceneDir = basePath
+            .appendingPathComponent("assets")
+            .appendingPathComponent("scenes")
+            .appendingPathComponent(sanitizedName)
+
+        guard FileManager.default.fileExists(atPath: sceneDir.path) else { return }
+
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: sceneDir, includingPropertiesForKeys: nil)
+            let images = contents
+                .filter { $0.pathExtension.lowercased() == "png" }
+                .filter { $0.lastPathComponent.hasPrefix("overview_") && $0.lastPathComponent != "overview_latest.png" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+            allOverviewImages = images
+            if !images.isEmpty {
+                currentImageIndex = images.count - 1 // default to latest
+            }
+        } catch {
+            // Directory doesn't exist or can't be read
+        }
+    }
+
+    private func loadImageAtIndex(_ index: Int) {
+        guard index >= 0, index < allOverviewImages.count else { return }
+        let url = allOverviewImages[index]
+        let cacheKey = url.path
+
+        if let cached = SceneImageCache.shared.image(forKey: cacheKey) {
+            heroImage = cached
+            return
+        }
+
+        Task.detached(priority: .utility) {
+            guard let image = NSImage(contentsOf: url) else { return }
+            SceneImageCache.shared.setImage(image, forKey: cacheKey)
+            await MainActor.run { heroImage = image }
+        }
     }
 
     private var statusBadge: some View {
@@ -931,11 +1080,21 @@ struct SceneDetailView: View {
                     onImageGenerated?(relativePath)
                     onPromptUsed?(prompt)
                     isGeneratingImage = false
+                    discoverOverviewImages()
                 }
             } catch {
                 await MainActor.run { isGeneratingImage = false }
             }
         }
+    }
+
+    // MARK: - Generate With Annotations
+
+    private func generateOverviewWithAnnotations(_ annotations: [KeyframeAnnotation]) {
+        let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "scene preview")
+        let basePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
+        let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
+        generateOverviewImage(with: combinedPrompt)
     }
 
     // MARK: - Download

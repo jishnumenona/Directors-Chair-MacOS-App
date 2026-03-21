@@ -28,6 +28,7 @@ struct ProjectInfo: Identifiable {
     let projectType: String
     let posterPath: URL?
     let shotCount: Int
+    let isExample: Bool
 
     /// Display-friendly last modified string
     var lastModifiedString: String {
@@ -65,6 +66,15 @@ struct ProjectInfo: Identifiable {
     }
 }
 
+// MARK: - Download State
+
+enum ExampleDownloadState: Equatable {
+    case notDownloaded
+    case downloading
+    case downloaded
+    case failed(String)
+}
+
 // MARK: - Projects Explorer View
 
 struct ProjectsExplorerView: View {
@@ -86,10 +96,23 @@ struct ProjectsExplorerView: View {
     @State private var showingImportSuccess = false
     @StateObject private var importProgress = ImportProgressTracker()
 
+    // Example project state
+    @State private var exampleDownloadStates: [String: ExampleDownloadState] = [:]
+    @State private var showingExampleError = false
+    @State private var exampleErrorMessage = ""
+    @State private var hoveredExampleId: String?
+
     // Grid layout — wider for poster cards
     private let columns = [
         GridItem(.adaptive(minimum: 260, maximum: 320), spacing: 20)
     ]
+
+    /// Examples that haven't been downloaded yet
+    private var uninstalledExamples: [ExampleProjectDefinition] {
+        ExampleProjectManager.shared.examples.filter { example in
+            !ExampleProjectManager.shared.isInstalled(example)
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -157,56 +180,106 @@ struct ProjectsExplorerView: View {
                 Text("Successfully imported \(stats.sceneCount) scenes, \(stats.shotCount) shots, \(stats.dialogueCount) dialogues, \(stats.actionCount) actions, \(stats.characterCount) characters, \(stats.propCount) props, and \(stats.locationCount) locations.")
             }
         }
+        .alert("Download Error", isPresented: $showingExampleError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exampleErrorMessage)
+        }
     }
 
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: 28) {
-            Image(systemName: "clapperboard")
-                .font(.system(size: 64))
-                .foregroundStyle(.linearGradient(
-                    colors: [.accentColor, .accentColor.opacity(0.5)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ))
+        ScrollView {
+            VStack(spacing: 28) {
+                Spacer(minLength: 60)
 
-            VStack(spacing: 8) {
-                Text("Start Your First Production")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                Image(systemName: "clapperboard")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.linearGradient(
+                        colors: [.accentColor, .accentColor.opacity(0.5)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
 
-                Text("Create a new project or import a screenplay to begin")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-            }
+                VStack(spacing: 8) {
+                    Text("Start Your First Production")
+                        .font(.title2)
+                        .fontWeight(.bold)
 
-            HStack(spacing: 14) {
-                Button(action: { showingNewProjectSheet = true }) {
-                    Label("New Project", systemImage: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .clipShape(Capsule())
+                    Text("Create a new project or import a screenplay to begin")
+                        .font(.body)
+                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
 
-                Button(action: { showingImportPicker = true }) {
-                    Label("Import Screenplay", systemImage: "doc.text")
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color(nsColor: .controlBackgroundColor))
-                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
-                        .clipShape(Capsule())
+                HStack(spacing: 14) {
+                    Button(action: { showingNewProjectSheet = true }) {
+                        Label("New Project", systemImage: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { showingImportPicker = true }) {
+                        Label("Import Screenplay", systemImage: "doc.text")
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .overlay(Capsule().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isImporting)
                 }
-                .buttonStyle(.plain)
-                .disabled(isImporting)
+
+                // Example projects section in empty state
+                if !ExampleProjectManager.shared.examples.isEmpty {
+                    VStack(spacing: 16) {
+                        HStack {
+                            Rectangle()
+                                .fill(Color(nsColor: .separatorColor).opacity(0.4))
+                                .frame(height: 1)
+                            Text("Or explore an example")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .fixedSize()
+                            Rectangle()
+                                .fill(Color(nsColor: .separatorColor).opacity(0.4))
+                                .frame(height: 1)
+                        }
+                        .padding(.horizontal, 40)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 14) {
+                                ForEach(ExampleProjectManager.shared.examples) { example in
+                                    ExampleDownloadCard(
+                                        example: example,
+                                        downloadState: exampleDownloadStates[example.id] ?? .notDownloaded,
+                                        isHovered: hoveredExampleId == example.id,
+                                        onDownload: { downloadExample(example) }
+                                    )
+                                    .onHover { hovering in
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            hoveredExampleId = hovering ? example.id : nil
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 40)
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+
+                Spacer(minLength: 40)
             }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Projects Grid
@@ -292,7 +365,48 @@ struct ProjectsExplorerView: View {
                     }
                 }
                 .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+
+                // Example Projects section (only if some are uninstalled)
+                if !uninstalledExamples.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(.cyan)
+                            Text("EXAMPLE PROJECTS")
+                                .font(.system(size: 9, weight: .semibold))
+                                .tracking(1.2)
+                                .foregroundColor(.cyan)
+                        }
+
+                        Text("Download example projects to explore Director's Chair features")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 14) {
+                                ForEach(uninstalledExamples) { example in
+                                    ExampleDownloadCard(
+                                        example: example,
+                                        downloadState: exampleDownloadStates[example.id] ?? .notDownloaded,
+                                        isHovered: hoveredExampleId == example.id,
+                                        onDownload: { downloadExample(example) }
+                                    )
+                                    .onHover { hovering in
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            hoveredExampleId = hovering ? example.id : nil
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                }
+
+                Spacer(minLength: 24)
             }
         }
     }
@@ -361,6 +475,10 @@ struct ProjectsExplorerView: View {
                 guard FileManager.default.fileExists(atPath: projectFile.path) else {
                     return nil
                 }
+
+                // Check for .example marker
+                let markerFile = dir.appendingPathComponent(".example")
+                let isExample = FileManager.default.fileExists(atPath: markerFile.path)
 
                 // Get file attributes
                 let attrs = try? FileManager.default.attributesOfItem(atPath: projectFile.path)
@@ -454,7 +572,8 @@ struct ProjectsExplorerView: View {
                     tagline: tagline,
                     projectType: projectType,
                     posterPath: posterPath,
-                    shotCount: shotCount
+                    shotCount: shotCount,
+                    isExample: isExample
                 )
             }
 
@@ -496,6 +615,25 @@ struct ProjectsExplorerView: View {
 
         // Navigate to Overview after creating
         coordinator.navigateTo(.overview)
+    }
+
+    // MARK: - Example Download
+
+    private func downloadExample(_ example: ExampleProjectDefinition) {
+        exampleDownloadStates[example.id] = .downloading
+
+        Task {
+            do {
+                _ = try await ExampleProjectManager.shared.downloadAndInstall(example)
+                exampleDownloadStates[example.id] = .downloaded
+                // Refresh project list to show the new example
+                discoverProjects()
+            } catch {
+                exampleDownloadStates[example.id] = .failed(error.localizedDescription)
+                exampleErrorMessage = error.localizedDescription
+                showingExampleError = true
+            }
+        }
     }
 
     // MARK: - Screenplay Import
@@ -567,6 +705,149 @@ struct ProjectsExplorerView: View {
     }
 }
 
+// MARK: - Example Download Card
+
+struct ExampleDownloadCard: View {
+    let example: ExampleProjectDefinition
+    let downloadState: ExampleDownloadState
+    let isHovered: Bool
+    let onDownload: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Icon + type badge row
+            HStack(spacing: 8) {
+                Image(systemName: example.iconName)
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundColor(.cyan)
+                    .frame(width: 28, height: 28)
+
+                Spacer()
+
+                Text(example.projectType)
+                    .font(.system(size: 8, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundColor(.cyan)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.cyan.opacity(0.15))
+                    .clipShape(Capsule())
+            }
+
+            // Name
+            Text(example.name)
+                .font(.system(size: 13, weight: .bold))
+                .lineLimit(1)
+
+            // Tagline
+            Text(example.tagline)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Stats row
+            HStack(spacing: 8) {
+                miniStat(icon: "film", value: "\(example.sceneCount)")
+                miniStat(icon: "person.2", value: "\(example.characterCount)")
+                miniStat(icon: "camera", value: "\(example.shotCount)")
+                Spacer()
+                Text("\(example.fileSizeKB) KB")
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+            }
+
+            // Download button
+            downloadButton
+        }
+        .padding(14)
+        .frame(width: 220)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(
+                    isHovered ? Color.cyan.opacity(0.6) : Color(nsColor: .separatorColor).opacity(0.3),
+                    lineWidth: isHovered ? 1.5 : 1
+                )
+        )
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+
+    @ViewBuilder
+    private var downloadButton: some View {
+        switch downloadState {
+        case .notDownloaded:
+            Button(action: onDownload) {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 11))
+                    Text("Download")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(Color.cyan.opacity(0.15))
+                .foregroundColor(.cyan)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+
+        case .downloading:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Downloading...")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+
+        case .downloaded:
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                Text("Downloaded")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .foregroundColor(.green)
+
+        case .failed:
+            Button(action: onDownload) {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11))
+                    Text("Retry")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(Color.red.opacity(0.1))
+                .foregroundColor(.red)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func miniStat(icon: String, value: String) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: icon)
+                .font(.system(size: 8))
+                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+            Text(value)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
 // MARK: - Project Card
 
 struct ProjectCard: View {
@@ -575,6 +856,11 @@ struct ProjectCard: View {
     let onOpen: () -> Void
 
     private let posterHeight: CGFloat = 170
+
+    /// Tint color — cyan for examples, accent for regular
+    private var tintColor: Color {
+        project.isExample ? .cyan : Color.accentColor
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -591,13 +877,13 @@ struct ProjectCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(
-                    isHovered ? Color.accentColor.opacity(0.8) : Color(nsColor: .separatorColor).opacity(0.3),
+                    isHovered ? tintColor.opacity(0.8) : Color(nsColor: .separatorColor).opacity(0.3),
                     lineWidth: isHovered ? 2 : 1
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(
-            color: isHovered ? Color.accentColor.opacity(0.15) : .black.opacity(0.06),
+            color: isHovered ? tintColor.opacity(0.15) : .black.opacity(0.06),
             radius: isHovered ? 12 : 4,
             y: isHovered ? 4 : 2
         )
@@ -634,8 +920,8 @@ struct ProjectCard: View {
                 ZStack {
                     LinearGradient(
                         colors: [
-                            Color.accentColor.opacity(0.7),
-                            Color.accentColor.opacity(0.2),
+                            tintColor.opacity(0.7),
+                            tintColor.opacity(0.2),
                             Color(nsColor: .controlBackgroundColor)
                         ],
                         startPoint: .topLeading,
@@ -674,7 +960,7 @@ struct ProjectCard: View {
                         .clipShape(Capsule())
                 }
 
-                if !project.status.isEmpty {
+                if !project.isExample && !project.status.isEmpty {
                     Text(project.status)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(.white)
@@ -685,6 +971,22 @@ struct ProjectCard: View {
                 }
 
                 Spacer()
+
+                // Example badge
+                if project.isExample {
+                    HStack(spacing: 3) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 7))
+                        Text("EXAMPLE")
+                            .font(.system(size: 8, weight: .bold))
+                            .tracking(0.5)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.cyan.opacity(0.85))
+                    .clipShape(Capsule())
+                }
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 8)
@@ -725,7 +1027,12 @@ struct ProjectCard: View {
                 Spacer()
                 statItem(icon: "camera", value: "\(project.shotCount)", label: "shots")
                 Spacer()
-                statItem(icon: "clock", value: project.lastModifiedString, label: "")
+                if project.isExample && !project.projectType.isEmpty {
+                    // Show project type instead of last modified for examples
+                    statItem(icon: "tag", value: project.projectType, label: "")
+                } else {
+                    statItem(icon: "clock", value: project.lastModifiedString, label: "")
+                }
             }
             .padding(.top, 2)
 
@@ -739,7 +1046,7 @@ struct ProjectCard: View {
                         Spacer()
                     }
                     .padding(.vertical, 7)
-                    .background(Color.accentColor)
+                    .background(tintColor)
                     .foregroundColor(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }

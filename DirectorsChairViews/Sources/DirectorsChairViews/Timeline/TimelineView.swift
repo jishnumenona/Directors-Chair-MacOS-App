@@ -46,6 +46,18 @@ public struct TimelineView: View {
     /// Callback when multiple segments are dragged together (batch move)
     public var onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)?
 
+    /// Callback when the Analyze button is clicked
+    public var onAnalyzeTimeline: (() -> Void)?
+
+    /// Callback when TTS audio should be generated for a dialogue segment
+    public var onGenerateAudio: ((TimelineSegment) -> Void)?
+
+    /// Callback when TTS audio should be played for a dialogue segment
+    public var onPlayAudio: ((TimelineSegment) -> Void)?
+
+    /// Callback when TTS audio playback should stop
+    public var onStopAudio: (() -> Void)?
+
     // MARK: - Init
 
     public init(
@@ -60,7 +72,11 @@ public struct TimelineView: View {
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
         onShotLabelResized: ((Int, String, CGFloat) -> Void)? = nil,
         onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)? = nil,
-        onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)? = nil
+        onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)? = nil,
+        onAnalyzeTimeline: (() -> Void)? = nil,
+        onGenerateAudio: ((TimelineSegment) -> Void)? = nil,
+        onPlayAudio: ((TimelineSegment) -> Void)? = nil,
+        onStopAudio: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.projectBasePath = projectBasePath
@@ -74,9 +90,44 @@ public struct TimelineView: View {
         self.onShotLabelResized = onShotLabelResized
         self.onSegmentMoved = onSegmentMoved
         self.onSegmentsMoved = onSegmentsMoved
+        self.onAnalyzeTimeline = onAnalyzeTimeline
+        self.onGenerateAudio = onGenerateAudio
+        self.onPlayAudio = onPlayAudio
+        self.onStopAudio = onStopAudio
     }
 
-    // MARK: - Computed Header Height
+    // MARK: - Computed Layout
+
+    /// Total content height of all track lanes (for scroll range calculation)
+    private func totalTracksContentHeight() -> CGFloat {
+        var seen = Set<String>()
+        var order: [String] = []
+        // Characters with segments
+        for segment in viewModel.visibleSegments {
+            if !seen.contains(segment.character) {
+                seen.insert(segment.character)
+                order.append(segment.character)
+            }
+        }
+        // All project characters (even without segments in current scope)
+        for name in viewModel.allCharacterNames {
+            if !seen.contains(name) {
+                seen.insert(name)
+                order.append(name)
+            }
+        }
+        let heights: [CGFloat] = order.map { character in
+            if viewModel.hiddenTracks.contains(character) {
+                return TimelineLayoutConstants.collapsedRowHeight
+            }
+            let subLaneCount = viewModel.laneSubLaneCounts[character] ?? 1
+            return CGFloat(subLaneCount) * TimelineLayoutConstants.subLaneHeight
+        }
+        let lanesHeight = heights.reduce(0, +)
+        let gapsHeight = CGFloat(max(0, heights.count - 1)) * TimelineLayoutConstants.rowGap
+        let contentHeight = lanesHeight + gapsHeight + TimelineLayoutConstants.bottomPadding
+        return max(TimelineLayoutConstants.minCanvasHeight, contentHeight)
+    }
 
     /// Height of the fixed header area (scope markers + ruler + ruler gap + shot lane)
     private var headerHeight: CGFloat {
@@ -89,75 +140,60 @@ public struct TimelineView: View {
                shotLaneOffset
     }
 
+    // MARK: - State
+
+    /// Virtual vertical scroll offset for tracks (avoids nested ScrollView issues)
+    @State private var tracksVerticalOffset: CGFloat = 0
+
     // MARK: - Body
 
     public var body: some View {
         GeometryReader { outerGeometry in
             VStack(spacing: 8) {
                 // Control buttons row
-                TimelineControlsView(viewModel: viewModel, viewportWidth: outerGeometry.size.width)
+                TimelineControlsView(viewModel: viewModel, viewportWidth: outerGeometry.size.width, onAnalyzeTimeline: onAnalyzeTimeline)
+                    .onAppear { viewModel.viewportWidth = outerGeometry.size.width }
+                    .onChange(of: outerGeometry.size.width) { _, w in viewModel.viewportWidth = w }
 
-                // Timeline area: fixed header + vertically-scrollable tracks
+                // Timeline area: fixed header + tracks canvas
                 GeometryReader { geometry in
-                    let availableTrackHeight = max(0, geometry.size.height - headerHeight)
+                    // Ensure tracks always get at least some minimum height,
+                    // capping the header when the panel is too small
+                    let minTrackHeight: CGFloat = 100
+                    let naturalHeaderHeight = headerHeight
+                    let effectiveHeaderHeight: CGFloat = geometry.size.height >= naturalHeaderHeight + minTrackHeight
+                        ? naturalHeaderHeight
+                        : max(0, geometry.size.height - minTrackHeight)
+                    let availableTrackHeight: CGFloat = geometry.size.height >= naturalHeaderHeight + minTrackHeight
+                        ? geometry.size.height - naturalHeaderHeight
+                        : min(minTrackHeight, geometry.size.height)
 
                     ScrollView(.horizontal, showsIndicators: true) {
                         VStack(spacing: 0) {
                             // Fixed header: time ruler, shot labels, scope marker labels
                             makeHeaderCanvas(geometry: geometry)
+                                .frame(height: effectiveHeaderHeight)
+                                .clipped()
 
-                            // Vertically-scrollable tracks: character lanes + segments
-                            ScrollView(.vertical, showsIndicators: true) {
-                                TimelineCanvas(
-                                    segments: viewModel.visibleSegments,
-                                    markers: viewModel.visibleMarkers,
-                                    sceneBoundaries: viewModel.sceneBoundaries,
-                                    sequenceBoundaries: viewModel.sequenceBoundaries,
-                                    playheadTime: viewModel.playheadTime,
-                                    pxPerSec: viewModel.pxPerSec,
-                                    showThumbs: viewModel.showThumbs,
-                                    mode: viewModel.mode,
-                                    projectBasePath: projectBasePath,
-                                    viewportSize: geometry.size,
-                                    hiddenTracks: viewModel.hiddenTracks,
-                                    subLaneAssignments: viewModel.subLaneAssignments,
-                                    laneSubLaneCounts: viewModel.laneSubLaneCounts,
-                                    shotDialogueConnections: viewModel.shotDialogueConnections,
-                                    showShotConnections: viewModel.showShotConnections,
-                                    selectedShotLabelId: viewModel.selectedShotLabelId,
-                                    selectedSegmentIds: $viewModel.selectedSegmentIds,
-                                    viewportOffset: $viewModel.viewportOffset,
-                                    onSegmentSelected: { segment in
-                                        onSegmentClicked?(segment)
-                                    },
-                                    onSegmentDoubleClicked: { segment in
-                                        onSegmentDoubleClicked?(segment)
-                                    },
-                                    onOptionClickSegment: { segment in
-                                        onOptionClickSegment?(segment)
-                                    },
-                                    onTrackToggled: { trackName in
-                                        viewModel.toggleTrackVisibility(trackName)
-                                    },
-                                    onSegmentMoved: { segment, newTime in
-                                        viewModel.moveSegment(id: segment.id, newStart: newTime)
-                                        onSegmentMoved?(segment, newTime)
-                                    },
-                                    onSegmentsMoved: { moves in
-                                        let tuples = moves.map { (segment: $0.0, newStart: $0.1) }
-                                        viewModel.moveSegments(tuples)
-                                        onSegmentsMoved?(moves)
-                                    }
-                                )
-                                .gesture(magnificationGesture)
-                            }
-                            .frame(height: availableTrackHeight)
+                            // Tracks canvas with virtual vertical scrolling
+                            // (no nested ScrollView — offset-based scrolling within Canvas)
+                            makeTimelineCanvas(geometry: geometry)
+                            .gesture(magnificationGesture)
                         }
                         .background(
                             // Invisible helper inside scroll content — finds enclosing NSScrollView
                             TimelineScrollHelper(
                                 scrollOffset: viewModel.viewportOffset.x,
                                 trigger: viewModel.scrollRequestId
+                            )
+                        )
+                        .background(
+                            // Vertical scroll helper — captures scroll wheel events
+                            // within the enclosing NSScrollView and updates virtual track offset
+                            TrackVerticalScrollHelper(
+                                verticalOffset: $tracksVerticalOffset,
+                                contentHeight: totalTracksContentHeight(),
+                                viewportHeight: availableTrackHeight
                             )
                         )
                     }
@@ -173,6 +209,13 @@ public struct TimelineView: View {
             .background(Color(hex: "#262626") ?? .black)
             .onAppear {
                 UserDefaults.standard.set(0, forKey: "NSInitialToolTipDelay")
+            }
+            .onChange(of: viewModel.visibleSegments) { _, _ in
+                // Clamp vertical offset when content changes (e.g. scene switch)
+                let maxOffset = max(0, totalTracksContentHeight() - 100)
+                if tracksVerticalOffset > maxOffset {
+                    tracksVerticalOffset = maxOffset
+                }
             }
         }
     }
@@ -226,10 +269,10 @@ public struct TimelineView: View {
                 viewModel.moveSequenceBoundary(name: name, newTime: newTime)
             },
             onRulerClicked: { x in
-                viewModel.togglePlayhead(at: x)
+                viewModel.seekPlayheadFromX(x)
             },
             onPlayheadDragged: { x in
-                viewModel.setPlayheadFromX(x)
+                viewModel.seekPlayheadFromX(x)
             },
             onMarkerDeleted: { id in
                 viewModel.deleteUserMarker(id: id)
@@ -241,6 +284,181 @@ public struct TimelineView: View {
                 viewModel.addUserMarker(at: time, label: label, icon: icon, color: color)
             }
         )
+    }
+
+    /// Extracted to reduce body expression complexity for the Swift type-checker
+    private func makeTimelineCanvas(geometry: GeometryProxy) -> some View {
+        let minTrackHeight: CGFloat = 100
+        let naturalHeaderHeight = headerHeight
+        let computedTrackHeight: CGFloat = geometry.size.height >= naturalHeaderHeight + minTrackHeight
+            ? geometry.size.height - naturalHeaderHeight
+            : min(minTrackHeight, geometry.size.height)
+
+        var canvas = TimelineCanvas(
+            segments: viewModel.visibleSegments,
+            markers: viewModel.visibleMarkers,
+            sceneBoundaries: viewModel.sceneBoundaries,
+            sequenceBoundaries: viewModel.sequenceBoundaries,
+            playheadTime: viewModel.playheadTime,
+            pxPerSec: viewModel.pxPerSec,
+            showThumbs: viewModel.showThumbs,
+            mode: viewModel.mode,
+            projectBasePath: projectBasePath,
+            viewportSize: geometry.size,
+            hiddenTracks: viewModel.hiddenTracks,
+            subLaneAssignments: viewModel.subLaneAssignments,
+            laneSubLaneCounts: viewModel.laneSubLaneCounts,
+            shotDialogueConnections: viewModel.shotDialogueConnections,
+            showShotConnections: viewModel.showShotConnections,
+            selectedShotLabelId: viewModel.selectedShotLabelId,
+            allCharacterNames: viewModel.allCharacterNames,
+            verticalOffset: tracksVerticalOffset,
+            availableHeight: computedTrackHeight,
+            selectedSegmentIds: $viewModel.selectedSegmentIds,
+            viewportOffset: $viewModel.viewportOffset,
+            onSegmentSelected: { segment in
+                onSegmentClicked?(segment)
+            },
+            onSegmentDoubleClicked: { segment in
+                onSegmentDoubleClicked?(segment)
+            },
+            onOptionClickSegment: { segment in
+                onOptionClickSegment?(segment)
+            },
+            onTrackToggled: { trackName in
+                viewModel.toggleTrackVisibility(trackName)
+            },
+            onSegmentMoved: { segment, newTime in
+                viewModel.moveSegment(id: segment.id, newStart: newTime)
+                onSegmentMoved?(segment, newTime)
+            },
+            onSegmentsMoved: { moves in
+                let tuples = moves.map { (segment: $0.0, newStart: $0.1) }
+                viewModel.moveSegments(tuples)
+                onSegmentsMoved?(moves)
+            }
+        )
+        canvas.generatingAudioSourceIds = viewModel.generatingAudioSourceIds
+        canvas.playingAudioSourceId = viewModel.playingAudioSourceId
+        canvas.onEmptySpaceClicked = { x in
+            viewModel.seekPlayheadFromX(x)
+        }
+        canvas.onSegmentRightClicked = { segment, point, nsView in
+            let menu = NSMenu()
+
+            if segment.contentType == .dialogue, let sourceId = segment.sourceItemId {
+                let isGenerating = viewModel.generatingAudioSourceIds.contains(sourceId)
+                let isPlaying = viewModel.playingAudioSourceId == sourceId
+
+                if isGenerating {
+                    let item = NSMenuItem(title: "Generating...", action: nil, keyEquivalent: "")
+                    item.isEnabled = false
+                    item.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: nil)
+                    menu.addItem(item)
+                } else if isPlaying {
+                    let stopItem = NSMenuItem(title: "Stop Voice", action: nil, keyEquivalent: "")
+                    stopItem.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
+                    let stopHandler = TrackMenuHandler { [weak viewModel] in
+                        viewModel?.playingAudioSourceId = nil
+                        self.onStopAudio?()
+                    }
+                    stopItem.target = stopHandler
+                    stopItem.action = #selector(TrackMenuHandler.execute)
+                    stopItem.representedObject = stopHandler
+                    menu.addItem(stopItem)
+                } else if segment.hasAudio {
+                    let playItem = NSMenuItem(title: "Play Voice", action: nil, keyEquivalent: "")
+                    playItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+                    let playHandler = TrackMenuHandler {
+                        self.onPlayAudio?(segment)
+                    }
+                    playItem.target = playHandler
+                    playItem.action = #selector(TrackMenuHandler.execute)
+                    playItem.representedObject = playHandler
+                    menu.addItem(playItem)
+
+                    let regenItem = NSMenuItem(title: "Regenerate Voice", action: nil, keyEquivalent: "")
+                    regenItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+                    let regenHandler = TrackMenuHandler {
+                        self.onGenerateAudio?(segment)
+                    }
+                    regenItem.target = regenHandler
+                    regenItem.action = #selector(TrackMenuHandler.execute)
+                    regenItem.representedObject = regenHandler
+                    menu.addItem(regenItem)
+                } else {
+                    let genItem = NSMenuItem(title: "Generate Voice", action: nil, keyEquivalent: "")
+                    genItem.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)
+                    let genHandler = TrackMenuHandler {
+                        self.onGenerateAudio?(segment)
+                    }
+                    genItem.target = genHandler
+                    genItem.action = #selector(TrackMenuHandler.execute)
+                    genItem.representedObject = genHandler
+                    menu.addItem(genItem)
+                }
+
+                menu.addItem(NSMenuItem.separator())
+            }
+
+            // Always include track mute option
+            let character = segment.character
+            let isMuted = viewModel.mutedTracks.contains(character)
+            let muteItem = NSMenuItem(
+                title: isMuted ? "Unmute \"\(character)\" TTS" : "Mute \"\(character)\" TTS",
+                action: nil,
+                keyEquivalent: ""
+            )
+            muteItem.image = NSImage(systemSymbolName: isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill", accessibilityDescription: nil)
+            let muteHandler = TrackMenuHandler {
+                if isMuted {
+                    viewModel.mutedTracks.remove(character)
+                } else {
+                    viewModel.mutedTracks.insert(character)
+                }
+                viewModel.onTrackMuteToggled?(character)
+            }
+            muteItem.target = muteHandler
+            muteItem.action = #selector(TrackMenuHandler.execute)
+            muteItem.representedObject = muteHandler
+            menu.addItem(muteItem)
+
+            let screenPoint = nsView.window?.convertPoint(toScreen: nsView.convert(
+                CGPoint(x: point.x, y: nsView.bounds.height - point.y), to: nil
+            )) ?? NSEvent.mouseLocation
+            menu.popUp(positioning: nil, at: screenPoint, in: nil)
+        }
+        canvas.onTrackRightClicked = { character, point, nsView in
+            let isMuted = viewModel.mutedTracks.contains(character)
+            let menu = NSMenu()
+
+            let muteItem = NSMenuItem(
+                title: isMuted ? "Unmute \"\(character)\" TTS" : "Mute \"\(character)\" TTS",
+                action: nil,
+                keyEquivalent: ""
+            )
+            let muteIcon = NSImage(systemSymbolName: isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill", accessibilityDescription: nil)
+            muteItem.image = muteIcon
+
+            let handler = TrackMenuHandler {
+                if isMuted {
+                    viewModel.mutedTracks.remove(character)
+                } else {
+                    viewModel.mutedTracks.insert(character)
+                }
+                viewModel.onTrackMuteToggled?(character)
+            }
+            muteItem.target = handler
+            muteItem.action = #selector(TrackMenuHandler.execute)
+            muteItem.representedObject = handler
+            menu.addItem(muteItem)
+
+            let screenPoint = nsView.window?.convertPoint(toScreen: nsView.convert(
+                CGPoint(x: point.x, y: nsView.bounds.height - point.y), to: nil
+            )) ?? NSEvent.mouseLocation
+            menu.popUp(positioning: nil, at: screenPoint, in: nil)
+        }
+        return canvas
     }
 
     // MARK: - Gestures
@@ -260,6 +478,7 @@ public struct TimelineView: View {
 struct TimelineControlsView: View {
     @ObservedObject var viewModel: TimelineViewModel
     var viewportWidth: CGFloat = 800
+    var onAnalyzeTimeline: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 4) {
@@ -508,6 +727,22 @@ struct TimelineControlsView: View {
                 }
                 .toggleStyle(.checkbox)
                 .help("Show custom markers on timeline")
+
+                if let onAnalyze = onAnalyzeTimeline {
+                    Divider()
+                        .frame(height: 20)
+
+                    Button(action: onAnalyze) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 11))
+                            Text("Analyze")
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .help("AI-analyze timeline organization")
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -602,6 +837,104 @@ private extension NSView {
     }
 }
 
+// MARK: - Track Vertical Scroll Helper
+
+/// NSViewRepresentable placed as `.background` inside the horizontal ScrollView content.
+/// Uses a local event monitor to capture scroll wheel events within the enclosing
+/// NSScrollView's bounds and updates a virtual vertical offset for the tracks canvas.
+private struct TrackVerticalScrollHelper: NSViewRepresentable {
+    @Binding var verticalOffset: CGFloat
+    let contentHeight: CGFloat
+    let viewportHeight: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> TrackVerticalScrollNSView {
+        let view = TrackVerticalScrollNSView()
+        view.coordinator = context.coordinator
+        context.coordinator.update(
+            verticalOffset: $verticalOffset,
+            contentHeight: contentHeight,
+            viewportHeight: viewportHeight
+        )
+        return view
+    }
+
+    func updateNSView(_ nsView: TrackVerticalScrollNSView, context: Context) {
+        context.coordinator.update(
+            verticalOffset: $verticalOffset,
+            contentHeight: contentHeight,
+            viewportHeight: viewportHeight
+        )
+    }
+
+    class Coordinator {
+        var verticalOffsetBinding: Binding<CGFloat>?
+        var contentHeight: CGFloat = 0
+        var viewportHeight: CGFloat = 0
+
+        func update(verticalOffset: Binding<CGFloat>, contentHeight: CGFloat, viewportHeight: CGFloat) {
+            self.verticalOffsetBinding = verticalOffset
+            self.contentHeight = contentHeight
+            self.viewportHeight = viewportHeight
+        }
+
+        func handleScroll(deltaY: CGFloat) {
+            guard let binding = verticalOffsetBinding else { return }
+            let maxOffset = max(0, contentHeight - viewportHeight)
+            guard maxOffset > 0 else { return }
+            let newOffset = binding.wrappedValue - deltaY
+            binding.wrappedValue = min(maxOffset, max(0, newOffset))
+        }
+    }
+
+    /// NSView placed as background inside scroll content. Uses enclosing NSScrollView
+    /// for reliable bounds checking of scroll wheel events.
+    class TrackVerticalScrollNSView: NSView {
+        var coordinator: Coordinator?
+        private var scrollMonitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil && scrollMonitor == nil {
+                scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                    self?.handleScrollWheel(event)
+                    return event // Always pass through for horizontal ScrollView
+                }
+            }
+        }
+
+        private func handleScrollWheel(_ event: NSEvent) {
+            // Use enclosing NSScrollView for reliable bounds checking
+            guard let scrollView = self.findEnclosingScrollView() else { return }
+            let locationInWindow = event.locationInWindow
+            let locationInScrollView = scrollView.convert(locationInWindow, from: nil)
+            guard scrollView.bounds.contains(locationInScrollView) else { return }
+
+            let deltaY = event.scrollingDeltaY
+            if abs(deltaY) > 0 {
+                coordinator?.handleScroll(deltaY: deltaY)
+            }
+        }
+
+        override func removeFromSuperview() {
+            if let monitor = scrollMonitor {
+                NSEvent.removeMonitor(monitor)
+                scrollMonitor = nil
+            }
+            super.removeFromSuperview()
+        }
+
+        deinit {
+            if let monitor = scrollMonitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+    }
+}
+
 #if DEBUG
 struct TimelineView_Previews: PreviewProvider {
     static var previews: some View {
@@ -614,3 +947,16 @@ struct TimelineView_Previews: PreviewProvider {
     }
 }
 #endif
+
+// MARK: - Track Menu Handler
+
+/// NSObject target for NSMenu items — holds a closure for the menu action
+private class TrackMenuHandler: NSObject {
+    let action: () -> Void
+    init(_ action: @escaping () -> Void) {
+        self.action = action
+    }
+    @objc func execute() {
+        action()
+    }
+}

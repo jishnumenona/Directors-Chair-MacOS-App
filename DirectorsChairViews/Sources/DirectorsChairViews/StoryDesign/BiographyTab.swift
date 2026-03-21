@@ -9,14 +9,19 @@ import DirectorsChairCore
 public struct BiographyTab: View {
     @Binding var character: Character
 
+    /// Whether biography generation is in progress
+    var isGenerating: Bool = false
+
     // Callback for AI generation
     var onGenerateFromScript: (() -> Void)?
 
     public init(
         character: Binding<Character>,
+        isGenerating: Bool = false,
         onGenerateFromScript: (() -> Void)? = nil
     ) {
         self._character = character
+        self.isGenerating = isGenerating
         self.onGenerateFromScript = onGenerateFromScript
     }
 
@@ -39,15 +44,13 @@ public struct BiographyTab: View {
                 characterArcSection
 
                 // AI Generate button
-                HStack {
-                    Spacer()
-                    Button {
-                        onGenerateFromScript?()
-                    } label: {
-                        Label("Generate from Script", systemImage: "wand.and.stars")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Spacer()
+                AIGenerateButton(
+                    title: "Generate from Script",
+                    icon: "wand.and.stars",
+                    loadingText: "Generating...",
+                    isLoading: isGenerating
+                ) {
+                    onGenerateFromScript?()
                 }
                 .padding(.top, 4)
             }

@@ -140,6 +140,9 @@ public struct AIUsageStats: Codable, Sendable {
         totalVideoSeconds += durationSeconds
     }
 
+    /// Estimated cost threshold above which a warning should be shown
+    public static let costWarningThreshold: Double = 0.05
+
     /// Cost for a specific text call
     public static func textCallCost(promptTokens: Int, completionTokens: Int) -> Double {
         Double(promptTokens) * textInputCostPerToken + Double(completionTokens) * textOutputCostPerToken

@@ -40,6 +40,9 @@ public class TimelineViewModel: ObservableObject {
     /// Viewport scroll offset
     @Published public var viewportOffset: CGPoint = .zero
 
+    /// Viewport visible width in points (set by TimelineView's GeometryReader)
+    public var viewportWidth: CGFloat = 800
+
     /// Incremented each time we want the view to programmatically scroll to `viewportOffset.x`
     @Published public var scrollRequestId: UUID?
 
@@ -130,6 +133,26 @@ public class TimelineViewModel: ObservableObject {
     /// Playhead position in seconds (nil = no playhead placed yet)
     @Published public var playheadTime: CGFloat? = nil
 
+    /// Called when the user clicks/drags the ruler to seek the playhead.
+    /// External consumers (e.g. PlaybackView) set this to react to user seeks.
+    public var onPlayheadSeeked: ((CGFloat) -> Void)?
+
+    /// Called when the user clicks the Analyze button in the timeline controls.
+    public var onAnalyzeTimelineRequested: (() -> Void)?
+
+    /// Per-character muted TTS tracks (shared with PlaybackViewModel)
+    @Published public var mutedTracks: Set<String> = []
+
+    /// Called when the user toggles mute on a track from the timeline context menu.
+    /// External consumers (e.g. PlaybackView) set this to sync with PlaybackViewModel.
+    public var onTrackMuteToggled: ((String) -> Void)?
+
+    /// Source IDs of dialogues currently generating TTS audio
+    @Published public var generatingAudioSourceIds: Set<String> = []
+
+    /// Source ID of the dialogue currently playing TTS audio
+    @Published public var playingAudioSourceId: String?
+
     // MARK: - User Markers
 
     /// User-created custom markers (separate from auto-rebuilt `markers`)
@@ -166,6 +189,9 @@ public class TimelineViewModel: ObservableObject {
 
     /// Cached character lookup by name (rebuilt on each rebuild())
     private var characterByName: [String: Character] = [:]
+
+    /// All character names from the project (so every character gets a timeline lane)
+    @Published public var allCharacterNames: [String] = []
 
     // MARK: - Init
 
@@ -480,6 +506,28 @@ public class TimelineViewModel: ObservableObject {
         scrollRequestId = UUID()
     }
 
+    /// Follow the playhead during playback — scrolls only when the playhead
+    /// moves past the right edge of the visible area (FCP page-scroll style).
+    public func followPlayheadIfNeeded() {
+        guard let time = playheadTime, playheadActive else { return }
+        let originX = TimelineLayoutConstants.leftMargin + TimelineLayoutConstants.rowLabelWidth
+        let playheadX = originX + time * pxPerSec
+        let visibleRight = viewportOffset.x + viewportWidth
+
+        // If playhead is past the right edge, page forward so playhead is near the left
+        if playheadX > visibleRight - 20 {
+            let newOffset = playheadX - 80  // place playhead 80px from left edge
+            viewportOffset = CGPoint(x: max(0, newOffset), y: viewportOffset.y)
+            scrollRequestId = UUID()
+        }
+        // If playhead scrolled back (e.g. skip to previous), bring it into view
+        else if playheadX < viewportOffset.x + originX {
+            let newOffset = playheadX - 80
+            viewportOffset = CGPoint(x: max(0, newOffset), y: viewportOffset.y)
+            scrollRequestId = UUID()
+        }
+    }
+
     /// Navigate to next marker
     public func navigateToNextMarker() {
         let allTimes = getAllMarkerTimes()
@@ -599,7 +647,18 @@ public class TimelineViewModel: ObservableObject {
         }
     }
 
-    /// Set the playhead from a pixel X coordinate (cursor tracking)
+    /// Position the playhead from a click/drag on the ruler (FCP-style).
+    /// Activates the playhead if not already active, and notifies external
+    /// consumers (e.g. PlaybackView) via onPlayheadSeeked.
+    public func seekPlayheadFromX(_ x: CGFloat) {
+        let originX = TimelineLayoutConstants.leftMargin + TimelineLayoutConstants.rowLabelWidth
+        let time = max(0, (x - originX) / pxPerSec)
+        playheadActive = true
+        playheadTime = time
+        onPlayheadSeeked?(time)
+    }
+
+    /// Set the playhead from a pixel X coordinate (programmatic, no seek callback)
     public func setPlayheadFromX(_ x: CGFloat) {
         let originX = TimelineLayoutConstants.leftMargin + TimelineLayoutConstants.rowLabelWidth
         let time = max(0, (x - originX) / pxPerSec)
@@ -699,7 +758,11 @@ public class TimelineViewModel: ObservableObject {
         hiddenTracks.removeAll()
 
         // Build character lookup dictionary for O(1) access
-        characterByName = Dictionary(uniqueKeysWithValues: (project?.characters ?? []).map { ($0.name, $0) })
+        let characters = project?.characters ?? []
+        characterByName = Dictionary(uniqueKeysWithValues: characters.map { ($0.name, $0) })
+
+        // Expose all character names so every character gets a timeline lane
+        allCharacterNames = characters.map { $0.name }
 
         // Clear DurationEstimator plain-text cache to avoid stale data
         DurationEstimator.clearCaches()
@@ -1931,6 +1994,39 @@ public class TimelineViewModel: ObservableObject {
         let originX = TimelineLayoutConstants.leftMargin + TimelineLayoutConstants.rowLabelWidth
         let scrollX = viewportOffset.x + 100
         return max(0, (scrollX - originX) / pxPerSec)
+    }
+
+    // MARK: - TTS Audio Helpers
+
+    /// Find a Dialogue by its sourceItemId across all scenes
+    public func findDialogue(sourceItemId: String) -> Dialogue? {
+        guard let project = project else { return nil }
+        for sequence in project.sequences {
+            for scene in sequence.scenes {
+                if let dialogue = scene.dialogues.first(where: { $0.id == sourceItemId }) {
+                    return dialogue
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Find a Character by name
+    public func findCharacter(name: String) -> Character? {
+        return project?.characters.first(where: { $0.name == name })
+    }
+
+    /// Update a dialogue's audioFilePath across all scenes in the project
+    public func updateDialogueAudioPath(sourceItemId: String, audioFilePath: String) {
+        guard project != nil else { return }
+        for seqIdx in project!.sequences.indices {
+            for sceneIdx in project!.sequences[seqIdx].scenes.indices {
+                if let dlgIdx = project!.sequences[seqIdx].scenes[sceneIdx].dialogues.firstIndex(where: { $0.id == sourceItemId }) {
+                    project!.sequences[seqIdx].scenes[sceneIdx].dialogues[dlgIdx].audioFilePath = audioFilePath
+                    return
+                }
+            }
+        }
     }
 }
 

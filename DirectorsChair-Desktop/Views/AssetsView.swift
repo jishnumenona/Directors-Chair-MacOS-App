@@ -9,6 +9,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import AVFoundation
 
 // MARK: - Data Model
 
@@ -712,6 +713,8 @@ private struct AssetCardView: View {
     let asset: DiscoveredAsset
     @State private var isHovered = false
     @State private var thumbnail: NSImage? = nil
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var isPlayingAudio = false
 
     var body: some View {
         Group {
@@ -730,6 +733,12 @@ private struct AssetCardView: View {
         .onHover { isHovered = $0 }
         .help(asset.relativePath)
         .contextMenu {
+            if asset.mediaType == .audio {
+                Button(action: { toggleAudioPlayback() }) {
+                    Label(isPlayingAudio ? "Stop Playback" : "Play Audio", systemImage: isPlayingAudio ? "stop.fill" : "play.fill")
+                }
+                Divider()
+            }
             Button(action: { saveToDownloads(asset: asset) }) {
                 Label("Save to Downloads", systemImage: "arrow.down.circle")
             }
@@ -808,7 +817,7 @@ private struct AssetCardView: View {
 
     private var audioCard: some View {
         VStack(spacing: 0) {
-            // Icon area
+            // Icon area with play button
             Rectangle()
                 .fill(
                     LinearGradient(
@@ -819,13 +828,27 @@ private struct AssetCardView: View {
                 )
                 .frame(height: 70)
                 .overlay(
-                    VStack(spacing: 6) {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 24))
-                            .foregroundColor(asset.category.accentColor)
-                        Text(asset.fileExtension.uppercased())
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(.secondary)
+                    ZStack {
+                        VStack(spacing: 6) {
+                            Image(systemName: isPlayingAudio ? "speaker.wave.3.fill" : "waveform")
+                                .font(.system(size: 24))
+                                .foregroundColor(asset.category.accentColor)
+                                .symbolEffect(.variableColor.iterative, isActive: isPlayingAudio)
+                            Text(asset.fileExtension.uppercased())
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+
+                        // Play/Stop button on hover
+                        if isHovered {
+                            Button(action: { toggleAudioPlayback() }) {
+                                Image(systemName: isPlayingAudio ? "stop.circle.fill" : "play.circle.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.white)
+                                    .shadow(radius: 4)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 )
 
@@ -851,6 +874,28 @@ private struct AssetCardView: View {
         .frame(width: 160, height: 120)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(10)
+    }
+
+    private func toggleAudioPlayback() {
+        if isPlayingAudio {
+            audioPlayer?.stop()
+            audioPlayer = nil
+            isPlayingAudio = false
+        } else {
+            do {
+                audioPlayer = try AVAudioPlayer(contentsOf: asset.fullURL)
+                audioPlayer?.delegate = AssetAudioDelegate.shared
+                AssetAudioDelegate.shared.onFinished = { [weak audioPlayer] in
+                    if audioPlayer != nil {
+                        self.isPlayingAudio = false
+                    }
+                }
+                audioPlayer?.play()
+                isPlayingAudio = true
+            } catch {
+                print("Error playing audio asset: \(error)")
+            }
+        }
     }
 
     // MARK: Video Card
@@ -995,6 +1040,8 @@ private struct AssetStatDivider: View {
 struct AssetDetailSheet: View {
     let asset: DiscoveredAsset
     @State private var thumbnail: NSImage? = nil
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var isPlayingAudio = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1054,15 +1101,29 @@ struct AssetDetailSheet: View {
                     .frame(height: 200)
             }
         case .audio:
-            VStack(spacing: 12) {
-                Image(systemName: "waveform.circle.fill")
+            VStack(spacing: 16) {
+                Image(systemName: isPlayingAudio ? "speaker.wave.3.fill" : "waveform.circle.fill")
                     .font(.system(size: 64))
                     .foregroundColor(asset.category.accentColor)
+                    .symbolEffect(.variableColor.iterative, isActive: isPlayingAudio)
+
                 Text(asset.fileExtension.uppercased())
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
                     .foregroundColor(.secondary)
+
+                Button(action: { toggleDetailAudioPlayback() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isPlayingAudio ? "stop.fill" : "play.fill")
+                        Text(isPlayingAudio ? "Stop" : "Play")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(isPlayingAudio ? .red : asset.category.accentColor)
             }
-            .frame(height: 150)
+            .frame(height: 180)
         case .video:
             VStack(spacing: 12) {
                 ZStack {
@@ -1212,6 +1273,39 @@ struct AssetDetailSheet: View {
             counter += 1
         }
         return dest
+    }
+
+    private func toggleDetailAudioPlayback() {
+        if isPlayingAudio {
+            audioPlayer?.stop()
+            audioPlayer = nil
+            isPlayingAudio = false
+        } else {
+            do {
+                audioPlayer = try AVAudioPlayer(contentsOf: asset.fullURL)
+                audioPlayer?.delegate = AssetAudioDelegate.shared
+                AssetAudioDelegate.shared.onFinished = {
+                    self.isPlayingAudio = false
+                }
+                audioPlayer?.play()
+                isPlayingAudio = true
+            } catch {
+                print("Error playing audio asset: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Asset Audio Delegate
+
+private class AssetAudioDelegate: NSObject, AVAudioPlayerDelegate {
+    static let shared = AssetAudioDelegate()
+    var onFinished: (() -> Void)?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async {
+            self.onFinished?()
+        }
     }
 }
 

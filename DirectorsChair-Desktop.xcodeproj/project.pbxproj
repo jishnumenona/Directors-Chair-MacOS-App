@@ -12,7 +12,6 @@
 		F61A4F5A2F1A174A00C641A8 /* DirectorsChairViews in Frameworks */ = {isa = PBXBuildFile; productRef = F61A4F592F1A174A00C641A8 /* DirectorsChairViews */; };
 		F61A4F5C2F1A174E00C641A8 /* DirectorsChairProduction in Frameworks */ = {isa = PBXBuildFile; productRef = F61A4F5B2F1A174E00C641A8 /* DirectorsChairProduction */; };
 		F61A4F612F1EE3FD00C641A8 /* DirectorsChairServices in Frameworks */ = {isa = PBXBuildFile; productRef = F61A4F602F1EE3FD00C641A8 /* DirectorsChairServices */; };
-		F670DD872F42F9660016F9C2 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002SPARKLE /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,7 +74,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F670DD872F42F9660016F9C2 /* Sparkle in Frameworks */,
 				F61A4F612F1EE3FD00C641A8 /* DirectorsChairServices in Frameworks */,
 				F61A4F042F10463000C641A8 /* DirectorsChairCore in Frameworks */,
 				F61A4F5C2F1A174E00C641A8 /* DirectorsChairProduction in Frameworks */,
@@ -154,7 +152,6 @@
 				F61A4F5B2F1A174E00C641A8 /* DirectorsChairProduction */,
 				F61A4F602F1EE3FD00C641A8 /* DirectorsChairServices */,
 				CB607F7039F0B98C705AFF85 /* DirectorsChairExports */,
-				A1B2C3D4E5F60002SPARKLE /* Sparkle */,
 			);
 			productName = "DirectorsChair-Desktop";
 			productReference = F61A4EC82F0F64C500C641A8 /* DirectorsChair-Desktop.app */;
@@ -244,7 +241,6 @@
 				F61A4F582F1A174000C641A8 /* XCLocalSwiftPackageReference "DirectorsChairProduction" */,
 				F61A4F5F2F1EE3F100C641A8 /* XCLocalSwiftPackageReference "DirectorsChairServices" */,
 				856A3FFCA0FC0D17134B1BC9 /* XCLocalSwiftPackageReference "DirectorsChairExports" */,
-				A1B2C3D4E5F60001SPARKLE /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F61A4EC92F0F64C500C641A8 /* Products */;
@@ -620,23 +616,7 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A1B2C3D4E5F60001SPARKLE /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.6.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
-		A1B2C3D4E5F60002SPARKLE /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A1B2C3D4E5F60001SPARKLE /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
 		CB607F7039F0B98C705AFF85 /* DirectorsChairExports */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 856A3FFCA0FC0D17134B1BC9 /* XCLocalSwiftPackageReference "DirectorsChairExports" */;

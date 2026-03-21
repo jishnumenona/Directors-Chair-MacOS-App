@@ -123,6 +123,12 @@ class AppCoordinator: ObservableObject {
     /// Currently selected location (for story design)
     @Published var selectedLocation: Location?
 
+    /// Preferred Story Design mode when navigating without a specific character/location
+    @Published var preferredStoryDesignMode: String?
+
+    /// When true, PlaybackView should auto-play on appear (set by global space bar shortcut)
+    @Published var shouldAutoPlay: Bool = false
+
     // MARK: - UI State
 
     /// Navigator sidebar visibility
@@ -150,6 +156,17 @@ class AppCoordinator: ObservableObject {
     @Published var chatContextDialogue: Dialogue? = nil
     @Published var chatContextAction: Action? = nil
     @Published var chatContextNarration: Narration? = nil
+
+    // MARK: - Timeline Analysis
+
+    /// Requested scope for timeline analysis (set by context menu or toolbar button)
+    @Published var timelineAnalysisScope: TimelineAnalysisScope?
+
+    /// Request AI timeline analysis for the given scope
+    func requestTimelineAnalysis(scope: TimelineAnalysisScope) {
+        debugLog("🔬 Timeline analysis requested: \(scope)")
+        timelineAnalysisScope = scope
+    }
 
     // MARK: - Cross-View Highlight State
 
@@ -184,6 +201,9 @@ class AppCoordinator: ObservableObject {
     /// Script element to scroll to (set from shot detail "Jump to Script")
     /// Contains: (sourceItemId, itemType) where itemType is "dialogue", "action", "narration"
     @Published var scrollToScriptItemId: String?
+
+    /// Shot detail section to scroll to (e.g. "takes"). Consumed and cleared by CinematographyView.
+    @Published var scrollToShotSection: String?
 
     /// Navigate to script view and scroll to a specific element by its source item ID
     func jumpToScriptElement(itemId: String, itemType: String) {
@@ -445,6 +465,16 @@ class AppCoordinator: ObservableObject {
     }
 }
 
+// MARK: - Timeline Analysis Scope
+
+/// Scope for AI timeline analysis
+enum TimelineAnalysisScope {
+    case all
+    case sequence(DirectorsChairCore.Sequence)
+    case scene(DirectorsChairCore.Scene, sequenceIndex: Int, sceneIndex: Int)
+    case shot(Shot, scene: DirectorsChairCore.Scene, sequenceIndex: Int, sceneIndex: Int)
+}
+
 // MARK: - App View Enumeration
 
 /// All available views in the application
@@ -460,6 +490,7 @@ enum AppView: String, CaseIterable, Identifiable {
     case production = "Production"
     case storyDesign = "Story Design"
     case curation = "Curation"
+    case playback = "Playback"
     case settings = "Settings"
     case projects = "Projects"
 
@@ -478,6 +509,7 @@ enum AppView: String, CaseIterable, Identifiable {
         case .production: return "theatermasks"
         case .storyDesign: return "book"
         case .curation: return "film.stack"
+        case .playback: return "play.rectangle.fill"
         case .settings: return "gear"
         case .projects: return "folder"
         }

@@ -20,7 +20,13 @@ public struct Character: Codable, Identifiable, Hashable {
     public var avatar: String?  // Legacy: single avatar image path
     public var about: String  // Legacy: short description
     public var gender: String  // "male", "female", "neutral", "other"
-    public var voice: String?  // TTS voice name
+    public var voice: String?  // TTS voice name (Gemini: Puck, Charon, Kore, etc.)
+    public var voiceStyle: String?  // Persistent voice style: "calm and authoritative"
+    public var voicePace: String?        // "Slow", "Normal", "Fast", "Varied"
+    public var voiceAccent: String?      // "British", "Southern US", "New York", etc.
+    public var voiceTone: String?        // "Warm", "Cold", "Authoritative", "Gentle", etc.
+    public var voiceAge: String?         // "Young", "Middle-aged", "Elderly"
+    public var voicePersonality: String? // "Confident", "Nervous", "Sarcastic", "Cheerful"
 
     // MARK: - Physical Appearance (12 fields)
     public var heightCm: Double?  // Height in centimeters
@@ -156,6 +162,12 @@ public struct Character: Codable, Identifiable, Hashable {
         about: String = "",
         gender: String = "neutral",
         voice: String? = nil,
+        voiceStyle: String? = nil,
+        voicePace: String? = nil,
+        voiceAccent: String? = nil,
+        voiceTone: String? = nil,
+        voiceAge: String? = nil,
+        voicePersonality: String? = nil,
         heightCm: Double? = nil,
         weightKg: Double? = nil,
         build: String = "Average",
@@ -242,6 +254,12 @@ public struct Character: Codable, Identifiable, Hashable {
         self.about = about
         self.gender = gender
         self.voice = voice
+        self.voiceStyle = voiceStyle
+        self.voicePace = voicePace
+        self.voiceAccent = voiceAccent
+        self.voiceTone = voiceTone
+        self.voiceAge = voiceAge
+        self.voicePersonality = voicePersonality
         self.heightCm = heightCm
         self.weightKg = weightKg
         self.build = build
@@ -362,6 +380,12 @@ public struct Character: Codable, Identifiable, Hashable {
         case name, role, color
         case textColor = "text_color"
         case avatar, about, gender, voice
+        case voiceStyle = "voice_style"
+        case voicePace = "voice_pace"
+        case voiceAccent = "voice_accent"
+        case voiceTone = "voice_tone"
+        case voiceAge = "voice_age"
+        case voicePersonality = "voice_personality"
         case heightCm = "height_cm"
         case weightKg = "weight_kg"
         case build, age
@@ -458,6 +482,12 @@ public struct Character: Codable, Identifiable, Hashable {
         let rawGender = try container.decodeIfPresent(String.self, forKey: .gender) ?? "neutral"
         self.gender = rawGender.lowercased()
         self.voice = try container.decodeIfPresent(String.self, forKey: .voice)
+        self.voiceStyle = try container.decodeIfPresent(String.self, forKey: .voiceStyle)
+        self.voicePace = try container.decodeIfPresent(String.self, forKey: .voicePace)
+        self.voiceAccent = try container.decodeIfPresent(String.self, forKey: .voiceAccent)
+        self.voiceTone = try container.decodeIfPresent(String.self, forKey: .voiceTone)
+        self.voiceAge = try container.decodeIfPresent(String.self, forKey: .voiceAge)
+        self.voicePersonality = try container.decodeIfPresent(String.self, forKey: .voicePersonality)
 
         // Physical appearance
         self.heightCm = try container.decodeIfPresent(Double.self, forKey: .heightCm)

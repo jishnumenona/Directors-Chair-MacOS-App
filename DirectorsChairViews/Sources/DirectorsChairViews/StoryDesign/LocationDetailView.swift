@@ -40,6 +40,15 @@ public struct LocationDetailView: View {
     // Cache-busting IDs to force AsyncImage reload
     @State private var imageRefreshIds: [String: UUID] = [:]
 
+    // Annotation editor state
+    // Hover state for hero image overlay
+    @State private var isHoveringHeroImage = false
+
+    @State private var showingAnnotationEditor = false
+    @State private var annotationEditorImage: NSImage?
+    @State private var annotationEditorVariation: String = ""
+    @State private var annotationEditorTitle: String = ""
+
     public init(
         location: Binding<Location>,
         project: Project,
@@ -548,6 +557,86 @@ public struct LocationDetailView: View {
                     )
                 }
 
+                // Hover overlay with icon buttons
+                if (isHoveringHeroImage || generatingProgress[selectedPreviewVariation] != nil) && effectiveImagePath(for: selectedPreviewVariation) != nil {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            if let imagePath = effectiveImagePath(for: selectedPreviewVariation),
+                               let basePath = projectBasePath {
+                                let fullPath = basePath.appendingPathComponent(imagePath)
+
+                                if generatingProgress[selectedPreviewVariation] == nil {
+                                    Button(action: {
+                                        fullScreenImageURL = fullPath
+                                        fullScreenImageTitle = "\(location.name) - \(variationDisplayName(selectedPreviewVariation))"
+                                        showingFullScreenImage = true
+                                    }) {
+                                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(8)
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("View full size")
+
+                                    Button(action: {
+                                        openAnnotationEditor(variation: selectedPreviewVariation, label: variationDisplayName(selectedPreviewVariation))
+                                    }) {
+                                        Image(systemName: "pencil.and.outline")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(8)
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Annotate & edit image")
+
+                                    Button(action: {
+                                        downloadImage(from: fullPath, suggestedName: "\(location.name)_\(selectedPreviewVariation).png")
+                                    }) {
+                                        Image(systemName: "arrow.down.circle")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(8)
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Download image")
+                                }
+
+                                Button(action: {
+                                    generateVariationImage(variation: selectedPreviewVariation, prompt: selectedPreviewVariation == "primary" ? buildLocationPrompt() : buildVariationPrompt(override: variationDefaultOverride(selectedPreviewVariation)))
+                                }) {
+                                    ZStack {
+                                        if generatingProgress[selectedPreviewVariation] != nil {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .scaleEffect(0.6)
+                                        } else {
+                                            Image(systemName: "arrow.clockwise")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                    .frame(width: 27, height: 27)
+                                    .background(generatingProgress[selectedPreviewVariation] != nil ? Color.accentColor.opacity(0.8) : Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(generatingProgress[selectedPreviewVariation] != nil)
+                                .help(generatingProgress[selectedPreviewVariation] != nil ? "Generating..." : "Regenerate image")
+                            }
+                        }
+                        .padding(12)
+                        Spacer()
+                    }
+                }
+
                 // Progress ring overlay for whichever variation is previewed
                 if let progress = generatingProgress[selectedPreviewVariation] {
                     RoundedRectangle(cornerRadius: 12)
@@ -557,6 +646,11 @@ public struct LocationDetailView: View {
             }
             .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHoveringHeroImage = hovering
+                }
+            }
             .onTapGesture {
                 // Click hero to reset back to primary
                 if selectedPreviewVariation != "primary" {
@@ -566,41 +660,18 @@ public struct LocationDetailView: View {
                 }
             }
 
-            // View and Download buttons for current preview
-            if let imagePath = effectiveImagePath(for: selectedPreviewVariation),
-               let basePath = projectBasePath {
-                let fullPath = basePath.appendingPathComponent(imagePath)
-                HStack(spacing: 8) {
-                    LocationGalleryButton(
-                        label: "View",
-                        icon: "eye",
-                        color: .accentColor
-                    ) {
-                        fullScreenImageURL = fullPath
-                        fullScreenImageTitle = "\(location.name) - \(variationDisplayName(selectedPreviewVariation))"
-                        showingFullScreenImage = true
-                    }
-
-                    LocationGalleryButton(
-                        label: "Download",
-                        icon: "arrow.down.circle",
-                        color: .green
-                    ) {
-                        downloadImage(from: fullPath, suggestedName: "\(location.name)_\(selectedPreviewVariation).png")
-                    }
+            // Generate Primary Image button (shown when no primary image exists)
+            if effectiveImagePath(for: "primary") == nil {
+                LocationGalleryButton(
+                    label: generatingProgress["primary"] != nil ? "Generating..." : "Generate Primary Image",
+                    icon: generatingProgress["primary"] != nil ? "hourglass" : "wand.and.stars",
+                    color: .accentColor,
+                    isProminent: true
+                ) {
+                    generateVariationImage(variation: "primary", prompt: buildLocationPrompt())
                 }
+                .disabled(generatingProgress["primary"] != nil)
             }
-
-            // Generate Primary Image button
-            LocationGalleryButton(
-                label: generatingProgress["primary"] != nil ? "Generating..." : "Generate Primary Image",
-                icon: generatingProgress["primary"] != nil ? "hourglass" : "wand.and.stars",
-                color: .accentColor,
-                isProminent: true
-            ) {
-                generateVariationImage(variation: "primary", prompt: buildLocationPrompt())
-            }
-            .disabled(generatingProgress["primary"] != nil)
 
             // Variations section header
             HStack(spacing: 6) {
@@ -660,6 +731,19 @@ public struct LocationDetailView: View {
                     generateVariationImage(variation: promptEditorVariation, prompt: promptEditorText)
                 }
             )
+        }
+        .sheet(isPresented: $showingAnnotationEditor) {
+            if let image = annotationEditorImage {
+                ImageAnnotationEditor(
+                    image: image,
+                    title: "EDIT LOCATION — \(annotationEditorTitle.uppercased())",
+                    subtitle: location.name,
+                    isPresented: $showingAnnotationEditor,
+                    onApplyEdits: { annotations in
+                        generateVariationWithAnnotations(variation: annotationEditorVariation, annotations: annotations)
+                    }
+                )
+            }
         }
     }
 
@@ -779,7 +863,11 @@ public struct LocationDetailView: View {
                 generateVariationImage(variation: variation, prompt: buildVariationPrompt(override: override))
             },
             onEditGenerate: {
-                openPromptEditor(variation: variation, defaultPrompt: buildVariationPrompt(override: override))
+                if effectiveImagePath(for: variation) != nil {
+                    openAnnotationEditor(variation: variation, label: label)
+                } else {
+                    openPromptEditor(variation: variation, defaultPrompt: buildVariationPrompt(override: override))
+                }
             }
         )
     }
@@ -790,6 +878,25 @@ public struct LocationDetailView: View {
         promptEditorVariation = variation
         promptEditorText = defaultPrompt
         showingPromptEditor = true
+    }
+
+    private func openAnnotationEditor(variation: String, label: String) {
+        guard let imagePath = effectiveImagePath(for: variation),
+              let basePath = projectBasePath else { return }
+        let fullPath = basePath.appendingPathComponent(imagePath)
+        guard let image = NSImage(contentsOf: fullPath) else { return }
+        annotationEditorImage = image
+        annotationEditorVariation = variation
+        annotationEditorTitle = label
+        showingAnnotationEditor = true
+    }
+
+    private func generateVariationWithAnnotations(variation: String, annotations: [KeyframeAnnotation]) {
+        let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "location \(variation) image")
+        let override = variationDefaultOverride(variation)
+        let basePrompt = buildVariationPrompt(override: override)
+        let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
+        generateVariationImage(variation: variation, prompt: combinedPrompt)
     }
 
     private func variationDefaultOverride(_ variation: String) -> String {
@@ -1143,7 +1250,7 @@ private struct LocationVariationThumbnail: View {
                                     onEditGenerate?()
                                 } label: {
                                     HStack(spacing: 2) {
-                                        Image(systemName: "pencil")
+                                        Image(systemName: "pencil.and.outline")
                                             .font(.system(size: 7))
                                         Text("Edit")
                                             .font(.system(size: 7, weight: .medium))
@@ -1154,7 +1261,7 @@ private struct LocationVariationThumbnail: View {
                                     .background(Capsule().fill(Color.orange.opacity(0.8)))
                                 }
                                 .buttonStyle(.plain)
-                                .help("Edit prompt and regenerate")
+                                .help("Annotate & edit image")
                             }
                         }
                     }

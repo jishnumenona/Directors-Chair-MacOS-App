@@ -179,19 +179,52 @@ struct SyncStatusView: View {
     }
 
     private func performSync() async {
-        guard let user = authManager.currentUser,
-              projectViewModel.hasProject else { return }
-        let project = projectViewModel.project
+        guard let user = authManager.currentUser else { return }
 
         // Set the auth token
         if let token = authManager.currentAccessToken {
             await syncManager.setAuthToken(token)
         }
 
+        // 1. Push current project if one is open
+        if projectViewModel.hasProject {
+            let project = projectViewModel.project
+            do {
+                try await syncManager.push(project: project, username: user.username)
+            } catch {
+                // Error is set on syncManager.syncState
+            }
+        }
+
+        // 2. Pull: discover remote projects not present locally
         do {
-            try await syncManager.push(project: project, username: user.username)
+            let remoteRepoNames = try await syncManager.listRemoteProjects()
+            let localProjectDirs = ProjectDirectoryManager.listProjects()
+
+            for repoName in remoteRepoNames {
+                // Check if a local directory already matches this repo
+                // Local dirs use original names; repos use sanitized names
+                let alreadyLocal = localProjectDirs.contains { dir in
+                    syncManager.sanitizeRepoName(dir.lastPathComponent) == repoName
+                }
+
+                if !alreadyLocal {
+                    // Pull into a new local directory named after the repo
+                    let basePath = ProjectDirectoryManager.directorsChairRoot
+                        .appendingPathComponent(repoName)
+                    do {
+                        let _ = try await syncManager.pull(
+                            username: user.username,
+                            repoName: repoName,
+                            basePath: basePath
+                        )
+                    } catch {
+                        print("CloudSync: Failed to pull '\(repoName)': \(error)")
+                    }
+                }
+            }
         } catch {
-            // Error is set on syncManager.syncState
+            print("CloudSync: Failed to list remote repos: \(error)")
         }
     }
 }

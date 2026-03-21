@@ -285,13 +285,6 @@ public struct TimelineHeaderCanvas: View {
         .frame(width: totalWidth, height: headerHeight)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { location in
-            // Check for ruler double-click to toggle playhead
-            let rulerTop = TimelineLayoutConstants.topMargin
-            let rulerBottom = rulerTop + TimelineLayoutConstants.rulerHeight
-            if location.y >= rulerTop && location.y <= rulerBottom && location.x >= originX {
-                onRulerClicked?(location.x)
-                return
-            }
             // Check for scene marker double-click
             if let (boundary, isSequence) = findBoundaryMarker(at: location), !isSequence {
                 onSceneMarkerDoubleClicked?(boundary.name)
@@ -299,6 +292,11 @@ public struct TimelineHeaderCanvas: View {
             }
             if showShotLabels, let shotLabel = findShotLabel(at: location) {
                 onShotLabelDoubleClicked?(shotLabel.shotId, shotLabel.sceneName)
+                return
+            }
+            // Double-click anywhere else in header → position playhead
+            if location.x >= originX {
+                onRulerClicked?(location.x)
             }
         }
         .onTapGesture(count: 1) { location in
@@ -312,8 +310,16 @@ public struct TimelineHeaderCanvas: View {
                 onOptionClickShotLabel?(shotLabel.shotId, shotLabel.sceneName)
                 return
             }
+            // Click on shot label → select it AND position playhead
             if showShotLabels, let shotLabel = findShotLabel(at: location) {
                 onShotLabelSelected?(shotLabel.id)
+                onRulerClicked?(location.x)
+                return
+            }
+            // Click anywhere in the header area → position playhead (FCP-style)
+            if location.x >= originX {
+                onRulerClicked?(location.x)
+                return
             }
         }
         .gesture(
@@ -321,8 +327,13 @@ public struct TimelineHeaderCanvas: View {
                 .onChanged { value in
                     // First frame: decide what we're dragging
                     if draggingShotId == nil && resizingShotId == nil && draggingBoundaryId == nil && !isDraggingPlayhead {
-                        // 0. Check playhead handle first
-                        if findPlayheadHandle(at: value.startLocation) {
+                        // 0. Check playhead handle or any area not on a shot label/boundary (FCP-style scrub)
+                        let startInClickableArea = value.startLocation.x >= originX
+                        let startOnShotLabel = showShotLabels && findShotLabel(at: value.startLocation) != nil
+                        let startOnShotEdge = showShotLabels && findShotLabelRightEdge(at: value.startLocation) != nil
+                        let startOnBoundary = findBoundaryMarker(at: value.startLocation) != nil
+                        if findPlayheadHandle(at: value.startLocation) ||
+                           (startInClickableArea && !startOnShotLabel && !startOnShotEdge && !startOnBoundary) {
                             isDraggingPlayhead = true
                             onPlayheadDragged?(value.location.x)
                             return
@@ -405,10 +416,7 @@ public struct TimelineHeaderCanvas: View {
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
-                // Update playhead position when active and cursor is in content area
-                if playheadActive && location.x >= originX {
-                    onPlayheadDragged?(location.x)
-                }
+                // Cursor changes for shot label resize handles
                 if showShotLabels, findShotLabelRightEdge(at: location) != nil {
                     NSCursor.resizeLeftRight.set()
                 } else {
@@ -983,7 +991,7 @@ public struct TimelineHeaderCanvas: View {
             // Check if we should show preview mode (Command key held)
             var previewNSImage: NSImage? = nil
 
-            if isCommandKeyDown, let imgPath = shotLabel.previewImagePath, let basePath = projectBasePath {
+            if let imgPath = shotLabel.previewImagePath, let basePath = projectBasePath {
                 if let cached = previewImageCache[imgPath] {
                     previewNSImage = cached
                 } else {
@@ -997,95 +1005,8 @@ public struct TimelineHeaderCanvas: View {
                 }
             }
 
-            if isCommandKeyDown, let nsImage = previewNSImage {
-                // Snap preview to full shots track height (film strip style)
-                let imageAspect = nsImage.size.width / max(nsImage.size.height, 1)
-                let previewPad: CGFloat = 4
-                let textBarHeight: CGFloat = 16
-                let previewTop = laneY + perfSize + previewPad
-                let previewBottom = laneY + totalLaneHeight - perfSize - previewPad
-                let previewHeight = previewBottom - previewTop
-                let imageAreaHeight = previewHeight - textBarHeight
-                let previewWidth = max(cardWidth - 4, imageAreaHeight * imageAspect)
-                let previewX = cardX + 2
-                let previewRect = CGRect(x: previewX, y: previewTop, width: previewWidth, height: previewHeight)
-                let imageRect = CGRect(x: previewX, y: previewTop, width: previewWidth, height: imageAreaHeight)
-
-                // Black background
-                context.fill(
-                    Path(roundedRect: previewRect, cornerRadius: 3),
-                    with: .color(Color.black)
-                )
-
-                // Draw the image aspect-fill (crop to fill) within the image area
-                var imgCtx = context
-                imgCtx.clip(to: Path(roundedRect: imageRect, cornerRadius: 3))
-
-                let fillWidth: CGFloat
-                let fillHeight: CGFloat
-                if imageAspect > imageRect.width / imageRect.height {
-                    fillHeight = imageRect.height
-                    fillWidth = fillHeight * imageAspect
-                } else {
-                    fillWidth = imageRect.width
-                    fillHeight = fillWidth / imageAspect
-                }
-                let fillX = imageRect.midX - fillWidth / 2
-                let fillY = imageRect.midY - fillHeight / 2
-                let fillRect = CGRect(x: fillX, y: fillY, width: fillWidth, height: fillHeight)
-
-                let image = Image(nsImage: nsImage)
-                let resolved = imgCtx.resolve(image)
-                imgCtx.draw(resolved, in: fillRect)
-
-                // Border
-                context.stroke(
-                    Path(roundedRect: previewRect, cornerRadius: 3),
-                    with: .color(shotTypeColor),
-                    lineWidth: 2
-                )
-
-                // Shot name in text bar at bottom
-                let textBarRect = CGRect(x: previewRect.minX, y: previewRect.maxY - textBarHeight, width: previewRect.width, height: textBarHeight)
-                context.fill(Path(textBarRect), with: .color(Color.black.opacity(0.7)))
-                var textCtx = context
-                textCtx.clip(to: Path(CGRect(x: textBarRect.minX + 4, y: textBarRect.minY, width: textBarRect.width - 8, height: textBarHeight)))
-                let previewText = "\(shotLabel.shotName) \u{2022} \(shotLabel.shotType)"
-                textCtx.draw(
-                    Text(previewText).font(.system(size: 9, weight: .bold)).foregroundColor(.white),
-                    at: CGPoint(x: textBarRect.minX + 6, y: textBarRect.midY), anchor: .leading
-                )
-            } else if isCommandKeyDown {
-                // Command held but no preview image — show placeholder snapped to track
-                let previewPad: CGFloat = 4
-                let previewTop = laneY + perfSize + previewPad
-                let previewBottom = laneY + totalLaneHeight - perfSize - previewPad
-                let placeholderRect = CGRect(x: cardRect.minX, y: previewTop, width: cardRect.width, height: previewBottom - previewTop)
-                context.fill(
-                    Path(roundedRect: placeholderRect, cornerRadius: 3),
-                    with: .color(shotTypeColor.opacity(0.15))
-                )
-                context.stroke(
-                    Path(roundedRect: placeholderRect, cornerRadius: 3),
-                    with: .color(shotTypeColor.opacity(0.9)),
-                    lineWidth: 2
-                )
-
-                // Camera icon placeholder
-                context.draw(
-                    Text(Image(systemName: "camera.fill")).font(.system(size: 14)).foregroundColor(shotTypeColor.opacity(0.5)),
-                    at: CGPoint(x: placeholderRect.midX, y: placeholderRect.midY - 8), anchor: .center
-                )
-
-                // Shot name below icon
-                var textCtx = context
-                textCtx.clip(to: Path(CGRect(x: placeholderRect.minX + 2, y: placeholderRect.minY, width: placeholderRect.width - 4, height: placeholderRect.height)))
-                textCtx.draw(
-                    Text("\(shotLabel.shotName)").font(.system(size: 8, weight: .medium)).foregroundColor(Color(hex: "#AAAAAA")),
-                    at: CGPoint(x: placeholderRect.midX, y: placeholderRect.maxY - 8), anchor: .center
-                )
-            } else {
-                // Normal card rendering (no preview)
+            if isCommandKeyDown {
+                // Command held — show text-only shot label card
                 context.fill(
                     Path(roundedRect: cardRect, cornerRadius: 3),
                     with: .color(shotTypeColor.opacity(isDragging ? 0.40 : 0.25))
@@ -1123,21 +1044,99 @@ public struct TimelineHeaderCanvas: View {
                 let bottomText = bottomParts.joined(separator: " \u{2022} ")
                 clippedCtx.draw(
                     Text(bottomText).font(.system(size: 8.5)).foregroundColor(Color(hex: "#999999")),
-                    at: CGPoint(x: textLeft, y: cardRect.minY + cardRect.height * 0.72), anchor: .leading
+                    at: CGPoint(x: textLeft, y: cardRect.minY + cardRect.height * 0.50), anchor: .leading
                 )
 
-                // Video indicator icon (bottom-right of card)
+                // Video indicator icon
                 if shotLabel.hasVideo {
-                    context.draw(
+                    clippedCtx.draw(
                         Text(Image(systemName: "video.fill")).font(.system(size: 7.5, weight: .medium)).foregroundColor(.green.opacity(0.9)),
                         at: CGPoint(x: cardRect.maxX - 10, y: cardRect.maxY - 8), anchor: .center
                     )
                 }
 
                 if let movementIcon = TimelineDefaultColors.iconForMovement(shotLabel.movement) {
-                    context.draw(
+                    clippedCtx.draw(
                         Text(Image(systemName: movementIcon)).font(.system(size: 9)).foregroundColor(shotTypeColor.opacity(0.8)),
                         at: CGPoint(x: cardRect.maxX - 10, y: cardRect.midY - (shotLabel.hasVideo ? 4 : 0)), anchor: .center
+                    )
+                }
+            } else {
+                // Normal card rendering — always show thumbnail + text bar
+                let textBarHeight: CGFloat = 18
+                let imageAreaRect = CGRect(x: cardRect.minX, y: cardRect.minY, width: cardRect.width, height: cardRect.height - textBarHeight)
+                let textBarRect = CGRect(x: cardRect.minX, y: cardRect.maxY - textBarHeight, width: cardRect.width, height: textBarHeight)
+
+                if let nsImage = previewNSImage {
+                    // Draw thumbnail image aspect-fill in image area
+                    context.fill(
+                        Path(roundedRect: cardRect, cornerRadius: 3),
+                        with: .color(Color.black)
+                    )
+
+                    var imgCtx = context
+                    imgCtx.clip(to: Path(roundedRect: imageAreaRect, cornerRadius: 3))
+
+                    let imageAspect = nsImage.size.width / max(nsImage.size.height, 1)
+                    let fillWidth: CGFloat
+                    let fillHeight: CGFloat
+                    if imageAspect > imageAreaRect.width / max(imageAreaRect.height, 1) {
+                        fillHeight = imageAreaRect.height
+                        fillWidth = fillHeight * imageAspect
+                    } else {
+                        fillWidth = imageAreaRect.width
+                        fillHeight = fillWidth / max(imageAspect, 0.01)
+                    }
+                    let fillX = imageAreaRect.midX - fillWidth / 2
+                    let fillY = imageAreaRect.midY - fillHeight / 2
+                    let fillRect = CGRect(x: fillX, y: fillY, width: fillWidth, height: fillHeight)
+
+                    let image = Image(nsImage: nsImage)
+                    let resolved = imgCtx.resolve(image)
+                    imgCtx.draw(resolved, in: fillRect)
+                } else {
+                    // No image — colored placeholder with camera icon
+                    context.fill(
+                        Path(roundedRect: cardRect, cornerRadius: 3),
+                        with: .color(shotTypeColor.opacity(isDragging ? 0.30 : 0.15))
+                    )
+
+                    context.draw(
+                        Text(Image(systemName: "camera.fill")).font(.system(size: 14)).foregroundColor(shotTypeColor.opacity(0.4)),
+                        at: CGPoint(x: imageAreaRect.midX, y: imageAreaRect.midY), anchor: .center
+                    )
+                }
+
+                // Text bar at bottom
+                context.fill(Path(roundedRect: CGRect(x: textBarRect.minX, y: textBarRect.minY, width: textBarRect.width, height: textBarRect.height + 3), cornerRadius: 3), with: .color(Color.black.opacity(0.65)))
+
+                var textCtx = context
+                textCtx.clip(to: Path(CGRect(x: textBarRect.minX + 4, y: textBarRect.minY, width: textBarRect.width - 8, height: textBarHeight)))
+                let shotText = "\(shotLabel.shotName) \u{2022} \(shotLabel.shotType)"
+                textCtx.draw(
+                    Text(shotText).font(.system(size: 9, weight: .bold)).foregroundColor(.white),
+                    at: CGPoint(x: textBarRect.minX + 6, y: textBarRect.midY), anchor: .leading
+                )
+
+                // Border in shot type color
+                context.stroke(
+                    Path(roundedRect: cardRect, cornerRadius: 3),
+                    with: .color(shotTypeColor.opacity(isDragging ? 1.0 : 0.7)),
+                    lineWidth: isDragging ? 2 : 1
+                )
+
+                // Video indicator icon
+                if shotLabel.hasVideo {
+                    context.draw(
+                        Text(Image(systemName: "video.fill")).font(.system(size: 7.5, weight: .medium)).foregroundColor(.green.opacity(0.9)),
+                        at: CGPoint(x: cardRect.maxX - 10, y: imageAreaRect.maxY - 8), anchor: .center
+                    )
+                }
+
+                if let movementIcon = TimelineDefaultColors.iconForMovement(shotLabel.movement) {
+                    context.draw(
+                        Text(Image(systemName: movementIcon)).font(.system(size: 9)).foregroundColor(shotTypeColor.opacity(0.8)),
+                        at: CGPoint(x: cardRect.maxX - 10, y: imageAreaRect.midY), anchor: .center
                     )
                 }
             }

@@ -318,11 +318,24 @@ public class CloudSyncManager: ObservableObject {
             }
 
             do {
-                let data = try await giteaClient.getRawFile(
+                var data = try await giteaClient.getRawFile(
                     owner: username,
                     repo: repoName,
                     path: blob.path
                 )
+
+                // Resolve LFS pointers: if the raw content is an LFS pointer,
+                // download the actual binary via the LFS batch API
+                if let lfsInfo = GiteaClient.parseLFSPointer(data) {
+                    log("LFS resolve: \(blob.path) (oid \(lfsInfo.oid.prefix(12))..., \(lfsInfo.size) bytes)")
+                    data = try await giteaClient.lfsDownload(
+                        owner: username,
+                        repo: repoName,
+                        oid: lfsInfo.oid,
+                        size: lfsInfo.size
+                    )
+                    log("LFS downloaded: \(blob.path) (\(data.count) bytes)")
+                }
 
                 let localPath = basePath.appendingPathComponent(blob.path)
                 try FileManager.default.createDirectory(
@@ -456,12 +469,18 @@ public class CloudSyncManager: ObservableObject {
     }
 
     /// Convert a project name into a valid repository name.
-    private func sanitizeRepoName(_ name: String) -> String {
+    public func sanitizeRepoName(_ name: String) -> String {
         let sanitized = name
             .lowercased()
             .replacingOccurrences(of: " ", with: "-")
             .replacingOccurrences(of: "[^a-z0-9\\-_.]", with: "", options: .regularExpression)
 
         return sanitized.isEmpty ? "untitled-project" : sanitized
+    }
+
+    /// List all remote project repository names for the authenticated user.
+    public func listRemoteProjects() async throws -> [String] {
+        let repos = try await giteaClient.listRepositories()
+        return repos.map { $0.name }
     }
 }

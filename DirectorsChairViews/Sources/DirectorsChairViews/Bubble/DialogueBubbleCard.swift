@@ -28,6 +28,8 @@ public struct DialogueBubbleCard: View {
     var onDelete: (() -> Void)?
     var onPlay: (() -> Void)?
     var onStop: (() -> Void)?
+    var onGenerateAudio: (() -> Void)?
+    var onDetectEmotion: (() -> Void)?
     var onTextChanged: ((String) -> Void)?
     var onChronologyChanged: ((Int) -> Void)?
     var onEditModeStarted: (() -> Void)?
@@ -37,6 +39,11 @@ public struct DialogueBubbleCard: View {
     var onAddConnectedNarration: (() -> Void)?
     var onAddConnectedNote: (() -> Void)?
     var onAddConnectedSoundNote: (() -> Void)?
+
+    // Audio state
+    var isGeneratingAudio: Bool = false
+    var isPlaying: Bool = false
+    var isDetectingEmotion: Bool = false
 
     let startInEditMode: Bool
 
@@ -61,6 +68,11 @@ public struct DialogueBubbleCard: View {
         onDelete: (() -> Void)? = nil,
         onPlay: (() -> Void)? = nil,
         onStop: (() -> Void)? = nil,
+        onGenerateAudio: (() -> Void)? = nil,
+        onDetectEmotion: (() -> Void)? = nil,
+        isGeneratingAudio: Bool = false,
+        isPlaying: Bool = false,
+        isDetectingEmotion: Bool = false,
         onTextChanged: ((String) -> Void)? = nil,
         onChronologyChanged: ((Int) -> Void)? = nil,
         onEditModeStarted: (() -> Void)? = nil,
@@ -83,6 +95,11 @@ public struct DialogueBubbleCard: View {
         self.onDelete = onDelete
         self.onPlay = onPlay
         self.onStop = onStop
+        self.onGenerateAudio = onGenerateAudio
+        self.onDetectEmotion = onDetectEmotion
+        self.isGeneratingAudio = isGeneratingAudio
+        self.isPlaying = isPlaying
+        self.isDetectingEmotion = isDetectingEmotion
         self.onTextChanged = onTextChanged
         self.onChronologyChanged = onChronologyChanged
         self.onEditModeStarted = onEditModeStarted
@@ -160,9 +177,33 @@ public struct DialogueBubbleCard: View {
                     }
             }
 
-            // Tags
-            if !dialogue.tags.isEmpty {
-                TagsStackView(tags: dialogue.tags)
+            // Tags + detect emotion
+            HStack(spacing: 6) {
+                if !dialogue.tags.isEmpty {
+                    TagsStackView(tags: dialogue.tags)
+                }
+
+                Spacer()
+
+                if isDetectingEmotion {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else if isHovered {
+                    Button(action: { onDetectEmotion?() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 8))
+                            Text(dialogue.tags.isEmpty ? "Detect" : "Re-detect")
+                                .font(.system(size: 8, weight: .medium))
+                        }
+                        .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.6))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.2))
+                        .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(10)
@@ -176,6 +217,13 @@ public struct DialogueBubbleCard: View {
         )
         .frame(maxWidth: 500)
         .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            TapGesture()
+                .modifiers(.command)
+                .onEnded { _ in
+                    onGenerateAudio?()
+                }
+        )
         .onTapGesture {
             onTap?()
         }
@@ -232,11 +280,61 @@ public struct DialogueBubbleCard: View {
 
             Spacer()
 
-            // Audio indicator
-            if dialogue.audioFilePath != nil {
-                Image(systemName: "speaker.wave.2.fill")
+            // Audio state indicators and controls
+            if isGeneratingAudio {
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Generating...")
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.5))
+            } else if isPlaying {
+                Image(systemName: "speaker.wave.3.fill")
                     .font(.caption)
                     .foregroundColor(.green)
+                    .symbolEffect(.variableColor.iterative)
+
+                Button(action: { onStop?() }) {
+                    Image(systemName: "stop.fill")
+                        .font(.caption)
+                        .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            } else if dialogue.audioFilePath != nil {
+                // Has saved audio — show play + regenerate
+                Button(action: { onPlay?() }) {
+                    Image(systemName: "play.fill")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
+                .buttonStyle(.plain)
+                .help("Play saved audio")
+
+                if isHovered {
+                    Button(action: { onGenerateAudio?() }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 9))
+                            .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Regenerate voice")
+                }
+            } else if isHovered {
+                // No audio yet — show generate button on hover
+                Button(action: { onGenerateAudio?() }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 9))
+                        Text("Generate")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.6))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.2))
+                    .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+                .help("Generate voice audio")
             }
 
             // Edit button (pencil icon, shown on hover)
@@ -245,21 +343,6 @@ public struct DialogueBubbleCard: View {
                     Image(systemName: "pencil")
                         .font(.caption)
                         .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.7))
-                }
-                .buttonStyle(.plain)
-            }
-
-            // Play/Stop buttons
-            if dialogue.audioFilePath != nil {
-                Button(action: { onPlay?() }) {
-                    Image(systemName: "play.fill")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: { onStop?() }) {
-                    Image(systemName: "stop.fill")
-                        .font(.caption)
                 }
                 .buttonStyle(.plain)
             }
@@ -272,6 +355,27 @@ public struct DialogueBubbleCard: View {
     private var contextMenuItems: some View {
         Button("Edit Dialogue") {
             onEdit?()
+        }
+
+        Divider()
+
+        Button(dialogue.tags.isEmpty ? "Detect Emotion" : "Re-detect Emotion") {
+            onDetectEmotion?()
+        }
+
+        Divider()
+
+        if dialogue.audioFilePath != nil {
+            Button("Play Voice") {
+                onPlay?()
+            }
+            Button("Regenerate Voice") {
+                onGenerateAudio?()
+            }
+        } else {
+            Button("Generate Voice") {
+                onGenerateAudio?()
+            }
         }
 
         Divider()

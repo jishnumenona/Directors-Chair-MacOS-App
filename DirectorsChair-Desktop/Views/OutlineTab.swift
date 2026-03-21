@@ -16,6 +16,12 @@ struct OutlineTab: View {
     @EnvironmentObject var timelineViewModel: TimelineViewModel
     @State private var refreshToken = UUID()
 
+    /// Expansion state lives here so it survives .id(refreshToken) recreation.
+    /// Sequences default to expanded, so we track which are collapsed.
+    @State private var collapsedSequenceIds: Set<String> = []
+    /// Scenes default to collapsed, so we track which are expanded.
+    @State private var expandedSceneIds: Set<String> = []
+
     var body: some View {
         ScrollView {
             if projectViewModel.hasProject {
@@ -23,7 +29,10 @@ struct OutlineTab: View {
                     EmptyOutlineView()
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
-                        OutlineList()
+                        OutlineList(
+                            collapsedSequenceIds: $collapsedSequenceIds,
+                            expandedSceneIds: $expandedSceneIds
+                        )
                     }
                     .id(refreshToken)
                 }
@@ -36,6 +45,19 @@ struct OutlineTab: View {
             debugLog("📋 OutlineTab: projectChanged received, sequences=\(projectViewModel.project.sequences.count), scenes=\(projectViewModel.project.sequences.flatMap(\.scenes).count)")
             refreshToken = UUID()
         }
+        .onChange(of: coordinator.selectedShot?.id) { _, _ in
+            // Auto-expand the scene containing the selected shot
+            guard let selectedShot = coordinator.selectedShot else { return }
+            for sequence in projectViewModel.sequences {
+                for scene in sequence.scenes {
+                    if scene.shots.contains(where: { $0.id == selectedShot.id }) {
+                        collapsedSequenceIds.remove(sequence.id)
+                        expandedSceneIds.insert(scene.id)
+                        return
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -44,6 +66,8 @@ struct OutlineTab: View {
 struct OutlineList: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @Binding var collapsedSequenceIds: Set<String>
+    @Binding var expandedSceneIds: Set<String>
     @State private var isAddingSequence = false
     @State private var newSequenceName = ""
     @FocusState private var isSequenceFieldFocused: Bool
@@ -51,7 +75,11 @@ struct OutlineList: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(projectViewModel.sequences) { sequence in
-                SequenceRow(sequence: sequence)
+                SequenceRow(
+                    sequence: sequence,
+                    collapsedSequenceIds: $collapsedSequenceIds,
+                    expandedSceneIds: $expandedSceneIds
+                )
             }
 
             // Inline add sequence row
@@ -133,12 +161,16 @@ struct OutlineList: View {
 struct SequenceRow: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @EnvironmentObject var timelineViewModel: TimelineViewModel
     let sequence: DirectorsChairCore.Sequence
-    @State private var isExpanded = true
+    @Binding var collapsedSequenceIds: Set<String>
+    @Binding var expandedSceneIds: Set<String>
     @State private var isAddingScene = false
     @State private var newSceneName = ""
     @State private var showDeleteConfirmation = false
     @FocusState private var isSceneFieldFocused: Bool
+
+    private var isExpanded: Bool { !collapsedSequenceIds.contains(sequence.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -152,7 +184,11 @@ struct SequenceRow: View {
                         .frame(width: 12)
                         .onTapGesture {
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                isExpanded.toggle()
+                                if isExpanded {
+                                    collapsedSequenceIds.insert(sequence.id)
+                                } else {
+                                    collapsedSequenceIds.remove(sequence.id)
+                                }
                             }
                         }
 
@@ -179,6 +215,27 @@ struct SequenceRow: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
+                Button {
+                    // Find the first scene in this sequence and seek to its boundary
+                    if let firstScene = sequence.scenes.first,
+                       let boundary = timelineViewModel.sceneBoundaries.first(where: { $0.name == firstScene.name }) {
+                        timelineViewModel.playheadActive = true
+                        timelineViewModel.playheadTime = boundary.time
+                        timelineViewModel.onPlayheadSeeked?(boundary.time)
+                        timelineViewModel.scrollToTime(boundary.time)
+                    }
+                } label: {
+                    Label("Move Playhead Here", systemImage: "timeline.selection")
+                }
+
+                Button {
+                    coordinator.requestTimelineAnalysis(scope: .sequence(sequence))
+                } label: {
+                    Label("Analyze Timeline...", systemImage: "wand.and.stars")
+                }
+
+                Divider()
+
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
@@ -190,7 +247,7 @@ struct SequenceRow: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(sequence.scenes) { scene in
-                        SceneRow(scene: scene, sequenceId: sequence.id)
+                        SceneRow(scene: scene, sequenceId: sequence.id, expandedSceneIds: $expandedSceneIds)
                     }
 
                     // Inline add scene row
@@ -293,16 +350,16 @@ struct SequenceRow: View {
 struct SceneRow: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @EnvironmentObject var timelineViewModel: TimelineViewModel
     let scene: DirectorsChairCore.Scene
     let sequenceId: String
-    @State private var isExpanded = false
+    @Binding var expandedSceneIds: Set<String>
     @State private var showDeleteConfirmation = false
+    @State private var isAddingShot = false
+    @State private var newShotName = ""
+    @FocusState private var isShotFieldFocused: Bool
 
-    /// Whether this scene contains the currently selected shot
-    private var containsSelectedShot: Bool {
-        guard let selected = coordinator.selectedShot else { return false }
-        return scene.shots.contains(where: { $0.id == selected.id })
-    }
+    private var isExpanded: Bool { expandedSceneIds.contains(scene.id) }
 
     /// Parse location string like "INT. KITCHEN - DAY" into (location, time)
     private var locationParts: (location: String, time: String?) {
@@ -360,11 +417,12 @@ struct SceneRow: View {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.caption2)
                     .frame(width: 10)
-                    .opacity(scene.shots.isEmpty ? 0.3 : 1.0)
                     .onTapGesture {
-                        if !scene.shots.isEmpty {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isExpanded.toggle()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if isExpanded {
+                                expandedSceneIds.remove(scene.id)
+                            } else {
+                                expandedSceneIds.insert(scene.id)
                             }
                         }
                     }
@@ -425,6 +483,28 @@ struct SceneRow: View {
                 coordinator.selectScene(scene)
             }
             .contextMenu {
+                Button {
+                    if let boundary = timelineViewModel.sceneBoundaries.first(where: { $0.name == scene.name }) {
+                        timelineViewModel.playheadActive = true
+                        timelineViewModel.playheadTime = boundary.time
+                        timelineViewModel.onPlayheadSeeked?(boundary.time)
+                        timelineViewModel.scrollToTime(boundary.time)
+                    }
+                } label: {
+                    Label("Move Playhead Here", systemImage: "timeline.selection")
+                }
+
+                Button {
+                    if let seqIdx = projectViewModel.project.sequences.firstIndex(where: { $0.id == sequenceId }),
+                       let scnIdx = projectViewModel.project.sequences[seqIdx].scenes.firstIndex(where: { $0.id == scene.id }) {
+                        coordinator.requestTimelineAnalysis(scope: .scene(scene, sequenceIndex: seqIdx, sceneIndex: scnIdx))
+                    }
+                } label: {
+                    Label("Analyze Timeline...", systemImage: "wand.and.stars")
+                }
+
+                Divider()
+
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
@@ -433,10 +513,53 @@ struct SceneRow: View {
             }
 
             // Shots (collapsible)
-            if isExpanded && !scene.shots.isEmpty {
+            if isExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(scene.shots) { shot in
-                        ShotRow(shot: shot)
+                        ShotRow(shot: shot, sceneId: scene.id, sequenceId: sequenceId)
+                    }
+
+                    // New Shot inline add
+                    if isAddingShot {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.caption2)
+                                .foregroundColor(.accentColor)
+                                .frame(width: 10)
+                            Image(systemName: "camera")
+                                .font(.caption2)
+                                .foregroundColor(.purple.opacity(0.5))
+                            TextField("Shot description", text: $newShotName)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11, weight: .medium))
+                                .focused($isShotFieldFocused)
+                                .onSubmit { commitNewShot() }
+                                .onExitCommand { cancelAddShot() }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.08))
+                        .cornerRadius(6)
+                    } else {
+                        Button(action: {
+                            isAddingShot = true
+                            newShotName = ""
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                isShotFieldFocused = true
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus")
+                                    .font(.caption2)
+                                    .frame(width: 10)
+                                Text("New Shot")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.leading, 20)
@@ -454,13 +577,28 @@ struct SceneRow: View {
         } message: {
             Text("This cannot be undone.")
         }
-        .onChange(of: coordinator.selectedShot?.id) { _, _ in
-            if containsSelectedShot && !isExpanded {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded = true
-                }
-            }
+    }
+
+    private func commitNewShot() {
+        let desc = newShotName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !desc.isEmpty else {
+            cancelAddShot()
+            return
         }
+        let nextId = (scene.shots.map { $0.shotId }.max() ?? 0) + 1
+        let newShot = Shot(shotId: nextId, description: desc)
+        projectViewModel.addShot(newShot, toSceneId: scene.id, inSequenceId: sequenceId)
+        coordinator.selectShot(newShot)
+        coordinator.notifyProjectChanged()
+        isAddingShot = false
+        newShotName = ""
+        // Auto-expand to show the new shot
+        expandedSceneIds.insert(scene.id)
+    }
+
+    private func cancelAddShot() {
+        isAddingShot = false
+        newShotName = ""
     }
 }
 
@@ -468,7 +606,12 @@ struct SceneRow: View {
 
 struct ShotRow: View {
     @EnvironmentObject var coordinator: AppCoordinator
+    @EnvironmentObject var projectViewModel: ProjectViewModel
+    @EnvironmentObject var timelineViewModel: TimelineViewModel
     let shot: Shot
+    let sceneId: String
+    let sequenceId: String
+    @State private var showDeleteConfirmation = false
 
     /// Resolve the shot's status string to a ShotStatus enum for icon/color
     private var shotStatus: ShotStatus {
@@ -503,6 +646,16 @@ struct ShotRow: View {
                 }
 
                 Spacer()
+
+                if shot.videoPath != nil {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.purple.opacity(0.7))
+                } else if shot.previewImage != nil {
+                    Image(systemName: "photo.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.green.opacity(0.7))
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -513,6 +666,52 @@ struct ShotRow: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                if let shotLabel = timelineViewModel.shotLabels.first(where: { $0.shotId == shot.shotId }) {
+                    timelineViewModel.playheadActive = true
+                    timelineViewModel.playheadTime = shotLabel.time
+                    timelineViewModel.onPlayheadSeeked?(shotLabel.time)
+                    timelineViewModel.scrollToTime(shotLabel.time)
+                }
+            } label: {
+                Label("Move Playhead Here", systemImage: "timeline.selection")
+            }
+
+            Button {
+                // Find the scene containing this shot
+                for (seqIdx, sequence) in projectViewModel.project.sequences.enumerated() {
+                    for (scnIdx, scene) in sequence.scenes.enumerated() {
+                        if scene.shots.contains(where: { $0.shotId == shot.shotId }) {
+                            coordinator.requestTimelineAnalysis(scope: .shot(shot, scene: scene, sequenceIndex: seqIdx, sceneIndex: scnIdx))
+                            return
+                        }
+                    }
+                }
+            } label: {
+                Label("Analyze Timeline...", systemImage: "wand.and.stars")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Shot", systemImage: "trash")
+            }
+        }
+        .alert("Delete Shot \(shot.shotId)?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if coordinator.selectedShot?.id == shot.id {
+                    coordinator.selectedShot = nil
+                }
+                projectViewModel.removeShot(shot, fromSceneId: sceneId, inSequenceId: sequenceId)
+                coordinator.notifyProjectChanged()
+            }
+        } message: {
+            Text("This cannot be undone.")
+        }
     }
 }
 

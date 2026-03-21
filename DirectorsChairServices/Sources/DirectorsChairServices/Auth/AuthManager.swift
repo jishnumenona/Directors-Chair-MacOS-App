@@ -76,8 +76,8 @@ public enum AuthError: LocalizedError {
         case .tokenRefreshFailed(let msg): return "Token refresh failed: \(msg)"
         case .userInfoFailed(let msg): return "Failed to fetch user info: \(msg)"
         case .keychainError(let msg): return "Keychain error: \(msg)"
-        case .noRefreshToken: return "No refresh token available."
-        case .sessionExpired: return "Your session has expired. Please log in again."
+        case .noRefreshToken: return "Your session could not be renewed. Please sign out and sign back in from the account menu."
+        case .sessionExpired: return "Your session has expired. Please sign out and sign back in from the account menu."
         }
     }
 }
@@ -342,6 +342,13 @@ public class AuthManager: ObservableObject {
         }
     }
 
+    /// Force-refresh the access token regardless of expiry.
+    /// Used when the server rejects the current token with 401.
+    public func forceRefreshToken() async throws {
+        authLog("[Auth] Force token refresh requested")
+        try await refreshAccessToken()
+    }
+
     /// Log out: clear tokens, Keychain, and state.
     public func logout() async {
         await clearSession()
@@ -527,7 +534,10 @@ public class AuthManager: ObservableObject {
 /// Provides the anchor window for ASWebAuthenticationSession on macOS.
 class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        return NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first ?? ASPresentationAnchor()
+        let window = NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first ?? ASPresentationAnchor()
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        return window
     }
 }
 #endif

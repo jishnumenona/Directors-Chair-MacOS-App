@@ -93,29 +93,30 @@ public struct CharacterAnalysisResult: Sendable {
 
 // MARK: - Trait Definitions
 
-/// The 25 personality traits used for character analysis
+/// The 25 personality traits used for character analysis (OCEAN model).
+/// These names must match the UI trait names in PersonalityTraitsTab exactly.
 public struct CharacterTraits {
-    /// All trait names
+    /// All trait names (OCEAN: 5 categories × 5 sub-traits)
     public static let allTraits: [String] = [
-        // Core Traits
-        "confidence", "empathy", "intelligence", "creativity", "resilience",
-        // Social Traits
-        "charisma", "assertiveness", "cooperation", "trustworthiness", "humor",
-        // Emotional Traits
-        "emotional_stability", "optimism", "passion", "patience", "sensitivity",
-        // Behavioral Traits
-        "discipline", "adventurousness", "adaptability", "ambition", "integrity",
-        // Cognitive Traits
-        "analytical", "intuitive", "pragmatic", "visionary", "wisdom"
+        // Openness
+        "Creativity", "Curiosity", "Imagination", "Open-mindedness", "Artistic Interest",
+        // Conscientiousness
+        "Organization", "Diligence", "Reliability", "Self-discipline", "Ambition",
+        // Extraversion
+        "Sociability", "Energy", "Assertiveness", "Enthusiasm", "Talkativeness",
+        // Agreeableness
+        "Empathy", "Cooperation", "Trust", "Kindness", "Politeness",
+        // Neuroticism
+        "Anxiety", "Moodiness", "Sensitivity", "Irritability", "Self-consciousness"
     ]
-    
-    /// Trait categories
+
+    /// Trait categories (OCEAN)
     public static let categories: [String: [String]] = [
-        "Core Traits": ["confidence", "empathy", "intelligence", "creativity", "resilience"],
-        "Social Traits": ["charisma", "assertiveness", "cooperation", "trustworthiness", "humor"],
-        "Emotional Traits": ["emotional_stability", "optimism", "passion", "patience", "sensitivity"],
-        "Behavioral Traits": ["discipline", "adventurousness", "adaptability", "ambition", "integrity"],
-        "Cognitive Traits": ["analytical", "intuitive", "pragmatic", "visionary", "wisdom"]
+        "Openness": ["Creativity", "Curiosity", "Imagination", "Open-mindedness", "Artistic Interest"],
+        "Conscientiousness": ["Organization", "Diligence", "Reliability", "Self-discipline", "Ambition"],
+        "Extraversion": ["Sociability", "Energy", "Assertiveness", "Enthusiasm", "Talkativeness"],
+        "Agreeableness": ["Empathy", "Cooperation", "Trust", "Kindness", "Politeness"],
+        "Neuroticism": ["Anxiety", "Moodiness", "Sensitivity", "Irritability", "Self-consciousness"]
     ]
 }
 
@@ -283,20 +284,21 @@ public actor CharacterAnalyzer {
         
         ## YOUR TASK: PSYCHO-SOMATIC PERSONALITY ANALYSIS
         
-        Perform a complete psycho-somatic analysis across 25 distinct personality traits (0-100 scale).
-        
+        Perform a complete psycho-somatic analysis across 25 distinct personality traits using the OCEAN (Big Five) model (0-100 scale).
+
         \(traitGuide)
-        
+
         ## OUTPUT FORMAT
-        
+
         Provide your analysis as a valid JSON object with this exact structure:
-        
+
         ```json
         {
           "trait_scores": {
-            "confidence": 75,
-            "empathy": 60,
-            ... (all 25 traits with scores 0-100)
+            "Creativity": 75,
+            "Curiosity": 60,
+            "Imagination": 70,
+            ... (all 25 traits with scores 0-100, using EXACT trait names from above)
           },
           "reasoning": "Overall 2-3 paragraph analysis...",
           "trait_explanations": {

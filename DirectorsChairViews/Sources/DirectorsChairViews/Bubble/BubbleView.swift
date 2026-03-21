@@ -8,7 +8,9 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 import UniformTypeIdentifiers
+import AVFoundation
 
 /// Main Bubble View - the primary dialogue editing interface
 ///
@@ -42,6 +44,13 @@ public struct BubbleView: View {
     // Highlight state for cross-view synchronization
     @State private var scrollToItemId: String? = nil
     @State private var hasScrolledToHighlight: Bool = false
+
+    // Audio playback state
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var playingDialogueId: String?
+    @State private var generatingAudioIds: Set<String> = []
+    @State private var detectingEmotionIds: Set<String> = []
+    @State private var audioErrorMessage: String?
 
     // Cached data for performance (rebuilt on scene switch / reorder)
     @State private var cachedChronologicalItems: [BubbleItem] = []
@@ -175,6 +184,14 @@ public struct BubbleView: View {
                     editingSoundNote = nil
                 }
             )
+        }
+        .alert("Voice Generation Error", isPresented: Binding(
+            get: { audioErrorMessage != nil },
+            set: { if !$0 { audioErrorMessage = nil } }
+        )) {
+            Button("OK") { audioErrorMessage = nil }
+        } message: {
+            Text(audioErrorMessage ?? "")
         }
         .onAppear {
             selectFirstSceneIfNeeded()
@@ -548,6 +565,11 @@ public struct BubbleView: View {
                     onDelete: { deleteDialogue(dialogue) },
                     onPlay: { playDialogue(dialogue) },
                     onStop: { stopDialogue() },
+                    onGenerateAudio: { Task { await generateAndPlayDialogue(dialogue) } },
+                    onDetectEmotion: { Task { await detectDialogueEmotion(dialogue) } },
+                    isGeneratingAudio: generatingAudioIds.contains(dialogue.id),
+                    isPlaying: playingDialogueId == dialogue.id,
+                    isDetectingEmotion: detectingEmotionIds.contains(dialogue.id),
                     onTextChanged: { newText in
                         var updated = dialogue
                         updated.text = newText
@@ -1622,11 +1644,178 @@ public struct BubbleView: View {
     }
 
     private func playDialogue(_ dialogue: Dialogue) {
-        // TODO: Implement via TTS service
+        // If audio file exists on disk, play it
+        if let audioPath = dialogue.audioFilePath,
+           let basePath = projectBasePath {
+            let fileURL = basePath.appendingPathComponent(audioPath)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                do {
+                    stopDialogue()
+                    audioPlayer = try AVAudioPlayer(contentsOf: fileURL)
+                    audioPlayer?.delegate = BubbleAudioDelegate.shared
+                    BubbleAudioDelegate.shared.onFinished = { [weak audioPlayer] in
+                        if audioPlayer != nil {
+                            playingDialogueId = nil
+                        }
+                    }
+                    audioPlayer?.play()
+                    playingDialogueId = dialogue.id
+                } catch {
+                    print("Error playing dialogue audio: \(error)")
+                }
+                return
+            }
+        }
+        // No saved audio — generate it
+        Task { await generateAndPlayDialogue(dialogue) }
     }
 
     private func stopDialogue() {
-        // TODO: Implement
+        audioPlayer?.stop()
+        audioPlayer = nil
+        playingDialogueId = nil
+    }
+
+    private func generateAndPlayDialogue(_ dialogue: Dialogue) async {
+        let dialogueId = dialogue.id
+        generatingAudioIds.insert(dialogueId)
+
+        do {
+            // Look up character voice
+            let character = cachedCharacterMap[dialogue.character]
+            let voiceName = character?.voice ?? (character?.gender.lowercased() == "female" ? "Kore" : "Charon")
+
+            // Build emotion from voiceStyle + tags
+            var emotionParts: [String] = []
+            if let style = character?.voiceStyle, !style.isEmpty {
+                emotionParts.append(style)
+            }
+            if !dialogue.tags.isEmpty {
+                emotionParts.append(contentsOf: dialogue.tags)
+            }
+            let emotion = emotionParts.isEmpty ? nil : "Say \(emotionParts.joined(separator: ", "))"
+
+            // Strip HTML from dialogue text
+            var text = dialogue.text
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("<") {
+                let tagPattern = "<[^>]+>"
+                if let regex = try? NSRegularExpression(pattern: tagPattern, options: .caseInsensitive) {
+                    let range = NSRange(location: 0, length: text.utf16.count)
+                    text = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            let request = SpeechGenerationRequest(
+                text: text,
+                provider: .google,
+                voiceName: voiceName,
+                emotion: emotion,
+                characterName: dialogue.character,
+                voiceTone: character?.voiceTone,
+                voicePersonality: character?.voicePersonality,
+                voicePace: character?.voicePace,
+                voiceAccent: character?.voiceAccent,
+                voiceAge: character?.voiceAge
+            )
+
+            let response = try await AIServiceClient.shared.generateSpeech(request)
+
+            // Save audio file
+            if let basePath = projectBasePath {
+                let audioDir = basePath.appendingPathComponent("assets/audio/dialogues")
+                try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+
+                let fileName = "\(dialogueId).wav"
+                let filePath = audioDir.appendingPathComponent(fileName)
+                try response.audioData.write(to: filePath)
+
+                // Update dialogue with audio path
+                var updated = dialogue
+                updated.audioFilePath = "assets/audio/dialogues/\(fileName)"
+                updateDialogue(updated)
+            }
+
+            // Play the audio
+            stopDialogue()
+            audioPlayer = try AVAudioPlayer(data: response.audioData)
+            audioPlayer?.delegate = BubbleAudioDelegate.shared
+            BubbleAudioDelegate.shared.onFinished = { [weak audioPlayer] in
+                if audioPlayer != nil {
+                    playingDialogueId = nil
+                }
+            }
+            audioPlayer?.play()
+            playingDialogueId = dialogueId
+
+        } catch {
+            print("Error generating dialogue audio: \(error)")
+            audioErrorMessage = error.localizedDescription
+        }
+
+        generatingAudioIds.remove(dialogueId)
+    }
+
+    // MARK: - Emotion Detection
+
+    private func detectDialogueEmotion(_ dialogue: Dialogue) async {
+        let dialogueId = dialogue.id
+        detectingEmotionIds.insert(dialogueId)
+
+        do {
+            // Strip HTML from text
+            var text = dialogue.text
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("<") {
+                let tagPattern = "<[^>]+>"
+                if let regex = try? NSRegularExpression(pattern: tagPattern, options: .caseInsensitive) {
+                    let range = NSRange(location: 0, length: text.utf16.count)
+                    text = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            guard !text.isEmpty else {
+                detectingEmotionIds.remove(dialogueId)
+                return
+            }
+
+            let characterName = dialogue.character
+            let prompt = """
+            Analyze the emotion/tone of this dialogue line spoken by \(characterName):
+
+            "\(text)"
+
+            Return ONLY a comma-separated list of 1-3 emotion tags (single words, lowercase).
+            Examples: angry, sarcastic, tender, fearful, joyful, melancholic, anxious, determined, playful, bitter, hopeful, resigned, threatening, pleading, nostalgic, disgusted, confused, amused, defiant, vulnerable
+            Do not include any other text, explanation, or formatting.
+            """
+
+            let request = TextGenerationRequest(
+                prompt: prompt,
+                provider: .google,
+                maxTokens: 50,
+                temperature: 0.3
+            )
+
+            let response = try await AIServiceClient.shared.generateText(request)
+            let emotionText = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let tags = emotionText
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty && $0.count < 20 }
+
+            if !tags.isEmpty {
+                var updated = dialogue
+                updated.tags = tags
+                updateDialogue(updated)
+            }
+        } catch {
+            print("Error detecting dialogue emotion: \(error)")
+        }
+
+        detectingEmotionIds.remove(dialogueId)
     }
 
     // MARK: - Handle Drop
@@ -2217,6 +2406,19 @@ private struct EditSoundNoteSheet: View {
             .padding()
         }
         .frame(width: 500, height: 500)
+    }
+}
+
+// MARK: - Audio Player Delegate for BubbleView
+
+class BubbleAudioDelegate: NSObject, AVAudioPlayerDelegate {
+    static let shared = BubbleAudioDelegate()
+    var onFinished: (() -> Void)?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async {
+            self.onFinished?()
+        }
     }
 }
 

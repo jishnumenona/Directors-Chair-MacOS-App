@@ -414,6 +414,7 @@ struct ShotVideoGenerationSection: View {
         guard let kf = keyframes.first(where: { $0.id == keyframeId }) else { return "" }
 
         var parts: [String] = []
+
         parts.append("A single cinematic film frame. \(shot.shotType) shot, \(shot.cameraAngle) angle.")
         if let lens = shot.lensMm {
             parts.append("\(lens)mm lens, \(shot.aperture).")
@@ -431,6 +432,14 @@ struct ShotVideoGenerationSection: View {
                     var desc = name
                     desc += ", age \(char.age)"
                     if !char.gender.isEmpty { desc += ", \(char.gender)" }
+                    if !char.about.isEmpty {
+                        desc += ", \(String(char.about.prefix(100)))"
+                    } else {
+                        if !char.build.isEmpty && char.build != "Average" { desc += ", \(char.build.lowercased())" }
+                        if !char.hairColor.isEmpty && !char.hairColor.hasPrefix("#") { desc += ", \(char.hairColor) hair" }
+                        else if !char.hairStyle.isEmpty { desc += ", \(char.hairStyle) hair" }
+                        if !char.distinguishingFeatures.isEmpty { desc += ", \(char.distinguishingFeatures)" }
+                    }
                     if let costumes = char.costumes, let first = costumes.first {
                         desc += ", wearing \(first.name)"
                     }
@@ -440,7 +449,14 @@ struct ShotVideoGenerationSection: View {
             }
 
             if let loc = currentScene.location, !loc.isEmpty {
-                parts.append("Location: \(loc)")
+                if let location = locations.first(where: { $0.name.lowercased() == loc.lowercased() }) {
+                    var locDesc = "Location: \(location.name)"
+                    if !location.locationType.isEmpty { locDesc += " (\(location.locationType))" }
+                    if !location.description.isEmpty { locDesc += " — \(location.description.prefix(200))" }
+                    parts.append(locDesc)
+                } else {
+                    parts.append("Location: \(loc)")
+                }
             }
 
             if !currentScene.props.isEmpty {
@@ -461,16 +477,40 @@ struct ShotVideoGenerationSection: View {
         return parts.joined(separator: "\n")
     }
 
+    /// Collect all reference images for the current scene.
+    private func collectSceneReferenceImages() -> [ReferenceImage] {
+        guard let currentScene = scene, let projDir = projectBasePath else { return [] }
+        return CharacterReferenceHelper.collectReferenceImages(
+            forScene: currentScene,
+            characters: characters,
+            locations: locations,
+            projectDirectory: projDir
+        )
+    }
+
     private func generateKeyframeImage() {
         guard let kfId = activeKeyframeId else { return }
         showingKeyframePromptSheet = false
         isGeneratingKeyframe = true
 
-        let prompt = keyframePrompt
+        let basePrompt = keyframePrompt
+
+        // Collect all reference images (location, characters, costumes)
+        let refs = collectSceneReferenceImages()
+
+        let fullPrompt: String
+        if !refs.isEmpty {
+            let prefix = CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: refs)
+            fullPrompt = prefix + basePrompt
+        } else {
+            fullPrompt = basePrompt
+        }
+
         let request = ImageGenerationRequest(
-            prompt: prompt,
+            prompt: fullPrompt,
             provider: .googleImagen,
-            aspectRatio: aspectRatio
+            aspectRatio: aspectRatio,
+            referenceImages: refs.isEmpty ? nil : refs
         )
 
         Task {
@@ -1541,10 +1581,6 @@ private struct KeyframeAnnotationOverlay: View {
     @Binding var isPresented: Bool
     let onApplyEdits: ([KeyframeAnnotation]) -> Void
 
-    @State private var annotations: [KeyframeAnnotation] = []
-    @State private var selectedAnnotationId: String? = nil
-    @State private var editingText: String = ""
-
     private var loadedImage: NSImage? {
         guard let imagePath = keyframe.imagePath,
               let basePath = projectBasePath else { return nil }
@@ -1552,452 +1588,30 @@ private struct KeyframeAnnotationOverlay: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 10) {
-                Image(systemName: "pencil.and.outline")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.accentColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("EDIT KEYFRAME")
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(1.2)
-                        .foregroundColor(.white.opacity(0.9))
-                    Text(keyframe.label.isEmpty ? String(format: "%.1fs", keyframe.position) : keyframe.label)
-                        .font(.system(size: 10))
-                        .foregroundColor(.gray)
+        if let image = loadedImage {
+            ImageAnnotationEditor(
+                image: image,
+                title: "EDIT KEYFRAME",
+                subtitle: keyframe.label.isEmpty ? String(format: "%.1fs", keyframe.position) : keyframe.label,
+                initialAnnotations: keyframe.annotations ?? [],
+                isPresented: $isPresented,
+                onApplyEdits: { annotations in
+                    keyframe.annotations = annotations
+                    onApplyEdits(annotations)
                 }
-                Spacer()
-                Button("Done") { isPresented = false }
-                    .foregroundColor(.gray)
-                Button(action: applyEdits) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 11))
-                        Text("Apply Edits")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(annotations.isEmpty ? Color.gray.opacity(0.3) : Color.accentColor)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
-                .disabled(annotations.isEmpty || annotations.contains(where: { $0.text.isEmpty }))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .background(Color(hex: "#1E1E1E"))
-
-            Divider().opacity(0.3)
-
-            // Instruction banner
-            HStack(spacing: 12) {
-                instructionPill(icon: "hand.tap", text: "Click to add")
-                instructionPill(icon: "cursorarrow.click", text: "Click pin to edit")
-                instructionPill(icon: "trash", text: "Right-click to delete")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 8)
-            .background(Color(hex: "#1A1A1A"))
-
-            Divider().opacity(0.3)
-
-            // Main content
-            HStack(spacing: 0) {
-                // Image area with annotations
-                annotationCanvas
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                Divider().opacity(0.3)
-
-                // Annotation list panel
-                annotationListPanel
-                    .frame(width: 220)
-            }
-
-            Divider().opacity(0.3)
-
-            // Footer
-            HStack {
-                Text("\(annotations.count) annotation\(annotations.count == 1 ? "" : "s")")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
-                Text("·")
+            )
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "photo")
+                    .font(.system(size: 32))
                     .foregroundColor(.gray.opacity(0.4))
-                Text("Click pin to edit")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray.opacity(0.6))
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(Color(hex: "#1E1E1E"))
-        }
-        .frame(width: 900, height: 600)
-        .background(Color(hex: "#252525"))
-        .onAppear {
-            annotations = keyframe.annotations ?? []
-        }
-    }
-
-    // MARK: - Instruction Pill
-
-    @ViewBuilder
-    private func instructionPill(icon: String, text: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 9))
-                .foregroundColor(.accentColor.opacity(0.8))
-            Text(text)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundColor(.white.opacity(0.6))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.05))
-        .cornerRadius(4)
-    }
-
-    // MARK: - Annotation Canvas
-
-    private var annotationCanvas: some View {
-        GeometryReader { geo in
-            ZStack {
-                // Background
-                Color.black
-
-                if let image = loadedImage {
-                    // Calculate aspect-fit dimensions
-                    let imageAspect = image.size.width / image.size.height
-                    let containerAspect = geo.size.width / geo.size.height
-                    let displaySize: CGSize = {
-                        if imageAspect > containerAspect {
-                            let w = geo.size.width
-                            return CGSize(width: w, height: w / imageAspect)
-                        } else {
-                            let h = geo.size.height
-                            return CGSize(width: h * imageAspect, height: h)
-                        }
-                    }()
-                    let offsetX = (geo.size.width - displaySize.width) / 2
-                    let offsetY = (geo.size.height - displaySize.height) / 2
-
-                    // Image
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: displaySize.width, height: displaySize.height)
-                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
-
-                    // Click area for adding pins
-                    Color.clear
-                        .frame(width: displaySize.width, height: displaySize.height)
-                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                        .contentShape(Rectangle())
-                        .onTapGesture { location in
-                            let normalizedX = (location.x - offsetX) / displaySize.width
-                            let normalizedY = (location.y - offsetY) / displaySize.height
-                            guard normalizedX >= 0 && normalizedX <= 1 &&
-                                  normalizedY >= 0 && normalizedY <= 1 else { return }
-                            addAnnotation(at: normalizedX, normalizedY)
-                        }
-
-                    // Render pins
-                    ForEach(annotations) { ann in
-                        let pinX = offsetX + ann.normalizedX * displaySize.width
-                        let pinY = offsetY + ann.normalizedY * displaySize.height
-                        let isSelected = selectedAnnotationId == ann.id
-
-                        annotationPin(annotation: ann, isSelected: isSelected)
-                            .position(x: pinX, y: pinY)
-                            .onTapGesture {
-                                selectAnnotation(ann)
-                            }
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    deleteAnnotation(ann.id)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-
-                        // Floating text input card below selected pin
-                        if isSelected {
-                            annotationTextCard(annotation: ann)
-                                .position(
-                                    x: min(max(pinX, 110), geo.size.width - 110),
-                                    y: min(pinY + 50, geo.size.height - 40)
-                                )
-                        }
-                    }
-                } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "photo")
-                            .font(.system(size: 32))
-                            .foregroundColor(.gray.opacity(0.4))
-                        Text("No keyframe image")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray.opacity(0.5))
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Annotation Pin
-
-    @ViewBuilder
-    private func annotationPin(annotation: KeyframeAnnotation, isSelected: Bool) -> some View {
-        ZStack {
-            if isSelected {
-                Circle()
-                    .fill(Color.green.opacity(0.3))
-                    .frame(width: 32, height: 32)
-
-                Circle()
-                    .stroke(Color.green, lineWidth: 2)
-                    .frame(width: 28, height: 28)
-            }
-
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: 22, height: 22)
-                .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
-
-            Text("\(annotation.number)")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white)
-        }
-        .scaleEffect(isSelected ? 1.1 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
-        .help(annotation.text.isEmpty ? "Click to add description" : annotation.text)
-    }
-
-    // MARK: - Annotation Text Card
-
-    @ViewBuilder
-    private func annotationTextCard(annotation: KeyframeAnnotation) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 16, height: 16)
-                    .overlay(
-                        Text("\(annotation.number)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
-                    )
-
-                TextField("Describe the change...", text: $editingText, onCommit: {
-                    confirmEdit()
-                })
-                .font(.system(size: 11))
-                .textFieldStyle(.plain)
-                .frame(width: 150)
-
-                Button(action: confirmEdit) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.green)
-                }
-                .buttonStyle(.plain)
-                .disabled(editingText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(10)
-        .background(Color(hex: "#1A1A1A").opacity(0.95))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.accentColor.opacity(0.5), lineWidth: 1)
-        )
-        .cornerRadius(8)
-        .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
-        .onExitCommand {
-            selectedAnnotationId = nil
-            editingText = ""
-        }
-    }
-
-    // MARK: - Annotation List Panel
-
-    private var annotationListPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Panel header
-            HStack(spacing: 6) {
-                Image(systemName: "list.bullet.circle.fill")
+                Text("No keyframe image")
                     .font(.system(size: 12))
-                    .foregroundColor(.accentColor)
-                Text("ANNOTATIONS")
-                    .font(.system(size: 9, weight: .bold))
-                    .tracking(1.0)
-                    .foregroundColor(.gray)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
-
-            if annotations.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "hand.tap")
-                        .font(.system(size: 24))
-                        .foregroundColor(.gray.opacity(0.3))
-                    Text("Click on the image\nto add annotations")
-                        .font(.system(size: 10))
-                        .foregroundColor(.gray.opacity(0.5))
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(annotations.sorted(by: { $0.number < $1.number })) { ann in
-                            annotationListRow(annotation: ann)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                }
-
-                Spacer()
-            }
-
-            // Add button
-            Button(action: {
-                // Add at center
-                addAnnotation(at: 0.5, 0.5)
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 9, weight: .medium))
-                    Text("Add")
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .foregroundColor(.accentColor.opacity(0.8))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(Color.accentColor.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.accentColor.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                )
-                .cornerRadius(6)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 14)
-            .padding(.bottom, 14)
-        }
-        .background(Color(hex: "#1E1E1E"))
-    }
-
-    // MARK: - Annotation List Row
-
-    @ViewBuilder
-    private func annotationListRow(annotation: KeyframeAnnotation) -> some View {
-        let isSelected = selectedAnnotationId == annotation.id
-
-        HStack(spacing: 8) {
-            Circle()
-                .fill(isSelected ? Color.green : Color.accentColor)
-                .frame(width: 20, height: 20)
-                .overlay(
-                    Text("\(annotation.number)")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                if annotation.text.isEmpty {
-                    Text("No description")
-                        .font(.system(size: 10))
-                        .foregroundColor(.gray.opacity(0.5))
-                        .italic()
-                } else {
-                    Text(annotation.text)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.85))
-                        .lineLimit(2)
-                }
-
-                Text("\(Int(annotation.normalizedX * 100))%, \(Int(annotation.normalizedY * 100))%")
-                    .font(.system(size: 8))
                     .foregroundColor(.gray.opacity(0.5))
             }
-
-            Spacer()
-
-            Button(action: { deleteAnnotation(annotation.id) }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(.gray.opacity(0.5))
-            }
-            .buttonStyle(.plain)
+            .frame(width: 900, height: 600)
+            .background(Color(hex: "#252525"))
         }
-        .padding(8)
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.white.opacity(0.03))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.white.opacity(0.06), lineWidth: 1)
-        )
-        .cornerRadius(6)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            selectAnnotation(annotation)
-        }
-    }
-
-    // MARK: - Actions
-
-    private func addAnnotation(at x: Double, _ y: Double) {
-        let nextNumber = (annotations.map { $0.number }.max() ?? 0) + 1
-        let ann = KeyframeAnnotation(
-            normalizedX: x,
-            normalizedY: y,
-            text: "",
-            number: nextNumber
-        )
-        annotations.append(ann)
-        selectedAnnotationId = ann.id
-        editingText = ""
-    }
-
-    private func selectAnnotation(_ annotation: KeyframeAnnotation) {
-        selectedAnnotationId = annotation.id
-        editingText = annotation.text
-    }
-
-    private func confirmEdit() {
-        guard let id = selectedAnnotationId,
-              let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
-        annotations[idx].text = editingText.trimmingCharacters(in: .whitespaces)
-        selectedAnnotationId = nil
-        editingText = ""
-        // Persist to keyframe
-        keyframe.annotations = annotations
-    }
-
-    private func deleteAnnotation(_ id: String) {
-        annotations.removeAll { $0.id == id }
-        if selectedAnnotationId == id {
-            selectedAnnotationId = nil
-            editingText = ""
-        }
-        // Renumber
-        for i in 0..<annotations.count {
-            annotations[i].number = i + 1
-        }
-        keyframe.annotations = annotations
-    }
-
-    private func applyEdits() {
-        // Confirm any pending edit
-        if let id = selectedAnnotationId,
-           let idx = annotations.firstIndex(where: { $0.id == id }),
-           !editingText.trimmingCharacters(in: .whitespaces).isEmpty {
-            annotations[idx].text = editingText.trimmingCharacters(in: .whitespaces)
-        }
-        keyframe.annotations = annotations
-        isPresented = false
-        onApplyEdits(annotations)
     }
 }
 
@@ -2022,6 +1636,10 @@ private struct ShotContextCard: View {
     @State private var newSoundType = "effects"
     @State private var editingSoundId: String? = nil
     @State private var editingSoundText: String = ""
+    @State private var isDetecting = false
+    @State private var showingLocationPicker = false
+    @State private var showingLocationInput = false
+    @State private var newLocationName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2035,9 +1653,32 @@ private struct ShotContextCard: View {
                     .tracking(1.2)
                     .foregroundColor(.white.opacity(0.9))
                 Spacer()
-                Text("Auto-detected from storyline")
-                    .font(.system(size: 9))
-                    .foregroundColor(.gray.opacity(0.4))
+
+                Button(action: { Task { await detectFromScript() } }) {
+                    HStack(spacing: 4) {
+                        if isDetecting {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .scaleEffect(0.6)
+                                .frame(width: 10, height: 10)
+                            Text("Detecting...")
+                                .font(.system(size: 9, weight: .medium))
+                        } else {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 9))
+                            Text("Detect from Script")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                    }
+                    .foregroundColor(.accentColor.opacity(0.8))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor.opacity(0.2), lineWidth: 1))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                .disabled(isDetecting || scene == nil)
             }
 
             VStack(alignment: .leading, spacing: 16) {
@@ -2073,9 +1714,10 @@ private struct ShotContextCard: View {
                     contextSection(icon: "mappin.and.ellipse", iconColor: .green, title: "LOCATION") {
                         VideoContextFlowLayout(spacing: 8) {
                             if let loc = currentScene.location, !loc.isEmpty {
-                                locationChip(locationName: loc)
-                            }
-                            if currentScene.location == nil || currentScene.location?.isEmpty == true {
+                                deletableLocationChip(locationName: loc)
+                            } else if showingLocationInput {
+                                locationInputField
+                            } else {
                                 HStack(spacing: 4) {
                                     Image(systemName: "mappin.slash")
                                         .font(.system(size: 9))
@@ -2083,6 +1725,11 @@ private struct ShotContextCard: View {
                                     Text("No location set")
                                         .font(.system(size: 10))
                                         .foregroundColor(.gray.opacity(0.4))
+                                }
+                                if !locations.isEmpty {
+                                    addButton { showingLocationPicker = true }
+                                } else {
+                                    addButton { showingLocationInput = true }
                                 }
                             }
                         }
@@ -2191,9 +1838,18 @@ private struct ShotContextCard: View {
         .popover(isPresented: $showingCharacterPicker) {
             characterPickerPopover
         }
+        .popover(isPresented: $showingLocationPicker) {
+            locationPickerPopover
+        }
     }
 
     // MARK: - Scene Mutation Helpers
+
+    private func setLocation(_ name: String) {
+        guard var updated = scene else { return }
+        updated.location = name
+        onSceneUpdated?(updated)
+    }
 
     private func removeProp(_ prop: String) {
         guard var updated = scene else { return }
@@ -2208,6 +1864,12 @@ private struct ShotContextCard: View {
             updated.props.append(trimmed)
             onSceneUpdated?(updated)
         }
+    }
+
+    private func removeLocation() {
+        guard var updated = scene else { return }
+        updated.location = nil
+        onSceneUpdated?(updated)
     }
 
     private func removeSound(_ soundId: String) {
@@ -2236,6 +1898,211 @@ private struct ShotContextCard: View {
         }
     }
 
+    // MARK: - Detect from Script
+
+    private func detectFromScript() async {
+        guard let currentScene = scene else { return }
+
+        await MainActor.run { isDetecting = true }
+
+        // Context parts (always included)
+        var contextParts: [String] = []
+        if !shot.description.isEmpty {
+            contextParts.append("Shot description: \(shot.description)")
+        }
+        contextParts.append("Scene: \(currentScene.name)")
+        if !currentScene.description.isEmpty {
+            contextParts.append("Scene description: \(currentScene.description)")
+        }
+        if let existingLocation = currentScene.location, !existingLocation.isEmpty {
+            contextParts.append("Current scene location: \(existingLocation)")
+        }
+
+        // Gather linked script text for this shot
+        var linkedParts: [String] = []
+        for dialogueId in shot.linkedDialogueIds {
+            if let dialogue = currentScene.dialogues.first(where: { $0.id == dialogueId }) {
+                linkedParts.append("\(dialogue.character.uppercased())\n\(dialogue.text)")
+            }
+        }
+        for actionId in shot.linkedActionIds {
+            if let action = currentScene.actions.first(where: { $0.id == actionId }) {
+                linkedParts.append(action.description)
+            }
+        }
+        for narrationId in shot.linkedNarrationIds {
+            if let narration = currentScene.narrations.first(where: { $0.id == narrationId }) {
+                linkedParts.append("(V.O.) \(narration.text)")
+            }
+        }
+
+        // Fallback to entire scene script if no linked elements
+        if linkedParts.isEmpty {
+            for dialogue in currentScene.dialogues {
+                linkedParts.append("\(dialogue.character.uppercased())\n\(dialogue.text)")
+            }
+            for action in currentScene.actions {
+                linkedParts.append(action.description)
+            }
+            for narration in currentScene.narrations {
+                linkedParts.append("(V.O.) \(narration.text)")
+            }
+        }
+
+        let allParts = contextParts + linkedParts
+        guard !allParts.isEmpty else {
+            await MainActor.run { isDetecting = false }
+            return
+        }
+
+        let scriptText = allParts.joined(separator: "\n\n")
+
+        let prompt = """
+        Analyze the following screenplay excerpt. Extract exactly these three things:
+
+        1. "characters" — Names of all characters present, speaking, or mentioned
+        2. "location" — The filming location. Look at the scene name for slug lines (e.g. "Scene 3 - INT. KITCHEN - DAY"). If the scene name contains INT./EXT., extract it. Also infer from action descriptions and shot description.
+        3. "props" — Physical objects, weapons, vehicles, or items characters interact with
+
+        Text to analyze:
+        ---
+        \(scriptText)
+        ---
+
+        IMPORTANT: You MUST respond with ONLY a raw JSON object (no markdown, no code fences, no explanation):
+        {"characters": ["Name1", "Name2"], "location": "INT. PLACE - TIME", "props": ["item1", "item2"]}
+        """
+
+        // Ensure auth token is set (tokenProvider may fail off-main-actor)
+        if let token = await AIServiceClient.shared.tokenProvider?() {
+            await AIServiceClient.shared.setAuthToken(token)
+        }
+
+        do {
+            let request = TextGenerationRequest(
+                prompt: prompt,
+                provider: .google,
+                maxTokens: 2000,
+                temperature: 0.1,
+                systemPrompt: "You extract structured data from screenplay text. Output raw JSON only, never markdown code fences."
+            )
+            let response = try await AIServiceClient.shared.generateText(request)
+
+            // Strip markdown code fences if present
+            var jsonText = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if jsonText.hasPrefix("```") {
+                let lines = jsonText.components(separatedBy: "\n")
+                let inner = lines.dropFirst().filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }
+                jsonText = inner.joined(separator: "\n")
+            }
+            if jsonText.hasSuffix("```") {
+                jsonText = String(jsonText.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            // Try parsing JSON, with recovery for truncated responses
+            var json: [String: Any]?
+            if let data = jsonText.data(using: .utf8) {
+                json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            }
+            // If parsing failed, try to repair truncated JSON
+            if json == nil {
+                var repaired = jsonText
+                let quoteCount = repaired.filter { $0 == "\"" }.count
+                if quoteCount % 2 != 0 { repaired += "\"" }
+                let openBrackets = repaired.filter { $0 == "[" }.count
+                let closeBrackets = repaired.filter { $0 == "]" }.count
+                for _ in 0..<(openBrackets - closeBrackets) { repaired += "]" }
+                let openBraces = repaired.filter { $0 == "{" }.count
+                let closeBraces = repaired.filter { $0 == "}" }.count
+                for _ in 0..<(openBraces - closeBraces) { repaired += "}" }
+                if let data = repaired.data(using: .utf8) {
+                    json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                }
+            }
+            guard let json = json else {
+                var updated = currentScene
+                if let slug = parseSlugLineFromSceneName(currentScene.name) {
+                    updated.location = slug
+                    await MainActor.run {
+                        onSceneUpdated?(updated)
+                        isDetecting = false
+                    }
+                } else {
+                    await MainActor.run { isDetecting = false }
+                }
+                return
+            }
+
+            var updated = currentScene
+
+            // Update location
+            if let location = json["location"] as? String,
+               !location.isEmpty,
+               !location.lowercased().contains("not specified"),
+               !location.lowercased().contains("unknown"),
+               !location.lowercased().contains("n/a") {
+                updated.location = location
+            }
+
+            // Fallback: parse slug line from scene name
+            if updated.location == nil || updated.location?.isEmpty == true {
+                if let slug = parseSlugLineFromSceneName(currentScene.name) {
+                    updated.location = slug
+                }
+            }
+
+            // Merge props (add new, keep existing)
+            if let props = json["props"] as? [String] {
+                let existingLower = Set(updated.props.map { $0.lowercased() })
+                for prop in props {
+                    let trimmed = prop.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty && !existingLower.contains(trimmed.lowercased()) {
+                        updated.props.append(trimmed)
+                    }
+                }
+            }
+
+            // Merge characters — add detected names to a linked action's character list
+            if let detectedChars = json["characters"] as? [String] {
+                let existingChars = Set(resolveAllCharacterNames(scene: currentScene))
+                let newChars = detectedChars.filter { !$0.isEmpty && !existingChars.contains($0) }
+
+                if !newChars.isEmpty {
+                    let actionIndex: Int?
+                    if let firstLinkedId = shot.linkedActionIds.first {
+                        actionIndex = updated.actions.firstIndex(where: { $0.id == firstLinkedId })
+                    } else {
+                        actionIndex = updated.actions.indices.first
+                    }
+                    if let idx = actionIndex {
+                        for name in newChars {
+                            if !updated.actions[idx].characters.contains(name) {
+                                updated.actions[idx].characters.append(name)
+                            }
+                        }
+                    }
+                }
+            }
+
+            await MainActor.run {
+                onSceneUpdated?(updated)
+                isDetecting = false
+            }
+
+        } catch {
+            var updated = currentScene
+            if let slug = parseSlugLineFromSceneName(currentScene.name) {
+                updated.location = slug
+                await MainActor.run {
+                    onSceneUpdated?(updated)
+                    isDetecting = false
+                }
+            } else {
+                await MainActor.run { isDetecting = false }
+            }
+        }
+    }
+
     // MARK: - Section Builder
 
     @ViewBuilder
@@ -2259,49 +2126,63 @@ private struct ShotContextCard: View {
     @ViewBuilder
     private func characterChip(name: String) -> some View {
         let char = characters.first(where: { $0.name == name })
+        // Character is removable only if they come from action character lists, not dialogue speakers
+        let speaksDialogue = scene?.dialogues.contains(where: { $0.character == name }) ?? false
 
-        Button(action: {
-            if let char = char { onNavigateToCharacter?(char) }
-        }) {
-            HStack(spacing: 6) {
-                // Thumbnail
-                if let char = char, let basePath = projectBasePath {
-                    let imgPath = char.imageFront ?? char.baseImage ?? char.avatar
-                    if let path = imgPath, let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                        Image(nsImage: img)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 22, height: 22)
-                            .clipShape(Circle())
+        HStack(spacing: 0) {
+            Button(action: {
+                if let char = char { onNavigateToCharacter?(char) }
+            }) {
+                HStack(spacing: 6) {
+                    // Thumbnail
+                    if let char = char, let basePath = projectBasePath {
+                        let imgPath = char.imageFront ?? char.baseImage ?? char.avatar
+                        if let path = imgPath, let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
+                            Image(nsImage: img)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 22, height: 22)
+                                .clipShape(Circle())
+                        } else {
+                            defaultCircleIcon(icon: "person.fill", color: .blue)
+                        }
                     } else {
                         defaultCircleIcon(icon: "person.fill", color: .blue)
                     }
-                } else {
-                    defaultCircleIcon(icon: "person.fill", color: .blue)
-                }
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(name)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.9))
-                    if let char = char {
-                        Text("\(char.gender), \(char.age)")
-                            .font(.system(size: 8))
-                            .foregroundColor(.gray)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.9))
+                        if let char = char {
+                            Text("\(char.gender), \(char.age)")
+                                .font(.system(size: 8))
+                                .foregroundColor(.gray)
+                        }
                     }
-                }
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 7))
-                    .foregroundColor(.gray.opacity(0.4))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7))
+                        .foregroundColor(.gray.opacity(0.4))
+                }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.blue.opacity(0.08))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.blue.opacity(0.15), lineWidth: 1))
-            .cornerRadius(8)
+            .buttonStyle(.plain)
+
+            if !speaksDialogue {
+                Button(action: { removeCharacterFromScene(name) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.gray.opacity(0.5))
+                        .padding(.leading, 6)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.blue.opacity(0.08))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.blue.opacity(0.15), lineWidth: 1))
+        .cornerRadius(8)
     }
 
     // MARK: - Costume Chip
@@ -2346,43 +2227,53 @@ private struct ShotContextCard: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Location Chip
+    // MARK: - Deletable Location Chip
 
     @ViewBuilder
-    private func locationChip(locationName: String) -> some View {
+    private func deletableLocationChip(locationName: String) -> some View {
         let location = locations.first(where: { $0.name == locationName })
 
-        Button(action: {
-            if let loc = location { onNavigateToLocation?(loc) }
-        }) {
-            HStack(spacing: 6) {
-                if let loc = location, let basePath = projectBasePath,
-                   let path = loc.primaryImage ?? loc.images.first,
-                   let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                    Image(nsImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 22, height: 22)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else {
-                    defaultSquareIcon(icon: "mappin", color: .green)
+        HStack(spacing: 0) {
+            Button(action: {
+                if let loc = location { onNavigateToLocation?(loc) }
+            }) {
+                HStack(spacing: 6) {
+                    if let loc = location, let basePath = projectBasePath,
+                       let path = loc.primaryImage ?? loc.images.first,
+                       let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 22, height: 22)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    } else {
+                        defaultSquareIcon(icon: "mappin", color: .green)
+                    }
+
+                    Text(locationName)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7))
+                        .foregroundColor(.gray.opacity(0.4))
                 }
-
-                Text(locationName)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.9))
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 7))
-                    .foregroundColor(.gray.opacity(0.4))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.green.opacity(0.08))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green.opacity(0.15), lineWidth: 1))
-            .cornerRadius(8)
+            .buttonStyle(.plain)
+
+            Button(action: { removeLocation() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundColor(.gray.opacity(0.5))
+                    .padding(.leading, 6)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.green.opacity(0.08))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green.opacity(0.15), lineWidth: 1))
+        .cornerRadius(8)
     }
 
     // MARK: - Deletable Prop Chip
@@ -2454,6 +2345,122 @@ private struct ShotContextCard: View {
         .background(Color.orange.opacity(0.06))
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.orange.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         .cornerRadius(7)
+    }
+
+    // MARK: - Location Input Field
+
+    private var locationInputField: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "mappin")
+                .font(.system(size: 9))
+                .foregroundColor(.green.opacity(0.5))
+            TextField("Location name", text: $newLocationName)
+                .font(.system(size: 10))
+                .textFieldStyle(.plain)
+                .frame(width: 140)
+                .onSubmit {
+                    setLocation(newLocationName)
+                    newLocationName = ""
+                    showingLocationInput = false
+                }
+            Button(action: {
+                setLocation(newLocationName)
+                newLocationName = ""
+                showingLocationInput = false
+            }) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.green.opacity(0.8))
+            }
+            .buttonStyle(.plain)
+            .disabled(newLocationName.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button(action: {
+                newLocationName = ""
+                showingLocationInput = false
+            }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.gray.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.green.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.green.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        .cornerRadius(7)
+    }
+
+    // MARK: - Location Picker Popover
+
+    private var locationPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Set Location")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.bottom, 4)
+
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(locations) { loc in
+                        Button(action: {
+                            showingLocationPicker = false
+                            setLocation(loc.name)
+                        }) {
+                            HStack(spacing: 8) {
+                                if let basePath = projectBasePath,
+                                   let path = loc.primaryImage ?? loc.images.first,
+                                   let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
+                                    Image(nsImage: img)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 24, height: 24)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                } else {
+                                    defaultSquareIcon(icon: "mappin", color: .green)
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(loc.name)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white)
+                                    if !loc.locationType.isEmpty {
+                                        Text(loc.locationType)
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.04))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 200)
+
+            Divider().opacity(0.3)
+
+            Button(action: {
+                showingLocationPicker = false
+                showingLocationInput = true
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 10))
+                    Text("Enter Custom Location")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .frame(width: 240)
+        .background(Color(hex: "#2A2A2A"))
     }
 
     // MARK: - Deletable Sound Row
@@ -2834,6 +2841,27 @@ private struct ShotContextCard: View {
         case "effects": return "bolt.fill"
         default: return "speaker.wave.1"
         }
+    }
+
+    /// Parse a slug line from a scene name like "Scene 3 - INT. KITCHEN - DAY"
+    private func parseSlugLineFromSceneName(_ name: String) -> String? {
+        let upper = name.uppercased()
+        for prefix in ["INT./EXT.", "INT/EXT.", "INT/EXT", "INT.", "EXT.", "INT ", "EXT "] {
+            if let range = upper.range(of: prefix) {
+                // Return from the prefix onwards
+                return String(name[range.lowerBound...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
+    /// Remove a character name from all action character lists in the scene
+    private func removeCharacterFromScene(_ charName: String) {
+        guard var updated = scene else { return }
+        for i in updated.actions.indices {
+            updated.actions[i].characters.removeAll { $0 == charName }
+        }
+        onSceneUpdated?(updated)
     }
 }
 

@@ -58,7 +58,8 @@ public struct TakesSectionView: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 14) {
                     // Capture mode: live monitor, start monitoring, timestamp ready/active, or mode chooser
-                    if captureService.selectedDevice != nil {
+                    // Hide inline monitor when fullscreen is active (preview layer can only attach to one view)
+                    if captureService.selectedDevice != nil && !isFullScreen {
                         liveMonitorCard
                     } else if isBlindLogging {
                         blindLoggingCard
@@ -99,7 +100,7 @@ public struct TakesSectionView: View {
         }
         .sheet(isPresented: $isFullScreen) {
             fullScreenMonitor
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 1200, minHeight: 800)
         }
     }
 
@@ -645,6 +646,23 @@ public struct TakesSectionView: View {
                                     .foregroundColor(.gray.opacity(0.4))
                             }
                         )
+                }
+
+                // Fullscreen button — bottom right of preview
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button { isFullScreen = true } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.8))
+                                .padding(7)
+                                .background(Circle().fill(Color.black.opacity(0.6)))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(8)
+                    }
                 }
 
                 // Recording HUD overlay
@@ -1365,7 +1383,9 @@ public struct TakesSectionView: View {
                     Spacer()
 
                     // Close button
-                    Button { isFullScreen = false } label: {
+                    Button {
+                        isFullScreen = false
+                    } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.down.right.and.arrow.up.left")
                                 .font(.system(size: 11, weight: .semibold))

@@ -129,7 +129,7 @@ public struct TimelineLayoutConstants {
     // MARK: - Shot Labels Lane
 
     /// Height of the shot labels lane between ruler and content
-    public static let shotLaneHeight: CGFloat = 48
+    public static let shotLaneHeight: CGFloat = 80
 
     /// Minimum width for a shot card (ensures zero-duration shots are visible)
     public static let minShotCardWidth: CGFloat = 60

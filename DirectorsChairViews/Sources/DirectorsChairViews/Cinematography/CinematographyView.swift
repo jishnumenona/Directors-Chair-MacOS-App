@@ -15,8 +15,8 @@ public struct CinematographyView: View {
     @StateObject private var viewModel: CinematographyViewModel
     @EnvironmentObject var captureService: LiveCaptureService
 
-    /// Scene context for shot preview generation
-    let scene: DCScene?
+    /// All scenes for resolving shot-to-scene context
+    let scenes: [DCScene]
     let characters: [Character]
     let locations: [Location]
     let projectBasePath: URL?
@@ -41,6 +41,9 @@ public struct CinematographyView: View {
     /// Initial shot ID to select when view appears or changes
     public var initialSelectedShotId: Int?
 
+    /// Section to scroll to in shot detail (e.g. "takes"). Consumed and cleared externally.
+    @Binding public var scrollToShotSection: String?
+
     // MARK: - State
 
     @State private var showingDeleteAlert: Bool = false
@@ -52,11 +55,12 @@ public struct CinematographyView: View {
 
     public init(
         shots: [Shot] = [],
-        scene: DCScene? = nil,
+        scenes: [DCScene] = [],
         characters: [Character] = [],
         locations: [Location] = [],
         projectBasePath: URL? = nil,
         initialSelectedShotId: Int? = nil,
+        scrollToShotSection: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
         onJumpToScriptElement: ((String, String) -> Void)? = nil,
         onOptionClickShot: ((Shot) -> Void)? = nil,
@@ -66,11 +70,12 @@ public struct CinematographyView: View {
         onSceneUpdated: ((DCScene) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: CinematographyViewModel(shots: shots))
-        self.scene = scene
+        self.scenes = scenes
         self.characters = characters
         self.locations = locations
         self.projectBasePath = projectBasePath
         self.initialSelectedShotId = initialSelectedShotId
+        self._scrollToShotSection = scrollToShotSection
         self.onShotsChanged = onShotsChanged
         self.onJumpToScriptElement = onJumpToScriptElement
         self.onOptionClickShot = onOptionClickShot
@@ -78,6 +83,13 @@ public struct CinematographyView: View {
         self.onNavigateToLocation = onNavigateToLocation
         self.onNavigateToStoryDesign = onNavigateToStoryDesign
         self.onSceneUpdated = onSceneUpdated
+    }
+
+    /// Find the parent scene for a given shot
+    private func sceneForShot(_ shot: Shot) -> DCScene? {
+        scenes.first { scene in
+            scene.shots.contains { $0.shotId == shot.shotId }
+        }
     }
 
     // MARK: - Body
@@ -426,13 +438,15 @@ public struct CinematographyView: View {
                     .padding(.top, 24)
                     .padding(.bottom, 12)
 
+                ScrollViewReader { scrollProxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                     // Shot Preview - Main section
                     ShotPreviewSection(
                         shot: shot,
-                        scene: scene,
+                        scene: sceneForShot(shot),
                         characters: characters,
+                        locations: locations,
                         projectBasePath: projectBasePath,
                         onPreviewGenerated: { imagePath in
                             updateShotField(shot) { $0.previewImage = imagePath }
@@ -448,7 +462,7 @@ public struct CinematographyView: View {
                     )
 
                     // Linked Script Elements
-                    if let currentScene = scene,
+                    if let currentScene = sceneForShot(shot),
                        (!shot.linkedDialogueIds.isEmpty || !shot.linkedActionIds.isEmpty || !shot.linkedNarrationIds.isEmpty) {
                         LinkedScriptElementsSection(
                             shot: shot,
@@ -469,6 +483,7 @@ public struct CinematographyView: View {
                             },
                             captureService: captureService
                         )
+                        .id("takes-section")
 
                         Divider()
                     }
@@ -499,7 +514,7 @@ public struct CinematographyView: View {
                     // Video Generation
                     ShotVideoGenerationSection(
                         shot: shot,
-                        scene: scene,
+                        scene: sceneForShot(shot),
                         characters: characters,
                         locations: locations,
                         projectBasePath: projectBasePath?.deletingLastPathComponent(),
@@ -513,10 +528,19 @@ public struct CinematographyView: View {
                     )
 
                     Spacer()
+                    }
+                    .padding(24)
                 }
-                .padding(24)
-            }
-            .id(shot.id)  // Force entire scroll view to recreate when shot changes
+                .id(shot.id)  // Force entire scroll view to recreate when shot changes
+                .onChange(of: scrollToShotSection) { _, section in
+                    if let section = section {
+                        withAnimation {
+                            scrollProxy.scrollTo(section + "-section", anchor: .top)
+                        }
+                        scrollToShotSection = nil
+                    }
+                }
+                } // ScrollViewReader
             }
         } else {
             VStack {
@@ -558,6 +582,17 @@ public struct CinematographyView: View {
 
             // Actions
             HStack(spacing: 12) {
+                Button {
+                    onOptionClickShot?(shot)
+                } label: {
+                    Label("Script", systemImage: "scroll")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+                .background(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.4)))
+                .contentShape(Rectangle())
+
                 Button {
                     viewModel.editShot(shot)
                 } label: {
@@ -1002,6 +1037,7 @@ private struct ShotPreviewSection: View {
     let shot: Shot
     let scene: DCScene?
     let characters: [Character]
+    let locations: [Location]
     let projectBasePath: URL?
     let onPreviewGenerated: (String) -> Void
 
@@ -1011,8 +1047,11 @@ private struct ShotPreviewSection: View {
     @State private var showingError = false
     @State private var showingPromptEditor = false
     @State private var showingFullSizePreview = false
+    @State private var showingAnnotationEditor = false
     @State private var editablePrompt: String = ""
     @State private var lastUsedPrompt: String = ""
+    @State private var allPreviewImages: [URL] = []
+    @State private var currentImageIndex: Int = -1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1109,60 +1148,136 @@ private struct ShotPreviewSection: View {
                 }
 
                 // Overlay buttons (when image exists)
-                if previewImage != nil && !isGenerating {
+                if previewImage != nil {
                     VStack {
                         HStack {
                             Spacer()
-                            // View full size button
-                            Button(action: { showingFullSizePreview = true }) {
-                                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .padding(8)
-                                    .background(Color.black.opacity(0.6))
-                                    .clipShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("View full size")
+                            if !isGenerating {
+                                // View full size button
+                                Button(action: { showingFullSizePreview = true }) {
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.6))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("View full size")
 
-                            // Edit prompt button
-                            Button(action: { openPromptEditor() }) {
-                                Image(systemName: "text.badge.plus")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .padding(8)
-                                    .background(Color.black.opacity(0.6))
-                                    .clipShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Edit prompt")
+                                // Annotate & edit button
+                                Button(action: { showingAnnotationEditor = true }) {
+                                    Image(systemName: "pencil.and.outline")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.6))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Annotate & edit image")
 
-                            // Download button
-                            Button(action: { downloadPreviewImage() }) {
-                                Image(systemName: "arrow.down.circle")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .padding(8)
-                                    .background(Color.black.opacity(0.6))
-                                    .clipShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Download image")
+                                // Edit prompt button
+                                Button(action: { openPromptEditor() }) {
+                                    Image(systemName: "text.badge.plus")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.6))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Edit prompt")
 
-                            // Regenerate button
+                                // Download button
+                                Button(action: { downloadPreviewImage() }) {
+                                    Image(systemName: "arrow.down.circle")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.6))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Download image")
+                            }
+
+                            // Regenerate button (shows spinner when generating)
                             Button(action: { generateWithDefaultPrompt() }) {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .padding(8)
-                                    .background(Color.black.opacity(0.6))
-                                    .clipShape(Circle())
+                                ZStack {
+                                    if isGenerating {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.6)
+                                    } else {
+                                        Image(systemName: "arrow.clockwise")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                                .frame(width: 27, height: 27)
+                                .background(isGenerating ? Color.accentColor.opacity(0.8) : Color.black.opacity(0.6))
+                                .clipShape(Circle())
                             }
                             .buttonStyle(.plain)
-                            .help("Regenerate preview")
+                            .disabled(isGenerating)
+                            .help(isGenerating ? "Generating..." : "Regenerate preview")
                         }
                         .padding(12)
                         Spacer()
+                    }
+                }
+
+                // Image history navigation
+                if allPreviewImages.count > 1 {
+                    VStack {
+                        Spacer()
+                        HStack(spacing: 10) {
+                            Button {
+                                if currentImageIndex > 0 {
+                                    currentImageIndex -= 1
+                                    loadPreviewImageAtIndex(currentImageIndex)
+                                }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(currentImageIndex > 0 ? .white : .white.opacity(0.3))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(currentImageIndex <= 0)
+
+                            Text("\(currentImageIndex + 1) / \(allPreviewImages.count)")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(.white)
+
+                            Button {
+                                if currentImageIndex < allPreviewImages.count - 1 {
+                                    currentImageIndex += 1
+                                    loadPreviewImageAtIndex(currentImageIndex)
+                                }
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(currentImageIndex < allPreviewImages.count - 1 ? .white : .white.opacity(0.3))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(currentImageIndex >= allPreviewImages.count - 1)
+
+                            if currentImageIndex == allPreviewImages.count - 1 {
+                                Text("Latest")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.accentColor.opacity(0.7))
+                                    .cornerRadius(4)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(20)
+                        .padding(.bottom, 10)
                     }
                 }
             }
@@ -1206,6 +1321,7 @@ private struct ShotPreviewSection: View {
         .onAppear {
             loadExistingPreview()
             loadSavedPrompt()
+            discoverPreviewImages()
         }
         .onChange(of: shot.previewImage) { _, newPath in
             if let path = newPath {
@@ -1233,6 +1349,19 @@ private struct ShotPreviewSection: View {
                 isPresented: $showingFullSizePreview,
                 onDownload: { downloadPreviewImage() }
             )
+        }
+        .sheet(isPresented: $showingAnnotationEditor) {
+            if let image = previewImage {
+                ImageAnnotationEditor(
+                    image: image,
+                    title: "EDIT SHOT PREVIEW",
+                    subtitle: "Shot \(shot.shotId) — \(shot.shotType) \(shot.cameraAngle)",
+                    isPresented: $showingAnnotationEditor,
+                    onApplyEdits: { annotations in
+                        generatePreviewWithAnnotations(annotations)
+                    }
+                )
+            }
         }
     }
 
@@ -1320,6 +1449,42 @@ private struct ShotPreviewSection: View {
         }
     }
 
+    // MARK: - Image History
+
+    private func discoverPreviewImages() {
+        guard let basePath = projectBasePath else { return }
+        let projectDir = basePath.deletingLastPathComponent()
+        let shotDir = projectDir
+            .appendingPathComponent("assets")
+            .appendingPathComponent("shots")
+            .appendingPathComponent("shot_\(shot.shotId)")
+
+        guard FileManager.default.fileExists(atPath: shotDir.path) else { return }
+
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: shotDir, includingPropertiesForKeys: nil)
+            let images = contents
+                .filter { $0.pathExtension.lowercased() == "png" }
+                .filter { $0.lastPathComponent.hasPrefix("preview_") }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+            allPreviewImages = images
+            if !images.isEmpty {
+                currentImageIndex = images.count - 1
+            }
+        } catch {
+            // Directory doesn't exist or can't be read
+        }
+    }
+
+    private func loadPreviewImageAtIndex(_ index: Int) {
+        guard index >= 0, index < allPreviewImages.count else { return }
+        let url = allPreviewImages[index]
+        if let image = NSImage(contentsOf: url) {
+            previewImage = image
+        }
+    }
+
     // MARK: - Generate Preview
 
     private func generatePreview(with prompt: String) {
@@ -1340,24 +1505,32 @@ private struct ShotPreviewSection: View {
                     return
                 }
 
-                let ref: (base64: String, mimeType: String)?
+                // Collect all reference images (location, characters, costumes)
+                var refs: [ReferenceImage] = []
                 if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
-                    ref = CharacterReferenceHelper.referenceImage(
+                    refs = CharacterReferenceHelper.collectReferenceImages(
                         forScene: scene,
                         characters: characters,
+                        locations: locations,
                         projectDirectory: projDir
                     )
+                }
+
+                // Prepend reference image instructions to the prompt
+                let fullPrompt: String
+                if !refs.isEmpty {
+                    let prefix = CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: refs)
+                    fullPrompt = prefix + prompt
                 } else {
-                    ref = nil
+                    fullPrompt = prompt
                 }
 
                 let request = ImageGenerationRequest(
-                    prompt: prompt,
+                    prompt: fullPrompt,
                     provider: .googleImagen,
                     aspectRatio: "16:9",
                     numberOfImages: 1,
-                    referenceImageBase64: ref?.base64,
-                    referenceMimeType: ref?.mimeType
+                    referenceImages: refs.isEmpty ? nil : refs
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -1418,6 +1591,114 @@ private struct ShotPreviewSection: View {
                     }
                     onPreviewGenerated(relativePath)
                     isGenerating = false
+                    discoverPreviewImages()
+                }
+
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                    isGenerating = false
+                }
+            }
+        }
+    }
+
+    // MARK: - Generate Preview With Annotations
+
+    private func generatePreviewWithAnnotations(_ annotations: [KeyframeAnnotation]) {
+        guard let currentImage = previewImage else { return }
+
+        let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "shot preview")
+        let basePrompt = lastUsedPrompt.isEmpty ? buildPrompt() : lastUsedPrompt
+        let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
+
+        isGenerating = true
+        errorMessage = nil
+
+        Task {
+            do {
+                let aiClient = AIServiceClient.shared
+
+                // Encode current image as reference
+                var refs: [ReferenceImage] = []
+                if let tiffData = currentImage.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]) {
+                    refs.append(ReferenceImage(
+                        base64: pngData.base64EncodedString(),
+                        mimeType: "image/png",
+                        label: "Current shot preview to edit"
+                    ))
+                }
+
+                // Also collect scene reference images
+                if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
+                    let sceneRefs = CharacterReferenceHelper.collectReferenceImages(
+                        forScene: scene,
+                        characters: characters,
+                        locations: locations,
+                        projectDirectory: projDir
+                    )
+                    refs.append(contentsOf: sceneRefs)
+                }
+
+                let request = ImageGenerationRequest(
+                    prompt: combinedPrompt,
+                    provider: .googleImagen,
+                    aspectRatio: "16:9",
+                    numberOfImages: 1,
+                    referenceImages: refs.isEmpty ? nil : refs
+                )
+
+                let response = try await aiClient.generateImage(request)
+
+                guard let imageData = response.images.first else {
+                    throw AIClientError.invalidResponse("No image generated")
+                }
+
+                guard let basePath = projectBasePath else {
+                    throw AIClientError.invalidResponse("No project path")
+                }
+
+                let projectDir = basePath.deletingLastPathComponent()
+                let shotDir = projectDir
+                    .appendingPathComponent("assets")
+                    .appendingPathComponent("shots")
+                    .appendingPathComponent("shot_\(shot.shotId)")
+
+                if !FileManager.default.fileExists(atPath: shotDir.path) {
+                    try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+                }
+
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+                let timestamp = dateFormatter.string(from: Date())
+                let imageFilename = "preview_\(timestamp).png"
+
+                let imagePath = shotDir.appendingPathComponent(imageFilename)
+                try imageData.write(to: imagePath)
+
+                // Save the edit prompt
+                let promptPath = shotDir.appendingPathComponent("prompt.txt")
+                try combinedPrompt.write(to: promptPath, atomically: true, encoding: .utf8)
+
+                let latestPath = shotDir.appendingPathComponent("latest.png")
+                if FileManager.default.fileExists(atPath: latestPath.path) {
+                    try FileManager.default.removeItem(at: latestPath)
+                }
+                try imageData.write(to: latestPath)
+
+                let relativePath = "assets/shots/shot_\(shot.shotId)/latest.png"
+
+                await MainActor.run {
+                    if let image = NSImage(data: imageData) {
+                        previewImage = image
+                    }
+                    lastUsedPrompt = combinedPrompt
+                    onPreviewGenerated(relativePath)
+                    isGenerating = false
+                    discoverPreviewImages()
                 }
 
             } catch {
@@ -1474,28 +1755,42 @@ private struct ShotPreviewSection: View {
 
         // Scene context
         if let scene = scene {
-            // Location
-            if let location = scene.location, !location.isEmpty {
-                parts.append("set in \(location)")
+            // Location — detailed description
+            if let locationName = scene.location, !locationName.isEmpty {
+                if let location = locations.first(where: { $0.name.lowercased() == locationName.lowercased() }) {
+                    var locDesc = "Location: \(location.name)"
+                    if !location.locationType.isEmpty {
+                        locDesc += " (\(location.locationType))"
+                    }
+                    if !location.description.isEmpty {
+                        locDesc += " — \(location.description.prefix(200))"
+                    }
+                    parts.append(locDesc)
+                } else {
+                    parts.append("set in \(locationName)")
+                }
             }
 
             // Scene description
             if !scene.description.isEmpty {
-                parts.append(scene.description.prefix(150).description)
+                parts.append(scene.description.prefix(200).description)
             }
 
-            // Characters in scene
+            // Characters in scene — detailed descriptions for visual accuracy
             let sceneCharacters = getCharactersInScene(scene)
             if !sceneCharacters.isEmpty {
-                let charDescriptions = sceneCharacters.prefix(2).map { char -> String in
+                let charDescriptions = sceneCharacters.prefix(3).map { char -> String in
                     var desc = char.name
                     let physicalDesc = buildCharacterDescription(char)
                     if !physicalDesc.isEmpty {
-                        desc += " (\(physicalDesc.prefix(50)))"
+                        desc += " (\(physicalDesc.prefix(150)))"
+                    }
+                    if let costumes = char.costumes, let first = costumes.first {
+                        desc += ", wearing \(first.name)"
                     }
                     return desc
                 }
-                parts.append("featuring \(charDescriptions.joined(separator: " and "))")
+                parts.append("Characters: \(charDescriptions.joined(separator: "; "))")
             }
 
             // Sample dialogue for mood
@@ -1505,7 +1800,7 @@ private struct ShotPreviewSection: View {
         }
 
         // Style
-        parts.append("dramatic lighting, film grain, cinematic color grading, 35mm film aesthetic")
+        parts.append("Dramatic lighting, film grain, cinematic color grading, 35mm film aesthetic, photorealistic")
 
         return parts.joined(separator: ". ")
     }

@@ -29,6 +29,9 @@ enum PrefKey {
     // General > Tour
     static let showHints = "pref.general.showHints"
 
+    // General > AI Assistant
+    static let showAssistantOnLaunch = "pref.general.showAssistantOnLaunch"
+
     // Editor > Typography
     static let editorFontFamily = "pref.editor.fontFamily"        // "Courier Prime" etc.
     static let editorFontSize = "pref.editor.fontSize"            // 10-24
@@ -166,6 +169,10 @@ class PreferencesManager: ObservableObject {
     // MARK: - General > Tour
 
     @AppStorage(PrefKey.showHints) var showHints: Bool = true
+
+    // MARK: - General > AI Assistant
+
+    @AppStorage(PrefKey.showAssistantOnLaunch) var showAssistantOnLaunch: Bool = true
 
     // MARK: - Editor > Typography
 
@@ -325,6 +332,7 @@ class PreferencesManager: ObservableObject {
         autoSaveInterval = 500
         saveConfirmation = true
         showHints = true
+        showAssistantOnLaunch = true
 
         // Editor
         editorFontFamily = "Courier Prime"

@@ -36,6 +36,15 @@ public struct PhysicalAppearanceTab: View {
     // Cache-busting IDs to force AsyncImage reload after regeneration
     @State private var imageRefreshIds: [String: UUID] = [:]
 
+    // Hover state for base image overlay
+    @State private var isHoveringBaseImage = false
+
+    // Annotation editor state
+    @State private var showingAnnotationEditor = false
+    @State private var annotationEditorImage: NSImage?
+    @State private var annotationEditorAngle: String = ""
+    @State private var annotationEditorTitle: String = ""
+
     public init(
         character: Binding<Character>,
         projectBasePath: URL? = nil,
@@ -454,6 +463,81 @@ public struct PhysicalAppearanceTab: View {
                         }
                     }
                     .id(imageRefreshIds["base"] ?? UUID())
+
+                    // Hover overlay with icon buttons
+                    if isHoveringBaseImage || generatingProgress["base"] != nil {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                if generatingProgress["base"] == nil {
+                                    Button(action: {
+                                        fullScreenImageURL = fullPath
+                                        fullScreenImageTitle = "\(character.name) - Base Image"
+                                        showingFullScreenImage = true
+                                    }) {
+                                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(8)
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("View full size")
+
+                                    Button(action: {
+                                        openAnnotationEditor(angle: "base", label: "Base Image", imageType: .base)
+                                    }) {
+                                        Image(systemName: "pencil.and.outline")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(8)
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Annotate & edit image")
+
+                                    Button(action: {
+                                        downloadImage(from: fullPath, suggestedName: "\(character.name)_base.png")
+                                    }) {
+                                        Image(systemName: "arrow.down.circle")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(8)
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Download image")
+                                }
+
+                                Button(action: {
+                                    generateAngleImage(angle: "base", prompt: buildImagePrompt())
+                                }) {
+                                    ZStack {
+                                        if generatingProgress["base"] != nil {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .scaleEffect(0.6)
+                                        } else {
+                                            Image(systemName: "arrow.clockwise")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                    .frame(width: 27, height: 27)
+                                    .background(generatingProgress["base"] != nil ? Color.accentColor.opacity(0.8) : Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(generatingProgress["base"] != nil)
+                                .help(generatingProgress["base"] != nil ? "Generating..." : "Regenerate base image")
+                            }
+                            .padding(12)
+                            Spacer()
+                        }
+                    }
                 } else {
                     placeholderImage
                 }
@@ -466,45 +550,25 @@ public struct PhysicalAppearanceTab: View {
                     GenerationProgressRing(progress: progress)
                 }
             }
-
-            // View and Download buttons for base image
-            if let imagePath = effectiveImagePath(for: .base),
-               let basePath = projectBasePath {
-                let fullPath = basePath.appendingPathComponent(imagePath)
-                HStack(spacing: 8) {
-                    GalleryButton(
-                        label: "View",
-                        icon: "eye",
-                        color: .accentColor
-                    ) {
-                        fullScreenImageURL = fullPath
-                        fullScreenImageTitle = "\(character.name) - Base Image"
-                        showingFullScreenImage = true
-                    }
-                    .help("View image in full screen")
-
-                    GalleryButton(
-                        label: "Download",
-                        icon: "arrow.down.circle",
-                        color: .green
-                    ) {
-                        downloadImage(from: fullPath, suggestedName: "\(character.name)_base.png")
-                    }
-                    .help("Save image to your computer")
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHoveringBaseImage = hovering
                 }
             }
 
-            // Generate button
-            GalleryButton(
-                label: generatingProgress["base"] != nil ? "Generating..." : "Generate Base Image",
-                icon: generatingProgress["base"] != nil ? "hourglass" : "wand.and.stars",
-                color: .accentColor,
-                isProminent: true
-            ) {
-                generateAngleImage(angle: "base", prompt: buildImagePrompt())
+            // Generate button (shown when no base image exists)
+            if effectiveImagePath(for: .base) == nil {
+                GalleryButton(
+                    label: generatingProgress["base"] != nil ? "Generating..." : "Generate Base Image",
+                    icon: generatingProgress["base"] != nil ? "hourglass" : "wand.and.stars",
+                    color: .accentColor,
+                    isProminent: true
+                ) {
+                    generateAngleImage(angle: "base", prompt: buildImagePrompt())
+                }
+                .disabled(generatingProgress["base"] != nil)
+                .help("AI: Generate a base character image")
             }
-            .disabled(generatingProgress["base"] != nil)
-            .help("AI: Generate a base character image")
 
             // Angle section header
             HStack(spacing: 6) {
@@ -548,6 +612,9 @@ public struct PhysicalAppearanceTab: View {
                     },
                     onGenerate: {
                         generateAngleImage(angle: "front", prompt: buildAnglePrompt(angle: "front facing view, looking directly at camera"))
+                    },
+                    onEditAnnotate: {
+                        openAnnotationEditor(angle: "front", label: "Front", imageType: .front)
                     }
                 )
                 AngleThumbnail(
@@ -567,6 +634,9 @@ public struct PhysicalAppearanceTab: View {
                     },
                     onGenerate: {
                         generateAngleImage(angle: "three_quarter_left", prompt: buildAnglePrompt(angle: "three-quarter view from the left side, head turned slightly left"))
+                    },
+                    onEditAnnotate: {
+                        openAnnotationEditor(angle: "three_quarter_left", label: "3/4 Left", imageType: .threeQuarterLeft)
                     }
                 )
                 AngleThumbnail(
@@ -586,6 +656,9 @@ public struct PhysicalAppearanceTab: View {
                     },
                     onGenerate: {
                         generateAngleImage(angle: "three_quarter_right", prompt: buildAnglePrompt(angle: "three-quarter view from the right side, head turned slightly right"))
+                    },
+                    onEditAnnotate: {
+                        openAnnotationEditor(angle: "three_quarter_right", label: "3/4 Right", imageType: .threeQuarterRight)
                     }
                 )
                 AngleThumbnail(
@@ -605,6 +678,9 @@ public struct PhysicalAppearanceTab: View {
                     },
                     onGenerate: {
                         generateAngleImage(angle: "profile_left", prompt: buildAnglePrompt(angle: "left side profile view, face in complete profile"))
+                    },
+                    onEditAnnotate: {
+                        openAnnotationEditor(angle: "profile_left", label: "Profile Left", imageType: .profileLeft)
                     }
                 )
                 AngleThumbnail(
@@ -624,6 +700,9 @@ public struct PhysicalAppearanceTab: View {
                     },
                     onGenerate: {
                         generateAngleImage(angle: "profile_right", prompt: buildAnglePrompt(angle: "right side profile view, face in complete profile"))
+                    },
+                    onEditAnnotate: {
+                        openAnnotationEditor(angle: "profile_right", label: "Profile Right", imageType: .profileRight)
                     }
                 )
                 AngleThumbnail(
@@ -643,6 +722,9 @@ public struct PhysicalAppearanceTab: View {
                     },
                     onGenerate: {
                         generateAngleImage(angle: "back", prompt: buildAnglePrompt(angle: "back view, showing back of head and shoulders"))
+                    },
+                    onEditAnnotate: {
+                        openAnnotationEditor(angle: "back", label: "Back", imageType: .back)
                     }
                 )
             }
@@ -662,6 +744,39 @@ public struct PhysicalAppearanceTab: View {
                 }
             )
         }
+        .sheet(isPresented: $showingAnnotationEditor) {
+            if let image = annotationEditorImage {
+                ImageAnnotationEditor(
+                    image: image,
+                    title: "EDIT CHARACTER — \(annotationEditorTitle.uppercased())",
+                    subtitle: character.name,
+                    isPresented: $showingAnnotationEditor,
+                    onApplyEdits: { annotations in
+                        generateAngleWithAnnotations(angle: annotationEditorAngle, annotations: annotations)
+                    }
+                )
+            }
+        }
+    }
+
+    // MARK: - Annotation Editor
+
+    private func openAnnotationEditor(angle: String, label: String, imageType: ImageType) {
+        guard let imagePath = effectiveImagePath(for: imageType),
+              let basePath = projectBasePath else { return }
+        let fullPath = basePath.appendingPathComponent(imagePath)
+        guard let image = NSImage(contentsOf: fullPath) else { return }
+        annotationEditorImage = image
+        annotationEditorAngle = angle
+        annotationEditorTitle = label
+        showingAnnotationEditor = true
+    }
+
+    private func generateAngleWithAnnotations(angle: String, annotations: [KeyframeAnnotation]) {
+        let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "character \(angle) image")
+        let basePrompt = buildAnglePrompt(angle: angle)
+        let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
+        generateAngleImage(angle: angle, prompt: combinedPrompt)
     }
 
     // MARK: - Download Image
@@ -1040,6 +1155,7 @@ private struct AngleThumbnail: View {
     var onView: ((URL) -> Void)?
     var onDownload: ((URL) -> Void)?
     var onGenerate: (() -> Void)?
+    var onEditAnnotate: (() -> Void)?
 
     @State private var isHovering = false
 
@@ -1076,49 +1192,63 @@ private struct AngleThumbnail: View {
                             .fill(Color.black.opacity(0.6))
                             .frame(width: 80, height: 80)
 
-                        VStack(spacing: 6) {
-                            HStack(spacing: 8) {
+                        VStack(spacing: 4) {
+                            HStack(spacing: 4) {
                                 Button {
                                     onView?(fullPath)
                                 } label: {
                                     Image(systemName: "eye")
-                                        .font(.system(size: 13))
+                                        .font(.system(size: 11))
                                         .foregroundColor(.white)
-                                        .frame(width: 26, height: 26)
+                                        .frame(width: 22, height: 22)
                                         .background(Circle().fill(Color.white.opacity(0.2)))
                                 }
                                 .buttonStyle(.plain)
                                 .help("View full screen")
 
                                 Button {
+                                    onEditAnnotate?()
+                                } label: {
+                                    Image(systemName: "pencil.and.outline")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white)
+                                        .frame(width: 22, height: 22)
+                                        .background(Circle().fill(Color.white.opacity(0.2)))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Annotate & edit image")
+
+                                Button {
                                     onDownload?(fullPath)
                                 } label: {
                                     Image(systemName: "arrow.down")
-                                        .font(.system(size: 13))
+                                        .font(.system(size: 11))
                                         .foregroundColor(.white)
-                                        .frame(width: 26, height: 26)
+                                        .frame(width: 22, height: 22)
                                         .background(Circle().fill(Color.white.opacity(0.2)))
                                 }
                                 .buttonStyle(.plain)
                                 .help("Download image")
                             }
 
-                            Button {
-                                onGenerate?()
-                            } label: {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 8))
-                                    Text("Redo")
-                                        .font(.system(size: 8, weight: .medium))
+                            HStack(spacing: 4) {
+                                Button {
+                                    onGenerate?()
+                                } label: {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "arrow.triangle.2.circlepath")
+                                            .font(.system(size: 7))
+                                        Text("Redo")
+                                            .font(.system(size: 7, weight: .medium))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Capsule().fill(Color.accentColor.opacity(0.8)))
                                 }
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Capsule().fill(Color.accentColor.opacity(0.8)))
+                                .buttonStyle(.plain)
+                                .help("Regenerate this angle")
                             }
-                            .buttonStyle(.plain)
-                            .help("Regenerate this angle")
                         }
                     }
                 } else if !isGenerating {

@@ -10,7 +10,6 @@ import SwiftUI
 import DirectorsChairCore
 import DirectorsChairServices
 import AppKit
-import Sparkle
 
 // MARK: - Onboarding State
 
@@ -69,6 +68,14 @@ struct DirectorsChair_DesktopApp: App {
                     // Restore auth session from Keychain on launch
                     await authManager.restoreSession()
                     // Sync auth token to AI service client
+                    let capturedAuthManager = authManager
+                    AIServiceClient.shared.tokenProvider = {
+                        capturedAuthManager.currentAccessToken
+                    }
+                    AIServiceClient.shared.tokenRefresher = {
+                        try? await capturedAuthManager.forceRefreshToken()
+                        return capturedAuthManager.currentAccessToken
+                    }
                     if let token = authManager.currentAccessToken {
                         await AIServiceClient.shared.setAuthToken(token)
                         await cloudSyncManager.setAuthToken(token)
@@ -112,9 +119,6 @@ struct DirectorsChair_DesktopApp: App {
                 }
         }
         .commands {
-            CommandGroup(after: .appInfo) {
-                CheckForUpdatesView(updater: appDelegate.updaterController.updater)
-            }
             FileCommands()
             ViewCommands()
             ExportCommands()
@@ -136,13 +140,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var projectViewModel: ProjectViewModel?
     var onboardingState: OnboardingState?
     var authManager: AuthManager?
-
-    /// Sparkle auto-update controller (disabled until appcast is configured)
-    let updaterController = SPUStandardUpdaterController(
-        startingUpdater: false,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
-    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide main window initially
@@ -202,6 +199,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         await projectViewModel.restoreLastProject()
                     } else {
                         coordinator.navigateTo(.projects)
+                    }
+
+                    // Show AI assistant on launch if preference is enabled
+                    if PreferencesManager.shared.showAssistantOnLaunch {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            coordinator.showingAIChat = true
+                        }
                     }
                 }
             }

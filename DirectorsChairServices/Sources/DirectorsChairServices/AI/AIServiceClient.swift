@@ -65,7 +65,7 @@ public enum AIClientError: LocalizedError, Sendable {
         case .invalidConfiguration(let reason):
             return "Invalid configuration: \(reason)"
         case .authenticationRequired:
-            return "Authentication required. Please log in to use AI features."
+            return "Your session has expired. Please sign out and sign back in from the account menu to continue using AI features."
         case .quotaExceeded(let detail):
             return "Usage quota exceeded: \(detail)"
         case .rateLimited(let retryAfter):
@@ -153,6 +153,19 @@ public struct TokenUsage: Sendable {
 
 // MARK: - Image Generation Request
 
+/// A labeled reference image sent alongside the generation prompt.
+public struct ReferenceImage: Sendable {
+    public var base64: String
+    public var mimeType: String
+    public var label: String
+
+    public init(base64: String, mimeType: String = "image/png", label: String) {
+        self.base64 = base64
+        self.mimeType = mimeType
+        self.label = label
+    }
+}
+
 /// Request for image generation
 public struct ImageGenerationRequest: Sendable {
     public var prompt: String
@@ -162,7 +175,9 @@ public struct ImageGenerationRequest: Sendable {
     public var numberOfImages: Int
     public var referenceImageBase64: String?
     public var referenceMimeType: String?
-    
+    /// Multiple labeled reference images (location, character, costume).
+    public var referenceImages: [ReferenceImage]?
+
     public init(
         prompt: String,
         provider: AIProvider = .googleImagen,
@@ -170,7 +185,8 @@ public struct ImageGenerationRequest: Sendable {
         aspectRatio: String = "16:9",
         numberOfImages: Int = 1,
         referenceImageBase64: String? = nil,
-        referenceMimeType: String? = nil
+        referenceMimeType: String? = nil,
+        referenceImages: [ReferenceImage]? = nil
     ) {
         self.prompt = prompt
         self.provider = provider
@@ -179,6 +195,7 @@ public struct ImageGenerationRequest: Sendable {
         self.numberOfImages = numberOfImages
         self.referenceImageBase64 = referenceImageBase64
         self.referenceMimeType = referenceMimeType
+        self.referenceImages = referenceImages
     }
 }
 
@@ -288,6 +305,71 @@ public enum VideoJobStatus: String, Sendable {
     case failed
 }
 
+// MARK: - Speech Generation Request
+
+/// Request for speech generation via TTS
+public struct SpeechGenerationRequest: Sendable {
+    public var text: String
+    public var provider: AIProvider
+    public var voiceName: String?
+    public var emotion: String?
+    public var characterName: String?
+    public var voiceTone: String?
+    public var voicePersonality: String?
+    public var voicePace: String?
+    public var voiceAccent: String?
+    public var voiceAge: String?
+
+    public init(
+        text: String,
+        provider: AIProvider = .google,
+        voiceName: String? = nil,
+        emotion: String? = nil,
+        characterName: String? = nil,
+        voiceTone: String? = nil,
+        voicePersonality: String? = nil,
+        voicePace: String? = nil,
+        voiceAccent: String? = nil,
+        voiceAge: String? = nil
+    ) {
+        self.text = text
+        self.provider = provider
+        self.voiceName = voiceName
+        self.emotion = emotion
+        self.characterName = characterName
+        self.voiceTone = voiceTone
+        self.voicePersonality = voicePersonality
+        self.voicePace = voicePace
+        self.voiceAccent = voiceAccent
+        self.voiceAge = voiceAge
+    }
+
+    /// Compose all structured voice fields into a single natural language style instruction
+    public var composedStyleInstruction: String? {
+        var parts: [String] = []
+        if let tone = voiceTone, !tone.isEmpty { parts.append("in a \(tone) tone") }
+        if let personality = voicePersonality, !personality.isEmpty { parts.append("\(personality)") }
+        if let pace = voicePace, !pace.isEmpty { parts.append("at a \(pace) pace") }
+        if let accent = voiceAccent, !accent.isEmpty { parts.append("with a \(accent) accent") }
+        if let age = voiceAge, !age.isEmpty { parts.append("like a \(age) person") }
+        if let extra = emotion, !extra.isEmpty { parts.append(extra) }
+        return parts.isEmpty ? nil : "Speak " + parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Speech Generation Response
+
+/// Response from speech generation
+public struct SpeechGenerationResponse: Sendable {
+    public var audioData: Data
+    public var mimeType: String
+
+    public init(audioData: Data, mimeType: String) {
+        self.audioData = audioData
+        self.mimeType = mimeType
+    }
+}
+
 // MARK: - Server Health Response
 
 /// Health check response from AI server
@@ -331,6 +413,16 @@ public actor AIServiceClient {
     /// Set by AuthManager on login/refresh/logout.
     private var authToken: String?
 
+    /// Optional closure that provides the current access token dynamically.
+    /// When set, this is called before each request to get the freshest token,
+    /// so token refreshes in AuthManager are automatically picked up.
+    public var tokenProvider: (() -> String?)?
+
+    /// Optional async closure that attempts to refresh the auth token.
+    /// Called automatically when a 401 is received. Should refresh the token
+    /// and return the new access token, or nil if refresh failed.
+    public var tokenRefresher: (() async -> String?)?
+
     /// Shared instance with default configuration
     public static let shared = AIServiceClient()
 
@@ -369,10 +461,39 @@ public actor AIServiceClient {
     }
 
     /// Apply auth header to a URLRequest if a token is available.
+    /// Prefers the dynamic tokenProvider over the static authToken.
     private func applyAuthHeader(to request: inout URLRequest) {
-        if let token = authToken {
+        let token = tokenProvider?() ?? authToken
+        if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+    }
+
+    /// Perform a URLRequest with automatic token refresh on 401.
+    /// If the first attempt returns 401 and a tokenRefresher is available,
+    /// refreshes the token, updates the auth header, and retries once.
+    private func performWithAutoRefresh(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var req = request
+
+        let (data, response) = try await session.data(for: req)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIClientError.invalidResponse("Not an HTTP response")
+        }
+
+        if httpResponse.statusCode == 401, let refresher = tokenRefresher {
+            // Attempt token refresh
+            if let newToken = await refresher() {
+                self.authToken = newToken
+                req.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                let (retryData, retryResponse) = try await session.data(for: req)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else {
+                    throw AIClientError.invalidResponse("Not an HTTP response")
+                }
+                return (retryData, retryHttp)
+            }
+        }
+
+        return (data, httpResponse)
     }
     
     // MARK: - Health & Status
@@ -469,13 +590,9 @@ public actor AIServiceClient {
         }
         
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await session.data(for: urlRequest)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIClientError.invalidResponse("Not an HTTP response")
-        }
-        
+
+        let (data, httpResponse) = try await performWithAutoRefresh(urlRequest)
+
         // Handle auth/quota/rate-limit errors
         switch httpResponse.statusCode {
         case 401:
@@ -561,33 +678,36 @@ public actor AIServiceClient {
         if let model = request.model {
             body["model"] = model
         }
-        if let refImage = request.referenceImageBase64 {
+        if let refs = request.referenceImages, !refs.isEmpty {
+            body["reference_images"] = refs.map { ref in
+                ["base64": ref.base64, "mime_type": ref.mimeType, "label": ref.label]
+            }
+        } else if let refImage = request.referenceImageBase64 {
             body["reference_image_base64"] = refImage
             body["reference_mime_type"] = request.referenceMimeType ?? "image/png"
         }
         
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await session.data(for: urlRequest)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIClientError.invalidResponse("Not an HTTP response")
-        }
-        
+
+        let (data, httpResponse) = try await performWithAutoRefresh(urlRequest)
+
         guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 401 {
+                throw AIClientError.authenticationRequired
+            }
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw AIClientError.requestFailed("HTTP \(httpResponse.statusCode): \(errorMessage)")
         }
-        
+
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AIClientError.invalidResponse("Invalid JSON response")
         }
-        
+
         guard json["success"] as? Bool == true else {
             let error = json["error"] as? String ?? "Unknown error"
             throw AIClientError.generationFailed(error)
         }
-        
+
         guard let dataDict = json["data"] as? [String: Any],
               let imagesBase64 = dataDict["images"] as? [String] else {
             throw AIClientError.invalidResponse("Missing images in response")
@@ -927,6 +1047,61 @@ public actor AIServiceClient {
 
         try FileManager.default.createDirectory(at: localPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: localPath)
+    }
+
+    // MARK: - Speech Generation
+
+    /// Generate speech audio from text using TTS
+    public func generateSpeech(_ request: SpeechGenerationRequest) async throws -> SpeechGenerationResponse {
+        let url = baseURL.appendingPathComponent("generate/speech")
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuthHeader(to: &urlRequest)
+
+        var body: [String: Any] = [
+            "text": request.text,
+            "provider": request.provider.rawValue
+        ]
+
+        if let voiceName = request.voiceName {
+            body["voice_name"] = voiceName
+        }
+        // Send composed style instruction as emotion, falling back to raw emotion
+        if let composed = request.composedStyleInstruction {
+            body["emotion"] = composed
+        } else if let emotion = request.emotion {
+            body["emotion"] = emotion
+        }
+        if let characterName = request.characterName {
+            body["character_name"] = characterName
+        }
+        // Also send structured fields for server-side fallback composition
+        if let tone = request.voiceTone { body["voice_tone"] = tone }
+        if let personality = request.voicePersonality { body["voice_personality"] = personality }
+        if let pace = request.voicePace { body["voice_pace"] = pace }
+        if let accent = request.voiceAccent { body["voice_accent"] = accent }
+        if let age = request.voiceAge { body["voice_age"] = age }
+
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, httpResponse) = try await performWithAutoRefresh(urlRequest)
+
+        switch httpResponse.statusCode {
+        case 401:
+            throw AIClientError.authenticationRequired
+        case 429:
+            let retryAfter = Int(httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60
+            throw AIClientError.rateLimited(retryAfter: retryAfter)
+        case 200:
+            break
+        default:
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw AIClientError.requestFailed("HTTP \(httpResponse.statusCode): \(errorMessage)")
+        }
+
+        let mimeType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "audio/wav"
+        return SpeechGenerationResponse(audioData: data, mimeType: mimeType)
     }
 
     /// Generate character backstory

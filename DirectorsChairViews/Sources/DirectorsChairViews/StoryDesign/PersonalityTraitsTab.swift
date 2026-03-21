@@ -13,16 +13,21 @@ public struct PersonalityTraitsTab: View {
     @Binding var character: Character
     @State private var selectedCategory: TraitCategory = .openness
 
+    /// Current analysis progress (nil = idle, 0-100 = in progress)
+    var analysisProgress: Int?
+
     // Callbacks
     var onAnalyzeFromScript: (() -> Void)?
     var onResetToDefaults: (() -> Void)?
 
     public init(
         character: Binding<Character>,
+        analysisProgress: Int? = nil,
         onAnalyzeFromScript: (() -> Void)? = nil,
         onResetToDefaults: (() -> Void)? = nil
     ) {
         self._character = character
+        self.analysisProgress = analysisProgress
         self.onAnalyzeFromScript = onAnalyzeFromScript
         self.onResetToDefaults = onResetToDefaults
     }
@@ -145,15 +150,19 @@ public struct PersonalityTraitsTab: View {
 
     // MARK: - Action Buttons
 
+    private var isAnalyzing: Bool { analysisProgress != nil }
+
     private var actionButtons: some View {
         HStack(spacing: 10) {
-            Button {
+            AIGenerateButton(
+                title: "Analyze from Script",
+                icon: "wand.and.stars",
+                loadingText: "Analyzing...",
+                isLoading: isAnalyzing,
+                progress: analysisProgress
+            ) {
                 onAnalyzeFromScript?()
-            } label: {
-                Label("Analyze from Script", systemImage: "wand.and.stars")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
 
             Button {
                 onResetToDefaults?()
@@ -162,6 +171,7 @@ public struct PersonalityTraitsTab: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            .disabled(isAnalyzing)
         }
     }
 

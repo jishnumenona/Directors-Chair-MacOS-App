@@ -921,6 +921,109 @@ public actor GiteaClient: RemoteRepositoryProtocol {
 
         return pointer
     }
+
+    // MARK: - LFS Download
+
+    /// Parse an LFS pointer string and return (oid, size), or nil if not a valid pointer.
+    public nonisolated static func parseLFSPointer(_ data: Data) -> (oid: String, size: Int)? {
+        guard let text = String(data: data, encoding: .utf8),
+              text.hasPrefix("version https://git-lfs.github.com/spec/v1") else {
+            return nil
+        }
+
+        var oid: String?
+        var size: Int?
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("oid sha256:") {
+                oid = String(trimmed.dropFirst("oid sha256:".count))
+            } else if trimmed.hasPrefix("size ") {
+                size = Int(trimmed.dropFirst("size ".count))
+            }
+        }
+
+        if let oid = oid, let size = size {
+            return (oid, size)
+        }
+        return nil
+    }
+
+    /// Download actual binary data for an LFS object.
+    ///
+    /// 1. POST to `/{owner}/{repo}.git/info/lfs/objects/batch` with operation "download"
+    /// 2. GET the binary data from the download href
+    /// 3. Return the actual file data
+    public func lfsDownload(owner: String, repo: String, oid: String, size: Int) async throws -> Data {
+        // 1. Batch request to negotiate download
+        let batchURL = baseURL
+            .appendingPathComponent("\(owner)/\(repo).git")
+            .appendingPathComponent("info/lfs/objects/batch")
+
+        var batchRequest = URLRequest(url: batchURL)
+        batchRequest.httpMethod = "POST"
+        batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Content-Type")
+        batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Accept")
+
+        if let token = token {
+            let prefix = useBearer ? "Bearer" : "token"
+            batchRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let batchBody: [String: Any] = [
+            "operation": "download",
+            "transfers": ["basic"],
+            "objects": [
+                ["oid": oid, "size": size]
+            ]
+        ]
+        batchRequest.httpBody = try JSONSerialization.data(withJSONObject: batchBody)
+
+        let (batchData, batchResponse) = try await lfsSession.data(for: batchRequest)
+
+        guard let batchHTTP = batchResponse as? HTTPURLResponse,
+              (200...299).contains(batchHTTP.statusCode) else {
+            let statusCode = (batchResponse as? HTTPURLResponse)?.statusCode ?? 0
+            let body = String(data: batchData, encoding: .utf8) ?? ""
+            throw RemoteRepositoryError.serverError(statusCode, "LFS batch download failed: \(body)")
+        }
+
+        let batchJSON = try JSONSerialization.jsonObject(with: batchData) as? [String: Any] ?? [:]
+        let objects = batchJSON["objects"] as? [[String: Any]] ?? []
+
+        // 2. Download binary from the server-provided href
+        guard let obj = objects.first,
+              let actions = obj["actions"] as? [String: Any],
+              let downloadAction = actions["download"] as? [String: Any],
+              let hrefString = downloadAction["href"] as? String,
+              let downloadURL = URL(string: hrefString) else {
+            throw RemoteRepositoryError.networkError("LFS batch response missing download action for oid \(oid)")
+        }
+
+        var downloadRequest = URLRequest(url: downloadURL)
+        downloadRequest.httpMethod = "GET"
+
+        // Forward any headers the server specified
+        if let headers = downloadAction["header"] as? [String: String] {
+            for (key, value) in headers {
+                downloadRequest.setValue(value, forHTTPHeaderField: key)
+            }
+        }
+
+        // If no auth header was set by the server, add ours
+        if downloadRequest.value(forHTTPHeaderField: "Authorization") == nil, let token = token {
+            let prefix = useBearer ? "Bearer" : "token"
+            downloadRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (fileData, downloadResponse) = try await lfsSession.data(for: downloadRequest)
+        guard let downloadHTTP = downloadResponse as? HTTPURLResponse,
+              (200...299).contains(downloadHTTP.statusCode) else {
+            let code = (downloadResponse as? HTTPURLResponse)?.statusCode ?? 0
+            throw RemoteRepositoryError.serverError(code, "LFS download GET failed for oid \(oid)")
+        }
+
+        return fileData
+    }
 }
 
 // MARK: - Convenience Factory

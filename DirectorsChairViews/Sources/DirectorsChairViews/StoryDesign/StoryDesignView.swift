@@ -49,6 +49,11 @@ public struct StoryDesignView: View {
     // External selection (set by coordinator via Cmd+Click navigation)
     var initialCharacterId: String?
     var initialLocationId: String?
+    var preferredMode: String?
+
+    // AI operation progress (survives navigation, passed from parent)
+    var traitAnalysisProgress: [String: Int] = [:]
+    var biographyProgress: [String: Int] = [:]
 
     // Callbacks for AI operations
     var onGenerateImage: ((Character, String, String, @escaping @MainActor (Double) -> Void) -> Void)?
@@ -61,6 +66,9 @@ public struct StoryDesignView: View {
         projectBasePath: URL? = nil,
         initialCharacterId: String? = nil,
         initialLocationId: String? = nil,
+        preferredMode: String? = nil,
+        traitAnalysisProgress: [String: Int] = [:],
+        biographyProgress: [String: Int] = [:],
         onGenerateImage: ((Character, String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
         onAnalyzeTraits: ((Character) -> Void)? = nil,
         onGenerateBiography: ((Character) -> Void)? = nil,
@@ -70,6 +78,9 @@ public struct StoryDesignView: View {
         self.projectBasePath = projectBasePath
         self.initialCharacterId = initialCharacterId
         self.initialLocationId = initialLocationId
+        self.preferredMode = preferredMode
+        self.traitAnalysisProgress = traitAnalysisProgress
+        self.biographyProgress = biographyProgress
         self.onGenerateImage = onGenerateImage
         self.onAnalyzeTraits = onAnalyzeTraits
         self.onGenerateBiography = onGenerateBiography
@@ -117,6 +128,13 @@ public struct StoryDesignView: View {
                 selectedLocation = loc
             }
         }
+        .onChange(of: preferredMode) { newMode in
+            if newMode == "locations" {
+                selectedMode = .locations
+            } else if newMode == "characters" {
+                selectedMode = .characters
+            }
+        }
     }
 
     private func applyInitialSelection() {
@@ -128,6 +146,11 @@ public struct StoryDesignView: View {
                   let char = project.characters.first(where: { $0.id == charId }) {
             selectedMode = .characters
             selectedCharacter = char
+        } else if preferredMode == "locations" {
+            selectedMode = .locations
+            if selectedLocation == nil, let firstLocation = project.locations.first {
+                selectedLocation = firstLocation
+            }
         } else {
             // Default: select first character
             if selectedCharacter == nil, let firstCharacter = project.characters.first {
@@ -327,6 +350,7 @@ public struct StoryDesignView: View {
         case .traits:
             PersonalityTraitsTab(
                 character: character,
+                analysisProgress: traitAnalysisProgress[character.wrappedValue.id],
                 onAnalyzeFromScript: {
                     onAnalyzeTraits?(character.wrappedValue)
                 },
@@ -339,6 +363,7 @@ public struct StoryDesignView: View {
         case .biography:
             BiographyTab(
                 character: character,
+                isGenerating: biographyProgress[character.wrappedValue.id] != nil,
                 onGenerateFromScript: {
                     onGenerateBiography?(character.wrappedValue)
                 }
@@ -347,6 +372,14 @@ public struct StoryDesignView: View {
             RelationshipsTab(
                 character: character,
                 allCharacters: project.characters
+            )
+        case .voice:
+            VoiceTab(
+                character: character,
+                project: project,
+                onSwitchToTraitsTab: {
+                    selectedTab = .traits
+                }
             )
         case .scenes:
             CharacterScenesView(
@@ -365,6 +398,7 @@ enum DesignTab: String, CaseIterable {
     case traits
     case biography
     case relationships
+    case voice
     case scenes
 
     var displayName: String {
@@ -374,6 +408,7 @@ enum DesignTab: String, CaseIterable {
         case .traits: return "Traits"
         case .biography: return "Biography"
         case .relationships: return "Relationships"
+        case .voice: return "Voice"
         case .scenes: return "Scenes"
         }
     }
@@ -385,6 +420,7 @@ enum DesignTab: String, CaseIterable {
         case .traits: return "chart.pie.fill"
         case .biography: return "book.fill"
         case .relationships: return "person.2.fill"
+        case .voice: return "waveform"
         case .scenes: return "film"
         }
     }
@@ -432,6 +468,7 @@ extension DesignTab {
         case .traits: return "Adjust personality traits and characteristics"
         case .biography: return "Edit background story, goals, and motivations"
         case .relationships: return "Manage relationships with other characters"
+        case .voice: return "Configure AI voice for dialogue playback"
         case .scenes: return "View scenes where this character appears"
         }
     }

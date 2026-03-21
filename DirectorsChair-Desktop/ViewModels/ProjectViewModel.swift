@@ -335,6 +335,22 @@ class ProjectViewModel: ObservableObject {
         isDirty = true
     }
 
+    /// Add a shot to a specific scene within a sequence
+    func addShot(_ shot: Shot, toSceneId sceneId: String, inSequenceId sequenceId: String) {
+        guard let seqIndex = project.sequences.firstIndex(where: { $0.id == sequenceId }),
+              let scnIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == sceneId }) else { return }
+        project.sequences[seqIndex].scenes[scnIndex].shots.append(shot)
+        isDirty = true
+    }
+
+    /// Remove a shot from a specific scene within a sequence
+    func removeShot(_ shot: Shot, fromSceneId sceneId: String, inSequenceId sequenceId: String) {
+        guard let seqIndex = project.sequences.firstIndex(where: { $0.id == sequenceId }),
+              let scnIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == sceneId }) else { return }
+        project.sequences[seqIndex].scenes[scnIndex].shots.removeAll { $0.id == shot.id }
+        isDirty = true
+    }
+
     /// Add a character to the project
     func addCharacter(_ character: Character) {
         project.characters.append(character)

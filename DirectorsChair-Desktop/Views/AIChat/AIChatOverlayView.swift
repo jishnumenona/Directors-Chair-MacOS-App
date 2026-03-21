@@ -14,6 +14,7 @@ struct AIChatOverlayView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @StateObject private var viewModel = AIChatViewModel()
     @FocusState private var isInputFocused: Bool
+    @AppStorage(PrefKey.showAssistantOnLaunch) private var showAssistantOnLaunch: Bool = true
 
     var body: some View {
         ZStack {
@@ -232,9 +233,9 @@ struct AIChatOverlayView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             Spacer()
-                .frame(height: 40)
+                .frame(height: 16)
 
             Image(systemName: "sparkles")
                 .font(.system(size: 32))
@@ -251,7 +252,105 @@ struct AIChatOverlayView: View {
                 suggestionChip("Do a psychological evaluation of the main character")
                 suggestionChip("Suggest a dad joke for the antagonist")
             }
+
+            // Keyboard shortcuts reference
+            shortcutsCard
+
+            // Don't show on launch checkbox
+            launchToggle
         }
+    }
+
+    // MARK: - Keyboard Shortcuts Card
+
+    private var shortcutsCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 10))
+                    .foregroundColor(.accentColor)
+                Text("KEYBOARD SHORTCUTS")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                shortcutRow("AI Assistant", keys: ["\u{21E7}\u{21E7}", "\u{2318}\u{21E7}Space"])
+                shortcutRow("Project Overview", keys: ["\u{2318}1"])
+                shortcutRow("Bubble View", keys: ["\u{2318}2"])
+                shortcutRow("Scenes", keys: ["\u{2318}3"])
+                shortcutRow("Assets", keys: ["\u{2318}4"])
+                shortcutRow("Vision Board", keys: ["\u{2318}5"])
+                shortcutRow("Shot List", keys: ["\u{2318}6"])
+                shortcutRow("Production", keys: ["\u{2318}7"])
+                shortcutRow("Story Design", keys: ["\u{2318}8"])
+                shortcutRow("Settings", keys: ["\u{2318}9"])
+
+                Divider().opacity(0.3).padding(.vertical, 2)
+
+                shortcutRow("Navigator", keys: ["\u{2318}\u{2325}1"])
+                shortcutRow("Timeline", keys: ["\u{2318}\u{2325}2"])
+                shortcutRow("Right Panel", keys: ["\u{2318}\u{2325}3"])
+                shortcutRow("Comments", keys: ["\u{2318}\u{2325}4"])
+                shortcutRow("Show All Panels", keys: ["\u{2318}\u{2325}A"])
+                shortcutRow("Hide All Panels", keys: ["\u{2318}\u{2325}H"])
+
+                Divider().opacity(0.3).padding(.vertical, 2)
+
+                shortcutRow("New Project", keys: ["\u{2318}N"])
+                shortcutRow("Open Project", keys: ["\u{2318}O"])
+                shortcutRow("Save", keys: ["\u{2318}S"])
+                shortcutRow("Navigate Back", keys: ["\u{2318}["])
+                shortcutRow("Navigate Forward", keys: ["\u{2318}]"])
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.04))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .cornerRadius(10)
+        .padding(.horizontal, 16)
+    }
+
+    private func shortcutRow(_ label: String, keys: [String]) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(Color(nsColor: .secondaryLabelColor))
+            Spacer()
+            HStack(spacing: 4) {
+                ForEach(keys, id: \.self) { key in
+                    Text(key)
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundColor(Color(nsColor: .labelColor))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08))
+                        .cornerRadius(4)
+                }
+            }
+        }
+    }
+
+    // MARK: - Launch Toggle
+
+    private var launchToggle: some View {
+        HStack(spacing: 6) {
+            Toggle(isOn: Binding(
+                get: { !showAssistantOnLaunch },
+                set: { showAssistantOnLaunch = !$0 }
+            )) {
+                Text("Don't show on app launch")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+            }
+            .toggleStyle(.checkbox)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
     }
 
     private func suggestionChip(_ text: String) -> some View {

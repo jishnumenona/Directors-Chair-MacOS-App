@@ -63,6 +63,15 @@ public struct TimelineCanvas: View {
     /// Currently selected shot label ID (for highlighting connection lines)
     public let selectedShotLabelId: UUID?
 
+    /// All character names from the project (ensures every character gets a lane)
+    public let allCharacterNames: [String]
+
+    /// Vertical scroll offset for virtual track scrolling (no nested ScrollView)
+    public let verticalOffset: CGFloat
+
+    /// Available viewport height for the tracks area (used to size the Canvas)
+    public let availableHeight: CGFloat
+
     /// Currently selected segment IDs (supports multi-select with Command+click)
     @Binding public var selectedSegmentIds: Set<UUID>
 
@@ -87,6 +96,21 @@ public struct TimelineCanvas: View {
     /// Callback when multiple segments are dragged together (segments with new start times)
     public var onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)?
 
+    /// Callback when empty space is clicked (position playhead)
+    public var onEmptySpaceClicked: ((CGFloat) -> Void)?
+
+    /// Callback when a track lane is right-clicked (character name)
+    public var onTrackRightClicked: ((String, CGPoint, NSView) -> Void)?
+
+    /// Callback when a segment is right-clicked (segment, point, nsView)
+    public var onSegmentRightClicked: ((TimelineSegment, CGPoint, NSView) -> Void)?
+
+    /// Source IDs of dialogues currently generating audio
+    public var generatingAudioSourceIds: Set<String> = []
+
+    /// Source ID of the dialogue currently playing audio
+    public var playingAudioSourceId: String? = nil
+
     /// Cached character images for efficient rendering
     @State private var imageCache: [String: NSImage] = [:]
 
@@ -101,16 +125,29 @@ public struct TimelineCanvas: View {
 
     // MARK: - Computed Properties
 
-    /// Characters in order of first appearance
+    /// Characters in order: first those with segments (by first appearance),
+    /// then remaining project characters (so every character gets a lane).
+    /// Non-character tracks (Action, Narration, Sound) only appear when they have segments.
     private var charactersInOrder: [String] {
         var seen = Set<String>()
         var order: [String] = []
+
+        // First: characters/tracks that have segments (preserves first-appearance order)
         for segment in segments {
             if !seen.contains(segment.character) {
                 seen.insert(segment.character)
                 order.append(segment.character)
             }
         }
+
+        // Then: remaining project characters that don't have segments in the current scope
+        for name in allCharacterNames {
+            if !seen.contains(name) {
+                seen.insert(name)
+                order.append(name)
+            }
+        }
+
         return order
     }
 
@@ -153,6 +190,16 @@ public struct TimelineCanvas: View {
         return max(TimelineLayoutConstants.minCanvasHeight, contentHeight)
     }
 
+    /// Maximum height the Canvas can render without exceeding GPU texture budget.
+    /// SwiftUI Canvas creates a single backing texture; on Retina displays the pixel
+    /// count is 4x the point count. Keeping total points under ~10M ensures the
+    /// texture fits in GPU memory (empirically ~80 MB limit on macOS).
+    private var maxRenderHeight: CGFloat {
+        let maxPointBudget: CGFloat = 10_000_000
+        let safeHeight = maxPointBudget / max(1, totalWidth)
+        return max(200, safeHeight)
+    }
+
     /// Content origin X (where timeline content starts, after labels)
     private var originX: CGFloat {
         TimelineLayoutConstants.leftMargin + TimelineLayoutConstants.rowLabelWidth
@@ -177,6 +224,9 @@ public struct TimelineCanvas: View {
         shotDialogueConnections: [ShotDialogueConnection] = [],
         showShotConnections: Bool = false,
         selectedShotLabelId: UUID? = nil,
+        allCharacterNames: [String] = [],
+        verticalOffset: CGFloat = 0,
+        availableHeight: CGFloat = 0,
         selectedSegmentIds: Binding<Set<UUID>>,
         viewportOffset: Binding<CGPoint>,
         onSegmentSelected: ((TimelineSegment) -> Void)? = nil,
@@ -202,6 +252,9 @@ public struct TimelineCanvas: View {
         self.shotDialogueConnections = shotDialogueConnections
         self.showShotConnections = showShotConnections
         self.selectedShotLabelId = selectedShotLabelId
+        self.allCharacterNames = allCharacterNames
+        self.verticalOffset = verticalOffset
+        self.availableHeight = availableHeight
         self._selectedSegmentIds = selectedSegmentIds
         self._viewportOffset = viewportOffset
         self.onSegmentSelected = onSegmentSelected
@@ -231,8 +284,10 @@ public struct TimelineCanvas: View {
             drawLaneLabels(context: context, size: size)
             drawScopeMarkerLines(context: context, size: size)
             drawPlayheadLine(context: context, size: size)
+            drawScrollIndicator(context: context, size: size)
+
         }
-        .frame(width: totalWidth, height: totalHeight)
+        .frame(width: totalWidth, height: min(availableHeight > 0 ? availableHeight : totalHeight, maxRenderHeight))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { location in
             if let segment = findSegment(at: location) {
@@ -267,6 +322,8 @@ public struct TimelineCanvas: View {
                 if !isCommandHeld {
                     selectedSegmentIds = []
                 }
+                // Click on empty space → position playhead
+                onEmptySpaceClicked?(location.x)
             }
         }
         .gesture(
@@ -316,13 +373,22 @@ public struct TimelineCanvas: View {
         .onChange(of: segments) { _, _ in
             loadCharacterImages()
         }
+        .overlay(
+            CanvasRightClickOverlay { point, nsView in
+                if let segment = findSegment(at: point) {
+                    onSegmentRightClicked?(segment, point, nsView)
+                } else if let character = findTrackCharacter(at: point) {
+                    onTrackRightClicked?(character, point, nsView)
+                }
+            }
+        )
     }
 
     // MARK: - Hit Testing
 
-    /// Find a lane label at the given point (for track toggle hit-testing)
+    /// Find a lane label at the given point (for track toggle hit-testing, accounts for verticalOffset)
     private func findLaneLabelToggle(at point: CGPoint) -> String? {
-        var yCursor: CGFloat = 0
+        var yCursor: CGFloat = -verticalOffset
 
         for (index, character) in charactersInOrder.enumerated() {
             let laneHeight = laneHeights[index]
@@ -357,11 +423,11 @@ public struct TimelineCanvas: View {
         return nil
     }
 
-    /// Find a segment at the given point (for gesture hit-testing)
+    /// Find a segment at the given point (for gesture hit-testing, accounts for verticalOffset)
     private func findSegment(at point: CGPoint) -> TimelineSegment? {
         let segmentsByCharacter = Dictionary(grouping: segments) { $0.character }
 
-        var yCursor: CGFloat = 0
+        var yCursor: CGFloat = -verticalOffset
 
         for (index, character) in charactersInOrder.enumerated() {
             let laneHeight = laneHeights[index]
@@ -394,6 +460,21 @@ public struct TimelineCanvas: View {
             yCursor += laneHeight + TimelineLayoutConstants.rowGap
         }
 
+        return nil
+    }
+
+    /// Find which character track lane contains the given point
+    private func findTrackCharacter(at point: CGPoint) -> String? {
+        var yCursor: CGFloat = -verticalOffset
+
+        for (index, character) in charactersInOrder.enumerated() {
+            let laneHeight = laneHeights[index]
+            let laneRect = CGRect(x: 0, y: yCursor, width: totalWidth, height: laneHeight)
+            if laneRect.contains(point) {
+                return character
+            }
+            yCursor += laneHeight + TimelineLayoutConstants.rowGap
+        }
         return nil
     }
 
@@ -438,9 +519,9 @@ public struct TimelineCanvas: View {
         )
     }
 
-    /// Draw character lane backgrounds (Y starts at 0)
+    /// Draw character lane backgrounds (Y offset by verticalOffset for virtual scrolling)
     private func drawLaneBackgrounds(context: GraphicsContext, size: CGSize) {
-        var yCursor: CGFloat = 0
+        var yCursor: CGFloat = -verticalOffset
 
         if charactersInOrder.isEmpty {
             let placeholderRect = CGRect(
@@ -488,9 +569,9 @@ public struct TimelineCanvas: View {
         }
     }
 
-    /// Draw lane labels (sticky on left) with eye toggle icon and type icons (Y starts at 0)
+    /// Draw lane labels with eye toggle icon and type icons (Y offset by verticalOffset)
     private func drawLaneLabels(context: GraphicsContext, size: CGSize) {
-        var yCursor: CGFloat = 0
+        var yCursor: CGFloat = -verticalOffset
 
         for (index, character) in charactersInOrder.enumerated() {
             let laneHeight = laneHeights[index]
@@ -688,9 +769,9 @@ public struct TimelineCanvas: View {
         }
     }
 
-    /// Get the center Y position of a segment in the tracks canvas
+    /// Get the center Y position of a segment in the tracks canvas (accounts for verticalOffset)
     private func segmentCenterY(for segment: TimelineSegment) -> CGFloat? {
-        var yCursor: CGFloat = 0
+        var yCursor: CGFloat = -verticalOffset
         for (index, character) in charactersInOrder.enumerated() {
             let laneHeight = laneHeights[index]
             if character == segment.character {
@@ -703,11 +784,11 @@ public struct TimelineCanvas: View {
         return nil
     }
 
-    /// Draw segments with VIEWPORT CULLING for 60fps performance (Y starts at 0)
+    /// Draw segments with VIEWPORT CULLING for 60fps performance (Y offset by verticalOffset)
     private func drawSegments(context: GraphicsContext, size: CGSize, viewport: CGRect) {
         let segmentsByCharacter = Dictionary(grouping: segments) { $0.character }
 
-        var yCursor: CGFloat = 0
+        var yCursor: CGFloat = -verticalOffset
 
         for (index, character) in charactersInOrder.enumerated() {
             let laneHeight = laneHeights[index]
@@ -888,6 +969,44 @@ public struct TimelineCanvas: View {
                 anchor: .center
             )
         }
+
+        // Audio indicator icon for dialogue segments
+        if segment.contentType == .dialogue, let sourceId = segment.sourceItemId {
+            let isGenerating = generatingAudioSourceIds.contains(sourceId)
+            let isPlaying = playingAudioSourceId == sourceId
+            if isGenerating || isPlaying || segment.hasAudio {
+                let iconSize: CGFloat = 12
+                let iconX = rect.maxX - iconSize - 3
+                let iconY = rect.minY + 3
+                let iconRect = CGRect(x: iconX, y: iconY, width: iconSize, height: iconSize)
+
+                if isGenerating {
+                    // Orange pulsing dot for generating
+                    context.fill(
+                        Path(ellipseIn: iconRect.insetBy(dx: 2, dy: 2)),
+                        with: .color(Color.orange)
+                    )
+                } else if isPlaying {
+                    // Green speaker icon for playing
+                    context.draw(
+                        Text(Image(systemName: "speaker.wave.2.fill"))
+                            .font(.system(size: 10))
+                            .foregroundColor(.green),
+                        at: CGPoint(x: iconRect.midX, y: iconRect.midY),
+                        anchor: .center
+                    )
+                } else {
+                    // White speaker icon for has audio
+                    context.draw(
+                        Text(Image(systemName: "speaker.fill"))
+                            .font(.system(size: 9))
+                            .foregroundColor(.white.opacity(0.6)),
+                        at: CGPoint(x: iconRect.midX, y: iconRect.midY),
+                        anchor: .center
+                    )
+                }
+            }
+        }
     }
 
     /// Draw the speech bubble tail (pointer)
@@ -983,6 +1102,32 @@ public struct TimelineCanvas: View {
         }
     }
 
+    /// Draw a vertical scroll position indicator when content overflows
+    private func drawScrollIndicator(context: GraphicsContext, size: CGSize) {
+        guard totalHeight > size.height else { return }
+
+        let maxOffset = totalHeight - size.height
+        // Position scrollbar relative to the current horizontal viewport
+        let visibleRight = viewportOffset.x + min(viewportSize.width, size.width)
+        let trackX = visibleRight - 10
+        let trackTop: CGFloat = 4
+        let trackHeight = size.height - 8
+        let thumbRatio = min(1, size.height / totalHeight)
+        let thumbHeight = max(24, trackHeight * thumbRatio)
+        let thumbOffset = maxOffset > 0 ? (verticalOffset / maxOffset) * (trackHeight - thumbHeight) : 0
+
+        // Track background
+        context.fill(
+            Path(roundedRect: CGRect(x: trackX, y: trackTop, width: 5, height: trackHeight), cornerRadius: 2.5),
+            with: .color(Color.white.opacity(0.06))
+        )
+        // Thumb
+        context.fill(
+            Path(roundedRect: CGRect(x: trackX, y: trackTop + thumbOffset, width: 5, height: thumbHeight), cornerRadius: 2.5),
+            with: .color(Color.white.opacity(0.3))
+        )
+    }
+
     // MARK: - Helper Methods
 
     /// Get initials from character name
@@ -995,6 +1140,63 @@ public struct TimelineCanvas: View {
         }
 
         return String(parts[0].prefix(1) + parts[1].prefix(1)).uppercased()
+    }
+}
+
+// MARK: - Canvas Right-Click Overlay
+
+/// Invisible overlay that intercepts right-mouse-down events on the canvas
+private struct CanvasRightClickOverlay: NSViewRepresentable {
+    var onRightClick: (CGPoint, NSView) -> Void
+
+    func makeNSView(context: Context) -> CanvasRightClickNSView {
+        let view = CanvasRightClickNSView()
+        view.onRightClick = onRightClick
+        view.installMonitor()
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasRightClickNSView, context: Context) {
+        nsView.onRightClick = onRightClick
+    }
+
+    class CanvasRightClickNSView: NSView {
+        var onRightClick: ((CGPoint, NSView) -> Void)?
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func installMonitor() {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+                guard let self = self, let window = self.window, event.window === window else {
+                    return event
+                }
+                let locationInView = self.convert(event.locationInWindow, from: nil)
+                if self.bounds.contains(locationInView) {
+                    let flippedY = self.bounds.height - locationInView.y
+                    let point = CGPoint(x: locationInView.x, y: flippedY)
+                    self.onRightClick?(point, self)
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor = monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+    }
+}
+
+/// NSObject target for NSMenu items — holds a closure for the menu action
+private class CanvasMenuHandler: NSObject {
+    let action: () -> Void
+    init(_ action: @escaping () -> Void) {
+        self.action = action
+    }
+    @objc func execute() {
+        action()
     }
 }
 

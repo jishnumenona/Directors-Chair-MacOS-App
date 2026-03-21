@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import AVFoundation
 import DirectorsChairCore
 import DirectorsChairViews
 import DirectorsChairProduction
@@ -24,6 +25,20 @@ struct ContentView: View {
 
     @State private var showLoginSuccess = false
     @State private var loginSuccessUsername = ""
+    @State private var spaceBarMonitor: Any?
+
+    // Timeline analysis state
+    @State private var showAnalysisReview = false
+    @State private var analysisResult: TimelineAnalysisResult?
+    @State private var isAnalyzing = false
+    @State private var analysisProgress: Int = 0
+
+    // Cost estimation warning state
+    @State private var pendingAnalysisScenes: [(scene: DirectorsChairCore.Scene, sceneName: String, sequenceIndex: Int, sceneIndex: Int)] = []
+    @State private var analysisEstimateCost: Double = 0
+    @State private var analysisEstimateCalls: Int = 0
+    @State private var analysisEstimateSceneCount: Int = 0
+    @State private var showAnalysisCostWarning = false
 
     /// Timeline height as percentage of available space (default 20%)
     @State private var timelineHeightRatio: CGFloat = 0.20
@@ -78,6 +93,7 @@ struct ContentView: View {
 
                             // Central View Stack - isolated to only re-render on selectedView change
                             CentralViewRouter()
+                                .environmentObject(timelineViewModel)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -196,6 +212,13 @@ struct ContentView: View {
                 coordinator.toggleAIChat()
             }
             DoubleShiftMonitor.shared.install()
+            installSpaceBarMonitor()
+        }
+        .onDisappear {
+            if let monitor = spaceBarMonitor {
+                NSEvent.removeMonitor(monitor)
+                spaceBarMonitor = nil
+            }
         }
         .onPreferenceChange(SpotlightTargetKey.self) { targets in
             for target in targets {
@@ -206,6 +229,69 @@ struct ContentView: View {
         .focusedValue(\.projectViewModel, projectViewModel)
         .focusedValue(\.appCoordinator, coordinator)
         .errorAlert($projectViewModel.errorAlert)
+        // Timeline analysis review sheet
+        .sheet(isPresented: $showAnalysisReview) {
+            if let result = analysisResult {
+                TimelineAnalysisReviewView(
+                    result: result,
+                    onApply: {
+                        TimelineAnalyzer.applyChanges(to: &projectViewModel.project, from: result)
+                        showAnalysisReview = false
+                        analysisResult = nil
+                        // Refresh timeline and save
+                        timelineViewModel.setProject(projectViewModel.project)
+                        timelineViewModel.refresh()
+                        coordinator.notifyProjectChanged()
+                        Task { await projectViewModel.saveSilently() }
+                    },
+                    onCancel: {
+                        showAnalysisReview = false
+                        analysisResult = nil
+                    }
+                )
+            }
+        }
+        // Timeline analysis progress overlay
+        .overlay {
+            if isAnalyzing {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Analyzing Timeline...")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("\(analysisProgress)%")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(24)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+        // Cost estimation warning before expensive analysis
+        .alert("Timeline Analysis", isPresented: $showAnalysisCostWarning) {
+            Button("Cancel", role: .cancel) {
+                pendingAnalysisScenes = []
+            }
+            Button("Analyze") {
+                launchTimelineAnalysis(scenes: pendingAnalysisScenes)
+                pendingAnalysisScenes = []
+            }
+        } message: {
+            Text("This will analyze \(analysisEstimateSceneCount) scene\(analysisEstimateSceneCount == 1 ? "" : "s") using ~\(analysisEstimateCalls) AI calls.\n\nEstimated cost: $\(String(format: "%.2f", analysisEstimateCost))")
+        }
+        // Listen for analysis scope changes from coordinator
+        .onChange(of: coordinator.timelineAnalysisScope != nil) { _, hasScope in
+            if hasScope, let scope = coordinator.timelineAnalysisScope {
+                coordinator.timelineAnalysisScope = nil
+                prepareTimelineAnalysis(scope: scope)
+            }
+        }
         .background(
             // Navigation history keyboard shortcuts (Cmd+[ / Cmd+])
             Group {
@@ -219,6 +305,113 @@ struct ContentView: View {
             }
             .frame(width: 0, height: 0)
         )
+    }
+
+    // MARK: - Timeline Analysis
+
+    private func prepareTimelineAnalysis(scope: TimelineAnalysisScope) {
+        let project = projectViewModel.project
+
+        // Build the scene list based on scope
+        var scenesToAnalyze: [(scene: DirectorsChairCore.Scene, sceneName: String, sequenceIndex: Int, sceneIndex: Int)] = []
+
+        switch scope {
+        case .all:
+            for (seqIdx, sequence) in project.sequences.enumerated() {
+                for (scnIdx, scene) in sequence.scenes.enumerated() {
+                    scenesToAnalyze.append((scene, scene.name, seqIdx, scnIdx))
+                }
+            }
+        case .sequence(let seq):
+            if let seqIdx = project.sequences.firstIndex(where: { $0.id == seq.id }) {
+                for (scnIdx, scene) in project.sequences[seqIdx].scenes.enumerated() {
+                    scenesToAnalyze.append((scene, scene.name, seqIdx, scnIdx))
+                }
+            }
+        case .scene(let scene, let seqIdx, let scnIdx):
+            scenesToAnalyze.append((scene, scene.name, seqIdx, scnIdx))
+        case .shot(_, let scene, let seqIdx, let scnIdx):
+            scenesToAnalyze.append((scene, scene.name, seqIdx, scnIdx))
+        }
+
+        guard !scenesToAnalyze.isEmpty else { return }
+
+        // Estimate cost and decide whether to show warning
+        let estimate = TimelineAnalyzer.estimateCost(scenes: scenesToAnalyze)
+
+        if PreferencesManager.shared.aiShowCostEstimates && estimate.estimatedCostUSD > AIUsageStats.costWarningThreshold {
+            // Show confirmation dialog
+            pendingAnalysisScenes = scenesToAnalyze
+            analysisEstimateSceneCount = estimate.sceneCount
+            analysisEstimateCalls = estimate.estimatedCalls
+            analysisEstimateCost = estimate.estimatedCostUSD
+            showAnalysisCostWarning = true
+        } else {
+            // Proceed directly
+            launchTimelineAnalysis(scenes: scenesToAnalyze)
+        }
+    }
+
+    private func launchTimelineAnalysis(scenes: [(scene: DirectorsChairCore.Scene, sceneName: String, sequenceIndex: Int, sceneIndex: Int)]) {
+        isAnalyzing = true
+        analysisProgress = 0
+
+        Task {
+            do {
+                let analyzer = TimelineAnalyzer()
+                let result = try await analyzer.analyzeScenes(
+                    scenes: scenes,
+                    progressCallback: { progress in
+                        Task { @MainActor in
+                            analysisProgress = progress
+                        }
+                    }
+                )
+                await MainActor.run {
+                    isAnalyzing = false
+                    analysisResult = result
+                    showAnalysisReview = true
+                }
+            } catch {
+                await MainActor.run {
+                    isAnalyzing = false
+                    projectViewModel.errorAlert = .init(title: "Timeline Analysis Failed", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    // MARK: - Global Space Bar → Playback
+
+    private func installSpaceBarMonitor() {
+        spaceBarMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Only handle space bar (keyCode 49), no modifiers
+            guard event.keyCode == 49,
+                  !event.modifierFlags.contains(.command),
+                  !event.modifierFlags.contains(.option),
+                  !event.modifierFlags.contains(.control) else {
+                return event
+            }
+
+            // Don't intercept if a text field/editor is focused
+            if let responder = event.window?.firstResponder,
+               responder is NSTextView || responder is NSTextField {
+                return event
+            }
+
+            // Already on playback view — let PlaybackView's own monitor handle it
+            if coordinator.selectedView == .playback {
+                return event
+            }
+
+            // Need a project loaded
+            guard projectViewModel.hasProject else { return event }
+
+            // Switch to playback and auto-play
+            coordinator.shouldAutoPlay = true
+            coordinator.navigateTo(.playback)
+            return nil  // consume the event
+        }
     }
 }
 
@@ -353,12 +546,24 @@ struct LoadingOverlay: View {
     }
 }
 
+// MARK: - AI Progress Tracker
+
+/// Tracks AI operation progress across navigation. Class-based so it can be
+/// captured in @Sendable closures and updated from async callbacks.
+final class AIProgressTracker: ObservableObject, @unchecked Sendable {
+    @Published var traitAnalysis: [String: Int] = [:]
+    @Published var biography: [String: Int] = [:]
+}
+
 // MARK: - Central View Stack
 
 /// Routes to the appropriate view based on coordinator.selectedView
 struct CentralViewStack: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+
+    /// AI operation progress — survives navigation between tabs
+    @StateObject private var aiProgress = AIProgressTracker()
 
     // Cache view models to prevent recreation on every switch
     @StateObject private var scheduleViewModel = ScheduleViewModel(scheduleItems: [])
@@ -434,6 +639,9 @@ struct CentralViewStack: View {
                     projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
                     initialCharacterId: coordinator.selectedCharacter?.id,
                     initialLocationId: coordinator.selectedLocation?.id,
+                    preferredMode: coordinator.preferredStoryDesignMode,
+                    traitAnalysisProgress: aiProgress.traitAnalysis,
+                    biographyProgress: aiProgress.biography,
                     onGenerateImage: { character, angle, prompt, progressHandler in
                         Task {
                             await generateCharacterImage(character: character, angle: angle, prompt: prompt, progressHandler: progressHandler)
@@ -465,6 +673,9 @@ struct CentralViewStack: View {
                     CurationViewAdapter()
                 }
                 .onAppear { debugLog("📱 CurationView appeared") }
+            case .playback:
+                PlaybackView()
+                    .onAppear { debugLog("📱 PlaybackView appeared") }
             case .settings:
                 ProjectSettingsView()
                     .onAppear { debugLog("📱 ProjectSettingsView appeared") }
@@ -686,30 +897,9 @@ struct CentralViewStack: View {
         imagesDir: URL,
         projectDir: URL
     ) async -> Bool {
-        // Check if we need to prompt for directory creation
+        // Create directory automatically if it doesn't exist
         if !FileManager.default.fileExists(atPath: imagesDir.path) {
-            // Directory doesn't exist - show dialog to user
-            let shouldContinue = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                DispatchQueue.main.async {
-                    let alert = NSAlert()
-                    alert.messageText = "Create Character Images Folder?"
-                    alert.informativeText = "The 'character_images' folder doesn't exist. Would you like to create it at:\n\(projectDir.path)"
-                    alert.addButton(withTitle: "Create Folder")
-                    alert.addButton(withTitle: "Cancel")
-                    alert.alertStyle = .informational
-
-                    let response = alert.runModal()
-                    continuation.resume(returning: response == .alertFirstButtonReturn)
-                }
-            }
-
-            guard shouldContinue else {
-                return false
-            }
-
-            // Try to create the directory
             do {
-                // Start accessing the project directory
                 _ = projectDir.startAccessingSecurityScopedResource()
                 defer { projectDir.stopAccessingSecurityScopedResource() }
 
@@ -718,7 +908,7 @@ struct CentralViewStack: View {
                 await MainActor.run {
                     self.projectViewModel.errorAlert = ErrorAlert(
                         title: "Failed to Create Folder",
-                        message: "Could not create character_images folder. Please create it manually in the Finder at:\n\(projectDir.path)\n\nError: \(error.localizedDescription)"
+                        message: "Could not create images folder at:\n\(imagesDir.path)\n\nError: \(error.localizedDescription)"
                     )
                 }
                 return false
@@ -816,10 +1006,15 @@ struct CentralViewStack: View {
 
     private func analyzeCharacterTraits(character: Character) async {
         let aiClient = AIServiceClient.shared
+        let charId = character.id
+        let tracker = aiProgress
+
+        await MainActor.run { tracker.traitAnalysis[charId] = 0 }
 
         // Check if AI server is available
         guard await aiClient.testConnection() else {
             await MainActor.run {
+                tracker.traitAnalysis.removeValue(forKey: charId)
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
                     message: "Could not connect to AI server at directorschair.app. Please check your internet connection and try again."
@@ -828,23 +1023,29 @@ struct CentralViewStack: View {
             return
         }
 
-        await MainActor.run {
-            projectViewModel.isLoading = true
-        }
-
         do {
             let analyzer = CharacterAnalyzer(project: projectViewModel.project, aiClient: aiClient)
+
             let result = try await analyzer.analyzeCharacter(character) { progress in
-                // Progress callback - could update UI here
+                Task { @MainActor in
+                    tracker.traitAnalysis[charId] = progress
+                }
             }
 
             // Update character with analysis results
             if let charIndex = projectViewModel.project.characters.firstIndex(where: { $0.id == character.id }) {
                 await MainActor.run {
+                    tracker.traitAnalysis[charId] = 95
+
                     // Update traits
                     for (trait, score) in result.traitScores {
                         projectViewModel.project.characters[charIndex].traits[trait] = score
                     }
+
+                    // Store AI analysis metadata
+                    projectViewModel.project.characters[charIndex].traitsConfidenceScore = result.confidenceScore
+                    projectViewModel.project.characters[charIndex].traitsAiReasoning = result.reasoning
+                    projectViewModel.project.characters[charIndex].traitsLastCalibrated = Date()
 
                     // Update physical attributes if available
                     if !result.physicalAttributes.isEmpty {
@@ -873,17 +1074,17 @@ struct CentralViewStack: View {
                     }
 
                     projectViewModel.isDirty = true
-                    projectViewModel.isLoading = false
+                    tracker.traitAnalysis.removeValue(forKey: charId)
                 }
             } else {
                 await MainActor.run {
-                    projectViewModel.isLoading = false
+                    tracker.traitAnalysis.removeValue(forKey: charId)
                 }
             }
 
         } catch {
             await MainActor.run {
-                projectViewModel.isLoading = false
+                tracker.traitAnalysis.removeValue(forKey: charId)
                 projectViewModel.errorAlert = ErrorAlert(
                     error: error,
                     title: "Character Analysis Failed"
@@ -894,20 +1095,21 @@ struct CentralViewStack: View {
 
     private func generateCharacterBiography(character: Character) async {
         let aiClient = AIServiceClient.shared
+        let charId = character.id
+        let tracker = aiProgress
+
+        await MainActor.run { tracker.biography[charId] = 0 }
 
         // Check if AI server is available
         guard await aiClient.testConnection() else {
             await MainActor.run {
+                tracker.biography.removeValue(forKey: charId)
                 projectViewModel.errorAlert = ErrorAlert(
                     title: "AI Service Unavailable",
                     message: "Could not connect to AI server at directorschair.app. Please check your internet connection and try again."
                 )
             }
             return
-        }
-
-        await MainActor.run {
-            projectViewModel.isLoading = true
         }
 
         do {
@@ -926,17 +1128,17 @@ struct CentralViewStack: View {
                 await MainActor.run {
                     projectViewModel.project.characters[charIndex].backgroundStory = backstory
                     projectViewModel.isDirty = true
-                    projectViewModel.isLoading = false
+                    tracker.biography.removeValue(forKey: charId)
                 }
             } else {
                 await MainActor.run {
-                    projectViewModel.isLoading = false
+                    tracker.biography.removeValue(forKey: charId)
                 }
             }
 
         } catch {
             await MainActor.run {
-                projectViewModel.isLoading = false
+                tracker.biography.removeValue(forKey: charId)
                 projectViewModel.errorAlert = ErrorAlert(
                     error: error,
                     title: "Biography Generation Failed"
@@ -1518,6 +1720,9 @@ struct TimelineContainer: View {
     /// Track sequence count to detect actual changes (not just any array mutation)
     @State private var lastSequenceCount: Int = 0
 
+    /// Audio player for timeline TTS playback
+    @State private var timelineAudioPlayer: AVAudioPlayer?
+
     /// Project base path as URL for image loading (matches CinematographyView resolution)
     private var projectBaseURL: URL? {
         projectViewModel.projectPath?.deletingLastPathComponent()
@@ -1626,6 +1831,137 @@ struct TimelineContainer: View {
                     projectViewModel.project = updatedProject
                     Task { await projectViewModel.saveSilently() }
                 }
+            },
+            onAnalyzeTimeline: {
+                coordinator.requestTimelineAnalysis(scope: .all)
+            },
+            onGenerateAudio: { segment in
+                guard segment.contentType == .dialogue,
+                      let sourceId = segment.sourceItemId else { return }
+
+                timelineViewModel.generatingAudioSourceIds.insert(sourceId)
+
+                Task {
+                    do {
+                        let dialogue = timelineViewModel.findDialogue(sourceItemId: sourceId)
+                        let character = timelineViewModel.findCharacter(name: segment.character)
+                        let voiceName = character?.voice ?? (character?.gender.lowercased() == "female" ? "Kore" : "Charon")
+
+                        var emotionParts: [String] = []
+                        if let style = character?.voiceStyle, !style.isEmpty {
+                            emotionParts.append(style)
+                        }
+                        if let tags = dialogue?.tags, !tags.isEmpty {
+                            emotionParts.append(contentsOf: tags)
+                        }
+                        let emotion = emotionParts.isEmpty ? nil : "Say \(emotionParts.joined(separator: ", "))"
+
+                        // Strip HTML from text
+                        var text = dialogue?.text ?? segment.text
+                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed.hasPrefix("<") {
+                            let tagPattern = "<[^>]+>"
+                            if let regex = try? NSRegularExpression(pattern: tagPattern, options: .caseInsensitive) {
+                                let range = NSRange(location: 0, length: text.utf16.count)
+                                text = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                        }
+
+                        let request = SpeechGenerationRequest(
+                            text: text,
+                            provider: .google,
+                            voiceName: voiceName,
+                            emotion: emotion,
+                            characterName: segment.character,
+                            voiceTone: character?.voiceTone,
+                            voicePersonality: character?.voicePersonality,
+                            voicePace: character?.voicePace,
+                            voiceAccent: character?.voiceAccent,
+                            voiceAge: character?.voiceAge
+                        )
+
+                        let response = try await AIServiceClient.shared.generateSpeech(request)
+
+                        // Save audio file
+                        if let projectPath = projectViewModel.projectPath {
+                            let projectDir = projectPath.deletingLastPathComponent()
+                            let audioDir = projectDir.appendingPathComponent("assets/audio/dialogues")
+                            try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+
+                            let fileName = "\(sourceId).wav"
+                            let filePath = audioDir.appendingPathComponent(fileName)
+                            try response.audioData.write(to: filePath)
+
+                            let relativePath = "assets/audio/dialogues/\(fileName)"
+                            timelineViewModel.updateDialogueAudioPath(sourceItemId: sourceId, audioFilePath: relativePath)
+
+                            // Sync project back
+                            if let updatedProject = timelineViewModel.getProject() {
+                                projectViewModel.project = updatedProject
+                                Task { await projectViewModel.saveSilently() }
+                            }
+
+                            // Refresh timeline to update hasAudio
+                            timelineViewModel.setProject(projectViewModel.project)
+                        }
+
+                        // Play the generated audio
+                        timelineAudioPlayer?.stop()
+                        timelineAudioPlayer = try AVAudioPlayer(data: response.audioData)
+                        timelineViewModel.playingAudioSourceId = sourceId
+                        timelineAudioPlayer?.play()
+
+                        // Monitor playback completion
+                        Task {
+                            while timelineAudioPlayer?.isPlaying == true {
+                                try? await Task.sleep(nanoseconds: 200_000_000)
+                            }
+                            if timelineViewModel.playingAudioSourceId == sourceId {
+                                timelineViewModel.playingAudioSourceId = nil
+                            }
+                        }
+
+                    } catch {
+                        print("Timeline TTS generation error: \(error)")
+                    }
+
+                    timelineViewModel.generatingAudioSourceIds.remove(sourceId)
+                }
+            },
+            onPlayAudio: { segment in
+                guard let sourceId = segment.sourceItemId,
+                      let dialogue = timelineViewModel.findDialogue(sourceItemId: sourceId),
+                      let audioPath = dialogue.audioFilePath,
+                      let projectPath = projectViewModel.projectPath else { return }
+
+                let projectDir = projectPath.deletingLastPathComponent()
+                let fileURL = projectDir.appendingPathComponent(audioPath)
+                guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+
+                do {
+                    timelineAudioPlayer?.stop()
+                    timelineAudioPlayer = try AVAudioPlayer(contentsOf: fileURL)
+                    timelineViewModel.playingAudioSourceId = sourceId
+                    timelineAudioPlayer?.play()
+
+                    // Monitor playback completion
+                    Task {
+                        while timelineAudioPlayer?.isPlaying == true {
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                        }
+                        if timelineViewModel.playingAudioSourceId == sourceId {
+                            timelineViewModel.playingAudioSourceId = nil
+                        }
+                    }
+                } catch {
+                    print("Timeline audio playback error: \(error)")
+                }
+            },
+            onStopAudio: {
+                timelineAudioPlayer?.stop()
+                timelineAudioPlayer = nil
+                timelineViewModel.playingAudioSourceId = nil
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2064,21 +2400,17 @@ struct CinematographyViewAdapter: View {
     @State private var shotsAdapter: ShotsAdapter?
     @State private var lastSequenceCount: Int = 0
 
-    /// Get the first scene from the project for context
-    private var firstScene: DCScene? {
-        projectViewModel.project.sequences.first?.scenes.first
-    }
-
     var body: some View {
         Group {
             if let adapter = shotsAdapter {
                 CinematographyView(
                     shots: adapter.allShots,
-                    scene: firstScene,
+                    scenes: projectViewModel.allScenes,
                     characters: projectViewModel.project.characters,
                     locations: projectViewModel.project.locations,
                     projectBasePath: projectViewModel.projectPath,
                     initialSelectedShotId: coordinator.selectedShot?.shotId,
+                    scrollToShotSection: $coordinator.scrollToShotSection,
                     onShotsChanged: { updatedShots in
                         adapter.updateShots(updatedShots)
                     },
@@ -2101,13 +2433,13 @@ struct CinematographyViewAdapter: View {
                         coordinator.navigateTo(.storyDesign)
                     },
                     onSceneUpdated: { updatedScene in
-                        // Update the scene in the project model
-                        if var seq = projectViewModel.project.sequences.first {
-                            if let sceneIdx = seq.scenes.firstIndex(where: { $0.id == updatedScene.id }) {
-                                seq.scenes[sceneIdx] = updatedScene
-                                projectViewModel.project.sequences[0] = seq
+                        // Update the scene in the project model — search ALL sequences
+                        for seqIdx in projectViewModel.project.sequences.indices {
+                            if let sceneIdx = projectViewModel.project.sequences[seqIdx].scenes.firstIndex(where: { $0.id == updatedScene.id }) {
+                                projectViewModel.project.sequences[seqIdx].scenes[sceneIdx] = updatedScene
                                 projectViewModel.isDirty = true
                                 coordinator.projectChanged.send(())
+                                break
                             }
                         }
                     }

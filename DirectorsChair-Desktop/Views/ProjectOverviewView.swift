@@ -171,6 +171,8 @@ private struct OverviewHeroBanner: View {
     // Prompt editor
     @State private var showingPromptEditor = false
     @State private var customPrompt = ""
+    @State private var allPosterImages: [URL] = []
+    @State private var currentImageIndex: Int = -1
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -316,6 +318,59 @@ private struct OverviewHeroBanner: View {
                 }
             }
 
+            // Image history navigation
+            if allPosterImages.count > 1 {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 10) {
+                        Button {
+                            if currentImageIndex > 0 {
+                                currentImageIndex -= 1
+                                loadPosterImageAtIndex(currentImageIndex)
+                            }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(currentImageIndex > 0 ? .white : .white.opacity(0.3))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(currentImageIndex <= 0)
+
+                        Text("\(currentImageIndex + 1) / \(allPosterImages.count)")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white)
+
+                        Button {
+                            if currentImageIndex < allPosterImages.count - 1 {
+                                currentImageIndex += 1
+                                loadPosterImageAtIndex(currentImageIndex)
+                            }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(currentImageIndex < allPosterImages.count - 1 ? .white : .white.opacity(0.3))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(currentImageIndex >= allPosterImages.count - 1)
+
+                        if currentImageIndex == allPosterImages.count - 1 {
+                            Text("Latest")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.accentColor.opacity(0.7))
+                                .cornerRadius(4)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(20)
+                    .padding(.bottom, 12)
+                }
+            }
+
             // Generating overlay
             if isGeneratingPoster {
                 VStack {
@@ -344,9 +399,15 @@ private struct OverviewHeroBanner: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .onAppear { loadHeroImage() }
+        .onAppear {
+            loadHeroImage()
+            discoverPosterImages()
+        }
         .onChange(of: project.projectIcon) { _ in loadHeroImage() }
-        .onChange(of: project.overviewPosterPaths) { _ in loadHeroImage() }
+        .onChange(of: project.overviewPosterPaths) { _ in
+            loadHeroImage()
+            discoverPosterImages()
+        }
         .alert("Poster Generation Failed", isPresented: $showingPosterError) {
             Button("OK") { }
         } message: {
@@ -407,6 +468,50 @@ private struct OverviewHeroBanner: View {
         return nil
     }
 
+    // MARK: - Image History
+
+    private func discoverPosterImages() {
+        guard let projectDir = projectDir else { return }
+        let postersDir = projectDir.appendingPathComponent("posters")
+        guard FileManager.default.fileExists(atPath: postersDir.path) else { return }
+
+        let sanitizedName = sanitizeFilename(project.name)
+        let prefix = "\(sanitizedName)_poster_"
+
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: postersDir, includingPropertiesForKeys: nil)
+            let images = contents
+                .filter { $0.pathExtension.lowercased() == "png" }
+                .filter { $0.lastPathComponent.hasPrefix(prefix) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+            allPosterImages = images
+            if !images.isEmpty {
+                currentImageIndex = images.count - 1
+            }
+        } catch {
+            // Directory doesn't exist or can't be read
+        }
+    }
+
+    private func loadPosterImageAtIndex(_ index: Int) {
+        guard index >= 0, index < allPosterImages.count else { return }
+        let url = allPosterImages[index]
+        let cacheKey = url.path
+
+        if let cached = OverviewImageCache.shared.image(forKey: cacheKey) {
+            heroImage = cached
+            imageRefreshId = UUID()
+            return
+        }
+
+        if let image = NSImage(contentsOf: url) {
+            OverviewImageCache.shared.setImage(image, forKey: cacheKey)
+            heroImage = image
+            imageRefreshId = UUID()
+        }
+    }
+
     // MARK: - Poster Generation
 
     private func generatePoster(with prompt: String?) {
@@ -459,6 +564,14 @@ private struct OverviewHeroBanner: View {
                 try imageData.write(to: posterPath)
                 let posterRelativePath = "posters/\(posterFilename)"
 
+                // Save timestamped copy for history
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+                let timestamp = dateFormatter.string(from: Date())
+                let timestampedFilename = "\(sanitizedName)_poster_\(timestamp).png"
+                let timestampedPath = postersDir.appendingPathComponent(timestampedFilename)
+                try imageData.write(to: timestampedPath)
+
                 // Also save to assets/icons/ for icon usage
                 let iconsDir = projectDir.appendingPathComponent("assets").appendingPathComponent("icons")
                 if !FileManager.default.fileExists(atPath: iconsDir.path) {
@@ -503,6 +616,7 @@ private struct OverviewHeroBanner: View {
                     }
                     imageRefreshId = UUID()
                     isGeneratingPoster = false
+                    discoverPosterImages()
                 }
 
             } catch {
