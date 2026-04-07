@@ -20,6 +20,7 @@ public struct DialogueBubbleCard: View {
     let isSelected: Bool
     let isPrimaryCharacter: Bool
     let projectBasePath: URL?
+    let globalIndex: Int?
 
     // Callbacks
     var onTap: (() -> Void)?
@@ -39,6 +40,7 @@ public struct DialogueBubbleCard: View {
     var onAddConnectedNarration: (() -> Void)?
     var onAddConnectedNote: (() -> Void)?
     var onAddConnectedSoundNote: (() -> Void)?
+    var onNavigateToCharacter: (() -> Void)?
 
     // Audio state
     var isGeneratingAudio: Bool = false
@@ -62,6 +64,7 @@ public struct DialogueBubbleCard: View {
         isPrimaryCharacter: Bool = false,
         startInEditMode: Bool = false,
         projectBasePath: URL? = nil,
+        globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onDoubleTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -81,7 +84,8 @@ public struct DialogueBubbleCard: View {
         onAddConnectedAction: (() -> Void)? = nil,
         onAddConnectedNarration: (() -> Void)? = nil,
         onAddConnectedNote: (() -> Void)? = nil,
-        onAddConnectedSoundNote: (() -> Void)? = nil
+        onAddConnectedSoundNote: (() -> Void)? = nil,
+        onNavigateToCharacter: (() -> Void)? = nil
     ) {
         self.dialogue = dialogue
         self.character = character
@@ -89,6 +93,7 @@ public struct DialogueBubbleCard: View {
         self.isPrimaryCharacter = isPrimaryCharacter
         self.startInEditMode = startInEditMode
         self.projectBasePath = projectBasePath
+        self.globalIndex = globalIndex
         self.onTap = onTap
         self.onDoubleTap = onDoubleTap
         self.onEdit = onEdit
@@ -109,6 +114,7 @@ public struct DialogueBubbleCard: View {
         self.onAddConnectedNarration = onAddConnectedNarration
         self.onAddConnectedNote = onAddConnectedNote
         self.onAddConnectedSoundNote = onAddConnectedSoundNote
+        self.onNavigateToCharacter = onNavigateToCharacter
     }
 
     public var body: some View {
@@ -142,6 +148,10 @@ public struct DialogueBubbleCard: View {
             size: 40,
             projectBasePath: projectBasePath
         )
+        .onTapGesture(count: 2) {
+            onNavigateToCharacter?()
+        }
+        .help("Double-click to view character")
     }
 
     // MARK: - Bubble Content
@@ -168,13 +178,20 @@ public struct DialogueBubbleCard: View {
                         }
                     }
             } else {
-                Text(htmlToPlainText(dialogue.text))
-                    .font(.body)
-                    .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF"))
-                    .multilineTextAlignment(.leading)
-                    .onTapGesture(count: 2) {
-                        startEditing()
-                    }
+                let plainText = htmlToPlainText(dialogue.text)
+                if plainText.isEmpty {
+                    Text("Dialogue text...")
+                        .font(.body)
+                        .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.4))
+                        .multilineTextAlignment(.leading)
+                        .contentShape(Rectangle())
+                } else {
+                    Text(plainText)
+                        .font(.body)
+                        .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF"))
+                        .multilineTextAlignment(.leading)
+                        .contentShape(Rectangle())
+                }
             }
 
             // Tags + detect emotion
@@ -225,6 +242,7 @@ public struct DialogueBubbleCard: View {
                 }
         )
         .onTapGesture {
+            if !isEditing { startEditing() }
             onTap?()
         }
         .contextMenu {
@@ -259,17 +277,17 @@ public struct DialogueBubbleCard: View {
                         }
                     }
             } else {
-                Text("#\(dialogue.chronologyNumber)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.3))
-                    .cornerRadius(4)
-                    .onTapGesture(count: 2) {
-                        startIndexEditing()
-                    }
+                Button(action: { startIndexEditing() }) {
+                    Text("#\(globalIndex ?? dialogue.chronologyNumber)")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.gray)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
             }
 
             // Character name
@@ -437,7 +455,7 @@ public struct DialogueBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(dialogue.chronologyNumber)"
+        editedIndex = "\(globalIndex ?? dialogue.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

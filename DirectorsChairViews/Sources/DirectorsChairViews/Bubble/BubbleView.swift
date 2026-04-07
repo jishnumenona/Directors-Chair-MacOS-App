@@ -35,11 +35,39 @@ public struct BubbleView: View {
     @State private var showBackground = false
 
     // UI state
-    @State private var showEditorPanel = true
     @State private var sortRefreshTrigger = UUID()
     @State private var newlyAddedItemId: String? = nil  // Track newly added items for auto-edit
     @State private var dropTargetDialogueId: String? = nil  // Track which dialogue is being targeted for drop
-    @State private var leftAlignedOverrides: Set<String> = []  // Character names with flipped alignment
+    @AppStorage("bubbleView.leftAlignedOverrides") private var leftAlignedOverridesData: Data = Data()
+
+    /// Character names whose alignment has been flipped by the user (persisted)
+    private var leftAlignedOverrides: Set<String> {
+        get {
+            (try? JSONDecoder().decode(Set<String>.self, from: leftAlignedOverridesData)) ?? []
+        }
+    }
+
+    private func toggleAlignmentOverride(for characterName: String) {
+        var current = leftAlignedOverrides
+        if current.contains(characterName) {
+            current.remove(characterName)
+        } else {
+            current.insert(characterName)
+        }
+        leftAlignedOverridesData = (try? JSONEncoder().encode(current)) ?? Data()
+    }
+    @State private var showCharacterPicker = false  // Toolbar popover to pick character for new dialogue
+    @State private var showFloatingCharacterPicker = false  // Floating picker at right-click location
+    @State private var floatingPickerPosition: CGPoint = .zero  // Position in scroll area local coords
+    @State private var lastRightClickScreenPos: NSPoint = .zero  // Stored right-click screen position
+    @State private var rightClickMonitor: Any? = nil  // Event monitor for right-clicks
+    @State private var scrollAreaFrame: CGRect = .zero  // Scroll area frame in global coords
+    @State private var showInlineCharacterPicker = false  // Inline picker at end of bubble list
+    @State private var selectedCharacterIndex: Int = 0  // Arrow-key focused character index
+    @State private var showShortcutsPopover = false  // Shortcuts help popover
+    @State private var pickerKeyMonitor: Any? = nil  // Key event monitor for character picker
+    @State private var showNewCharacterInput = false  // Show text field for new character name
+    @State private var newCharacterName = ""  // New character name being entered
 
     // Highlight state for cross-view synchronization
     @State private var scrollToItemId: String? = nil
@@ -56,6 +84,7 @@ public struct BubbleView: View {
     @State private var cachedChronologicalItems: [BubbleItem] = []
     @State private var cachedConnectedItems: [String: [BubbleItem]] = [:]  // dialogueId → children
     @State private var cachedCharacterMap: [String: Character] = [:]  // name → Character
+    @State private var cachedGlobalIndices: [String: Int] = [:]  // itemId → global chronology #
 
     let projectBasePath: URL?
 
@@ -69,12 +98,19 @@ public struct BubbleView: View {
     /// Callback when content is added, updated, or deleted (to sync with timeline)
     let onContentChanged: (() -> Void)?
 
-    /// Externally selected scene name (e.g., from OutlineTab sidebar via AppCoordinator)
+    /// Externally selected scene ID (e.g., from OutlineTab sidebar via AppCoordinator)
     /// When this changes, BubbleView syncs its internal selectedScene to match.
-    let externalSelectedSceneName: String?
+    let externalSelectedSceneId: String?
+
+    /// Incremented by parent when project data changes externally (e.g., ScriptView edits).
+    /// Triggers cache rebuild so BubbleView reflects the latest project state.
+    let externalRefreshTrigger: Int
 
     /// Callback when a dialogue is selected (for AI context forwarding)
     let onDialogueSelected: ((Dialogue?) -> Void)?
+
+    /// Callback when user double-clicks a character avatar to navigate to Story Design
+    let onNavigateToCharacter: ((Character) -> Void)?
 
     public init(
         project: Binding<Project>,
@@ -82,46 +118,72 @@ public struct BubbleView: View {
         highlightedBubbleItem: (id: String, type: String, sceneName: String)? = nil,
         onItemsReordered: (() -> Void)? = nil,
         onContentChanged: (() -> Void)? = nil,
-        externalSelectedSceneName: String? = nil,
-        onDialogueSelected: ((Dialogue?) -> Void)? = nil
+        externalSelectedSceneId: String? = nil,
+        externalRefreshTrigger: Int = 0,
+        onDialogueSelected: ((Dialogue?) -> Void)? = nil,
+        onNavigateToCharacter: ((Character) -> Void)? = nil
     ) {
         self._project = project
         self.projectBasePath = projectBasePath
         self.highlightedBubbleItem = highlightedBubbleItem
         self.onItemsReordered = onItemsReordered
         self.onContentChanged = onContentChanged
-        self.externalSelectedSceneName = externalSelectedSceneName
+        self.externalSelectedSceneId = externalSelectedSceneId
+        self.externalRefreshTrigger = externalRefreshTrigger
         self.onDialogueSelected = onDialogueSelected
+        self.onNavigateToCharacter = onNavigateToCharacter
     }
 
     public var body: some View {
-        HSplitView {
-            // Main: Bubble content
-            VStack(spacing: 0) {
-                // Toolbar
-                toolbar
+        VStack(spacing: 0) {
+            // Toolbar
+            toolbar
 
-                // Bubble scroll area
-                bubbleScrollArea
-                    .frame(maxHeight: .infinity)
+            // Bubble scroll area
+            bubbleScrollArea
+                .frame(maxHeight: .infinity)
+        }
+        .frame(maxHeight: .infinity)
+        .background {
+            // Cmd+D — Add Dialogue
+            Button("") {
+                selectedCharacterIndex = 0
+                showInlineCharacterPicker = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    scrollToItemId = "inlineCharacterPicker"
+                }
             }
-            .frame(minWidth: 400, idealWidth: 800, maxHeight: .infinity)
+            .keyboardShortcut("d", modifiers: .command)
+            .hidden()
 
-            // Right: Editor panel (if showing and dialogue selected)
-            if showEditorPanel, let dialogue = selectedDialogue {
-                DialogueEditorPanel(
-                    dialogue: dialogue,
-                    characters: project.characters,
-                    projectBasePath: projectBasePath,
-                    onSave: { updated in
-                        updateDialogue(updated)
-                    },
-                    onCancel: {
-                        selectedDialogue = nil
-                    }
-                )
-                .frame(minWidth: 300, idealWidth: 350)
+            // Cmd+Shift+A — Add Action
+            Button("") { addAction() }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .hidden()
+
+            // Cmd+Shift+N — Add Narration
+            Button("") { addNarration() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .hidden()
+
+            // Cmd+Shift+O — Add Note
+            Button("") { addNote() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .hidden()
+
+            // Cmd+Shift+S — Add Sound Note
+            Button("") { addSoundNote() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .hidden()
+
+            // Return — Select highlighted character in picker
+            Button("") {
+                if isAnyPickerOpen {
+                    selectCurrentCharacter()
+                }
             }
+            .keyboardShortcut(.defaultAction)
+            .hidden()
         }
         .sheet(item: $editingDialogue) { dialogue in
             EditDialogueSheet(
@@ -129,11 +191,21 @@ public struct BubbleView: View {
                 characters: project.characters,
                 projectBasePath: projectBasePath,
                 onSave: { updated in
+                    let oldChronology = dialogue.chronologyNumber
                     updateDialogue(updated)
+                    // If order changed, reorder all items
+                    if updated.chronologyNumber != oldChronology {
+                        reorderItems(movingItemId: updated.id, oldIndex: oldChronology, newIndex: updated.chronologyNumber)
+                    }
                     editingDialogue = nil
                 },
                 onCancel: {
                     editingDialogue = nil
+                },
+                onCharacterColorChanged: { characterName, hexColor in
+                    if let idx = project.characters.firstIndex(where: { $0.name == characterName }) {
+                        project.characters[idx].color = hexColor
+                    }
                 }
             )
         }
@@ -193,7 +265,39 @@ public struct BubbleView: View {
         } message: {
             Text(audioErrorMessage ?? "")
         }
+        .onDisappear {
+            if let monitor = rightClickMonitor {
+                NSEvent.removeMonitor(monitor)
+                rightClickMonitor = nil
+            }
+            removePickerKeyMonitor()
+        }
+        .onChange(of: showCharacterPicker) { _, isOpen in
+            if isOpen { installPickerKeyMonitor() } else { removePickerKeyMonitor() }
+        }
+        .onChange(of: showInlineCharacterPicker) { _, isOpen in
+            if isOpen { installPickerKeyMonitor() } else { removePickerKeyMonitor() }
+        }
+        .onChange(of: showFloatingCharacterPicker) { _, isOpen in
+            if isOpen { installPickerKeyMonitor() } else { removePickerKeyMonitor() }
+        }
         .onAppear {
+            // Monitor right-clicks to store position for floating character picker
+            rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { event in
+                lastRightClickScreenPos = NSEvent.mouseLocation
+                return event
+            }
+
+            // Sync to externally selected scene first (onChange won't fire on initial render)
+            if let externalId = externalSelectedSceneId, selectedScene?.id != externalId {
+                for sequence in project.sequences {
+                    if let targetScene = sequence.scenes.first(where: { $0.id == externalId }) {
+                        selectedScene = targetScene
+                        break
+                    }
+                }
+            }
+
             selectFirstSceneIfNeeded()
 
             // Build initial cache for the selected scene
@@ -227,7 +331,6 @@ public struct BubbleView: View {
             if let targetScene = findScene(containing: highlighted.id, ofType: highlighted.type) {
                 if selectedScene?.id != targetScene.id {
                     selectedScene = targetScene
-                    leftAlignedOverrides.removeAll()
                     rebuildBubbleCache(for: targetScene)
                 }
             }
@@ -236,22 +339,36 @@ public struct BubbleView: View {
             scrollToItemId = highlighted.id
             hasScrolledToHighlight = true
         }
-        .onChange(of: externalSelectedSceneName) { newSceneName in
-            guard let sceneName = newSceneName else { return }
+        .onChange(of: externalSelectedSceneId) { newSceneId in
+            guard let sceneId = newSceneId else { return }
             // Only switch if it's a different scene
-            guard selectedScene?.name != sceneName else { return }
-            // Find the scene by name across all sequences
+            guard selectedScene?.id != sceneId else { return }
+            // Find the scene by ID across all sequences
             for sequence in project.sequences {
-                if let targetScene = sequence.scenes.first(where: { $0.name == sceneName }) {
+                if let targetScene = sequence.scenes.first(where: { $0.id == sceneId }) {
                     selectedScene = targetScene
-                    leftAlignedOverrides.removeAll()
                     rebuildBubbleCache(for: targetScene)
                     return
                 }
             }
         }
+        .onChange(of: externalRefreshTrigger) { _ in
+            // External project data changed (e.g., ScriptView edit) — re-fetch scene and rebuild cache
+            guard let currentId = selectedScene?.id else { return }
+            // Re-read the scene from the project to pick up any external changes
+            for sequence in project.sequences {
+                if let freshScene = sequence.scenes.first(where: { $0.id == currentId }) {
+                    selectedScene = freshScene
+                    rebuildBubbleCache(for: freshScene)
+                    return
+                }
+            }
+            // Scene was deleted externally — clear selection
+            selectedScene = nil
+            cachedChronologicalItems = []
+            cachedConnectedItems = [:]
+        }
         .onChange(of: selectedScene?.id) { _ in
-            leftAlignedOverrides.removeAll()
             if let scene = selectedScene {
                 rebuildBubbleCache(for: scene)
             }
@@ -343,16 +460,386 @@ public struct BubbleView: View {
             .toggleStyle(.button)
             .help("Show location background")
 
-            // Editor panel toggle
-            Toggle(isOn: $showEditorPanel) {
-                Image(systemName: "sidebar.right")
+            Divider()
+                .frame(height: 20)
+
+            // Shortcuts help
+            Button {
+                showShortcutsPopover.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 11))
+                    Text("Shortcuts")
+                        .font(.system(size: 11, weight: .medium))
+                }
             }
-            .toggleStyle(.button)
-            .help("Show editor panel")
+            .buttonStyle(.borderless)
+            .help("View all keyboard shortcuts")
+            .popover(isPresented: $showShortcutsPopover, arrowEdge: .bottom) {
+                BubbleShortcutsPopoverView()
+            }
+
+            Divider()
+                .frame(height: 20)
+
+            // Add dialogue button with character picker popover
+            Button(action: { selectedCharacterIndex = 0; showCharacterPicker = true }) {
+                Image(systemName: "plus.bubble")
+            }
+            .help("Add Dialogue")
+            .popover(isPresented: $showCharacterPicker, arrowEdge: .bottom) {
+                characterPickerPopover
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    // MARK: - Shared Character Picker Grid
+
+    /// Number badge label for a character at the given index (1-9, 0 for 10th, nil for 11+)
+    private func numberBadgeLabel(for index: Int) -> String? {
+        if index < 9 { return "\(index + 1)" }
+        if index == 9 { return "0" }
+        return nil
+    }
+
+    /// Shared character picker grid with keyboard navigation
+    @ViewBuilder
+    private func characterPickerGrid(useHStack: Bool = false, dismiss: @escaping () -> Void) -> some View {
+        let characters = project.characters
+        let content = Group {
+            if useHStack {
+                HStack(spacing: 12) {
+                    ForEach(Array(characters.enumerated()), id: \.element.id) { index, character in
+                        characterPickerCell(character: character, index: index, dismiss: dismiss)
+                    }
+                    newCharacterCell(dismiss: dismiss)
+                }
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 60))], spacing: 10) {
+                    ForEach(Array(characters.enumerated()), id: \.element.id) { index, character in
+                        characterPickerCell(character: character, index: index, dismiss: dismiss)
+                    }
+                    newCharacterCell(dismiss: dismiss)
+                }
+            }
+        }
+
+        content
+    }
+
+    @ViewBuilder
+    private func characterPickerCell(character: Character, index: Int, dismiss: @escaping () -> Void) -> some View {
+        let isSelected = index == selectedCharacterIndex
+
+        VStack(spacing: 4) {
+            CharacterAvatarView(
+                character: character,
+                characterName: character.name,
+                size: 40,
+                projectBasePath: projectBasePath
+            )
+            .overlay(alignment: .topLeading) {
+                if let badge = numberBadgeLabel(for: index) {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(width: 16, height: 16)
+                        .background(Circle().fill(Color.accentColor.opacity(0.85)))
+                        .offset(x: -4, y: -4)
+                }
+            }
+
+            Text(character.name)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+        }
+        .frame(width: 60)
+        .padding(6)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.accentColor, lineWidth: isSelected ? 2 : 0)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            dismiss()
+            addDialogue(for: character.name)
+        }
+    }
+
+    @FocusState private var newCharacterFieldFocused: Bool
+    @State private var isCommittingNewCharacter = false
+
+    @ViewBuilder
+    private func newCharacterCell(dismiss: @escaping () -> Void) -> some View {
+        if showNewCharacterInput {
+            VStack(spacing: 4) {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.3))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color.accentColor)
+                }
+
+                TextField("Name", text: $newCharacterName)
+                    .font(.system(size: 9, weight: .medium))
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 60)
+                    .focused($newCharacterFieldFocused)
+                    .onSubmit {
+                        isCommittingNewCharacter = true
+                        commitNewCharacter(dismiss: dismiss)
+                    }
+                    .onChange(of: newCharacterFieldFocused) { _, focused in
+                        if !focused && !isCommittingNewCharacter {
+                            // Cancelled — just hide the input
+                            showNewCharacterInput = false
+                            newCharacterName = ""
+                        }
+                    }
+                    .onAppear {
+                        isCommittingNewCharacter = false
+                        newCharacterFieldFocused = true
+                    }
+            }
+            .frame(width: 60)
+            .padding(6)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor, lineWidth: 2)
+            )
+        } else {
+            VStack(spacing: 4) {
+                ZStack {
+                    Circle()
+                        .fill(Color(NSColor.quaternarySystemFill))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                }
+
+                Text("New")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: 60)
+            .padding(6)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(8)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                newCharacterName = ""
+                showNewCharacterInput = true
+            }
+        }
+    }
+
+    private static let characterColors = [
+        "#3498db", "#e74c3c", "#2ecc71", "#9b59b6", "#f39c12",
+        "#1abc9c", "#e67e22", "#2980b9", "#c0392b", "#27ae60",
+        "#8e44ad", "#d35400", "#16a085", "#f1c40f", "#7f8c8d"
+    ]
+
+    private func commitNewCharacter(dismiss: @escaping () -> Void) {
+        let name = newCharacterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            showNewCharacterInput = false
+            newCharacterName = ""
+            isCommittingNewCharacter = false
+            return
+        }
+        // Check if character already exists
+        let alreadyExists = project.characters.contains { $0.name.lowercased() == name.lowercased() }
+        if !alreadyExists {
+            let colorIndex = project.characters.count % Self.characterColors.count
+            let newCharacter = Character(
+                name: name,
+                color: Self.characterColors[colorIndex]
+            )
+            project.characters.append(newCharacter)
+        }
+        showNewCharacterInput = false
+        newCharacterName = ""
+        // Dismiss picker first, then add dialogue after a brief delay so view settles
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            self.addDialogue(for: name)
+            self.isCommittingNewCharacter = false
+        }
+    }
+
+    /// Popover wrapper using the shared grid
+    private var characterPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Choose Character")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .tracking(1)
+                .padding(.horizontal, 4)
+
+            characterPickerGrid {
+                showCharacterPicker = false
+                showFloatingCharacterPicker = false
+            }
+        }
+        .padding(12)
+        .frame(minWidth: 160)
+    }
+
+    // MARK: - Inline Character Picker (Cmd+D)
+
+    private var inlineCharacterPicker: some View {
+        HStack {
+            Spacer()
+
+            VStack(spacing: 8) {
+                HStack {
+                    Text("Choose Character")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(1)
+
+                    Spacer()
+
+                    Button(action: {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            showInlineCharacterPicker = false
+                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                characterPickerGrid(useHStack: true) {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        showInlineCharacterPicker = false
+                    }
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.windowBackgroundColor))
+                    .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color(NSColor.separatorColor).opacity(0.3), lineWidth: 1)
+            )
+            .frame(maxWidth: 500)
+
+            Spacer()
+        }
+    }
+
+    /// Convert stored right-click screen position to scroll area local coords and show the floating picker
+    private func showFloatingPickerAtRightClick() {
+        guard let window = NSApp.keyWindow, let contentView = window.contentView else { return }
+        // Convert screen coords (bottom-left origin) to window coords
+        var windowPos = window.convertPoint(fromScreen: lastRightClickScreenPos)
+        // Flip Y to match SwiftUI's top-left origin (same as GeometryReader .global)
+        windowPos.y = contentView.frame.height - windowPos.y
+        // Convert to scroll area local coordinates
+        floatingPickerPosition = CGPoint(
+            x: windowPos.x - scrollAreaFrame.minX,
+            y: windowPos.y - scrollAreaFrame.minY
+        )
+        selectedCharacterIndex = 0
+        showFloatingCharacterPicker = true
+    }
+
+    // MARK: - Picker Key Monitor
+
+    private func dismissAllPickers() {
+        showCharacterPicker = false
+        showFloatingCharacterPicker = false
+        withAnimation(.easeOut(duration: 0.15)) {
+            showInlineCharacterPicker = false
+        }
+    }
+
+    /// Whether any character picker is currently open
+    private var isAnyPickerOpen: Bool {
+        showCharacterPicker || showInlineCharacterPicker || showFloatingCharacterPicker
+    }
+
+    private func selectCurrentCharacter() {
+        let characters = project.characters
+        guard selectedCharacterIndex < characters.count else { return }
+        let name = characters[selectedCharacterIndex].name
+        dismissAllPickers()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            addDialogue(for: name)
+        }
+    }
+
+    private func installPickerKeyMonitor() {
+        guard pickerKeyMonitor == nil else { return }
+        pickerKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard self.isAnyPickerOpen else { return event }
+            let characters = self.project.characters
+            guard !characters.isEmpty else { return event }
+
+            switch Int(event.keyCode) {
+            case 123: // Left arrow
+                self.selectedCharacterIndex = max(0, self.selectedCharacterIndex - 1)
+                return nil
+            case 124: // Right arrow
+                self.selectedCharacterIndex = min(characters.count - 1, self.selectedCharacterIndex + 1)
+                return nil
+            case 125: // Down arrow
+                self.selectedCharacterIndex = min(characters.count - 1, self.selectedCharacterIndex + 1)
+                return nil
+            case 126: // Up arrow
+                self.selectedCharacterIndex = max(0, self.selectedCharacterIndex - 1)
+                return nil
+            case 36, 76: // Return / numpad Enter
+                self.selectCurrentCharacter()
+                return nil
+            case 53: // Escape
+                self.dismissAllPickers()
+                return nil
+            default:
+                if let chars = event.characters, chars.count == 1,
+                   let digit = Int(chars), (0...9).contains(digit) {
+                    let mappedIndex = digit == 0 ? 9 : digit - 1
+                    if mappedIndex < characters.count {
+                        let name = characters[mappedIndex].name
+                        self.dismissAllPickers()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            self.addDialogue(for: name)
+                        }
+                        return nil
+                    }
+                }
+                return event
+            }
+        }
+    }
+
+    private func removePickerKeyMonitor() {
+        if let monitor = pickerKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            pickerKeyMonitor = nil
+        }
     }
 
     // MARK: - Filter Buttons
@@ -408,6 +895,18 @@ public struct BubbleView: View {
                                 itemView(for: item, in: scene)
                                     .id(item.id)  // ID for ScrollViewReader
                             }
+
+                            // Inline character picker (Cmd+D)
+                            if showInlineCharacterPicker {
+                                inlineCharacterPicker
+                                    .id("inlineCharacterPicker")
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+
+                            // Bottom breathing room so last items aren't flush with edge
+                            Spacer()
+                                .frame(height: 80)
+                                .id("bottomSpacer")
                         }
                         .id(sortRefreshTrigger) // Force re-render when chronology changes
                         .padding()
@@ -427,6 +926,34 @@ public struct BubbleView: View {
                 }
                 .contextMenu {
                     addItemsContextMenu
+                }
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { scrollAreaFrame = geo.frame(in: .global) }
+                            .onChange(of: geo.frame(in: .global)) { newFrame in
+                                scrollAreaFrame = newFrame
+                            }
+                    }
+                )
+                .overlay {
+                    if showFloatingCharacterPicker {
+                        ZStack {
+                            // Dismiss background
+                            Color.black.opacity(0.001)
+                                .onTapGesture { showFloatingCharacterPicker = false }
+
+                            characterPickerPopover
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color(NSColor.windowBackgroundColor))
+                                        .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .fixedSize()
+                                .position(floatingPickerPosition)
+                        }
+                    }
                 }
             } else {
                 ContentUnavailableView(
@@ -455,7 +982,7 @@ public struct BubbleView: View {
     @ViewBuilder
     private var addItemsContextMenu: some View {
         Button("Add Dialogue") {
-            addDialogue()
+            showFloatingPickerAtRightClick()
         }
         Button("Add Action") {
             addAction()
@@ -559,6 +1086,7 @@ public struct BubbleView: View {
                     isPrimaryCharacter: isPrimary,
                     startInEditMode: dialogue.id == newlyAddedItemId,
                     projectBasePath: projectBasePath,
+                    globalIndex: cachedGlobalIndices[dialogue.id],
                     onTap: { selectedDialogue = dialogue },
                     onDoubleTap: { editingDialogue = dialogue },
                     onEdit: { editingDialogue = dialogue },
@@ -581,16 +1109,17 @@ public struct BubbleView: View {
                     onEditModeStarted: { newlyAddedItemId = nil },
                     alignmentLabel: isPrimary ? "Move \(dialogue.character) to Right" : "Move \(dialogue.character) to Left",
                     onToggleAlignment: {
-                        if leftAlignedOverrides.contains(dialogue.character) {
-                            leftAlignedOverrides.remove(dialogue.character)
-                        } else {
-                            leftAlignedOverrides.insert(dialogue.character)
-                        }
+                        toggleAlignmentOverride(for: dialogue.character)
                     },
                     onAddConnectedAction: { addConnectedAction(to: dialogue) },
                     onAddConnectedNarration: { addConnectedNarration(to: dialogue) },
                     onAddConnectedNote: { addConnectedNote(to: dialogue) },
-                    onAddConnectedSoundNote: { addConnectedSoundNote(to: dialogue) }
+                    onAddConnectedSoundNote: { addConnectedSoundNote(to: dialogue) },
+                    onNavigateToCharacter: {
+                        if let char = character {
+                            onNavigateToCharacter?(char)
+                        }
+                    }
                 )
                 .modifier(HighlightModifier(isHighlighted: isHighlighted))
                 .overlay(
@@ -676,6 +1205,7 @@ public struct BubbleView: View {
                 isSelected: false,
                 startInEditMode: false,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[action.id],
                 onTap: { },
                 onEdit: { editAction(action) },
                 onDelete: { deleteAction(action) },
@@ -703,6 +1233,7 @@ public struct BubbleView: View {
                 isSelected: false,
                 startInEditMode: false,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[narration.id],
                 onTap: { },
                 onEdit: { editNarration(narration) },
                 onDelete: { deleteNarration(narration) },
@@ -731,6 +1262,7 @@ public struct BubbleView: View {
                 startInEditMode: false,
                 projectBasePath: projectBasePath,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[note.id],
                 onTap: { },
                 onEdit: { editNote(note) },
                 onDelete: { deleteNote(note) },
@@ -762,6 +1294,7 @@ public struct BubbleView: View {
                 isSelected: false,
                 startInEditMode: false,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[soundNote.id],
                 onTap: { },
                 onEdit: { editSoundNote(soundNote) },
                 onPlay: { playSoundNote(soundNote) },
@@ -799,6 +1332,7 @@ public struct BubbleView: View {
                 isSelected: false,
                 startInEditMode: action.id == newlyAddedItemId,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[action.id],
                 onTap: { },
                 onEdit: { editAction(action) },
                 onDelete: { deleteAction(action) },
@@ -826,6 +1360,7 @@ public struct BubbleView: View {
                 isSelected: false,
                 startInEditMode: narration.id == newlyAddedItemId,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[narration.id],
                 onTap: { },
                 onEdit: { editNarration(narration) },
                 onDelete: { deleteNarration(narration) },
@@ -854,6 +1389,7 @@ public struct BubbleView: View {
                 startInEditMode: note.id == newlyAddedItemId,
                 projectBasePath: projectBasePath,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[note.id],
                 onTap: { },
                 onEdit: { editNote(note) },
                 onDelete: { deleteNote(note) },
@@ -885,6 +1421,7 @@ public struct BubbleView: View {
                 isSelected: false,
                 startInEditMode: soundNote.id == newlyAddedItemId,
                 characters: project.characters,
+                globalIndex: cachedGlobalIndices[soundNote.id],
                 onTap: { },
                 onEdit: { editSoundNote(soundNote) },
                 onPlay: { playSoundNote(soundNote) },
@@ -1025,6 +1562,7 @@ public struct BubbleView: View {
 
         // Update selected scene reference
         selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+        rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
         sortRefreshTrigger = UUID()
 
         // Notify that items were reordered (to sync timeline)
@@ -1118,6 +1656,40 @@ public struct BubbleView: View {
     // MARK: - Cache Rebuild
 
     /// Rebuilds all cached lookup data for the given scene in a single pass
+    /// Maximum chronologyNumber across ALL scenes in the project
+    private func globalMaxChronology() -> Int {
+        var maxVal = 0
+        for seq in project.sequences {
+            for scene in seq.scenes {
+                maxVal = max(maxVal,
+                    scene.dialogues.map(\.chronologyNumber).max() ?? 0,
+                    scene.actions.map(\.chronologyNumber).max() ?? 0,
+                    scene.narrations.map(\.chronologyNumber).max() ?? 0,
+                    scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
+                    scene.soundNotes.map(\.chronologyNumber).max() ?? 0
+                )
+            }
+        }
+        return maxVal
+    }
+
+    /// Count of top-level bubble items in all scenes before the given scene
+    private func globalIndexOffset(for sceneId: String) -> Int {
+        var count = 0
+        for seq in project.sequences {
+            for scene in seq.scenes {
+                if scene.id == sceneId { return count }
+                // Count top-level items only (parentDialogueId == nil for non-dialogue types)
+                count += scene.dialogues.count
+                count += scene.actions.filter { $0.parentDialogueId == nil }.count
+                count += scene.narrations.filter { $0.parentDialogueId == nil }.count
+                count += scene.sceneNotes.filter { $0.parentDialogueId == nil }.count
+                count += scene.soundNotes.filter { $0.parentDialogueId == nil }.count
+            }
+        }
+        return count
+    }
+
     private func rebuildBubbleCache(for scene: DCScene) {
         // 1. Build chronological items (same logic as getAllItemsChronologically)
         var items: [BubbleItem] = []
@@ -1138,6 +1710,14 @@ public struct BubbleView: View {
         }
         items.sort { $0.chronologyNumber < $1.chronologyNumber }
         cachedChronologicalItems = items
+
+        // 1b. Build global index cache
+        let offset = globalIndexOffset(for: scene.id)
+        var indices: [String: Int] = [:]
+        for (i, item) in items.enumerated() {
+            indices[item.id] = offset + i + 1
+        }
+        cachedGlobalIndices = indices
 
         // 2. Build connected items index (parentDialogueId → [BubbleItem])
         var connected: [String: [BubbleItem]] = [:]
@@ -1186,17 +1766,26 @@ public struct BubbleView: View {
 
         // Update selected scene reference
         selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-
-        // TODO: Trigger save via EventBus
+        rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+        onContentChanged?()
     }
 
-    private func addDialogue() {
-        guard var scene = selectedScene else { return }
+    /// Scroll to a newly added item after a brief delay for the view to settle
+    private func scrollToNewItem(_ itemId: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            scrollToItemId = itemId
+        }
+    }
+
+    private func addDialogue(for characterName: String) {
+        guard let scene = selectedScene else { return }
+
+        let maxChronology = globalMaxChronology()
 
         let newDialogue = Dialogue(
-            character: project.characters.first?.name ?? "Unknown",
+            character: characterName,
             text: "",
-            chronologyNumber: (scene.dialogues.map(\.chronologyNumber).max() ?? 0) + 1
+            chronologyNumber: maxChronology + 1
         )
 
         // Find and update scene in project
@@ -1208,7 +1797,9 @@ public struct BubbleView: View {
             project.sequences[seqIndex].scenes[sceneIndex].dialogues.append(newDialogue)
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
             newlyAddedItemId = newDialogue.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(newDialogue.id)
             onContentChanged?()
         }
     }
@@ -1229,6 +1820,7 @@ public struct BubbleView: View {
                 selectedDialogue = nil
             }
 
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             onContentChanged?()
         }
     }
@@ -1236,13 +1828,7 @@ public struct BubbleView: View {
     private func addAction() {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newAction = Action(
             uuid: UUID().uuidString,
@@ -1265,7 +1851,9 @@ public struct BubbleView: View {
             project.sequences[seqIndex].scenes[sceneIndex].actions.append(newAction)
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
             newlyAddedItemId = newAction.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(newAction.id)
             onContentChanged?()
         }
     }
@@ -1273,13 +1861,7 @@ public struct BubbleView: View {
     private func addNarration() {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newNarration = Narration(
             uuid: UUID().uuidString,
@@ -1302,7 +1884,9 @@ public struct BubbleView: View {
             project.sequences[seqIndex].scenes[sceneIndex].narrations.append(newNarration)
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
             newlyAddedItemId = newNarration.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(newNarration.id)
             onContentChanged?()
         }
     }
@@ -1310,13 +1894,7 @@ public struct BubbleView: View {
     private func addNote() {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newNote = Note(
             uuid: UUID().uuidString,
@@ -1333,7 +1911,9 @@ public struct BubbleView: View {
             project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.append(newNote)
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
             newlyAddedItemId = newNote.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(newNote.id)
             onContentChanged?()
         }
     }
@@ -1341,13 +1921,7 @@ public struct BubbleView: View {
     private func addSoundNote() {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newSoundNote = SoundNote(
             uuid: UUID().uuidString,
@@ -1364,7 +1938,9 @@ public struct BubbleView: View {
             project.sequences[seqIndex].scenes[sceneIndex].soundNotes.append(newSoundNote)
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
             newlyAddedItemId = newSoundNote.id
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(newSoundNote.id)
             onContentChanged?()
         }
     }
@@ -1374,13 +1950,7 @@ public struct BubbleView: View {
     private func addConnectedAction(to dialogue: Dialogue) {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newAction = Action(
             uuid: UUID().uuidString,
@@ -1406,6 +1976,7 @@ public struct BubbleView: View {
             newlyAddedItemId = newAction.id
             rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(dialogue.id)
             onContentChanged?()
         }
     }
@@ -1413,13 +1984,7 @@ public struct BubbleView: View {
     private func addConnectedNarration(to dialogue: Dialogue) {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newNarration = Narration(
             uuid: UUID().uuidString,
@@ -1445,6 +2010,7 @@ public struct BubbleView: View {
             newlyAddedItemId = newNarration.id
             rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(dialogue.id)
             onContentChanged?()
         }
     }
@@ -1452,13 +2018,7 @@ public struct BubbleView: View {
     private func addConnectedNote(to dialogue: Dialogue) {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newNote = Note(
             uuid: UUID().uuidString,
@@ -1478,6 +2038,7 @@ public struct BubbleView: View {
             newlyAddedItemId = newNote.id
             rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(dialogue.id)
             onContentChanged?()
         }
     }
@@ -1485,13 +2046,7 @@ public struct BubbleView: View {
     private func addConnectedSoundNote(to dialogue: Dialogue) {
         guard let scene = selectedScene else { return }
 
-        let maxChronology = max(
-            scene.dialogues.map(\.chronologyNumber).max() ?? 0,
-            scene.actions.map(\.chronologyNumber).max() ?? 0,
-            scene.narrations.map(\.chronologyNumber).max() ?? 0,
-            scene.sceneNotes.map(\.chronologyNumber).max() ?? 0,
-            scene.soundNotes.map(\.chronologyNumber).max() ?? 0
-        )
+        let maxChronology = globalMaxChronology()
 
         let newSoundNote = SoundNote(
             uuid: UUID().uuidString,
@@ -1511,6 +2066,7 @@ public struct BubbleView: View {
             newlyAddedItemId = newSoundNote.id
             rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
             sortRefreshTrigger = UUID()
+            scrollToNewItem(dialogue.id)
             onContentChanged?()
         }
     }
@@ -1529,6 +2085,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].actions.removeAll { $0.uuid == action.uuid }
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1546,6 +2104,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].narrations.removeAll { $0.uuid == narration.uuid }
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1563,6 +2123,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.removeAll { $0.uuid == note.uuid }
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1580,6 +2142,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].soundNotes.removeAll { $0.uuid == soundNote.uuid }
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1594,6 +2158,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].actions[actionIndex] = updated
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1608,6 +2174,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].narrations[narrationIndex] = updated
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1622,6 +2190,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].sceneNotes[noteIndex] = updated
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1636,6 +2206,8 @@ public struct BubbleView: View {
 
             project.sequences[seqIndex].scenes[sceneIndex].soundNotes[soundNoteIndex] = updated
             selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+            onContentChanged?()
         }
     }
 
@@ -1892,7 +2464,9 @@ public struct BubbleView: View {
         }
 
         selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+        rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
         sortRefreshTrigger = UUID()
+        onContentChanged?()
     }
 
     /// Disconnects an item from its parent dialogue
@@ -1926,7 +2500,9 @@ public struct BubbleView: View {
         }
 
         selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+        rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
         sortRefreshTrigger = UUID()
+        onContentChanged?()
     }
 }
 
@@ -2050,78 +2626,451 @@ private struct EditDialogueSheet: View {
     let projectBasePath: URL?
     let onSave: (Dialogue) -> Void
     let onCancel: () -> Void
+    var onCharacterColorChanged: ((String, String) -> Void)?
 
     @State private var editedDialogue: Dialogue
+    @State private var tagInput: String = ""
+    @State private var bubbleColor: Color
+    @FocusState private var textFocused: Bool
+
+    private var selectedCharacter: Character? {
+        characters.first(where: { $0.name == editedDialogue.character })
+    }
+
+    private var hasChanges: Bool {
+        editedDialogue.character != dialogue.character ||
+        editedDialogue.text != dialogue.text ||
+        editedDialogue.tags != dialogue.tags ||
+        editedDialogue.chronologyNumber != dialogue.chronologyNumber
+    }
 
     init(
         dialogue: Dialogue,
         characters: [Character],
         projectBasePath: URL?,
         onSave: @escaping (Dialogue) -> Void,
-        onCancel: @escaping () -> Void
+        onCancel: @escaping () -> Void,
+        onCharacterColorChanged: ((String, String) -> Void)? = nil
     ) {
         self.dialogue = dialogue
         self.characters = characters
         self.projectBasePath = projectBasePath
         self.onSave = onSave
         self.onCancel = onCancel
+        self.onCharacterColorChanged = onCharacterColorChanged
         self._editedDialogue = State(initialValue: dialogue)
+        self._tagInput = State(initialValue: dialogue.tags.joined(separator: ", "))
+        let charColor = characters.first(where: { $0.name == dialogue.character })?.color ?? "#5d5d5d"
+        self._bubbleColor = State(initialValue: Color(hex: charColor))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Edit Dialogue")
-                    .font(.headline)
-                Spacer()
-                Button("Cancel") { onCancel() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") { onSave(editedDialogue) }
-                    .keyboardShortcut(.defaultAction)
+            // Header bar
+            header
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Character + Order row
+                    HStack(spacing: 16) {
+                        characterCard
+                        orderCard
+                    }
+
+                    // Bubble color
+                    bubbleColorCard
+
+                    // Dialogue text
+                    dialogueCard
+
+                    // Tags
+                    tagsCard
+
+                    // Audio info (read-only, only if present)
+                    if editedDialogue.audioFilePath != nil || editedDialogue.manualDuration != nil {
+                        audioCard
+                    }
+                }
+                .padding(20)
             }
-            .padding()
-
-            Divider()
-
-            // Editor content
-            Form {
-                // Character picker
-                Picker("Character", selection: $editedDialogue.character) {
-                    ForEach(characters) { character in
-                        Text(character.name).tag(character.name)
-                    }
-                }
-
-                // Dialogue text
-                Section("Dialogue") {
-                    TextEditor(text: $editedDialogue.text)
-                        .frame(minHeight: 100)
-                }
-
-                // Tags
-                Section("Tags") {
-                    TextField("Tags (comma separated)", text: Binding(
-                        get: { editedDialogue.tags.joined(separator: ", ") },
-                        set: { editedDialogue.tags = $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } }
-                    ))
-                }
-
-                // Audio settings
-                Section("Audio") {
-                    if let duration = editedDialogue.manualDuration {
-                        LabeledContent("Duration", value: "\(String(format: "%.2f", duration))s")
-                    }
-                    if let audioPath = editedDialogue.audioFilePath {
-                        LabeledContent("Audio File", value: audioPath)
-                    }
-                }
-            }
-            .padding()
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 520, height: 480)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            // Character avatar preview
+            CharacterAvatarView(
+                character: selectedCharacter,
+                characterName: editedDialogue.character,
+                size: 28,
+                projectBasePath: projectBasePath
+            )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Edit Dialogue")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("#\(editedDialogue.chronologyNumber) \u{2022} \(editedDialogue.character)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button("Cancel") { onCancel() }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .font(.system(size: 12, weight: .medium))
+                .keyboardShortcut(.cancelAction)
+
+            Button(action: { onSave(editedDialogue) }) {
+                Text("Save")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(hasChanges ? Color.accentColor : Color.accentColor.opacity(0.5))
+                    .foregroundColor(.white)
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+    }
+
+    // MARK: - Character Card
+
+    private var characterCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text("CHARACTER")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+            } icon: {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accentColor)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 52))], spacing: 8) {
+                ForEach(characters) { character in
+                    let isSelected = editedDialogue.character == character.name
+                    Button(action: {
+                        editedDialogue.character = character.name
+                        bubbleColor = Color(hex: character.color)
+                    }) {
+                        VStack(spacing: 3) {
+                            CharacterAvatarView(
+                                character: character,
+                                characterName: character.name,
+                                size: 32,
+                                projectBasePath: projectBasePath
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                    .frame(width: 36, height: 36)
+                            )
+
+                            Text(character.name)
+                                .font(.system(size: 8, weight: isSelected ? .bold : .medium))
+                                .foregroundColor(isSelected ? .accentColor : .secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 52)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(NSColor.separatorColor).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Bubble Color Card
+
+    private var bubbleColorCard: some View {
+        HStack(spacing: 12) {
+            Label {
+                Text("BUBBLE COLOR")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+            } icon: {
+                Image(systemName: "paintpalette.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accentColor)
+            }
+
+            Spacer()
+
+            // Color preview circle
+            Circle()
+                .fill(bubbleColor)
+                .frame(width: 22, height: 22)
+                .overlay(Circle().stroke(Color(NSColor.separatorColor).opacity(0.4), lineWidth: 1))
+
+            ColorPicker("", selection: $bubbleColor, supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 28, height: 28)
+                .onChange(of: bubbleColor) { _, newColor in
+                    let hex = newColor.hexString
+                    onCharacterColorChanged?(editedDialogue.character, hex)
+                }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(NSColor.separatorColor).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Order Card
+
+    private var orderCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text("ORDER")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+            } icon: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accentColor)
+            }
+
+            VStack(spacing: 8) {
+                // Large number display
+                Text("\(editedDialogue.chronologyNumber)")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                // Stepper controls
+                HStack(spacing: 12) {
+                    Button(action: {
+                        if editedDialogue.chronologyNumber > 1 {
+                            editedDialogue.chronologyNumber -= 1
+                        }
+                    }) {
+                        Image(systemName: "minus")
+                            .font(.system(size: 11, weight: .bold))
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(Color(NSColor.controlBackgroundColor)))
+                            .foregroundColor(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(editedDialogue.chronologyNumber <= 1)
+
+                    Button(action: {
+                        editedDialogue.chronologyNumber += 1
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(Color(NSColor.controlBackgroundColor)))
+                            .foregroundColor(.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(14)
+        .frame(width: 120)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(NSColor.separatorColor).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Dialogue Card
+
+    private var dialogueCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text("DIALOGUE")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+            } icon: {
+                Image(systemName: "text.bubble.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accentColor)
+            }
+
+            TextEditor(text: $editedDialogue.text)
+                .font(.system(size: 13))
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .frame(minHeight: 100, maxHeight: 160)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(NSColor.textBackgroundColor).opacity(0.5))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(NSColor.separatorColor).opacity(0.2), lineWidth: 1)
+                )
+                .focused($textFocused)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(NSColor.separatorColor).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Tags Card
+
+    private var tagsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text("TAGS")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+            } icon: {
+                Image(systemName: "tag.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accentColor)
+            }
+
+            // Existing tags as removable chips
+            if !editedDialogue.tags.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(editedDialogue.tags, id: \.self) { tag in
+                        HStack(spacing: 4) {
+                            Text(tag)
+                                .font(.system(size: 11, weight: .medium))
+
+                            Button(action: {
+                                editedDialogue.tags.removeAll { $0 == tag }
+                                tagInput = editedDialogue.tags.joined(separator: ", ")
+                            }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 7, weight: .bold))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.accentColor.opacity(0.15))
+                        )
+                    }
+                }
+            }
+
+            // Tag input field
+            TextField("Add tags (comma separated)...", text: $tagInput)
+                .font(.system(size: 12))
+                .textFieldStyle(.plain)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(NSColor.quaternarySystemFill))
+                )
+                .onChange(of: tagInput) { _, newValue in
+                    editedDialogue.tags = newValue
+                        .split(separator: ",")
+                        .map { String($0).trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(NSColor.separatorColor).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Audio Card
+
+    private var audioCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text("AUDIO")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+            } icon: {
+                Image(systemName: "waveform")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accentColor)
+            }
+
+            HStack(spacing: 16) {
+                if let duration = editedDialogue.manualDuration {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text("\(String(format: "%.2f", duration))s")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(.primary)
+                    }
+                }
+
+                if let audioPath = editedDialogue.audioFilePath {
+                    HStack(spacing: 4) {
+                        Image(systemName: "speaker.wave.2")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text(URL(fileURLWithPath: audioPath).lastPathComponent)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(NSColor.separatorColor).opacity(0.3), lineWidth: 1)
+        )
     }
 }
+
 
 // MARK: - Edit Action Sheet
 
@@ -2406,6 +3355,61 @@ private struct EditSoundNoteSheet: View {
             .padding()
         }
         .frame(width: 500, height: 500)
+    }
+}
+
+// MARK: - Bubble Shortcuts Popover
+
+struct BubbleShortcutsPopoverView: View {
+    private let shortcuts: [(key: String, description: String)] = [
+        ("Cmd + D", "Add Dialogue"),
+        ("Cmd + Shift + A", "Add Action"),
+        ("Cmd + Shift + N", "Add Narration"),
+        ("Cmd + Shift + O", "Add Note"),
+        ("Cmd + Shift + S", "Add Sound Note"),
+        ("1 – 9, 0", "Select character (in picker)"),
+        ("\u{2190} \u{2192} arrows", "Navigate characters (in picker)"),
+        ("Return", "Confirm selection (in picker)"),
+        ("Esc", "Dismiss picker"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Bubble View Shortcuts")
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(shortcuts.enumerated()), id: \.offset) { _, shortcut in
+                    HStack {
+                        Text(shortcut.key)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .frame(width: 150, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.3))
+                            )
+
+                        Text(shortcut.description)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .frame(width: 360)
     }
 }
 

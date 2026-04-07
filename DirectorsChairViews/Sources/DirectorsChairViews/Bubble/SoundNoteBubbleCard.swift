@@ -10,6 +10,7 @@ public struct SoundNoteBubbleCard: View {
     let soundNote: SoundNote
     let isSelected: Bool
     let characters: [Character]
+    let globalIndex: Int?
 
     var onTap: (() -> Void)?
     var onEdit: (() -> Void)?
@@ -36,6 +37,7 @@ public struct SoundNoteBubbleCard: View {
         isSelected: Bool = false,
         startInEditMode: Bool = false,
         characters: [Character] = [],
+        globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
         onPlay: (() -> Void)? = nil,
@@ -48,6 +50,7 @@ public struct SoundNoteBubbleCard: View {
         self.isSelected = isSelected
         self.startInEditMode = startInEditMode
         self.characters = characters
+        self.globalIndex = globalIndex
         self.onTap = onTap
         self.onEdit = onEdit
         self.onPlay = onPlay
@@ -81,7 +84,7 @@ public struct SoundNoteBubbleCard: View {
                         }
                     }
             } else {
-                Text("#\(soundNote.chronologyNumber)")
+                Text("#\(globalIndex ?? soundNote.chronologyNumber)")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
                     .padding(.horizontal, 4)
@@ -159,8 +162,10 @@ public struct SoundNoteBubbleCard: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .background(accentColor.opacity(0.12))
-        .cornerRadius(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(accentColor.opacity(0.12))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
@@ -227,7 +232,7 @@ public struct SoundNoteBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(soundNote.chronologyNumber)"
+        editedIndex = "\(globalIndex ?? soundNote.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

@@ -33,6 +33,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>DirectorsChair uses speech recognition to detect "Action" and "Cut" cues in recorded takes.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>DirectorsChair needs camera access to capture video from your HDMI capture card for recording takes during production.</string>
 	<key>NSMicrophoneUsageDescription</key>

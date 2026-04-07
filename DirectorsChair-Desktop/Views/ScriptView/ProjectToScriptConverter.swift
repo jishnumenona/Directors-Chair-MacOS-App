@@ -315,6 +315,89 @@ struct ProjectToScriptConverter {
 
         project.sequences[seqIdx].scenes.insert(newScene, at: sceneInsertIdx)
 
+        // Split scene content: move items that come AFTER the cursor from the old
+        // scene into the newly created scene.  This lets users insert a scene break
+        // in the middle of existing content instead of always appending at the end.
+        if let oldSceneIdx = insertAfterSceneIdx,
+           afterElementIndex < elements.count,
+           elements[afterElementIndex].type != .sceneHeading {
+
+            // Collect sourceItemIds of elements AFTER the cursor that still belong
+            // to the old scene.  Skip blank lines / unsaved elements (nil indices)
+            // but stop when we reach a different scene.
+            var itemIdsToMove: Set<String> = []
+            for i in (afterElementIndex + 1)..<elements.count {
+                let el = elements[i]
+                // Skip elements with nil source indices (blank lines, unsaved)
+                if el.sourceSequenceIndex == nil || el.sourceSceneIndex == nil {
+                    continue
+                }
+                // Stop when we reach a different scene
+                guard el.sourceSequenceIndex == seqIdx,
+                      el.sourceSceneIndex == oldSceneIdx else {
+                    break
+                }
+                if let itemId = el.sourceItemId {
+                    itemIdsToMove.insert(itemId)
+                }
+            }
+
+            if !itemIdsToMove.isEmpty {
+                // Identify moved dialogue UUIDs so we also move their child sub-bubbles
+                // (actions/narrations/notes/soundNotes with parentDialogueId)
+                let movedDialogueIds = Set(
+                    project.sequences[seqIdx].scenes[oldSceneIdx].dialogues
+                        .filter { itemIdsToMove.contains($0.uuid) }
+                        .map { $0.uuid }
+                )
+
+                let shouldMove: (String?, String) -> Bool = { parentId, uuid in
+                    itemIdsToMove.contains(uuid) ||
+                    (parentId != nil && movedDialogueIds.contains(parentId!))
+                }
+
+                // Move dialogues
+                let dlgToMove = project.sequences[seqIdx].scenes[oldSceneIdx].dialogues
+                    .filter { itemIdsToMove.contains($0.uuid) }
+                project.sequences[seqIdx].scenes[sceneInsertIdx].dialogues.append(contentsOf: dlgToMove)
+                project.sequences[seqIdx].scenes[oldSceneIdx].dialogues.removeAll {
+                    itemIdsToMove.contains($0.uuid)
+                }
+
+                // Move actions (top-level + children of moved dialogues)
+                let actToMove = project.sequences[seqIdx].scenes[oldSceneIdx].actions
+                    .filter { shouldMove($0.parentDialogueId, $0.uuid) }
+                project.sequences[seqIdx].scenes[sceneInsertIdx].actions.append(contentsOf: actToMove)
+                project.sequences[seqIdx].scenes[oldSceneIdx].actions.removeAll {
+                    shouldMove($0.parentDialogueId, $0.uuid)
+                }
+
+                // Move narrations
+                let narToMove = project.sequences[seqIdx].scenes[oldSceneIdx].narrations
+                    .filter { shouldMove($0.parentDialogueId, $0.uuid) }
+                project.sequences[seqIdx].scenes[sceneInsertIdx].narrations.append(contentsOf: narToMove)
+                project.sequences[seqIdx].scenes[oldSceneIdx].narrations.removeAll {
+                    shouldMove($0.parentDialogueId, $0.uuid)
+                }
+
+                // Move notes
+                let notToMove = project.sequences[seqIdx].scenes[oldSceneIdx].sceneNotes
+                    .filter { shouldMove($0.parentDialogueId, $0.uuid) }
+                project.sequences[seqIdx].scenes[sceneInsertIdx].sceneNotes.append(contentsOf: notToMove)
+                project.sequences[seqIdx].scenes[oldSceneIdx].sceneNotes.removeAll {
+                    shouldMove($0.parentDialogueId, $0.uuid)
+                }
+
+                // Move sound notes
+                let sndToMove = project.sequences[seqIdx].scenes[oldSceneIdx].soundNotes
+                    .filter { shouldMove($0.parentDialogueId, $0.uuid) }
+                project.sequences[seqIdx].scenes[sceneInsertIdx].soundNotes.append(contentsOf: sndToMove)
+                project.sequences[seqIdx].scenes[oldSceneIdx].soundNotes.removeAll {
+                    shouldMove($0.parentDialogueId, $0.uuid)
+                }
+            }
+        }
+
         return (sequenceIndex: seqIdx, sceneIndex: sceneInsertIdx)
     }
 

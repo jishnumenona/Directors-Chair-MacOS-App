@@ -199,7 +199,12 @@ class ProjectViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let loadedProject = try await persistence.load(from: path)
+            var loadedProject = try await persistence.load(from: path)
+            // Ensure basePath is set to the project directory (path points to project.json)
+            let projectDir = path.deletingLastPathComponent()
+            if loadedProject.basePath.isEmpty || !FileManager.default.fileExists(atPath: loadedProject.basePath) {
+                loadedProject.basePath = projectDir.path
+            }
             project = loadedProject
             projectPath = path
             isDirty = false
@@ -348,6 +353,16 @@ class ProjectViewModel: ObservableObject {
         guard let seqIndex = project.sequences.firstIndex(where: { $0.id == sequenceId }),
               let scnIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == sceneId }) else { return }
         project.sequences[seqIndex].scenes[scnIndex].shots.removeAll { $0.id == shot.id }
+        isDirty = true
+    }
+
+    /// Rename a scene within a sequence
+    func renameScene(_ sceneId: String, inSequenceId sequenceId: String, newName: String) {
+        guard let seqIndex = project.sequences.firstIndex(where: { $0.id == sequenceId }),
+              let scnIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == sceneId }) else { return }
+        var updated = project
+        updated.sequences[seqIndex].scenes[scnIndex].name = newName
+        project = updated
         isDirty = true
     }
 

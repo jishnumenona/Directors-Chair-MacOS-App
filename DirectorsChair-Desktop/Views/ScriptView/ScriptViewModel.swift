@@ -760,6 +760,18 @@ class ScriptViewModel: ObservableObject {
         guard seqIdx < projectViewModel.project.sequences.count,
               sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count else { return }
 
+        // Move any content that was split into the wizard scene back to the
+        // previous scene so nothing is lost when the user cancels.
+        let prevSceneIdx = sceneIdx - 1
+        if prevSceneIdx >= 0, prevSceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count {
+            let wizardScene = projectViewModel.project.sequences[seqIdx].scenes[sceneIdx]
+            projectViewModel.project.sequences[seqIdx].scenes[prevSceneIdx].dialogues.append(contentsOf: wizardScene.dialogues)
+            projectViewModel.project.sequences[seqIdx].scenes[prevSceneIdx].actions.append(contentsOf: wizardScene.actions)
+            projectViewModel.project.sequences[seqIdx].scenes[prevSceneIdx].narrations.append(contentsOf: wizardScene.narrations)
+            projectViewModel.project.sequences[seqIdx].scenes[prevSceneIdx].sceneNotes.append(contentsOf: wizardScene.sceneNotes)
+            projectViewModel.project.sequences[seqIdx].scenes[prevSceneIdx].soundNotes.append(contentsOf: wizardScene.soundNotes)
+        }
+
         projectViewModel.project.sequences[seqIdx].scenes.remove(at: sceneIdx)
         projectViewModel.isDirty = true
         wizardScenePlacement = nil

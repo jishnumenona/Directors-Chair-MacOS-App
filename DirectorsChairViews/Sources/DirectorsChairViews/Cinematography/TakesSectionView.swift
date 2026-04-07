@@ -5,8 +5,16 @@
 
 import SwiftUI
 import AVFoundation
+import AVKit
 import DirectorsChairCore
 import DirectorsChairServices
+
+// Lightweight decode-only mirror of KeyMapping from the main app target
+private struct RemoteKeyInfo: Codable {
+    let keyCode: UInt16
+    let action: String
+    let keyName: String
+}
 
 // MARK: - Takes Section View
 
@@ -15,12 +23,19 @@ public struct TakesSectionView: View {
     let projectBasePath: URL?
     let onShotUpdated: (Shot) -> Void
     @ObservedObject var captureService: LiveCaptureService
+    var onNavigateToCuration: ((Shot) -> Void)?
 
     @State private var selectedTakeId: String?
     @State private var newTagText: String = ""
     @State private var isExpanded: Bool = true
     @State private var hoveredTakeId: String?
     @State private var isFullScreen: Bool = false
+    @State private var ratingFilter: TakeRating? = nil  // nil = show all
+
+    // Debounced notes editing
+    @State private var editingNotes: String = ""
+    @State private var editingNotesTakeId: String?
+    @State private var notesDebounceTask: Task<Void, Never>?
 
     // Blind timestamp logging (no video source)
     @State private var isTimestampMode: Bool = false   // user chose timestamp approach
@@ -30,20 +45,30 @@ public struct TakesSectionView: View {
     @State private var blindLogTakeId: String?
     @State private var blindLogTimer: Timer?
 
+    // Remote control armed state (drives record button color)
+    @State private var isRemoteArmed: Bool = false
+
     public init(
         shot: Shot,
         projectBasePath: URL?,
         onShotUpdated: @escaping (Shot) -> Void,
-        captureService: LiveCaptureService
+        captureService: LiveCaptureService,
+        onNavigateToCuration: ((Shot) -> Void)? = nil
     ) {
         self.shot = shot
         self.projectBasePath = projectBasePath
         self.onShotUpdated = onShotUpdated
         self.captureService = captureService
+        self.onNavigateToCuration = onNavigateToCuration
     }
 
     private var sortedTakes: [Take] {
         shot.takes.sorted { $0.takeNumber < $1.takeNumber }
+    }
+
+    private var filteredTakes: [Take] {
+        guard let filter = ratingFilter else { return sortedTakes }
+        return sortedTakes.filter { $0.rating == filter }
     }
 
     private var selectedTake: Take? {
@@ -71,14 +96,9 @@ public struct TakesSectionView: View {
                         captureModeChooser
                     }
 
-                    // Filmstrip gallery
-                    if !shot.takes.isEmpty {
-                        takesFilmstrip
-                    }
-
-                    // Selected take detail
-                    if let take = selectedTake {
-                        takeDetailCard(take)
+                    // Review Bay (take strip + player + metadata)
+                    if !shot.takes.isEmpty, let take = selectedTake {
+                        takeReviewBay(take)
                     }
 
                     // Empty state (only when truly empty — no takes, no mode chosen)
@@ -97,6 +117,12 @@ public struct TakesSectionView: View {
             // Just refresh available devices — don't auto-start the session.
             // The default device only pre-populates the picker; user starts preview explicitly.
             captureService.discoverDevices()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("remoteControl.startTakeRecording"))) { _ in
+            handleRemoteStart()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("remoteControl.stopTakeRecording"))) { _ in
+            handleRemoteStop()
         }
         .sheet(isPresented: $isFullScreen) {
             fullScreenMonitor
@@ -165,6 +191,23 @@ public struct TakesSectionView: View {
 
             // Capture device controls
             captureDeviceBar
+
+            // Navigate to Curation
+            if shot.hasTakes, let navigate = onNavigateToCuration {
+                Button { navigate(shot) } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "film.stack")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("Curate")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.2)))
+                    .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            }
 
             // Add take
             Button { addManualTake() } label: {
@@ -739,7 +782,7 @@ public struct TakesSectionView: View {
                                 .frame(width: 16, height: 16)
                         } else {
                             Circle()
-                                .fill(Color.red)
+                                .fill(isRemoteArmed ? Color.yellow : Color.red)
                                 .frame(width: 28, height: 28)
                         }
                     }
@@ -765,6 +808,33 @@ public struct TakesSectionView: View {
 
                 Spacer()
 
+                // Sync tone button
+                Button {
+                    let timestamp = SyncToneGenerator.shared.playTriplet()
+                    // Store sync event on current take via notification
+                    NotificationCenter.default.post(
+                        name: Notification.Name("syncTone.recordEvent"),
+                        object: nil,
+                        userInfo: [
+                            "timestamp": timestamp,
+                            "isRecording": captureService.isRecording,
+                            "recordingDuration": captureService.recordingDuration
+                        ]
+                    )
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "waveform.badge.plus")
+                            .font(.system(size: 10))
+                        Text("Sync")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.purple.opacity(0.7)))
+                }
+                .buttonStyle(.plain)
+
                 // Full screen button
                 Button { isFullScreen = true } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
@@ -776,6 +846,106 @@ public struct TakesSectionView: View {
                 .buttonStyle(.plain)
             }
             .padding(.vertical, 12)
+
+            // Remote control status
+            if isRemoteEnabled {
+                remoteControlBanner
+            }
+        }
+    }
+
+    // MARK: - Remote Control Banner
+
+    private var isRemoteEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "pref.remote.enabled")
+    }
+
+    private var remoteStartKeyName: String? {
+        guard let data = UserDefaults.standard.data(forKey: "pref.remote.keyMappings"),
+              let decoded = try? JSONDecoder().decode([String: RemoteKeyInfo].self, from: data),
+              let mapping = decoded["startTakeRecording"] else { return nil }
+        return mapping.keyName
+    }
+
+    private var remoteStopKeyName: String? {
+        guard let data = UserDefaults.standard.data(forKey: "pref.remote.keyMappings"),
+              let decoded = try? JSONDecoder().decode([String: RemoteKeyInfo].self, from: data),
+              let mapping = decoded["stopTakeRecording"] else { return nil }
+        return mapping.keyName
+    }
+
+    private var remoteControlBanner: some View {
+        VStack(spacing: 8) {
+            // Status bar
+            HStack(spacing: 6) {
+                Image(systemName: "av.remote.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.green)
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 5, height: 5)
+                Text("REMOTE CONNECTED")
+                    .font(.system(size: 8, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundColor(.green.opacity(0.9))
+                Spacer()
+                if let startKey = remoteStartKeyName {
+                    HStack(spacing: 3) {
+                        Text("REC")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(.red.opacity(0.7))
+                        Text(startKey)
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
+                if let stopKey = remoteStopKeyName {
+                    HStack(spacing: 3) {
+                        Text("STOP")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(.orange.opacity(0.7))
+                        Text(stopKey)
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+
+            // Workflow description
+            HStack(spacing: 8) {
+                workflowStep(number: "1", text: "Press to arm — system beep confirms ready")
+                workflowStep(number: "2", text: "Press again to start recording")
+            }
+        }
+        .padding(10)
+        .background(Color.green.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.green.opacity(0.2), lineWidth: 1)
+        )
+    }
+
+    private func workflowStep(number: String, text: String) -> some View {
+        HStack(spacing: 5) {
+            Text(number)
+                .font(.system(size: 8, weight: .heavy, design: .rounded))
+                .foregroundColor(.white)
+                .frame(width: 14, height: 14)
+                .background(Circle().fill(Color.green.opacity(0.5)))
+            Text(text)
+                .font(.system(size: 8, weight: .medium))
+                .foregroundColor(.gray.opacity(0.8))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -827,40 +997,123 @@ public struct TakesSectionView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Filmstrip Gallery
+    // MARK: - Review Bay
 
-    private var takesFilmstrip: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Filmstrip header
-            HStack {
-                Image(systemName: "rectangle.split.3x1")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray.opacity(0.5))
-                Text("FILMSTRIP")
-                    .font(.system(size: 9, weight: .medium))
+    private func takeReviewBay(_ take: Take) -> some View {
+        VStack(spacing: 0) {
+            // Top: Video (left) + Metadata (right)
+            reviewPanel(take)
+
+            // Divider
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+
+            // Bottom: Horizontal take grid with filter
+            takesGrid
+        }
+        .background(Color(hex: "#1A1A1A"))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.04), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Takes Grid (Bottom Pane)
+
+    private var takesGrid: some View {
+        VStack(spacing: 0) {
+            // Filter bar
+            HStack(spacing: 8) {
+                Image(systemName: "film.stack.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accentColor)
+                Text("TAKES")
+                    .font(.system(size: 8, weight: .bold))
                     .tracking(1.0)
                     .foregroundColor(.gray.opacity(0.5))
 
+                Text("\(sortedTakes.count)")
+                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.4)))
+
+                // Renumber takes
+                if shot.takes.count > 1 {
+                    Button { renumberTakes() } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 8, weight: .semibold))
+                            Text("Renumber")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundColor(.gray)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Renumber takes sequentially")
+                }
+
                 Spacer()
 
-                Text("\(sortedTakes.count) take\(sortedTakes.count == 1 ? "" : "s")")
-                    .font(.system(size: 9))
-                    .foregroundColor(.gray.opacity(0.4))
+                // Rating filter chips
+                takeFilterChip(label: "All", icon: "film.stack", filter: nil)
+                takeFilterChip(label: "Circle", icon: "checkmark.circle.fill", filter: .circle, color: .green)
+                takeFilterChip(label: "Alt", icon: "star.fill", filter: .alt, color: .orange)
+                takeFilterChip(label: "NG", icon: "xmark.circle.fill", filter: .ng, color: .red)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
-            // Horizontal scroll of take cards
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(sortedTakes) { take in
-                        filmstripCard(take)
+            Rectangle()
+                .fill(Color.white.opacity(0.04))
+                .frame(height: 1)
+
+            // Horizontal scrolling grid of take cards
+            ScrollView(.horizontal, showsIndicators: true) {
+                LazyHStack(spacing: 8) {
+                    ForEach(filteredTakes) { take in
+                        takeGridCard(take)
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(10)
             }
+            .frame(height: 140)
         }
+        .background(Color(hex: "#161616"))
     }
 
-    private func filmstripCard(_ take: Take) -> some View {
+    private func takeFilterChip(label: String, icon: String, filter: TakeRating?, color: Color = .accentColor) -> some View {
+        let isActive = ratingFilter == filter
+        let count = filter == nil ? sortedTakes.count : sortedTakes.filter { $0.rating == filter }.count
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { ratingFilter = filter }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 8))
+                Text(label)
+                    .font(.system(size: 9, weight: isActive ? .semibold : .medium))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .foregroundColor(isActive ? .white : .gray)
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .foregroundColor(isActive ? .white : color == .accentColor ? .gray : color)
+            .background(
+                Capsule().fill(isActive ? color.opacity(0.7) : Color(hex: "#2A2A2A"))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func takeGridCard(_ take: Take) -> some View {
         let isSelected = (selectedTakeId ?? sortedTakes.first?.id) == take.id
         let isHovered = hoveredTakeId == take.id
 
@@ -868,54 +1121,71 @@ public struct TakesSectionView: View {
             withAnimation(.easeInOut(duration: 0.15)) { selectedTakeId = take.id }
         } label: {
             VStack(spacing: 0) {
-                // Top: rating color bar
-                ratingColorBar(take.rating)
-
-                VStack(spacing: 8) {
-                    // Take number — hero
-                    Text("\(take.takeNumber)")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(isSelected ? .white : .gray)
-
-                    // Rating icon
-                    Image(systemName: take.rating.icon)
-                        .font(.system(size: 14))
-                        .foregroundColor(ratingColor(take.rating))
-
-                    // Duration
-                    Text(formatDuration(take.durationSeconds))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.7))
-                        .monospacedDigit()
-
-                    // Compact timestamp (HH:mm:ss)
-                    if let ts = take.startTimestamp {
-                        Text(compactTimeFormatter.string(from: ts))
-                            .font(.system(size: 8, weight: .medium, design: .monospaced))
-                            .foregroundColor(.gray.opacity(0.45))
-                            .monospacedDigit()
+                // Thumbnail
+                ZStack(alignment: .bottomTrailing) {
+                    if let videoPath = take.capturedVideoPath, let basePath = projectBasePath {
+                        let fullURL = basePath.deletingLastPathComponent().appendingPathComponent(videoPath)
+                        TakeThumbnailView(videoURL: fullURL)
+                            .id("\(take.id)-\(take.endTimestamp?.timeIntervalSince1970 ?? 0)")
+                            .frame(width: 150, height: 84)
+                            .clipped()
+                    } else {
+                        Rectangle()
+                            .fill(Color(hex: "#1E1E1E"))
+                            .frame(width: 150, height: 84)
+                            .overlay(
+                                Image(systemName: "video.slash")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.gray.opacity(0.2))
+                            )
                     }
 
-                    // Video indicator
+                    // Duration badge
+                    if let dur = take.durationSeconds {
+                        Text(formatDuration(dur))
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .monospacedDigit()
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.black.opacity(0.75))
+                            .cornerRadius(3)
+                            .padding(4)
+                    }
+                }
+
+                // Info bar: T#, rating label, film icon
+                HStack(spacing: 5) {
+                    Text("T\(take.takeNumber)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(isSelected ? .white : .white.opacity(0.7))
+
+                    // Rating label badge
+                    if take.rating != .none {
+                        takeRatingBadge(take.rating)
+                    }
+
+                    Spacer()
+
                     if take.capturedVideoPath != nil {
                         Image(systemName: "film.fill")
-                            .font(.system(size: 8))
+                            .font(.system(size: 7))
                             .foregroundColor(.green.opacity(0.5))
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
             }
-            .frame(width: 80)
+            .frame(width: 150)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(hex: "#2A2A2A"))
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? Color.accentColor.opacity(0.12) : isHovered ? Color.white.opacity(0.04) : Color(hex: "#222222"))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 6)
                     .stroke(
                         isSelected ? Color.accentColor.opacity(0.5) :
-                            isHovered ? Color.accentColor.opacity(0.2) : Color.clear,
+                            isHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.03),
                         lineWidth: isSelected ? 1.5 : 1
                     )
             )
@@ -929,263 +1199,333 @@ public struct TakesSectionView: View {
         }
     }
 
-    private func ratingColorBar(_ rating: TakeRating) -> some View {
-        Rectangle()
-            .fill(
-                rating == .none ? Color.gray.opacity(0.15) :
-                    ratingColor(rating).opacity(0.6)
-            )
-            .frame(height: 3)
-            .cornerRadius(2, corners: [.topLeft, .topRight])
+    private func takeRatingBadge(_ rating: TakeRating) -> some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(ratingColor(rating))
+                .frame(width: 5, height: 5)
+            Text(rating == .circle ? "Circle" : rating == .alt ? "Alt" : "NG")
+                .font(.system(size: 8, weight: .semibold))
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .foregroundColor(ratingColor(rating))
+        .background(
+            Capsule().fill(ratingColor(rating).opacity(0.15))
+        )
     }
 
-    // MARK: - Take Detail Card
+    // MARK: - Review Panel (Right Pane) — Video left, Metadata right
 
-    private func takeDetailCard(_ take: Take) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Header row
-            HStack(spacing: 10) {
-                // Big take number
-                Text("#\(take.takeNumber)")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+    private func reviewPanel(_ take: Take) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            // Left half: Video + transport
+            VStack(spacing: 0) {
+                reviewVideoSection(take)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(12)
 
-                // One-tap rating bar
+            // Divider
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 1)
+
+            // Right half: Metadata
+            ScrollView(.vertical, showsIndicators: false) {
+                reviewMetadataCard(take)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func reviewVideoSection(_ take: Take) -> some View {
+        Group {
+            if let videoPath = take.capturedVideoPath, let basePath = projectBasePath {
+                let fullURL = basePath.deletingLastPathComponent().appendingPathComponent(videoPath)
+                ReviewPlayerView(videoURL: fullURL)
+                    .id("\(take.id)-\(take.endTimestamp?.timeIntervalSince1970 ?? 0)")
+            } else {
+                // No-video placeholder
+                VStack(spacing: 0) {
+                    ZStack {
+                        Rectangle()
+                            .fill(Color.black)
+                            .aspectRatio(16/9, contentMode: .fit)
+
+                        VStack(spacing: 10) {
+                            Image(systemName: "film")
+                                .font(.system(size: 28))
+                                .foregroundColor(.gray.opacity(0.25))
+                            Text("No Video")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.gray.opacity(0.4))
+                            Button { mapCameraFile(for: take) } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 9))
+                                    Text("Map Camera File")
+                                        .font(.system(size: 10, weight: .medium))
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.accentColor))
+                                .foregroundColor(.white)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    private func reviewMetadataCard(_ take: Take) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header: Take # + rating pills
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("#\(take.takeNumber)")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+
+                    Spacer()
+
+                    if let dur = take.durationSeconds {
+                        Text(formatDuration(dur))
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
+                            .foregroundColor(.accentColor)
+                            .monospacedDigit()
+                    } else {
+                        Text("--:--")
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
+                            .foregroundColor(.gray.opacity(0.3))
+                    }
+
+                    Button { deleteTake(take) } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 9))
+                            .foregroundColor(.gray.opacity(0.3))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Rating pills
                 HStack(spacing: 4) {
                     ratingPill(take: take, rating: .circle)
                     ratingPill(take: take, rating: .alt)
                     ratingPill(take: take, rating: .ng)
                 }
-
-                Spacer()
-
-                // Duration
-                if let dur = take.durationSeconds {
-                    Text(formatDuration(dur))
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
-                        .monospacedDigit()
-                } else {
-                    Text("--:--")
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.3))
-                }
-
-                // Delete
-                Button { deleteTake(take) } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 9))
-                        .foregroundColor(.gray.opacity(0.3))
-                }
-                .buttonStyle(.plain)
             }
 
-            // Timestamp row — camera-metadata-compatible format for matching with camera footage
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+
+            // Timestamps
             if take.startTimestamp != nil || take.endTimestamp != nil {
-                HStack(spacing: 12) {
-                    Image(systemName: "clock.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.accentColor)
-
-                    if let formatted = take.formattedStartTimestamp {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("REC START")
-                                .font(.system(size: 7, weight: .semibold))
-                                .tracking(0.8)
-                                .foregroundColor(.gray.opacity(0.5))
-                            Text(formatted)
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.9))
-                                .monospacedDigit()
-                        }
-                    }
-
-                    if let formatted = take.formattedEndTimestamp {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("REC END")
-                                .font(.system(size: 7, weight: .semibold))
-                                .tracking(0.8)
-                                .foregroundColor(.gray.opacity(0.5))
-                            Text(formatted)
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.9))
-                                .monospacedDigit()
-                        }
-                    }
-
-                    Spacer()
-
-                    // Copy timestamp button for easy matching
-                    if let formatted = take.formattedStartTimestamp {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(formatted, forType: .string)
-                        } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: "doc.on.clipboard")
-                                    .font(.system(size: 8))
-                                Text("Copy")
-                                    .font(.system(size: 8, weight: .medium))
-                            }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.accentColor)
+                        Text("TIMESTAMPS")
+                            .font(.system(size: 7, weight: .bold))
+                            .tracking(0.8)
                             .foregroundColor(.gray.opacity(0.5))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(Color(hex: "#3A3A3A")))
+                        Spacer()
+                        if let formatted = take.formattedStartTimestamp {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(formatted, forType: .string)
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "doc.on.clipboard")
+                                        .font(.system(size: 7))
+                                    Text("Copy")
+                                        .font(.system(size: 7, weight: .medium))
+                                }
+                                .foregroundColor(.gray.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                    }
+
+                    HStack(spacing: 12) {
+                        if let formatted = take.formattedStartTimestamp {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("REC START")
+                                    .font(.system(size: 7, weight: .semibold))
+                                    .tracking(0.6)
+                                    .foregroundColor(.gray.opacity(0.4))
+                                Text(formatted)
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.9))
+                                    .monospacedDigit()
+                            }
+                        }
+
+                        if let formatted = take.formattedEndTimestamp {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("REC END")
+                                    .font(.system(size: 7, weight: .semibold))
+                                    .tracking(0.6)
+                                    .foregroundColor(.gray.opacity(0.4))
+                                Text(formatted)
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.9))
+                                    .monospacedDigit()
+                            }
+                        }
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color(hex: "#1E1E1E"))
+                .padding(10)
+                .background(Color(hex: "#1A1A1A"))
                 .cornerRadius(6)
             }
 
-            // Notes — inline field
-            HStack(spacing: 8) {
-                Image(systemName: "note.text")
-                    .font(.system(size: 9))
-                    .foregroundColor(.gray.opacity(0.4))
+            // Notes
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray.opacity(0.4))
+                    Text("NOTES")
+                        .font(.system(size: 7, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundColor(.gray.opacity(0.4))
+                }
 
-                TextField("Notes...", text: Binding(
-                    get: { take.notes },
+                TextField("Add notes...", text: Binding(
+                    get: { editingNotesTakeId == take.id ? editingNotes : take.notes },
                     set: { newValue in
-                        var updated = shot
-                        if let idx = updated.takes.firstIndex(where: { $0.id == take.id }) {
-                            updated.takes[idx].notes = newValue
-                            onShotUpdated(updated)
+                        editingNotes = newValue
+                        editingNotesTakeId = take.id
+                        notesDebounceTask?.cancel()
+                        notesDebounceTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            guard !Task.isCancelled else { return }
+                            var updated = shot
+                            if let idx = updated.takes.firstIndex(where: { $0.id == take.id }) {
+                                updated.takes[idx].notes = newValue
+                                onShotUpdated(updated)
+                            }
                         }
                     }
                 ))
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color(hex: "#1E1E1E"))
-            .cornerRadius(6)
-
-            // Tags + Camera file row
-            HStack(alignment: .top, spacing: 16) {
-                // Tags
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Tags")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.gray)
-                        .textCase(.uppercase)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(take.tags, id: \.self) { tag in
-                                HStack(spacing: 4) {
-                                    Text(tag)
-                                        .font(.system(size: 10, weight: .medium))
-                                    Button { removeTag(tag, from: take) } label: {
-                                        Image(systemName: "xmark")
-                                            .font(.system(size: 7, weight: .bold))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .foregroundColor(.white)
-                                .background(Capsule().fill(Color.accentColor.opacity(0.6)))
-                            }
-
-                            // Inline add
-                            HStack(spacing: 3) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 7, weight: .semibold))
-                                    .foregroundColor(.gray)
-                                TextField("add", text: $newTagText, onCommit: {
-                                    addTag(newTagText, to: take)
-                                    newTagText = ""
-                                })
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 9))
-                                .frame(width: 40)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(Color(hex: "#3A3A3A")))
-                        }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color(hex: "#1A1A1A"))
+                .cornerRadius(4)
+                .onSubmit {
+                    notesDebounceTask?.cancel()
+                    var updated = shot
+                    if let idx = updated.takes.firstIndex(where: { $0.id == take.id }) {
+                        updated.takes[idx].notes = editingNotes
+                        onShotUpdated(updated)
                     }
-                }
-
-                Divider().frame(height: 30).opacity(0.3)
-
-                // Camera source
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Camera File")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.gray)
-                        .textCase(.uppercase)
-
-                    Button { mapCameraFile(for: take) } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: take.cameraSourceFileName != nil ? "checkmark.circle.fill" : "sdcard")
-                                .font(.system(size: 9))
-                                .foregroundColor(take.cameraSourceFileName != nil ? .green : .gray)
-                            Text(take.cameraSourceFileName ?? "Map file...")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(take.cameraSourceFileName != nil ? .white : .gray)
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(Color(hex: "#3A3A3A")))
-                    }
-                    .buttonStyle(.plain)
+                    editingNotesTakeId = nil
                 }
             }
 
-            // Action row
+            // Tags
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray.opacity(0.4))
+                    Text("TAGS")
+                        .font(.system(size: 7, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundColor(.gray.opacity(0.4))
+                }
+
+                FlowLayout(spacing: 4) {
+                    ForEach(take.tags, id: \.self) { tag in
+                        HStack(spacing: 3) {
+                            Text(tag)
+                                .font(.system(size: 9, weight: .medium))
+                            Button { removeTag(tag, from: take) } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 6, weight: .bold))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .foregroundColor(.white)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.5)))
+                    }
+
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 6, weight: .semibold))
+                            .foregroundColor(.gray)
+                        TextField("add", text: $newTagText, onCommit: {
+                            addTag(newTagText, to: take)
+                            newTagText = ""
+                        })
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 9))
+                        .frame(width: 36)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color(hex: "#3A3A3A")))
+                }
+            }
+
+            // Camera File
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray.opacity(0.4))
+                    Text("CAMERA FILE")
+                        .font(.system(size: 7, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundColor(.gray.opacity(0.4))
+                }
+
+                Button { mapCameraFile(for: take) } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: take.cameraSourceFileName != nil ? "checkmark.circle.fill" : "sdcard")
+                            .font(.system(size: 9))
+                            .foregroundColor(take.cameraSourceFileName != nil ? .green : .gray)
+                        Text(take.cameraSourceFileName ?? "Map file...")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(take.cameraSourceFileName != nil ? .white : .gray)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color(hex: "#3A3A3A")))
+                }
+                .buttonStyle(.plain)
+            }
+
+            // File info
             if let videoPath = take.capturedVideoPath, let basePath = projectBasePath {
                 let fullURL = basePath.deletingLastPathComponent().appendingPathComponent(videoPath)
-                HStack(spacing: 8) {
-                    Button {
-                        NSWorkspace.shared.open(fullURL)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "play.fill").font(.system(size: 9))
-                            Text("Play").font(.system(size: 10, weight: .medium))
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().fill(Color.accentColor))
-                        .foregroundColor(.white)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([fullURL])
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "folder").font(.system(size: 9))
-                            Text("Reveal").font(.system(size: 10, weight: .medium))
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().fill(Color(hex: "#3A3A3A")))
-                        .foregroundColor(.gray)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    // File path pill
-                    Text(fullURL.lastPathComponent)
-                        .font(.system(size: 8))
+                HStack(spacing: 5) {
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 7))
                         .foregroundColor(.gray.opacity(0.3))
+                    Text(fullURL.lastPathComponent)
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.4))
                         .lineLimit(1)
                 }
             }
         }
         .padding(14)
-        .background(Color(hex: "#1A1A1A"))
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.04), lineWidth: 1)
-        )
     }
 
     // MARK: - Rating Pill
@@ -1197,7 +1537,13 @@ public struct TakesSectionView: View {
             var updated = shot
             if let idx = updated.takes.firstIndex(where: { $0.id == take.id }) {
                 updated.takes[idx].rating = isSelected ? .none : rating
+                updated.updateStatusFromTakes()
                 onShotUpdated(updated)
+
+                // Regenerate collage when circle rating changes
+                if rating == .circle {
+                    regenerateTakePreview(for: updated)
+                }
             }
         } label: {
             HStack(spacing: 4) {
@@ -1411,6 +1757,7 @@ public struct TakesSectionView: View {
         var updated = shot
         let newTake = Take(takeNumber: shot.nextTakeNumber)
         updated.takes.append(newTake)
+        updated.updateStatusFromTakes()
         onShotUpdated(updated)
         selectedTakeId = newTake.id
     }
@@ -1419,6 +1766,15 @@ public struct TakesSectionView: View {
         var updated = shot
         updated.takes.removeAll { $0.id == take.id }
         if selectedTakeId == take.id { selectedTakeId = nil }
+        updated.updateStatusFromTakes()
+        onShotUpdated(updated)
+    }
+
+    private func renumberTakes() {
+        var updated = shot
+        for i in updated.takes.indices {
+            updated.takes[i].takeNumber = i + 1
+        }
         onShotUpdated(updated)
     }
 
@@ -1496,6 +1852,7 @@ public struct TakesSectionView: View {
             updated.takes.append(newTake)
         }
 
+        updated.updateStatusFromTakes()
         onShotUpdated(updated)
         selectedTakeId = takeId
 
@@ -1509,6 +1866,7 @@ public struct TakesSectionView: View {
                     }
                     if let fileURL {
                         finalShot.takes[idx].capturedVideoPath = fileURL.path.replacingOccurrences(of: projectDir.path + "/", with: "")
+                        saveTakePreviewImage(from: fileURL)
                     }
                     onShotUpdated(finalShot)
                 }
@@ -1517,6 +1875,227 @@ public struct TakesSectionView: View {
     }
 
     private func stopRecording() { captureService.stopRecording() }
+
+    // MARK: - Remote Control Handlers
+
+    private func handleRemoteStart() {
+        NSLog("[RemoteStart] called. isRecording=%d, isBlindLogging=%d", captureService.isRecording ? 1 : 0, isBlindLogging ? 1 : 0)
+        guard !captureService.isRecording && !isBlindLogging else {
+            NSLog("[RemoteStart] BLOCKED by guard — already recording or logging")
+            return
+        }
+
+        // Two-press workflow: first press arms, second press records
+        let isArmed = UserDefaults.standard.bool(forKey: "pref.remote.armed")
+        NSLog("[RemoteStart] isArmed=%d, selectedDevice=%@, defaultDevice=%@, timestampMode=%d",
+              isArmed ? 1 : 0,
+              captureService.selectedDevice?.localizedName ?? "nil",
+              captureService.defaultDevice?.localizedName ?? "nil",
+              isTimestampMode ? 1 : 0)
+
+        if isArmed {
+            // Second press: start recording
+            UserDefaults.standard.set(false, forKey: "pref.remote.armed")
+            isRemoteArmed = false
+            // Play recording start tone
+            NotificationCenter.default.post(
+                name: Notification.Name("remoteControl.recordingStartTone"),
+                object: nil
+            )
+            if captureService.selectedDevice != nil {
+                NSLog("[RemoteStart] Starting recording (device selected)")
+                startRecording()
+            } else if captureService.defaultDevice != nil {
+                NSLog("[RemoteStart] Connecting device then recording")
+                captureService.connectAndStart { [self] in
+                    startRecording()
+                }
+            } else if isTimestampMode {
+                NSLog("[RemoteStart] Starting blind log (timestamp mode)")
+                startBlindLog()
+            }
+        } else {
+            // First press: arm the system
+            UserDefaults.standard.set(true, forKey: "pref.remote.armed")
+            isRemoteArmed = true
+            NSLog("[RemoteStart] ARMED — announcing")
+            // Connect camera if needed (so second press records instantly)
+            if captureService.selectedDevice == nil && captureService.defaultDevice != nil {
+                captureService.connectAndStart()
+            }
+            // Play ready sound via RemoteControlService
+            NotificationCenter.default.post(
+                name: Notification.Name("remoteControl.announce"),
+                object: nil
+            )
+        }
+    }
+
+    private func handleRemoteStop() {
+        // Reset armed state on stop
+        UserDefaults.standard.set(false, forKey: "pref.remote.armed")
+        isRemoteArmed = false
+        if captureService.isRecording {
+            stopRecording()
+        } else if isBlindLogging {
+            stopBlindLog()
+        }
+    }
+
+    /// Extracts a frame 2s before end of the video and saves a collage as `preview_take.png`.
+    /// Prefers a circled take's video; falls back to the provided videoURL.
+    /// Collage: AI-generated preview (left) + take frame (right). Falls back to take-only if no AI preview.
+    /// Only runs for post-shooting statuses (Review, Approved, etc.).
+    private func saveTakePreviewImage(from videoURL: URL) {
+        let preShootingStatuses = ["Planning", "Ready", "Shooting"]
+        guard !preShootingStatuses.contains(shot.status) else { return }
+        guard let basePath = projectBasePath else { return }
+        let projectDir = basePath.deletingLastPathComponent()
+        let shotDir = projectDir
+            .appendingPathComponent("assets")
+            .appendingPathComponent("shots")
+            .appendingPathComponent("shot_\(shot.shotId)")
+
+        // Prefer a circled take's video over the just-recorded one
+        let effectiveVideoURL: URL
+        if let circledPath = shot.circledTakes.first(where: { $0.capturedVideoPath != nil })?.capturedVideoPath {
+            effectiveVideoURL = projectDir.appendingPathComponent(circledPath)
+        } else {
+            effectiveVideoURL = videoURL
+        }
+
+        // Find latest AI-generated preview
+        let aiPreviewImage: CGImage? = {
+            guard FileManager.default.fileExists(atPath: shotDir.path),
+                  let contents = try? FileManager.default.contentsOfDirectory(at: shotDir, includingPropertiesForKeys: nil) else { return nil }
+            let aiPreviews = contents
+                .filter { $0.pathExtension.lowercased() == "png" }
+                .filter { $0.lastPathComponent.hasPrefix("preview_") && $0.lastPathComponent != "preview_take.png" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            guard let latestAI = aiPreviews.last,
+                  let nsImage = NSImage(contentsOf: latestAI),
+                  let cgImg = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+            return cgImg
+        }()
+
+        Task {
+            let asset = AVAsset(url: effectiveVideoURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1280, height: 720)
+
+            let duration = try await asset.load(.duration)
+            let durationSeconds = CMTimeGetSeconds(duration)
+            let targetSeconds = max(0, durationSeconds - 2.0)
+            let time = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+
+            guard let takeFrame = try? await generator.image(at: time).image else { return }
+
+            let collageData: Data?
+            if let aiImage = aiPreviewImage {
+                collageData = Self.createCollage(leftImage: aiImage, leftLabel: "AI PREVIEW", rightImage: takeFrame, rightLabel: "TAKE")
+            } else {
+                let bitmapRep = NSBitmapImageRep(cgImage: takeFrame)
+                collageData = bitmapRep.representation(using: .png, properties: [:])
+            }
+
+            guard let pngData = collageData else { return }
+
+            try? FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+            let outputURL = shotDir.appendingPathComponent("preview_take.png")
+            try? pngData.write(to: outputURL)
+        }
+    }
+
+    /// Creates a side-by-side collage at 1920x540 with labeled panels and a dark gap.
+    private static func createCollage(leftImage: CGImage, leftLabel: String, rightImage: CGImage, rightLabel: String) -> Data? {
+        let canvasWidth: CGFloat = 1920
+        let canvasHeight: CGFloat = 540
+        let gap: CGFloat = 4
+        let panelWidth = (canvasWidth - gap) / 2
+        let labelHeight: CGFloat = 28
+        let labelFontSize: CGFloat = 13
+
+        guard let ctx = CGContext(
+            data: nil,
+            width: Int(canvasWidth),
+            height: Int(canvasHeight),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        // Fill background black
+        ctx.setFillColor(CGColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight))
+
+        func drawPanel(image: CGImage, label: String, originX: CGFloat) {
+            let imgW = CGFloat(image.width)
+            let imgH = CGFloat(image.height)
+            let availableHeight = canvasHeight - labelHeight
+            let scale = min(panelWidth / imgW, availableHeight / imgH)
+            let drawW = imgW * scale
+            let drawH = imgH * scale
+            let x = originX + (panelWidth - drawW) / 2
+            let y = labelHeight + (availableHeight - drawH) / 2
+            ctx.draw(image, in: CGRect(x: x, y: y, width: drawW, height: drawH))
+
+            // Label background
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.6))
+            ctx.fill(CGRect(x: originX, y: 0, width: panelWidth, height: labelHeight))
+
+            // Label text
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: labelFontSize, weight: .semibold),
+                .foregroundColor: NSColor.white,
+                .kern: 1.5
+            ]
+            let attrString = NSAttributedString(string: label, attributes: attributes)
+            let textSize = attrString.size()
+            let textX = originX + (panelWidth - textSize.width) / 2
+            let textY = (labelHeight - textSize.height) / 2
+
+            NSGraphicsContext.saveGraphicsState()
+            let nsCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
+            NSGraphicsContext.current = nsCtx
+            attrString.draw(at: NSPoint(x: textX, y: textY))
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
+        drawPanel(image: leftImage, label: leftLabel, originX: 0)
+        drawPanel(image: rightImage, label: rightLabel, originX: panelWidth + gap)
+
+        guard let compositeImage = ctx.makeImage() else { return nil }
+        let bitmapRep = NSBitmapImageRep(cgImage: compositeImage)
+        return bitmapRep.representation(using: .png, properties: [:])
+    }
+
+    /// Deletes existing `preview_take.png` and regenerates from the best available take.
+    private func regenerateTakePreview(for updatedShot: Shot) {
+        let preShootingStatuses = ["Planning", "Ready", "Shooting"]
+        guard !preShootingStatuses.contains(updatedShot.status) else { return }
+        guard let basePath = projectBasePath else { return }
+        let projectDir = basePath.deletingLastPathComponent()
+        let shotDir = projectDir
+            .appendingPathComponent("assets")
+            .appendingPathComponent("shots")
+            .appendingPathComponent("shot_\(updatedShot.shotId)")
+        let takePreviewURL = shotDir.appendingPathComponent("preview_take.png")
+
+        // Delete existing collage so it gets regenerated
+        try? FileManager.default.removeItem(at: takePreviewURL)
+
+        // Pick circled take first, then latest take with video
+        let selectedTake = updatedShot.circledTakes.first(where: { $0.capturedVideoPath != nil })
+            ?? updatedShot.takes.last(where: { $0.capturedVideoPath != nil })
+        guard let selectedTake, let videoRelPath = selectedTake.capturedVideoPath else { return }
+
+        let videoURL = projectDir.appendingPathComponent(videoRelPath)
+        guard FileManager.default.fileExists(atPath: videoURL.path) else { return }
+
+        saveTakePreviewImage(from: videoURL)
+    }
 
     // MARK: - Blind Timestamp Logging
 
@@ -1536,6 +2115,7 @@ public struct TakesSectionView: View {
             updated.takes.append(newTake)
         }
 
+        updated.updateStatusFromTakes()
         onShotUpdated(updated)
         selectedTakeId = takeId
         blindLogTakeId = takeId
@@ -1667,3 +2247,262 @@ private struct PartialRoundedRectangle: Shape {
         return path
     }
 }
+
+// MARK: - Take Thumbnail View
+
+/// Generates and displays a thumbnail from a video file
+private struct TakeThumbnailView: View {
+    let videoURL: URL
+    @State private var thumbnail: NSImage?
+
+    var body: some View {
+        Group {
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle()
+                    .fill(Color(hex: "#1A1A1A"))
+                    .overlay(
+                        Image(systemName: "film")
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray.opacity(0.3))
+                    )
+            }
+        }
+        .onAppear { generateThumbnail() }
+    }
+
+    private func generateThumbnail() {
+        Task {
+            let asset = AVAsset(url: videoURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 240, height: 136)
+
+            // Extract frame 2 seconds before end of video
+            let duration = try await asset.load(.duration)
+            let durationSeconds = CMTimeGetSeconds(duration)
+            let targetSeconds = max(0, durationSeconds - 2.0)
+            let time = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+
+            if let cgImage = try? await generator.image(at: time).image {
+                await MainActor.run {
+                    thumbnail = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Review Player View
+
+/// Self-contained video player with transport bar, skip buttons, and seek bar with thumb knob
+private struct ReviewPlayerView: View {
+    let videoURL: URL
+    @State private var player: AVPlayer?
+    @State private var isPlaying: Bool = false
+    @State private var currentTime: Double = 0
+    @State private var duration: Double = 0
+    @State private var timeObserver: Any?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Video viewport — clean, no overlaid controls
+            ZStack {
+                if let player {
+                    TakeAVPlayerView(player: player)
+                        .aspectRatio(16/9, contentMode: .fit)
+                        .frame(maxHeight: 320)
+                        .background(Color.black)
+                } else {
+                    Rectangle()
+                        .fill(Color.black)
+                        .aspectRatio(16/9, contentMode: .fit)
+                        .frame(maxHeight: 320)
+                        .overlay(ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white)))
+                }
+            }
+            .cornerRadius(8, corners: [.topLeft, .topRight])
+
+            // Transport bar — below video, always accessible
+            HStack(spacing: 10) {
+                // Skip back 5s
+                Button { skip(-5) } label: {
+                    Image(systemName: "gobackward.5")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+
+                // Play / Pause — prominent button
+                Button { togglePlay() } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white)
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle().fill(isPlaying ? Color.accentColor : Color(hex: "#3A3A3A"))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                // Skip forward 5s
+                Button { skip(5) } label: {
+                    Image(systemName: "goforward.5")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+
+                // Current time
+                Text(formatTime(currentTime))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7))
+                    .monospacedDigit()
+                    .frame(width: 38, alignment: .trailing)
+
+                // Seek bar with visible thumb knob
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        // Track background
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(hex: "#3A3A3A"))
+                            .frame(height: 4)
+                        // Filled portion
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.accentColor)
+                            .frame(width: duration > 0 ? geo.size.width * CGFloat(currentTime / duration) : 0, height: 4)
+                        // Thumb knob
+                        if duration > 0 {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 10, height: 10)
+                                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                                .offset(x: max(0, min(geo.size.width - 10, geo.size.width * CGFloat(currentTime / duration) - 5)))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let fraction = max(0, min(1, value.location.x / geo.size.width))
+                                let seekTime = fraction * duration
+                                player?.seek(to: CMTime(seconds: seekTime, preferredTimescale: 600))
+                                currentTime = seekTime
+                            }
+                    )
+                }
+                .frame(height: 20)
+
+                // Duration
+                Text(formatTime(duration))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.gray.opacity(0.5))
+                    .monospacedDigit()
+                    .frame(width: 38, alignment: .leading)
+
+                Spacer()
+
+                // Open External
+                Button {
+                    NSWorkspace.shared.open(videoURL)
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Open in external player")
+
+                // Reveal in Finder
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([videoURL])
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Reveal in Finder")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(hex: "#1A1A1A"))
+            .cornerRadius(8, corners: [.bottomLeft, .bottomRight])
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
+        )
+        .onAppear { setupPlayer() }
+        .onDisappear { cleanupPlayer() }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("toggleShotVideoPlayback"))) { _ in
+            togglePlay()
+        }
+    }
+
+    private func setupPlayer() {
+        let avPlayer = AVPlayer(url: videoURL)
+        player = avPlayer
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+            currentTime = time.seconds
+        }
+        Task {
+            if let dur = try? await avPlayer.currentItem?.asset.load(.duration) {
+                await MainActor.run { duration = dur.seconds.isFinite ? dur.seconds : 0 }
+            }
+        }
+        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem, queue: .main) { _ in
+            isPlaying = false
+            avPlayer.seek(to: .zero)
+            currentTime = 0
+        }
+    }
+
+    private func cleanupPlayer() {
+        player?.pause()
+        if let observer = timeObserver { player?.removeTimeObserver(observer) }
+        player = nil
+    }
+
+    private func togglePlay() {
+        guard let player else { return }
+        if isPlaying { player.pause() } else { player.play() }
+        isPlaying.toggle()
+    }
+
+    private func skip(_ seconds: Double) {
+        guard let player else { return }
+        let newTime = max(0, min(duration, currentTime + seconds))
+        player.seek(to: CMTime(seconds: newTime, preferredTimescale: 600))
+        currentTime = newTime
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+// MARK: - Take AVPlayer NSView Wrapper
+
+private struct TakeAVPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .none
+        view.showsFullScreenToggleButton = false
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        nsView.player = player
+    }
+}
+

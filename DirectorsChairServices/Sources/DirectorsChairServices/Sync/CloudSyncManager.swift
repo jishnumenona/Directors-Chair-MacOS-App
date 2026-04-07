@@ -125,6 +125,14 @@ public class CloudSyncManager: ObservableObject {
         let basePath = URL(fileURLWithPath: project.basePath)
         log("Project basePath: \(basePath.path)")
 
+        // Guard against empty or invalid basePath — would delete all remote files
+        guard !project.basePath.isEmpty,
+              FileManager.default.fileExists(atPath: basePath.path) else {
+            log("FAILED: basePath is empty or does not exist: '\(project.basePath)'")
+            syncState = .error("Project directory not found. Re-open the project and try again.")
+            throw SyncError.remoteFailed("Project basePath is empty or invalid: '\(project.basePath)'")
+        }
+
         // 1. Ensure remote repo exists
         syncState = .syncing(progress: 0.1, message: "Checking remote repository...")
         log("Checking if repo '\(username)/\(repoName)' exists...")
@@ -256,20 +264,11 @@ public class CloudSyncManager: ObservableObject {
             }
         }
 
-        // 7. Delete remote files that no longer exist locally
-        syncState = .syncing(progress: 0.9, message: "Cleaning up removed files...")
+        // 7. Log remote-only files (never auto-delete — sync is additive only)
         let localPaths = Set(localFiles.map { $0.0 })
-        for (remotePath, sha) in remoteSHAs {
-            if !localPaths.contains(remotePath) {
-                log("Deleting remote file no longer local: \(remotePath)")
-                try? await giteaClient.deleteFile(
-                    owner: username,
-                    repo: repoName,
-                    path: remotePath,
-                    sha: sha,
-                    message: "Remove \(remotePath)"
-                )
-            }
+        let remoteOnlyFiles = remoteSHAs.keys.filter { !localPaths.contains($0) }
+        if !remoteOnlyFiles.isEmpty {
+            log("Remote-only files (kept): \(remoteOnlyFiles.joined(separator: ", "))")
         }
 
         pendingChanges = 0
@@ -478,9 +477,47 @@ public class CloudSyncManager: ObservableObject {
         return sanitized.isEmpty ? "untitled-project" : sanitized
     }
 
-    /// List all remote project repository names for the authenticated user.
-    public func listRemoteProjects() async throws -> [String] {
-        let repos = try await giteaClient.listRepositories()
-        return repos.map { $0.name }
+    /// List all remote project repositories for the authenticated user (owned + shared).
+    public func listRemoteProjects() async throws -> [RemoteRepository] {
+        return try await giteaClient.listRepositories()
+    }
+
+    // MARK: - Collaborator Management
+
+    /// List collaborators for a project repository.
+    public func listCollaborators(projectName: String, username: String) async throws -> [RemoteUser] {
+        let repoName = sanitizeRepoName(projectName)
+        return try await giteaClient.listCollaborators(owner: username, repo: repoName)
+    }
+
+    /// Add a collaborator to a project repository.
+    public func addCollaborator(
+        username: String,
+        permission: CollaboratorPermission,
+        projectName: String,
+        owner: String
+    ) async throws {
+        let repoName = sanitizeRepoName(projectName)
+        try await giteaClient.addCollaborator(
+            username: username,
+            permission: permission,
+            toRepo: owner,
+            repoName
+        )
+    }
+
+    /// Remove a collaborator from a project repository.
+    public func removeCollaborator(username: String, projectName: String, owner: String) async throws {
+        let repoName = sanitizeRepoName(projectName)
+        try await giteaClient.removeCollaborator(
+            username: username,
+            fromRepo: owner,
+            repoName
+        )
+    }
+
+    /// Search for users by query string.
+    public func searchUsers(query: String) async throws -> [RemoteUser] {
+        return try await giteaClient.searchUsers(query: query)
     }
 }

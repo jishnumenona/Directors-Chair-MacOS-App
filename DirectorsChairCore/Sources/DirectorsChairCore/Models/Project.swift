@@ -73,6 +73,12 @@ public struct Project: Codable, Identifiable, Hashable {
     public var overviewLogline: String  // 2-3 sentence logline
     public var overviewMoodAnalysis: [String: Double]?  // AI mood/tone data
 
+    /// Next globally unique shot display number across all scenes
+    public var nextShotDisplayNumber: Int {
+        let allShots = sequences.flatMap { $0.scenes.flatMap { $0.shots } }
+        return (allShots.map { $0.shotId }.max() ?? 0) + 1
+    }
+
     public init(
         name: String,
         basePath: String = "",

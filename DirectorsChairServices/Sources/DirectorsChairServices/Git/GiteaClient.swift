@@ -195,6 +195,40 @@ public actor GiteaClient: RemoteRepositoryProtocol {
         )
     }
 
+    /// List collaborators for a repository
+    public func listCollaborators(owner: String, repo: String) async throws -> [RemoteUser] {
+        let response: [[String: Any]] = try await request(
+            method: "GET",
+            endpoint: "repos/\(owner)/\(repo)/collaborators"
+        )
+        return response.map { parseUser(from: $0) }
+    }
+
+    /// Remove a collaborator from a repository
+    public func removeCollaborator(
+        username: String,
+        fromRepo owner: String,
+        _ repo: String
+    ) async throws {
+        let _: [String: Any]? = try await request(
+            method: "DELETE",
+            endpoint: "repos/\(owner)/\(repo)/collaborators/\(username)"
+        )
+    }
+
+    /// Search for users by query
+    public func searchUsers(query: String) async throws -> [RemoteUser] {
+        let response: [String: Any] = try await request(
+            method: "GET",
+            endpoint: "users/search",
+            queryParams: ["q": query, "limit": "10"]
+        )
+        guard let data = response["data"] as? [[String: Any]] else {
+            return []
+        }
+        return data.map { parseUser(from: $0) }
+    }
+
     /// Get repository branches
     public func getBranches(owner: String, repo: String) async throws -> [RemoteBranch] {
         let response: [[String: Any]] = try await request(
@@ -832,6 +866,14 @@ public actor GiteaClient: RemoteRepositoryProtocol {
     /// 2. POST to `/{owner}/{repo}.git/info/lfs/objects/batch` with operation "upload"
     /// 3. If an upload action is returned, PUT the binary data to the provided href
     /// 4. Return the LFS pointer string for the Contents API
+    /// Build HTTP Basic auth header for LFS endpoints (Gitea LFS doesn't accept Bearer/OAuth2 tokens)
+    private func lfsBasicAuth(owner: String) -> String? {
+        guard let token = token else { return nil }
+        let credentials = "\(owner):\(token)"
+        guard let data = credentials.data(using: .utf8) else { return nil }
+        return "Basic \(data.base64EncodedString())"
+    }
+
     public func lfsUpload(owner: String, repo: String, data: Data) async throws -> String {
         let hash = SHA256.hash(data: data)
         let oid = hash.compactMap { String(format: "%02x", $0) }.joined()
@@ -847,9 +889,9 @@ public actor GiteaClient: RemoteRepositoryProtocol {
         batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Content-Type")
         batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Accept")
 
-        if let token = token {
-            let prefix = useBearer ? "Bearer" : "token"
-            batchRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+        // LFS requires HTTP Basic auth (Bearer/OAuth2 tokens are rejected by Gitea LFS)
+        if let basicAuth = lfsBasicAuth(owner: owner) {
+            batchRequest.setValue(basicAuth, forHTTPHeaderField: "Authorization")
         }
 
         let batchBody: [String: Any] = [
@@ -891,10 +933,10 @@ public actor GiteaClient: RemoteRepositoryProtocol {
                 }
             }
 
-            // If no auth header was set by the server, add ours
-            if uploadRequest.value(forHTTPHeaderField: "Authorization") == nil, let token = token {
-                let prefix = useBearer ? "Bearer" : "token"
-                uploadRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+            // If no auth header was set by the server, add ours (Basic for LFS)
+            if uploadRequest.value(forHTTPHeaderField: "Authorization") == nil,
+               let basicAuth = lfsBasicAuth(owner: owner) {
+                uploadRequest.setValue(basicAuth, forHTTPHeaderField: "Authorization")
             }
 
             uploadRequest.httpBody = data
@@ -964,9 +1006,9 @@ public actor GiteaClient: RemoteRepositoryProtocol {
         batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Content-Type")
         batchRequest.setValue("application/vnd.git-lfs+json", forHTTPHeaderField: "Accept")
 
-        if let token = token {
-            let prefix = useBearer ? "Bearer" : "token"
-            batchRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+        // LFS requires HTTP Basic auth
+        if let basicAuth = lfsBasicAuth(owner: owner) {
+            batchRequest.setValue(basicAuth, forHTTPHeaderField: "Authorization")
         }
 
         let batchBody: [String: Any] = [
@@ -1009,10 +1051,10 @@ public actor GiteaClient: RemoteRepositoryProtocol {
             }
         }
 
-        // If no auth header was set by the server, add ours
-        if downloadRequest.value(forHTTPHeaderField: "Authorization") == nil, let token = token {
-            let prefix = useBearer ? "Bearer" : "token"
-            downloadRequest.setValue("\(prefix) \(token)", forHTTPHeaderField: "Authorization")
+        // If no auth header was set by the server, add ours (Basic for LFS)
+        if downloadRequest.value(forHTTPHeaderField: "Authorization") == nil,
+           let basicAuth = lfsBasicAuth(owner: owner) {
+            downloadRequest.setValue(basicAuth, forHTTPHeaderField: "Authorization")
         }
 
         let (fileData, downloadResponse) = try await lfsSession.data(for: downloadRequest)

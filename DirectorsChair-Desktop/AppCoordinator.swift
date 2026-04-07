@@ -373,6 +373,14 @@ class AppCoordinator: ObservableObject {
         }
     }
 
+    /// Select a shot and navigate to curation view
+    func selectShotInCuration(_ shot: Shot) {
+        selectedShot = shot
+        if selectedView != .curation {
+            navigateTo(.curation)
+        }
+    }
+
     /// Select a character and navigate to story design if needed
     func selectCharacter(_ character: Character) {
         selectedLocation = nil

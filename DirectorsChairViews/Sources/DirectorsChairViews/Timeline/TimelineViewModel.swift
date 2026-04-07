@@ -175,11 +175,28 @@ public class TimelineViewModel: ObservableObject {
     /// Current project reference
     private var project: Project?
 
-    /// Current scene (for scene mode)
-    private var currentScene: DCScene?
+    /// Current scene ID (for scene mode) — looked up from project on each rebuild to avoid stale snapshots
+    private var currentSceneId: String?
 
-    /// Current sequence (for sequence mode)
-    private var currentSequence: DirectorsChairCore.Sequence?
+    /// Current sequence ID (for sequence mode) — looked up from project on each rebuild
+    private var currentSequenceId: String?
+
+    /// Look up the current scene from the project by ID (always fresh data)
+    private var currentScene: DCScene? {
+        guard let id = currentSceneId, let project = project else { return nil }
+        for sequence in project.sequences {
+            if let scene = sequence.scenes.first(where: { $0.id == id }) {
+                return scene
+            }
+        }
+        return nil
+    }
+
+    /// Look up the current sequence from the project by ID (always fresh data)
+    private var currentSequence: DirectorsChairCore.Sequence? {
+        guard let id = currentSequenceId, let project = project else { return nil }
+        return project.sequences.first(where: { $0.id == id })
+    }
 
     /// Event bus subscription cancellable
     private var eventSubscription: AnyCancellable?
@@ -289,24 +306,24 @@ public class TimelineViewModel: ObservableObject {
 
     /// Show a single scene on the timeline
     public func showScene(_ scene: DCScene) {
-        currentScene = scene
-        currentSequence = nil
+        currentSceneId = scene.id
+        currentSequenceId = nil
         mode = .scene
         rebuild()
     }
 
     /// Show all scenes in a sequence on the timeline
     public func showSequence(_ sequence: DirectorsChairCore.Sequence) {
-        currentSequence = sequence
-        currentScene = nil
+        currentSequenceId = sequence.id
+        currentSceneId = nil
         mode = .sequence
         rebuild()
     }
 
     /// Show all sequences and scenes (global view)
     public func showGlobal() {
-        currentScene = nil
-        currentSequence = nil
+        currentSceneId = nil
+        currentSequenceId = nil
         mode = .global
         rebuild()
     }

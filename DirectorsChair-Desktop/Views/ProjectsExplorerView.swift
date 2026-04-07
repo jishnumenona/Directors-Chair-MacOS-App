@@ -223,6 +223,7 @@ struct ProjectsExplorerView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("new-project-button")
 
                     Button(action: { showingImportPicker = true }) {
                         Label("Import Screenplay", systemImage: "doc.text")
@@ -357,6 +358,7 @@ struct ProjectsExplorerView: View {
                             isHovered: hoveredProjectId == project.id,
                             onOpen: { openProject(project) }
                         )
+                        .accessibilityIdentifier("project-card-\(project.name)")
                         .onHover { hovering in
                             withAnimation(.easeInOut(duration: 0.15)) {
                                 hoveredProjectId = hovering ? project.id : nil
@@ -421,6 +423,7 @@ struct ProjectsExplorerView: View {
             TextField("Project Name", text: $newProjectName)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 300)
+                .accessibilityIdentifier("project-name-field")
                 .onSubmit {
                     createNewProject()
                 }
@@ -436,6 +439,7 @@ struct ProjectsExplorerView: View {
                     createNewProject()
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("create-project-button")
                 .disabled(newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

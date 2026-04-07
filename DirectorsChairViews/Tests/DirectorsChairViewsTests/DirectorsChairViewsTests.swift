@@ -53,8 +53,8 @@ final class DirectorsChairViewsTests: XCTestCase {
     func testBubbleItemActionId() {
         let action = Action(
             description: "Walks across room",
-            characters: ["John"],
-            chronologyNumber: 2
+            chronologyNumber: 2,
+            characters: ["John"]
         )
 
         XCTAssertEqual(action.description, "Walks across room")
@@ -112,11 +112,13 @@ final class DirectorsChairViewsTests: XCTestCase {
 
     func testDesignTabCases() {
         let allTabs = DesignTab.allCases
-        XCTAssertEqual(allTabs.count, 5)
+        XCTAssertEqual(allTabs.count, 7)
         XCTAssertTrue(allTabs.contains(.physical))
+        XCTAssertTrue(allTabs.contains(.costume))
         XCTAssertTrue(allTabs.contains(.traits))
         XCTAssertTrue(allTabs.contains(.biography))
         XCTAssertTrue(allTabs.contains(.relationships))
+        XCTAssertTrue(allTabs.contains(.voice))
         XCTAssertTrue(allTabs.contains(.scenes))
     }
 
@@ -162,8 +164,8 @@ final class ViewInstantiationTests: XCTestCase {
     func testActionBubbleCardInstantiation() {
         let action = Action(
             description: "Test action",
-            characters: [],
-            chronologyNumber: 1
+            chronologyNumber: 1,
+            characters: []
         )
 
         let view = ActionBubbleCard(action: action, isSelected: false)
@@ -173,8 +175,8 @@ final class ViewInstantiationTests: XCTestCase {
     func testNarrationBubbleCardInstantiation() {
         let narration = Narration(
             text: "Test narration",
-            characters: [],
-            chronologyNumber: 1
+            chronologyNumber: 1,
+            characters: []
         )
 
         let view = NarrationBubbleCard(narration: narration, isSelected: false)
@@ -183,10 +185,10 @@ final class ViewInstantiationTests: XCTestCase {
 
     func testNoteBubbleCardInstantiation() {
         let note = Note(
-            title: "Test note",
             content: "Test content",
             noteType: "text",
-            chronologyNumber: 1
+            chronologyNumber: 1,
+            title: "Test note"
         )
 
         let view = NoteBubbleCard(note: note, isSelected: false)
@@ -197,9 +199,9 @@ final class ViewInstantiationTests: XCTestCase {
         let soundNote = SoundNote(
             description: "Test sound",
             soundType: "music",
-            volume: 0.8,
-            loop: false,
-            chronologyNumber: 1
+            chronologyNumber: 1,
+            volume: 80,
+            loop: false
         )
 
         let view = SoundNoteBubbleCard(soundNote: soundNote, isSelected: false)

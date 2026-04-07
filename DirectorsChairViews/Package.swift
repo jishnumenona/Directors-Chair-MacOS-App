@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../DirectorsChairCore"),
         .package(path: "../DirectorsChairServices"),
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", exact: "1.17.6"),
     ],
     targets: [
         .target(
@@ -23,6 +24,9 @@ let package = Package(
             dependencies: ["DirectorsChairCore", "DirectorsChairServices"]),
         .testTarget(
             name: "DirectorsChairViewsTests",
-            dependencies: ["DirectorsChairViews"]),
+            dependencies: [
+                "DirectorsChairViews",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+            ]),
     ]
 )

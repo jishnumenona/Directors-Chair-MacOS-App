@@ -11,6 +11,7 @@ public struct NoteBubbleCard: View {
     let isSelected: Bool
     let projectBasePath: URL?
     let characters: [Character]
+    let globalIndex: Int?
 
     var onTap: (() -> Void)?
     var onEdit: (() -> Void)?
@@ -37,6 +38,7 @@ public struct NoteBubbleCard: View {
         startInEditMode: Bool = false,
         projectBasePath: URL? = nil,
         characters: [Character] = [],
+        globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
@@ -49,6 +51,7 @@ public struct NoteBubbleCard: View {
         self.startInEditMode = startInEditMode
         self.projectBasePath = projectBasePath
         self.characters = characters
+        self.globalIndex = globalIndex
         self.onTap = onTap
         self.onEdit = onEdit
         self.onDelete = onDelete
@@ -81,7 +84,7 @@ public struct NoteBubbleCard: View {
                         }
                     }
             } else {
-                Text("#\(note.chronologyNumber)")
+                Text("#\(globalIndex ?? note.chronologyNumber)")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
                     .padding(.horizontal, 4)
@@ -142,8 +145,10 @@ public struct NoteBubbleCard: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .background(accentColor.opacity(0.12))
-        .cornerRadius(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(accentColor.opacity(0.12))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
@@ -209,7 +214,7 @@ public struct NoteBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(note.chronologyNumber)"
+        editedIndex = "\(globalIndex ?? note.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

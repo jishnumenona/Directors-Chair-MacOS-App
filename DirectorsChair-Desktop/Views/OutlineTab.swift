@@ -214,6 +214,7 @@ struct SequenceRow: View {
                 .cornerRadius(6)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("sequence-row-\(sequence.id)")
             .contextMenu {
                 Button {
                     // Find the first scene in this sequence and seek to its boundary
@@ -322,7 +323,7 @@ struct SequenceRow: View {
 
     private func commitNewScene() {
         let name = newSceneName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sceneIndex = sequence.scenes.count + 1
+        let sceneIndex = projectViewModel.project.sequences.flatMap(\.scenes).count + 1
         let sceneName: String
         if name.isEmpty {
             sceneName = "Scene \(sceneIndex)"
@@ -357,7 +358,10 @@ struct SceneRow: View {
     @State private var showDeleteConfirmation = false
     @State private var isAddingShot = false
     @State private var newShotName = ""
+    @State private var isRenaming = false
+    @State private var renameText = ""
     @FocusState private var isShotFieldFocused: Bool
+    @FocusState private var isRenameFieldFocused: Bool
 
     private var isExpanded: Bool { expandedSceneIds.contains(scene.id) }
 
@@ -410,105 +414,157 @@ struct SceneRow: View {
         return name
     }
 
+    /// Extract the descriptive suffix from the scene name (e.g. "Kitchen" from "Scene 3 - Kitchen")
+    private var sceneNameSuffix: String? {
+        let name = scene.name
+        if let dashRange = name.range(of: " - ") {
+            let suffix = String(name[dashRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            return suffix.isEmpty ? nil : suffix
+        }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // Scene Header
-            HStack(spacing: 6) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.caption2)
-                    .frame(width: 10)
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            if isExpanded {
-                                expandedSceneIds.remove(scene.id)
-                            } else {
-                                expandedSceneIds.insert(scene.id)
+            if isRenaming {
+                HStack(spacing: 6) {
+                    Image(systemName: "film")
+                        .font(.caption)
+                        .foregroundColor(.green)
+
+                    TextField("Scene name", text: $renameText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .focused($isRenameFieldFocused)
+                        .onSubmit {
+                            commitRename()
+                        }
+                        .onExitCommand {
+                            cancelRename()
+                        }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.accentColor.opacity(0.08))
+                .cornerRadius(6)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .frame(width: 10)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                if isExpanded {
+                                    expandedSceneIds.remove(scene.id)
+                                } else {
+                                    expandedSceneIds.insert(scene.id)
+                                }
                             }
                         }
-                    }
 
-                Image(systemName: "film")
-                    .font(.caption)
-                    .foregroundColor(.green)
+                    Image(systemName: "film")
+                        .font(.caption)
+                        .foregroundColor(.green)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(sceneNumber)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 3) {
-                        Text(locationParts.location)
-                            .font(.system(size: 12, weight: .medium))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(sceneNumber)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
                             .lineLimit(1)
 
-                        if let time = locationParts.time {
-                            Text("·")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                            Text(time)
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                        if !locationParts.location.isEmpty {
+                            HStack(spacing: 3) {
+                                Text(locationParts.location)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+
+                                if let time = locationParts.time {
+                                    Text("·")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                    Text(time)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                        } else if let suffix = sceneNameSuffix {
+                            Text(suffix)
+                                .font(.system(size: 12, weight: .medium))
                                 .lineLimit(1)
                         }
                     }
-                }
 
-                Spacer()
+                    Spacer()
 
-                if !scene.shots.isEmpty {
-                    Text("\(scene.shots.count)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                coordinator.selectedScene?.id == scene.id ?
-                Color.accentColor.opacity(0.15) : Color.clear
-            )
-            .cornerRadius(6)
-            .contentShape(Rectangle())
-            .help(sceneTooltip)
-            .onTapGesture(count: 2) {
-                coordinator.selectScene(scene)
-                if NSEvent.modifierFlags.contains(.command) {
-                    coordinator.navigateTo(.bubble)
-                } else {
-                    coordinator.navigateTo(.scenes)
-                }
-            }
-            .onTapGesture(count: 1) {
-                coordinator.selectScene(scene)
-            }
-            .contextMenu {
-                Button {
-                    if let boundary = timelineViewModel.sceneBoundaries.first(where: { $0.name == scene.name }) {
-                        timelineViewModel.playheadActive = true
-                        timelineViewModel.playheadTime = boundary.time
-                        timelineViewModel.onPlayheadSeeked?(boundary.time)
-                        timelineViewModel.scrollToTime(boundary.time)
+                    if !scene.shots.isEmpty {
+                        Text("\(scene.shots.count)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
-                } label: {
-                    Label("Move Playhead Here", systemImage: "timeline.selection")
                 }
-
-                Button {
-                    if let seqIdx = projectViewModel.project.sequences.firstIndex(where: { $0.id == sequenceId }),
-                       let scnIdx = projectViewModel.project.sequences[seqIdx].scenes.firstIndex(where: { $0.id == scene.id }) {
-                        coordinator.requestTimelineAnalysis(scope: .scene(scene, sequenceIndex: seqIdx, sceneIndex: scnIdx))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    coordinator.selectedScene?.id == scene.id ?
+                    Color.accentColor.opacity(0.15) : Color.clear
+                )
+                .cornerRadius(6)
+                .contentShape(Rectangle())
+                .help(sceneTooltip)
+                .accessibilityIdentifier("scene-row-\(scene.id)")
+                .onTapGesture(count: 2) {
+                    coordinator.selectScene(scene)
+                    if NSEvent.modifierFlags.contains(.command) {
+                        coordinator.navigateTo(.bubble)
+                    } else {
+                        coordinator.navigateTo(.scenes)
                     }
-                } label: {
-                    Label("Analyze Timeline...", systemImage: "wand.and.stars")
                 }
+                .onTapGesture(count: 1) {
+                    coordinator.selectScene(scene)
+                }
+                .contextMenu {
+                    Button {
+                        renameText = scene.name
+                        isRenaming = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isRenameFieldFocused = true
+                        }
+                    } label: {
+                        Label("Rename Scene", systemImage: "pencil")
+                    }
 
-                Divider()
+                    Divider()
 
-                Button(role: .destructive) {
-                    showDeleteConfirmation = true
-                } label: {
-                    Label("Delete Scene", systemImage: "trash")
+                    Button {
+                        if let boundary = timelineViewModel.sceneBoundaries.first(where: { $0.name == scene.name }) {
+                            timelineViewModel.playheadActive = true
+                            timelineViewModel.playheadTime = boundary.time
+                            timelineViewModel.onPlayheadSeeked?(boundary.time)
+                            timelineViewModel.scrollToTime(boundary.time)
+                        }
+                    } label: {
+                        Label("Move Playhead Here", systemImage: "timeline.selection")
+                    }
+
+                    Button {
+                        if let seqIdx = projectViewModel.project.sequences.firstIndex(where: { $0.id == sequenceId }),
+                           let scnIdx = projectViewModel.project.sequences[seqIdx].scenes.firstIndex(where: { $0.id == scene.id }) {
+                            coordinator.requestTimelineAnalysis(scope: .scene(scene, sequenceIndex: seqIdx, sceneIndex: scnIdx))
+                        }
+                    } label: {
+                        Label("Analyze Timeline...", systemImage: "wand.and.stars")
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Delete Scene", systemImage: "trash")
+                    }
                 }
             }
 
@@ -585,7 +641,7 @@ struct SceneRow: View {
             cancelAddShot()
             return
         }
-        let nextId = (scene.shots.map { $0.shotId }.max() ?? 0) + 1
+        let nextId = projectViewModel.project.nextShotDisplayNumber
         let newShot = Shot(shotId: nextId, description: desc)
         projectViewModel.addShot(newShot, toSceneId: scene.id, inSequenceId: sequenceId)
         coordinator.selectShot(newShot)
@@ -599,6 +655,23 @@ struct SceneRow: View {
     private func cancelAddShot() {
         isAddingShot = false
         newShotName = ""
+    }
+
+    private func commitRename() {
+        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            cancelRename()
+            return
+        }
+        projectViewModel.renameScene(scene.id, inSequenceId: sequenceId, newName: name)
+        coordinator.notifyProjectChanged()
+        isRenaming = false
+        renameText = ""
+    }
+
+    private func cancelRename() {
+        isRenaming = false
+        renameText = ""
     }
 }
 
@@ -666,6 +739,7 @@ struct ShotRow: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("shot-row-\(shot.id)")
         .contextMenu {
             Button {
                 if let shotLabel = timelineViewModel.shotLabels.first(where: { $0.shotId == shot.shotId }) {
@@ -682,7 +756,7 @@ struct ShotRow: View {
                 // Find the scene containing this shot
                 for (seqIdx, sequence) in projectViewModel.project.sequences.enumerated() {
                     for (scnIdx, scene) in sequence.scenes.enumerated() {
-                        if scene.shots.contains(where: { $0.shotId == shot.shotId }) {
+                        if scene.shots.contains(where: { $0.id == shot.id }) {
                             coordinator.requestTimelineAnalysis(scope: .shot(shot, scene: scene, sequenceIndex: seqIdx, sceneIndex: scnIdx))
                             return
                         }

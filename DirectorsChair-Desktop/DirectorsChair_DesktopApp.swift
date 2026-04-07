@@ -37,6 +37,10 @@ struct DirectorsChair_DesktopApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
+        // UI testing bypass: skip onboarding and auth gate
+        if ProcessInfo.processInfo.arguments.contains("--uitesting") {
+            UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+        }
         _projectViewModel = StateObject(wrappedValue: ProjectViewModel())
     }
 
@@ -151,6 +155,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Splash complete - show and setup main window
             self?.showMainWindow()
             self?.postLaunchSetup()
+
+            // Install remote control key monitor
+            RemoteControlService.shared.installGlobalKeyMonitor()
         }
     }
 

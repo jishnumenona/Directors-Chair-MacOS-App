@@ -4,6 +4,7 @@
 // Comprehensive shot composition, camera angles, and lighting setup management.
 
 import SwiftUI
+import AVFoundation
 import DirectorsChairCore
 import DirectorsChairServices
 
@@ -34,6 +35,7 @@ public struct CinematographyView: View {
     public var onNavigateToCharacter: ((Character) -> Void)?
     public var onNavigateToLocation: ((Location) -> Void)?
     public var onNavigateToStoryDesign: (() -> Void)?
+    public var onNavigateToCuration: ((Shot) -> Void)?
 
     /// Callback when scene data is updated (props, sounds, etc.)
     public var onSceneUpdated: ((DCScene) -> Void)?
@@ -67,6 +69,7 @@ public struct CinematographyView: View {
         onNavigateToCharacter: ((Character) -> Void)? = nil,
         onNavigateToLocation: ((Location) -> Void)? = nil,
         onNavigateToStoryDesign: (() -> Void)? = nil,
+        onNavigateToCuration: ((Shot) -> Void)? = nil,
         onSceneUpdated: ((DCScene) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: CinematographyViewModel(shots: shots))
@@ -82,13 +85,14 @@ public struct CinematographyView: View {
         self.onNavigateToCharacter = onNavigateToCharacter
         self.onNavigateToLocation = onNavigateToLocation
         self.onNavigateToStoryDesign = onNavigateToStoryDesign
+        self.onNavigateToCuration = onNavigateToCuration
         self.onSceneUpdated = onSceneUpdated
     }
 
     /// Find the parent scene for a given shot
     private func sceneForShot(_ shot: Shot) -> DCScene? {
         scenes.first { scene in
-            scene.shots.contains { $0.shotId == shot.shotId }
+            scene.shots.contains { $0.id == shot.id }
         }
     }
 
@@ -481,7 +485,8 @@ public struct CinematographyView: View {
                             onShotUpdated: { updatedShot in
                                 viewModel.updateShot(updatedShot)
                             },
-                            captureService: captureService
+                            captureService: captureService,
+                            onNavigateToCuration: onNavigateToCuration
                         )
                         .id("takes-section")
 
@@ -532,12 +537,25 @@ public struct CinematographyView: View {
                     .padding(24)
                 }
                 .id(shot.id)  // Force entire scroll view to recreate when shot changes
+                .onAppear {
+                    // Handle scroll-to-section when navigating from another view
+                    if let section = scrollToShotSection {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            withAnimation {
+                                scrollProxy.scrollTo(section + "-section", anchor: .top)
+                            }
+                            scrollToShotSection = nil
+                        }
+                    }
+                }
                 .onChange(of: scrollToShotSection) { _, section in
                     if let section = section {
-                        withAnimation {
-                            scrollProxy.scrollTo(section + "-section", anchor: .top)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation {
+                                scrollProxy.scrollTo(section + "-section", anchor: .top)
+                            }
+                            scrollToShotSection = nil
                         }
-                        scrollToShotSection = nil
                     }
                 }
                 } // ScrollViewReader
@@ -1066,7 +1084,8 @@ private struct ShotPreviewSection: View {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(maxWidth: .infinity, maxHeight: 280)
+                        .frame(maxWidth: .infinity, maxHeight: 420)
+                        .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else if isGenerating {
                     // Loading state
@@ -1087,7 +1106,7 @@ private struct ShotPreviewSection: View {
                             .padding(.horizontal, 40)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 280)
+                    .frame(height: 420)
                 } else {
                     // Empty state with generate button
                     VStack(spacing: 16) {
@@ -1144,7 +1163,7 @@ private struct ShotPreviewSection: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 280)
+                    .frame(height: 420)
                 }
 
                 // Overlay buttons (when image exists)
@@ -1264,12 +1283,13 @@ private struct ShotPreviewSection: View {
                             .disabled(currentImageIndex >= allPreviewImages.count - 1)
 
                             if currentImageIndex == allPreviewImages.count - 1 {
-                                Text("Latest")
+                                let isFromTake = allPreviewImages[currentImageIndex].lastPathComponent == "preview_take.png"
+                                Text(isFromTake ? "Take" : "Latest")
                                     .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(Color.accentColor.opacity(0.7))
+                                    .background(isFromTake ? Color.green.opacity(0.7) : Color.accentColor.opacity(0.7))
                                     .cornerRadius(4)
                             }
                         }
@@ -1281,7 +1301,7 @@ private struct ShotPreviewSection: View {
                     }
                 }
             }
-            .frame(height: 280)
+            .frame(height: 420)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
@@ -1321,6 +1341,7 @@ private struct ShotPreviewSection: View {
         .onAppear {
             loadExistingPreview()
             loadSavedPrompt()
+            generateTakePreviewIfNeeded()
             discoverPreviewImages()
         }
         .onChange(of: shot.previewImage) { _, newPath in
@@ -1447,6 +1468,149 @@ private struct ShotPreviewSection: View {
         if let savedPrompt = try? String(contentsOf: promptFile, encoding: .utf8) {
             lastUsedPrompt = savedPrompt
         }
+    }
+
+    // MARK: - Take Preview Generation
+
+    /// Generates `preview_take.png` as a collage: AI-generated preview (left) + take frame (right).
+    /// If no AI preview exists, saves just the take frame. Runs on appear if file doesn't exist yet.
+    private func generateTakePreviewIfNeeded() {
+        // Only generate collage for post-shooting statuses (Review, Approved, etc.)
+        let preShootingStatuses = ["Planning", "Ready", "Shooting"]
+        guard !preShootingStatuses.contains(shot.status) else { return }
+        guard let basePath = projectBasePath else { return }
+        let projectDir = basePath.deletingLastPathComponent()
+        let shotDir = projectDir
+            .appendingPathComponent("assets")
+            .appendingPathComponent("shots")
+            .appendingPathComponent("shot_\(shot.shotId)")
+        let takePreviewURL = shotDir.appendingPathComponent("preview_take.png")
+
+        // Skip if already exists
+        if FileManager.default.fileExists(atPath: takePreviewURL.path) { return }
+
+        // Prefer a circled take with video; fall back to latest take with video
+        let selectedTake = shot.circledTakes.first(where: { $0.capturedVideoPath != nil })
+            ?? shot.takes.last(where: { $0.capturedVideoPath != nil })
+        guard let selectedTake, let videoRelPath = selectedTake.capturedVideoPath else { return }
+
+        let videoURL = projectDir.appendingPathComponent(videoRelPath)
+        guard FileManager.default.fileExists(atPath: videoURL.path) else { return }
+
+        // Find latest AI-generated preview (exclude preview_take.png itself)
+        let aiPreviewImage: CGImage? = {
+            guard FileManager.default.fileExists(atPath: shotDir.path),
+                  let contents = try? FileManager.default.contentsOfDirectory(at: shotDir, includingPropertiesForKeys: nil) else { return nil }
+            let aiPreviews = contents
+                .filter { $0.pathExtension.lowercased() == "png" }
+                .filter { $0.lastPathComponent.hasPrefix("preview_") && $0.lastPathComponent != "preview_take.png" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            guard let latestAI = aiPreviews.last,
+                  let nsImage = NSImage(contentsOf: latestAI),
+                  let cgImg = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+            return cgImg
+        }()
+
+        Task {
+            let asset = AVAsset(url: videoURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1280, height: 720)
+
+            let duration = try await asset.load(.duration)
+            let durationSeconds = CMTimeGetSeconds(duration)
+            let targetSeconds = max(0, durationSeconds - 2.0)
+            let time = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+
+            guard let takeFrame = try? await generator.image(at: time).image else { return }
+
+            let collageData: Data?
+            if let aiImage = aiPreviewImage {
+                collageData = Self.createCollage(leftImage: aiImage, leftLabel: "AI PREVIEW", rightImage: takeFrame, rightLabel: "TAKE")
+            } else {
+                // No AI preview — just save the take frame at full resolution
+                let bitmapRep = NSBitmapImageRep(cgImage: takeFrame)
+                collageData = bitmapRep.representation(using: .png, properties: [:])
+            }
+
+            guard let pngData = collageData else { return }
+
+            try? FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+            try? pngData.write(to: takePreviewURL)
+
+            await MainActor.run {
+                discoverPreviewImages()
+                if let image = NSImage(contentsOf: takePreviewURL) {
+                    previewImage = image
+                }
+            }
+        }
+    }
+
+    /// Creates a side-by-side collage at 1920x540 with labeled panels and a dark gap.
+    private static func createCollage(leftImage: CGImage, leftLabel: String, rightImage: CGImage, rightLabel: String) -> Data? {
+        let canvasWidth: CGFloat = 1920
+        let canvasHeight: CGFloat = 540
+        let gap: CGFloat = 4
+        let panelWidth = (canvasWidth - gap) / 2
+        let labelHeight: CGFloat = 28
+        let labelFontSize: CGFloat = 13
+
+        guard let ctx = CGContext(
+            data: nil,
+            width: Int(canvasWidth),
+            height: Int(canvasHeight),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        // Fill background black
+        ctx.setFillColor(CGColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight))
+
+        // Draw each panel fitted within its half
+        func drawPanel(image: CGImage, label: String, originX: CGFloat) {
+            let imgW = CGFloat(image.width)
+            let imgH = CGFloat(image.height)
+            let availableHeight = canvasHeight - labelHeight
+            let scale = min(panelWidth / imgW, availableHeight / imgH)
+            let drawW = imgW * scale
+            let drawH = imgH * scale
+            let x = originX + (panelWidth - drawW) / 2
+            let y = labelHeight + (availableHeight - drawH) / 2
+            ctx.draw(image, in: CGRect(x: x, y: y, width: drawW, height: drawH))
+
+            // Draw label background
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.6))
+            ctx.fill(CGRect(x: originX, y: 0, width: panelWidth, height: labelHeight))
+
+            // Draw label text
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: labelFontSize, weight: .semibold),
+                .foregroundColor: NSColor.white,
+                .kern: 1.5
+            ]
+            let attrString = NSAttributedString(string: label, attributes: attributes)
+            let textSize = attrString.size()
+            let textX = originX + (panelWidth - textSize.width) / 2
+            let textY = (labelHeight - textSize.height) / 2
+
+            // Use NSGraphicsContext to draw text into the CGContext
+            NSGraphicsContext.saveGraphicsState()
+            let nsCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
+            NSGraphicsContext.current = nsCtx
+            attrString.draw(at: NSPoint(x: textX, y: textY))
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
+        drawPanel(image: leftImage, label: leftLabel, originX: 0)
+        drawPanel(image: rightImage, label: rightLabel, originX: panelWidth + gap)
+
+        guard let compositeImage = ctx.makeImage() else { return nil }
+        let bitmapRep = NSBitmapImageRep(cgImage: compositeImage)
+        return bitmapRep.representation(using: .png, properties: [:])
     }
 
     // MARK: - Image History
@@ -1799,8 +1963,9 @@ private struct ShotPreviewSection: View {
             }
         }
 
-        // Style
+        // Style and format
         parts.append("Dramatic lighting, film grain, cinematic color grading, 35mm film aesthetic, photorealistic")
+        parts.append("Widescreen 16:9 landscape composition, full frame edge-to-edge, no black bars or letterboxing")
 
         return parts.joined(separator: ". ")
     }

@@ -14,6 +14,10 @@ import DirectorsChairViews
 import DirectorsChairProduction
 import DirectorsChairServices
 
+extension Notification.Name {
+    static let toggleShotVideoPlayback = Notification.Name("toggleShotVideoPlayback")
+}
+
 struct ContentView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
@@ -78,6 +82,7 @@ struct ContentView: View {
                                 .frame(width: sidebarWidth)
                                 .frame(maxHeight: .infinity)
                                 .background(Color(nsColor: .controlBackgroundColor))
+                                .accessibilityIdentifier("navigator-sidebar")
                                 .spotlightTarget(id: "navigator-sidebar")
 
                             // Sidebar resize handle
@@ -114,6 +119,7 @@ struct ContentView: View {
                             .environmentObject(timelineViewModel)
                             .frame(maxWidth: .infinity)
                             .frame(height: timelineHeight)
+                            .accessibilityIdentifier("timeline-panel")
                             .spotlightTarget(id: "timeline-panel")
                     }
                 }
@@ -147,8 +153,8 @@ struct ContentView: View {
                 .zIndex(150)
             }
 
-            // Login gate — shown when not authenticated
-            if !authManager.isAuthenticated && !authManager.isLoading {
+            // Login gate — shown when not authenticated (hidden during onboarding)
+            if !authManager.isAuthenticated && !authManager.isLoading && !onboardingState.showOnboarding {
                 LoginView()
                     .transition(.opacity)
                     .zIndex(200)
@@ -213,12 +219,14 @@ struct ContentView: View {
             }
             DoubleShiftMonitor.shared.install()
             installSpaceBarMonitor()
+            RemoteControlService.shared.install()
         }
         .onDisappear {
             if let monitor = spaceBarMonitor {
                 NSEvent.removeMonitor(monitor)
                 spaceBarMonitor = nil
             }
+            RemoteControlService.shared.uninstall()
         }
         .onPreferenceChange(SpotlightTargetKey.self) { targets in
             for target in targets {
@@ -381,7 +389,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Global Space Bar → Playback
+    // MARK: - Global Space Bar → Toggle Video Playback
 
     private func installSpaceBarMonitor() {
         spaceBarMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -404,12 +412,8 @@ struct ContentView: View {
                 return event
             }
 
-            // Need a project loaded
-            guard projectViewModel.hasProject else { return event }
-
-            // Switch to playback and auto-play
-            coordinator.shouldAutoPlay = true
-            coordinator.navigateTo(.playback)
+            // Toggle any video player visible in the current view
+            NotificationCenter.default.post(name: .toggleShotVideoPlayback, object: nil)
             return nil  // consume the event
         }
     }
@@ -562,6 +566,13 @@ struct CentralViewStack: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
 
+    /// Incremented on each projectChanged event to trigger BubbleView cache refresh
+    @State private var bubbleRefreshTrigger = 0
+
+    /// Track which views have been visited so we only create them lazily,
+    /// but keep them alive (preserving scroll position and all @State) once created.
+    @State private var visitedViews: Set<AppView> = []
+
     /// AI operation progress — survives navigation between tabs
     @StateObject private var aiProgress = AIProgressTracker()
 
@@ -572,119 +583,145 @@ struct CentralViewStack: View {
     @StateObject private var equipmentViewModel = EquipmentViewModel()
 
     var body: some View {
-        let _ = debugLog("🔄 CentralViewStack body - current: \(coordinator.selectedView.rawValue)")
+        let currentView = coordinator.selectedView
+        let _ = debugLog("🔄 CentralViewStack body - current: \(currentView.rawValue)")
 
-        Group {
-            switch coordinator.selectedView {
-            case .overview:
-                ProjectOverviewView()
-                    .onAppear { debugLog("📱 Overview appeared") }
-            case .script:
-                ScriptView()
-                    .onAppear { debugLog("📱 ScriptView appeared") }
-            case .bubble:
-                BubbleView(
-                    project: $projectViewModel.project,
-                    projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
-                    highlightedBubbleItem: coordinator.highlightedBubbleItem,
-                    onItemsReordered: {
-                        // Notify that project data changed (triggers timeline refresh)
-                        coordinator.notifyProjectChanged()
-                    },
-                    onContentChanged: {
-                        // Notify that content was added/modified (triggers timeline refresh)
-                        coordinator.notifyProjectChanged()
-                    },
-                    externalSelectedSceneName: coordinator.selectedScene?.name,
-                    onDialogueSelected: { dialogue in
-                        coordinator.chatContextDialogue = dialogue
-                    }
-                )
-                .onAppear { debugLog("📱 BubbleView appeared") }
-            case .scenes:
-                ScenesListView()
-                    .onAppear { debugLog("📱 ScenesListView appeared") }
-            case .assets:
-                AssetsView()
-                    .onAppear { debugLog("📱 AssetsView appeared") }
-            case .visionBoard:
-                VisionBoardView(
-                    cards: projectViewModel.project.beats,
-                    onCardsChanged: { cards in
-                        projectViewModel.project.beats = cards
-                        projectViewModel.isDirty = true
-                    }
-                )
-                .onAppear { debugLog("📱 VisionBoardView appeared") }
-            case .shotList:
-                ProductionViewWrapper(
-                    project: projectViewModel.project,
-                    projectPath: projectViewModel.projectPath,
-                    subtitle: "Shot List"
-                ) {
-                    CinematographyViewAdapter()
+        ZStack {
+            ForEach(AppView.allCases) { view in
+                if visitedViews.contains(view) || view == currentView {
+                    viewContent(for: view)
+                        .opacity(view == currentView ? 1 : 0)
+                        .allowsHitTesting(view == currentView)
+                        .zIndex(view == currentView ? 1 : 0)
                 }
-                .onAppear { debugLog("📱 CinematographyView appeared") }
-            case .production:
-                ProductionContainer(
-                    scheduleViewModel: scheduleViewModel,
-                    castCrewViewModel: castCrewViewModel,
-                    budgetViewModel: budgetViewModel,
-                    equipmentViewModel: equipmentViewModel
-                )
-                .onAppear { debugLog("📱 ProductionContainer appeared") }
-            case .storyDesign:
-                StoryDesignView(
-                    project: $projectViewModel.project,
-                    projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
-                    initialCharacterId: coordinator.selectedCharacter?.id,
-                    initialLocationId: coordinator.selectedLocation?.id,
-                    preferredMode: coordinator.preferredStoryDesignMode,
-                    traitAnalysisProgress: aiProgress.traitAnalysis,
-                    biographyProgress: aiProgress.biography,
-                    onGenerateImage: { character, angle, prompt, progressHandler in
-                        Task {
-                            await generateCharacterImage(character: character, angle: angle, prompt: prompt, progressHandler: progressHandler)
-                        }
-                    },
-                    onAnalyzeTraits: { character in
-                        Task {
-                            await analyzeCharacterTraits(character: character)
-                        }
-                    },
-                    onGenerateBiography: { character in
-                        Task {
-                            await generateCharacterBiography(character: character)
-                        }
-                    },
-                    onGenerateLocationImage: { location, variation, prompt, progressHandler in
-                        Task {
-                            await generateLocationImage(location: location, variation: variation, prompt: prompt, progressHandler: progressHandler)
-                        }
-                    }
-                )
-                .onAppear { debugLog("📱 StoryDesignView appeared") }
-            case .curation:
-                ProductionViewWrapper(
-                    project: projectViewModel.project,
-                    projectPath: projectViewModel.projectPath,
-                    subtitle: "Curation"
-                ) {
-                    CurationViewAdapter()
-                }
-                .onAppear { debugLog("📱 CurationView appeared") }
-            case .playback:
-                PlaybackView()
-                    .onAppear { debugLog("📱 PlaybackView appeared") }
-            case .settings:
-                ProjectSettingsView()
-                    .onAppear { debugLog("📱 ProjectSettingsView appeared") }
-            case .projects:
-                ProjectsExplorerView()
-                    .onAppear { debugLog("📱 ProjectsExplorerView appeared") }
             }
         }
+        .onChange(of: currentView) { _, newView in
+            visitedViews.insert(newView)
+        }
+        .onAppear {
+            visitedViews.insert(currentView)
+        }
         // Removed animation to prevent stacking during rapid view switches
+        .onReceive(coordinator.projectChanged) { _ in
+            bubbleRefreshTrigger += 1
+        }
+    }
+
+    @ViewBuilder
+    private func viewContent(for view: AppView) -> some View {
+        switch view {
+        case .overview:
+            ProjectOverviewView()
+                .onAppear { debugLog("📱 Overview appeared") }
+        case .script:
+            ScriptView()
+                .onAppear { debugLog("📱 ScriptView appeared") }
+        case .bubble:
+            BubbleView(
+                project: $projectViewModel.project,
+                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                highlightedBubbleItem: coordinator.highlightedBubbleItem,
+                onItemsReordered: {
+                    projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
+                },
+                onContentChanged: {
+                    projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
+                },
+                externalSelectedSceneId: coordinator.selectedScene?.id,
+                externalRefreshTrigger: bubbleRefreshTrigger,
+                onDialogueSelected: { dialogue in
+                    coordinator.chatContextDialogue = dialogue
+                },
+                onNavigateToCharacter: { character in
+                    coordinator.selectCharacter(character)
+                }
+            )
+            .onAppear { debugLog("📱 BubbleView appeared") }
+        case .scenes:
+            ScenesListView()
+                .onAppear { debugLog("📱 ScenesListView appeared") }
+        case .assets:
+            AssetsView()
+                .onAppear { debugLog("📱 AssetsView appeared") }
+        case .visionBoard:
+            VisionBoardView(
+                cards: projectViewModel.project.beats,
+                onCardsChanged: { cards in
+                    projectViewModel.project.beats = cards
+                    projectViewModel.isDirty = true
+                }
+            )
+            .onAppear { debugLog("📱 VisionBoardView appeared") }
+        case .shotList:
+            ProductionViewWrapper(
+                project: projectViewModel.project,
+                projectPath: projectViewModel.projectPath,
+                subtitle: "Shot List"
+            ) {
+                CinematographyViewAdapter()
+            }
+            .onAppear { debugLog("📱 CinematographyView appeared") }
+        case .production:
+            ProductionContainer(
+                scheduleViewModel: scheduleViewModel,
+                castCrewViewModel: castCrewViewModel,
+                budgetViewModel: budgetViewModel,
+                equipmentViewModel: equipmentViewModel
+            )
+            .onAppear { debugLog("📱 ProductionContainer appeared") }
+        case .storyDesign:
+            StoryDesignView(
+                project: $projectViewModel.project,
+                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                initialCharacterId: coordinator.selectedCharacter?.id,
+                initialLocationId: coordinator.selectedLocation?.id,
+                preferredMode: coordinator.preferredStoryDesignMode,
+                traitAnalysisProgress: aiProgress.traitAnalysis,
+                biographyProgress: aiProgress.biography,
+                onGenerateImage: { character, angle, prompt, progressHandler in
+                    Task {
+                        await generateCharacterImage(character: character, angle: angle, prompt: prompt, progressHandler: progressHandler)
+                    }
+                },
+                onAnalyzeTraits: { character in
+                    Task {
+                        await analyzeCharacterTraits(character: character)
+                    }
+                },
+                onGenerateBiography: { character in
+                    Task {
+                        await generateCharacterBiography(character: character)
+                    }
+                },
+                onGenerateLocationImage: { location, variation, prompt, progressHandler in
+                    Task {
+                        await generateLocationImage(location: location, variation: variation, prompt: prompt, progressHandler: progressHandler)
+                    }
+                }
+            )
+            .onAppear { debugLog("📱 StoryDesignView appeared") }
+        case .curation:
+            ProductionViewWrapper(
+                project: projectViewModel.project,
+                projectPath: projectViewModel.projectPath,
+                subtitle: "Curation"
+            ) {
+                CurationViewAdapter()
+            }
+            .onAppear { debugLog("📱 CurationView appeared") }
+        case .playback:
+            PlaybackView()
+                .onAppear { debugLog("📱 PlaybackView appeared") }
+        case .settings:
+            ProjectSettingsView()
+                .onAppear { debugLog("📱 ProjectSettingsView appeared") }
+        case .projects:
+            ProjectsExplorerView()
+                .onAppear { debugLog("📱 ProjectsExplorerView appeared") }
+        }
     }
 
     // MARK: - AI Integration Methods
@@ -1313,6 +1350,7 @@ struct AppToolbar: View {
                             .frame(width: 32, height: 32)
                     }
                     .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == view, tooltipText: view.rawValue))
+                    .accessibilityIdentifier("nav-\(view.rawValue.lowercased().replacingOccurrences(of: " ", with: "-"))")
                     .spotlightTarget(id: "toolbar-\(view.rawValue)")
 
                     // Add hint dots on specific toolbar buttons
@@ -1338,6 +1376,7 @@ struct AppToolbar: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == .projects, tooltipText: "Projects"))
+                .accessibilityIdentifier("nav-projects")
 
                 if coordinator.showingUsageWidget {
                     AIUsageWidget(projectStorageSize: projectViewModel.projectStorageSize)
@@ -1406,65 +1445,21 @@ struct AppToolbar: View {
 /// Does NOT start a capture session. The TakesSectionView auto-connects when it appears.
 struct CaptureDeviceToolbarItem: View {
     @ObservedObject var captureService: LiveCaptureService
+    @State private var showingHardwarePopover = false
 
     private var hasDefault: Bool { captureService.defaultDevice != nil }
     private var isLive: Bool { captureService.isSessionRunning }
 
     var body: some View {
-        Menu {
-            // Available devices
-            if captureService.availableDevices.isEmpty {
-                Text("No capture devices found")
-            } else {
-                ForEach(captureService.availableDevices, id: \.uniqueID) { device in
-                    Button {
-                        captureService.setDefaultDevice(device)
-                    } label: {
-                        HStack {
-                            if captureService.defaultDevice?.uniqueID == device.uniqueID {
-                                Image(systemName: "checkmark")
-                            }
-                            Label(device.localizedName, systemImage: "video.fill")
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            // Refresh devices
-            Button {
-                captureService.discoverDevices()
-            } label: {
-                Label("Refresh Devices", systemImage: "arrow.triangle.2.circlepath")
-            }
-
-            // Disconnect active session (keeps default)
-            if isLive {
-                Divider()
-                Button(role: .destructive) {
-                    captureService.disconnect()
-                } label: {
-                    Label("Stop Live Preview", systemImage: "stop.circle")
-                }
-            }
-
-            // Clear default device entirely
-            if hasDefault {
-                Button(role: .destructive) {
-                    captureService.tearDown()
-                } label: {
-                    Label("Clear Default Device", systemImage: "xmark.circle")
-                }
-            }
+        Button {
+            showingHardwarePopover.toggle()
         } label: {
             HStack(spacing: 5) {
-                // Status indicator: green=live, blue=default set, gray=none
                 Circle()
                     .fill(isLive ? Color.green : hasDefault ? Color.accentColor : Color.gray.opacity(0.35))
                     .frame(width: 7, height: 7)
 
-                Image(systemName: "video.fill")
+                Image(systemName: "cable.connector.horizontal")
                     .font(.system(size: 11))
                     .foregroundColor(hasDefault ? .primary : .secondary)
 
@@ -1479,6 +1474,10 @@ struct CaptureDeviceToolbarItem: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 }
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundColor(.secondary)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
@@ -1495,8 +1494,10 @@ struct CaptureDeviceToolbarItem: View {
                             : Color.clear, lineWidth: 1)
             )
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        .buttonStyle(.plain)
+        .popover(isPresented: $showingHardwarePopover, arrowEdge: .bottom) {
+            HardwarePopoverView(captureService: captureService)
+        }
     }
 }
 
@@ -2398,7 +2399,6 @@ struct CinematographyViewAdapter: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var coordinator: AppCoordinator
     @State private var shotsAdapter: ShotsAdapter?
-    @State private var lastSequenceCount: Int = 0
 
     var body: some View {
         Group {
@@ -2419,7 +2419,7 @@ struct CinematographyViewAdapter: View {
                     },
                     onOptionClickShot: { shot in
                         let parentScene = projectViewModel.allScenes.first { scene in
-                            scene.shots.contains { $0.shotId == shot.shotId }
+                            scene.shots.contains { $0.id == shot.id }
                         }
                         coordinator.jumpToScriptForShot(shot, scene: parentScene)
                     },
@@ -2431,6 +2431,9 @@ struct CinematographyViewAdapter: View {
                     },
                     onNavigateToStoryDesign: {
                         coordinator.navigateTo(.storyDesign)
+                    },
+                    onNavigateToCuration: { shot in
+                        coordinator.selectShotInCuration(shot)
                     },
                     onSceneUpdated: { updatedScene in
                         // Update the scene in the project model — search ALL sequences
@@ -2461,14 +2464,10 @@ struct CinematographyViewAdapter: View {
                     }
                 )
             }
-            lastSequenceCount = projectViewModel.project.sequences.count
         }
-        // Only refresh when sequence COUNT changes, not on every comparison
-        .onChange(of: projectViewModel.project.sequences.count) { newCount in
-            if newCount != lastSequenceCount {
-                lastSequenceCount = newCount
-                shotsAdapter?.refresh(from: projectViewModel.project)
-            }
+        // Refresh adapter when project changes externally (e.g. navigator adds/removes shots)
+        .onReceive(coordinator.projectChanged) { _ in
+            shotsAdapter?.refresh(from: projectViewModel.project)
         }
     }
 }

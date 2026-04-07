@@ -3313,6 +3313,9 @@ private struct VideoPlayerCard: View {
         .cornerRadius(8)
         .onAppear { setupPlayer() }
         .onDisappear { cleanupPlayer() }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("toggleShotVideoPlayback"))) { _ in
+            togglePlayback()
+        }
     }
 
     private func setupPlayer() {

@@ -39,7 +39,7 @@ class ShotsAdapter: ObservableObject {
     /// Update shots - syncs changes back to the correct scenes
     func updateShots(_ updatedShots: [Shot]) {
         // Create a map of shot ID to updated shot for quick lookup
-        let shotMap = Dictionary(uniqueKeysWithValues: updatedShots.map { ($0.id, $0) })
+        let shotMap = Dictionary(updatedShots.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
 
         // Update the project's sequences/scenes with modified shots
         var updatedProject = project
@@ -49,13 +49,13 @@ class ShotsAdapter: ObservableObject {
                 var updatedScene = scene
                 var updatedSceneShots: [Shot] = []
 
-                // Update existing shots that are in the map
+                // Update existing shots — preserve shots not in the update set
                 for shot in scene.shots {
                     if let updatedShot = shotMap[shot.id] {
                         updatedSceneShots.append(updatedShot)
                     } else {
-                        // Shot was removed
-                        continue
+                        // Shot not in update set — keep as-is
+                        updatedSceneShots.append(shot)
                     }
                 }
 

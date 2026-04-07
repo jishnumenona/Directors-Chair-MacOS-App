@@ -145,6 +145,7 @@ public class CinematographyViewModel: ObservableObject {
         guard let shot = shots.first(where: { $0.id == shotId }) else { return }
 
         var newShot = shot
+        newShot.uuid = UUID().uuidString
         newShot.shotId = nextShotId
         newShot.description = shot.description + " (copy)"
 
@@ -282,13 +283,9 @@ public class CinematographyViewModel: ObservableObject {
         notifyChange()
     }
 
-    /// Reorder shots
+    /// Reorder shots (display order = array position, shotId stays stable)
     public func moveShot(from source: IndexSet, to destination: Int) {
         shots.move(fromOffsets: source, toOffset: destination)
-        // Renumber shot IDs
-        for (index, _) in shots.enumerated() {
-            shots[index].shotId = index + 1
-        }
         notifyChange()
     }
 
@@ -316,6 +313,7 @@ public enum ShotStatus: String, CaseIterable, Identifiable {
     case shooting = "Shooting"
     case review = "Review"
     case approved = "Approved"
+    case notGood = "Not Good"
 
     public var id: String { rawValue }
 
@@ -326,6 +324,7 @@ public enum ShotStatus: String, CaseIterable, Identifiable {
         case .shooting: return .yellow
         case .review: return .blue
         case .approved: return .green
+        case .notGood: return .red
         }
     }
 
@@ -336,6 +335,7 @@ public enum ShotStatus: String, CaseIterable, Identifiable {
         case .shooting: return "video.fill"
         case .review: return "eye"
         case .approved: return "checkmark.seal.fill"
+        case .notGood: return "xmark.circle.fill"
         }
     }
 }

@@ -246,12 +246,13 @@ public class LiveCaptureService: NSObject, ObservableObject {
     // MARK: - Connect & Start (called by TakesSectionView when it needs live preview)
 
     /// Connects to the given device (or the default device), configures session, and starts preview.
-    public func connectAndStart(device: AVCaptureDevice? = nil) {
+    public func connectAndStart(device: AVCaptureDevice? = nil, completion: (() -> Void)? = nil) {
         let targetDevice = device ?? defaultDevice
         guard let targetDevice else { return }
 
         // Already connected to this device
         if selectedDevice?.uniqueID == targetDevice.uniqueID && isSessionRunning {
+            completion?()
             return
         }
 
@@ -263,6 +264,7 @@ public class LiveCaptureService: NSObject, ObservableObject {
                 self.errorMessage = nil
                 self.previewLayer = layer
                 self.isSessionRunning = true
+                completion?()
             } else {
                 self.errorMessage = "Failed to configure: \(errorMsg ?? "Unknown")"
             }

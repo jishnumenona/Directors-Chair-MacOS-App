@@ -4,6 +4,7 @@
 
 import SwiftUI
 import DirectorsChairServices
+import DirectorsChairCore
 
 struct SyncStatusView: View {
     @ObservedObject var syncManager: CloudSyncManager
@@ -12,6 +13,14 @@ struct SyncStatusView: View {
 
     @State private var showDetails = false
     @State private var showDebugLogs = false
+
+    // Sharing state
+    @State private var showShareSection = false
+    @State private var collaborators: [RemoteUser] = []
+    @State private var searchQuery = ""
+    @State private var searchResults: [RemoteUser] = []
+    @State private var isLoadingCollaborators = false
+    @State private var sharingError: String?
 
     var body: some View {
         Button {
@@ -144,6 +153,12 @@ struct SyncStatusView: View {
             .controlSize(.small)
             .disabled(!canSync)
 
+            // Sharing section
+            if projectViewModel.hasProject && authManager.isAuthenticated {
+                Divider()
+                sharingSection
+            }
+
             // Debug logs (collapsible)
             if !syncManager.debugLogs.isEmpty {
                 Divider()
@@ -167,8 +182,215 @@ struct SyncStatusView: View {
             }
         }
         .padding(12)
-        .frame(width: showDebugLogs ? 400 : 280)
+        .frame(width: (showDebugLogs || showShareSection) ? 400 : 280)
     }
+
+    // MARK: - Sharing Section
+
+    @ViewBuilder
+    private var sharingSection: some View {
+        DisclosureGroup("Sharing", isExpanded: $showShareSection) {
+            VStack(alignment: .leading, spacing: 10) {
+                // Current collaborators
+                if isLoadingCollaborators {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading...")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if collaborators.isEmpty {
+                    Text("No collaborators yet")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    VStack(spacing: 4) {
+                        ForEach(collaborators, id: \.id) { collab in
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                Text(collab.username)
+                                    .font(.system(size: 11, weight: .medium))
+                                Text("write")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .tracking(0.5)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Color.accentColor.opacity(0.15), in: Capsule())
+                                    .foregroundStyle(Color.accentColor)
+                                Spacer()
+                                Button {
+                                    Task { await removeCollaborator(collab.username) }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.red.opacity(0.7))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Remove \(collab.username)")
+                            }
+                            .padding(.vertical, 3)
+                            .padding(.horizontal, 6)
+                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+
+                // Add collaborator
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        TextField("Search users...", text: $searchQuery)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11))
+                            .padding(5)
+                            .background(Color(nsColor: .quaternarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+                            .onChange(of: searchQuery) { _, newValue in
+                                Task { await performUserSearch(newValue) }
+                            }
+                        Button {
+                            Task { await addCollaboratorByQuery() }
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(searchQuery.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+
+                    // Search results dropdown
+                    if !searchResults.isEmpty && !searchQuery.isEmpty {
+                        VStack(spacing: 0) {
+                            ForEach(searchResults, id: \.id) { user in
+                                Button {
+                                    Task { await addCollaborator(user.username) }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "person")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                        Text(user.username)
+                                            .font(.system(size: 11))
+                                        if !user.fullName.isEmpty {
+                                            Text("(\(user.fullName))")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "plus.circle")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 6)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                Divider()
+                            }
+                        }
+                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor).opacity(0.3)))
+                    }
+                }
+
+                if let error = sharingError {
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(.secondary)
+        .onChange(of: showShareSection) { _, expanded in
+            if expanded {
+                Task { await loadCollaborators() }
+            }
+        }
+    }
+
+    // MARK: - Sharing Actions
+
+    private func loadCollaborators() async {
+        guard let user = authManager.currentUser, projectViewModel.hasProject else { return }
+        isLoadingCollaborators = true
+        sharingError = nil
+        do {
+            collaborators = try await syncManager.listCollaborators(
+                projectName: projectViewModel.project.name,
+                username: user.username
+            )
+            // Filter out the owner from the list
+            collaborators = collaborators.filter { $0.username != user.username }
+        } catch {
+            sharingError = "Failed to load collaborators"
+        }
+        isLoadingCollaborators = false
+    }
+
+    private func addCollaborator(_ username: String) async {
+        guard let user = authManager.currentUser, projectViewModel.hasProject else { return }
+        sharingError = nil
+        do {
+            try await syncManager.addCollaborator(
+                username: username,
+                permission: .write,
+                projectName: projectViewModel.project.name,
+                owner: user.username
+            )
+            searchQuery = ""
+            searchResults = []
+            await loadCollaborators()
+        } catch {
+            sharingError = "Failed to add \(username)"
+        }
+    }
+
+    private func addCollaboratorByQuery() async {
+        let username = searchQuery.trimmingCharacters(in: .whitespaces)
+        guard !username.isEmpty else { return }
+        await addCollaborator(username)
+    }
+
+    private func removeCollaborator(_ username: String) async {
+        guard let user = authManager.currentUser, projectViewModel.hasProject else { return }
+        sharingError = nil
+        do {
+            try await syncManager.removeCollaborator(
+                username: username,
+                projectName: projectViewModel.project.name,
+                owner: user.username
+            )
+            await loadCollaborators()
+        } catch {
+            sharingError = "Failed to remove \(username)"
+        }
+    }
+
+    private func performUserSearch(_ query: String) async {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2 else {
+            searchResults = []
+            return
+        }
+        do {
+            let results = try await syncManager.searchUsers(query: trimmed)
+            // Filter out current user and existing collaborators
+            let currentUsername = authManager.currentUser?.username ?? ""
+            let existingUsernames = Set(collaborators.map(\.username))
+            searchResults = results.filter {
+                $0.username != currentUsername && !existingUsernames.contains($0.username)
+            }
+        } catch {
+            searchResults = []
+        }
+    }
+
+    // MARK: - Sync Logic
 
     private var canSync: Bool {
         guard authManager.isAuthenticated,
@@ -181,7 +403,14 @@ struct SyncStatusView: View {
     private func performSync() async {
         guard let user = authManager.currentUser else { return }
 
-        // Set the auth token
+        // Refresh token if expired, then set it
+        do {
+            try await authManager.refreshTokenIfNeeded()
+        } catch {
+            // Try force refresh if normal refresh fails
+            try? await authManager.forceRefreshToken()
+        }
+
         if let token = authManager.currentAccessToken {
             await syncManager.setAuthToken(token)
         }
@@ -198,12 +427,14 @@ struct SyncStatusView: View {
 
         // 2. Pull: discover remote projects not present locally
         do {
-            let remoteRepoNames = try await syncManager.listRemoteProjects()
+            let remoteRepos = try await syncManager.listRemoteProjects()
             let localProjectDirs = ProjectDirectoryManager.listProjects()
 
-            for repoName in remoteRepoNames {
+            for repo in remoteRepos {
+                let repoName = repo.name
+                let repoOwner = repo.owner.username
+
                 // Check if a local directory already matches this repo
-                // Local dirs use original names; repos use sanitized names
                 let alreadyLocal = localProjectDirs.contains { dir in
                     syncManager.sanitizeRepoName(dir.lastPathComponent) == repoName
                 }
@@ -214,7 +445,7 @@ struct SyncStatusView: View {
                         .appendingPathComponent(repoName)
                     do {
                         let _ = try await syncManager.pull(
-                            username: user.username,
+                            username: repoOwner,
                             repoName: repoName,
                             basePath: basePath
                         )

@@ -18,6 +18,7 @@ public struct CharacterMentionTextField: View {
     @State private var mentionQuery = ""
     @State private var mentionStartIndex: String.Index?
     @State private var cursorPosition: Int = 0
+    @State private var selectedMentionIndex: Int = 0
     @FocusState private var isFocused: Bool
 
     public init(
@@ -44,51 +45,59 @@ public struct CharacterMentionTextField: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Main text field
-            TextField(placeholder, text: $text)
-                .font(font)
-                .foregroundColor(foregroundColor)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-                .onChange(of: text) { oldValue, newValue in
-                    handleTextChange(oldValue: oldValue, newValue: newValue)
-                }
-                .onSubmit {
-                    if showMentionPopup, let firstMatch = filteredCharacters.first {
-                        insertMention(character: firstMatch)
-                    } else {
-                        onSubmit?()
-                    }
-                }
-                .onKeyPress(.downArrow) {
-                    // Could implement keyboard navigation here
-                    return .ignored
-                }
-                .onKeyPress(.escape) {
-                    if showMentionPopup {
-                        closeMentionPopup()
-                        return .handled
-                    }
-                    return .ignored
-                }
-
-            // Mention popup overlay
-            if showMentionPopup && !filteredCharacters.isEmpty {
-                mentionPopup
-                    .offset(y: 24)  // Position below the text field
+        TextField(placeholder, text: $text)
+            .font(font)
+            .foregroundColor(foregroundColor)
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .onChange(of: text) { oldValue, newValue in
+                handleTextChange(oldValue: oldValue, newValue: newValue)
             }
-        }
+            .onSubmit {
+                let visible = Array(filteredCharacters.prefix(5))
+                if showMentionPopup, selectedMentionIndex < visible.count {
+                    insertMention(character: visible[selectedMentionIndex])
+                } else {
+                    onSubmit?()
+                }
+            }
+            .onKeyPress(.downArrow) {
+                if showMentionPopup {
+                    selectedMentionIndex = min(selectedMentionIndex + 1, filteredCharacters.prefix(5).count - 1)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.upArrow) {
+                if showMentionPopup {
+                    selectedMentionIndex = max(selectedMentionIndex - 1, 0)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.escape) {
+                if showMentionPopup {
+                    closeMentionPopup()
+                    return .handled
+                }
+                return .ignored
+            }
+            .overlay(alignment: .topLeading) {
+                if showMentionPopup && !filteredCharacters.isEmpty {
+                    mentionPopup
+                        .offset(y: 24)
+                }
+            }
     }
 
     private var mentionPopup: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(filteredCharacters.prefix(5)) { character in
+        let visible = Array(filteredCharacters.prefix(5))
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(visible.enumerated()), id: \.element.id) { index, character in
                 Button {
                     insertMention(character: character)
                 } label: {
                     HStack(spacing: 8) {
-                        // Character color indicator
                         Circle()
                             .fill(Color(hex: character.color.isEmpty ? "#666666" : character.color))
                             .frame(width: 12, height: 12)
@@ -110,12 +119,12 @@ public struct CharacterMentionTextField: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .background(Color(NSColor.controlBackgroundColor))
-                .onHover { isHovered in
-                    // Could add hover effect here
+                .background(index == selectedMentionIndex ? Color.accentColor.opacity(0.2) : Color(NSColor.controlBackgroundColor))
+                .onHover { hovering in
+                    if hovering { selectedMentionIndex = index }
                 }
 
-                if character.id != filteredCharacters.prefix(5).last?.id {
+                if index < visible.count - 1 {
                     Divider()
                 }
             }
@@ -123,7 +132,7 @@ public struct CharacterMentionTextField: View {
         .frame(minWidth: 150, maxWidth: 250)
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
-        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+        .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.gray.opacity(0.3), lineWidth: 1)
@@ -136,9 +145,10 @@ public struct CharacterMentionTextField: View {
             let addedChar = newValue.last
             if addedChar == "@" {
                 // Start mention mode
-                showMentionPopup = true
                 mentionQuery = ""
                 mentionStartIndex = newValue.index(before: newValue.endIndex)
+                selectedMentionIndex = 0
+                showMentionPopup = true
                 return
             }
         }

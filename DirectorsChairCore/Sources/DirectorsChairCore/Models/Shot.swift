@@ -7,9 +7,10 @@ import Foundation
 /// Represents a planned camera shot for a scene (cinematography)
 /// Note: This is a placeholder. Full implementation with all 579 lines of Python reference pending.
 public struct Shot: Codable, Identifiable, Hashable {
-    public var id: String { "\(shotId)" }
+    public var id: String { uuid }
 
-    public var shotId: Int  // Unique shot ID across project
+    public var uuid: String
+    public var shotId: Int  // Display number shown to users
     public var itemChronology: Int  // Links to dialogue/action/narration chronology
     public var description: String
     public var status: String  // "Planning", "Ready", "Shooting", "Review", "Approved"
@@ -40,6 +41,7 @@ public struct Shot: Codable, Identifiable, Hashable {
     public var videoQuality: String?                 // Standard/High/Ultra
 
     public init(
+        uuid: String = UUID().uuidString,
         shotId: Int,
         itemChronology: Int = 0,
         description: String = "",
@@ -66,6 +68,7 @@ public struct Shot: Codable, Identifiable, Hashable {
         videoProvider: String? = nil,
         videoQuality: String? = nil
     ) {
+        self.uuid = uuid
         self.shotId = shotId
         self.itemChronology = itemChronology
         self.description = description
@@ -94,6 +97,7 @@ public struct Shot: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case shotId = "shot_id"
         case itemChronology = "item_chronology"
         case description
@@ -133,6 +137,9 @@ public struct Shot: Codable, Identifiable, Hashable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let altContainer = try? decoder.container(keyedBy: AlternativeCodingKeys.self)
+
+        // uuid: generate fresh if missing (migration from old projects)
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
 
         // shotId: generate from name if missing
         if let id = try? container.decode(Int.self, forKey: .shotId) {
@@ -218,6 +225,23 @@ public struct Shot: Codable, Identifiable, Hashable {
     /// Whether this shot has any takes recorded
     public var hasTakes: Bool {
         !takes.isEmpty
+    }
+
+    /// Auto-compute shot status based on take ratings.
+    /// - Any circled take → Approved
+    /// - All takes rated NG → Not Good
+    /// - Has takes → Review
+    /// - No takes → status unchanged
+    public mutating func updateStatusFromTakes() {
+        guard !takes.isEmpty else { return }
+
+        if takes.contains(where: { $0.rating == .circle }) {
+            status = "Approved"
+        } else if takes.allSatisfy({ $0.rating == .ng }) {
+            status = "Not Good"
+        } else {
+            status = "Review"
+        }
     }
 }
 

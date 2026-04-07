@@ -9,6 +9,27 @@ import AVKit
 import DirectorsChairCore
 import DirectorsChairViews
 
+// MARK: - Curation Tab Enum
+
+enum CurationTab: String, CaseIterable {
+    case curation
+    case mapping
+
+    var displayName: String {
+        switch self {
+        case .curation: return "Curation"
+        case .mapping: return "Mapping"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .curation: return "film.stack.fill"
+        case .mapping: return "externaldrive.connected.to.line.below.fill"
+        }
+    }
+}
+
 struct CurationView: View {
     @Binding var project: Project
     let projectDir: URL?
@@ -16,6 +37,7 @@ struct CurationView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @State private var isVideoFullScreen: Bool = false
     @State private var fullScreenVideoURL: URL?
+    @State private var selectedTab: CurationTab = .curation
 
     // Compare mode
     @State private var isCompareMode: Bool = false
@@ -30,34 +52,55 @@ struct CurationView: View {
     @State private var compareLeftPlayer: AVPlayer?
     @State private var compareRightPlayer: AVPlayer?
 
+    // Clipboard copy feedback
+    @State private var copiedMetadataLabel: String?
+    @State private var hoveredMetadataLabel: String?
+
     var body: some View {
-        ZStack {
-            HStack(spacing: 0) {
-                // Left: Navigator
-                navigatorPanel
-                    .frame(width: 300)
+        VStack(spacing: 0) {
+            // Tab bar
+            curationTabBar
 
-                // Divider
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor).opacity(0.3))
-                    .frame(width: 1)
+            // Tab content
+            ZStack {
+                switch selectedTab {
+                case .curation:
+                    curationTabContent
+                case .mapping:
+                    mappingTabContent
+                }
 
-                // Right: Detail
-                detailPanel
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            // Full-screen compare overlay
-            if isCompareFullScreen {
-                fullScreenComparePanel
-                    .transition(.opacity)
-                    .zIndex(100)
+                // Full-screen compare overlay
+                if isCompareFullScreen {
+                    fullScreenComparePanel
+                        .transition(.opacity)
+                        .zIndex(100)
+                }
             }
         }
         .background(Color(hex: "#1A1A1A"))
         .sheet(isPresented: $isVideoFullScreen) {
             fullScreenVideoPlayer
                 .frame(minWidth: 900, minHeight: 600)
+        }
+        .onAppear {
+            // If navigated here with a specific shot selected (e.g. from Shot List → Curate)
+            if let targetShot = coordinator.selectedShot {
+                // Find the scene containing this shot
+                for sequence in project.sequences {
+                    for scene in sequence.scenes {
+                        if let match = scene.shots.first(where: { $0.id == targetShot.id }) {
+                            viewModel.selectedScene = scene
+                            viewModel.selectedShot = match
+                            if let firstTake = match.takes.sorted(by: { $0.takeNumber < $1.takeNumber }).first {
+                                viewModel.selectedTake = firstTake
+                            }
+                            coordinator.selectedShot = nil
+                            return
+                        }
+                    }
+                }
+            }
         }
         .onChange(of: isCompareFullScreen) { newValue in
             DispatchQueue.main.async {
@@ -67,6 +110,60 @@ struct CurationView: View {
                     window.toggleFullScreen(nil)
                 } else if !newValue && isFS {
                     window.toggleFullScreen(nil)
+                }
+            }
+        }
+        .onChange(of: viewModel.selectedTake?.id) { _ in
+            // Auto-extract camera metadata when selecting a take with video but no metadata
+            if let take = viewModel.selectedTake,
+               take.capturedVideoPath != nil,
+               !take.hasCameraMetadata,
+               let dir = projectDir {
+                Task {
+                    if let metadata = await viewModel.extractCameraMetadata(for: take, projectDir: dir),
+                       metadata.hasData,
+                       let shot = viewModel.selectedShot {
+                        updateTake(take, in: shot) { t in
+                            metadata.apply(to: &t)
+                        }
+                    }
+                }
+            }
+
+            // Auto-detect audio cues when selecting a take with video but no cue detection
+            if let take = viewModel.selectedTake {
+                print("[CurationView] onChange take: \(take.id), videoPath: \(take.capturedVideoPath ?? "nil"), hasAudioCueDetection: \(take.hasAudioCueDetection), projectDir: \(projectDir?.path ?? "nil")")
+                if take.capturedVideoPath != nil,
+                   !take.hasAudioCueDetection,
+                   let dir = projectDir {
+                    print("[CurationView] Triggering auto-detect for take \(take.takeNumber)")
+                    Task {
+                        if let result = await viewModel.detectAudioCues(for: take, projectDir: dir) {
+                            print("[CurationView] Detection result: hasResults=\(result.hasResults), action=\(result.actionTimestamp ?? -1), cut=\(result.cutTimestamp ?? -1)")
+                            if result.hasResults, let shot = viewModel.selectedShot {
+                                updateTake(take, in: shot) { t in
+                                    result.apply(to: &t)
+                                }
+                            }
+                        } else {
+                            print("[CurationView] Detection returned nil")
+                        }
+                    }
+                }
+
+                // Auto-detect sync tones when take has video but no sync detection
+                if take.capturedVideoPath != nil,
+                   !take.hasSyncToneDetection,
+                   let dir = projectDir {
+                    Task {
+                        if let result = await viewModel.detectSyncTones(for: take, projectDir: dir),
+                           result.hasResults,
+                           let shot = viewModel.selectedShot {
+                            updateTake(take, in: shot) { t in
+                                result.apply(to: &t)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -312,6 +409,777 @@ struct CurationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: - Tab Bar
+
+    private var curationTabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(CurationTab.allCases, id: \.self) { tab in
+                Button { selectedTab = tab } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                        Text(tab.displayName)
+                    }
+                    .font(.subheadline)
+                    .fontWeight(selectedTab == tab ? .semibold : .regular)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(selectedTab == tab ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .foregroundColor(selectedTab == tab ? .accentColor : .primary)
+                }
+                .buttonStyle(.plain)
+                .overlay(alignment: .bottom) {
+                    if selectedTab == tab {
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(height: 2)
+                    }
+                }
+            }
+            Spacer()
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    // MARK: - Curation Tab Content
+
+    private var curationTabContent: some View {
+        HStack(spacing: 0) {
+            navigatorPanel
+                .frame(width: 300)
+
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.3))
+                .frame(width: 1)
+
+            detailPanel
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Mapping Tab Content
+
+    private var mappingTabContent: some View {
+        VStack(spacing: 0) {
+            mediaSourcesPanel
+                .fixedSize(horizontal: false, vertical: true)
+
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.2))
+                .frame(height: 1)
+
+            // Mapping detail — show all takes with their match status
+            mappingDetailView
+                .frame(maxHeight: .infinity)
+        }
+    }
+
+    private var mappingDetailView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                // Column headers
+                HStack(spacing: 0) {
+                    Text("STATUS")
+                        .frame(width: 70, alignment: .leading)
+                    Text("TAKE")
+                        .frame(width: 110, alignment: .leading)
+                    Text("CLIP NAME")
+                        .frame(width: 90, alignment: .leading)
+                    Text("TIMESTAMP")
+                        .frame(width: 130, alignment: .leading)
+                    Text("VIDEO")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("AUDIO")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("")
+                        .frame(width: 24)
+                    Text("SYNC")
+                        .frame(width: 36, alignment: .center)
+                    Text("ACTIONS")
+                        .frame(width: 70, alignment: .center)
+                }
+                .font(.system(size: 8, weight: .bold))
+                .tracking(1.0)
+                .foregroundColor(.gray.opacity(0.4))
+                .padding(.horizontal, 32).padding(.vertical, 6)
+                .background(Color(hex: "#1E1E1E"))
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
+                }
+
+                let allScenes = project.sequences.flatMap { $0.scenes }
+                ForEach(allScenes, id: \.name) { scene in
+                    let shotsWithTakes = scene.shots.filter { !$0.takes.isEmpty }
+                    if !shotsWithTakes.isEmpty {
+                        // Scene header
+                        HStack(spacing: 8) {
+                            Image(systemName: "film.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(.accentColor.opacity(0.5))
+                            Text(scene.name)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.8))
+
+                            Spacer()
+
+                            // Per-scene mapping stats
+                            let sceneTakes = shotsWithTakes.flatMap { $0.takes }
+                            let videoMapped = sceneTakes.filter { $0.cameraSourceFileName != nil }.count
+                            let audioMapped = sceneTakes.filter { $0.externalAudioFileName != nil || $0.useAudioFromVideo }.count
+                            let sceneReady = videoMapped == sceneTakes.count && audioMapped == sceneTakes.count && !sceneTakes.isEmpty
+                            HStack(spacing: 8) {
+                                if sceneReady {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "checkmark.seal.fill").font(.system(size: 8))
+                                        Text("Ready")
+                                            .font(.system(size: 9, weight: .semibold))
+                                    }
+                                    .foregroundColor(.green)
+                                } else {
+                                    mappingStatusPill(mapped: videoMapped, total: sceneTakes.count, icon: "video.fill", color: .accentColor)
+                                    mappingStatusPill(mapped: audioMapped, total: sceneTakes.count, icon: "waveform", color: .blue)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .background(Color(hex: "#1E1E1E"))
+
+                        ForEach(shotsWithTakes) { shot in
+                            // Shot subheader with shot-level status
+                            let shotTakes = viewModel.sortedTakes(shot.takes)
+                            let shotVideoMapped = shotTakes.filter { $0.cameraSourceFileName != nil }.count
+                            let shotAudioMapped = shotTakes.filter { $0.externalAudioFileName != nil || $0.useAudioFromVideo }.count
+                            let shotReady = shotVideoMapped == shotTakes.count && shotAudioMapped == shotTakes.count && !shotTakes.isEmpty
+                            HStack(spacing: 6) {
+                                // Shot ready indicator
+                                Image(systemName: shotReady ? "checkmark.circle.fill" : "circle.dotted")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(shotReady ? .green : .gray.opacity(0.3))
+
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.gray.opacity(0.4))
+                                Text("Shot #\(shot.shotId)")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.6))
+                                if !shot.description.isEmpty {
+                                    Text("— \(shot.description)")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.gray.opacity(0.3))
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                if shotReady {
+                                    Text("Ready")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundColor(.green)
+                                        .padding(.horizontal, 8).padding(.vertical, 2)
+                                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.green.opacity(0.1)))
+                                } else {
+                                    mappingStatusPill(mapped: shotVideoMapped, total: shotTakes.count, icon: "video.fill", color: .accentColor)
+                                    mappingStatusPill(mapped: shotAudioMapped, total: shotTakes.count, icon: "waveform", color: .blue)
+                                }
+                            }
+                            .padding(.horizontal, 24).padding(.vertical, 5)
+                            .background(Color(hex: "#1C1C1C"))
+
+                            ForEach(shotTakes) { take in
+                                mappingTakeRow(take: take, shot: shot, scene: scene)
+                            }
+                        }
+                    }
+                }
+
+                if allScenes.flatMap({ $0.shots }).flatMap({ $0.takes }).isEmpty {
+                    VStack(spacing: 14) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 48))
+                            .foregroundColor(.gray.opacity(0.12))
+                        Text("No takes to map")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray.opacity(0.4))
+                        Text("Record takes from the Shot List view first")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray.opacity(0.2))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 60)
+                }
+            }
+        }
+        .background(Color(hex: "#1A1A1A"))
+    }
+
+    private func mappingStatusPill(mapped: Int, total: Int, icon: String, color: Color) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 7))
+            Text("\(mapped)/\(total)")
+                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+        }
+        .foregroundColor(mapped == total && mapped > 0 ? color : .gray.opacity(0.3))
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 4).fill(
+            mapped == total && mapped > 0 ? color.opacity(0.1) : Color.white.opacity(0.03)
+        ))
+    }
+
+    private func takeReadyStatus(_ take: Take) -> (label: String, color: Color, icon: String) {
+        let hasVideo = take.cameraSourceFileName != nil
+        let hasAudio = take.externalAudioFileName != nil || take.useAudioFromVideo
+        if hasVideo && hasAudio {
+            return ("Ready", .green, "checkmark.circle.fill")
+        } else if hasVideo || hasAudio {
+            return ("Partial", .yellow, "exclamationmark.circle.fill")
+        } else {
+            return ("Pending", .gray.opacity(0.4), "circle.dotted")
+        }
+    }
+
+    private func mappingTakeRow(take: Take, shot: Shot, scene: DCScene) -> some View {
+        let status = takeReadyStatus(take)
+        return HStack(spacing: 0) {
+            // Status
+            HStack(spacing: 4) {
+                Image(systemName: status.icon)
+                    .font(.system(size: 9))
+                Text(status.label)
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundColor(status.color)
+            .frame(width: 70, alignment: .leading)
+
+            // Take info
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(ratingColor(take.rating))
+                    .frame(width: 6, height: 6)
+                Text("T\(take.takeNumber)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                Text(take.rating.rawValue)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(ratingColor(take.rating).opacity(0.7))
+            }
+            .frame(width: 110, alignment: .leading)
+
+            // Camera clip name (OCR-extracted)
+            if let clipName = take.cameraClipName {
+                Text(clipName)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.orange.opacity(0.8))
+                    .frame(width: 90, alignment: .leading)
+            } else {
+                Text("—")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray.opacity(0.2))
+                    .frame(width: 90, alignment: .leading)
+            }
+
+            // Timestamp
+            if let ts = take.startTimestamp {
+                Text(Take.formatForCameraMatch(ts))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.accentColor.opacity(0.5))
+                    .frame(width: 130, alignment: .leading)
+            } else {
+                Text("—")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray.opacity(0.2))
+                    .frame(width: 130, alignment: .leading)
+            }
+
+            // Video status
+            HStack(spacing: 3) {
+                if let name = take.cameraSourceFileName {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 9))
+                        .foregroundColor(.green)
+                    Text(name)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.green.opacity(0.85))
+                        .lineLimit(1)
+
+                    // Copy path
+                    if let url = viewModel.cameraFileURL(for: name) {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(url.path, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundColor(.gray.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy path")
+
+                        // Reveal in Finder
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        } label: {
+                            Image(systemName: "folder")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundColor(.gray.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reveal in Finder")
+                    }
+                } else {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 9))
+                        .foregroundColor(.red.opacity(0.4))
+                    Text("Not mapped")
+                        .font(.system(size: 9))
+                        .foregroundColor(.red.opacity(0.4))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Audio status
+            HStack(spacing: 3) {
+                if take.useAudioFromVideo {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.purple)
+                    Text("From video")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.purple.opacity(0.85))
+                } else if let name = take.externalAudioFileName {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 9))
+                        .foregroundColor(.blue)
+                    Text(name)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.blue.opacity(0.85))
+                        .lineLimit(1)
+
+                    // Copy path
+                    if let url = viewModel.audioFileURL(for: name) {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(url.path, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundColor(.gray.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy path")
+
+                        // Reveal in Finder
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        } label: {
+                            Image(systemName: "folder")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundColor(.gray.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reveal in Finder")
+                    }
+                } else {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 9))
+                        .foregroundColor(.red.opacity(0.4))
+                    Text("Not mapped")
+                        .font(.system(size: 9))
+                        .foregroundColor(.red.opacity(0.4))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Audio from video toggle
+            Menu {
+                if take.useAudioFromVideo {
+                    Button {
+                        updateTake(take, in: shot) { $0.useAudioFromVideo = false }
+                    } label: {
+                        Label("Use External Audio", systemImage: "waveform")
+                    }
+                } else {
+                    Button {
+                        updateTake(take, in: shot) {
+                            $0.useAudioFromVideo = true
+                            $0.externalAudioFileName = nil
+                        }
+                    } label: {
+                        Label("Use Audio from Video", systemImage: "video.fill")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray.opacity(0.3))
+                    .frame(width: 24, height: 20)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            // Sync status
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 8))
+                .foregroundColor({
+                    if take.isAudioVideoSynced == true { return Color.green }
+                    if take.isAudioVideoSynced == false { return Color.red }
+                    if take.useAudioFromVideo { return Color.green }
+                    if take.cameraSourceFileName != nil && take.externalAudioFileName != nil { return Color.yellow }
+                    return Color.gray.opacity(0.15)
+                }())
+                .frame(width: 36, alignment: .center)
+
+            // Per-row actions: map / remap / clear
+            HStack(spacing: 4) {
+                let hasVideo = take.cameraSourceFileName != nil
+                let hasAudio = take.externalAudioFileName != nil || take.useAudioFromVideo
+
+                // Map / Remap button
+                Button {
+                    // Try video match
+                    if let videoMatch = viewModel.matchSingleTake(take) {
+                        updateTake(take, in: shot) { $0.cameraSourceFileName = videoMatch }
+                    }
+                    // Try audio match (only if not using audio from video)
+                    if !take.useAudioFromVideo {
+                        if let audioMatch = viewModel.matchSingleTakeAudio(take) {
+                            updateTake(take, in: shot) { $0.externalAudioFileName = audioMatch }
+                        }
+                    }
+                } label: {
+                    Image(systemName: hasVideo || hasAudio ? "arrow.triangle.2.circlepath" : "link")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.accentColor.opacity(0.7))
+                        .frame(width: 22, height: 20)
+                }
+                .buttonStyle(.plain)
+                .help(hasVideo || hasAudio ? "Remap this take" : "Map this take")
+
+                // Clear mapping
+                if hasVideo || (take.externalAudioFileName != nil) {
+                    Button {
+                        updateTake(take, in: shot) {
+                            $0.cameraSourceFileName = nil
+                            $0.externalAudioFileName = nil
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.gray.opacity(0.4))
+                            .frame(width: 22, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear all mappings for this take")
+                }
+            }
+            .frame(width: 70, alignment: .center)
+        }
+        .padding(.horizontal, 32).padding(.vertical, 5)
+        .background(Color(hex: "#1A1A1A"))
+    }
+
+    // MARK: - Media Sources Panel
+
+    private var mediaSourcesPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 8) {
+                Image(systemName: "externaldrive.connected.to.line.below.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.accentColor)
+                Text("MEDIA SOURCES")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(.gray)
+
+                Spacer()
+
+                // Match stats
+                let matched = viewModel.matchedTakeCount(in: project)
+                let unmatched = viewModel.unmatchedTakeCount(in: project)
+                let total = matched + unmatched
+                if total > 0 {
+                    HStack(spacing: 6) {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 2.5)
+                                    .fill(Color.white.opacity(0.06))
+                                RoundedRectangle(cornerRadius: 2.5)
+                                    .fill(matched == total ? Color.green : Color.accentColor)
+                                    .frame(width: max(0, geo.size.width * CGFloat(matched) / CGFloat(total)))
+                            }
+                        }
+                        .frame(width: 40, height: 5)
+
+                        Text("\(matched)/\(total)")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(matched == total ? .green : .gray)
+                        Text("matched")
+                            .font(.system(size: 8))
+                            .foregroundColor(.gray.opacity(0.4))
+                    }
+                }
+
+                // Rescan
+                if !viewModel.mediaSources.isEmpty {
+                    Button { viewModel.rescanAllSources() } label: {
+                        Image(systemName: viewModel.isScanning ? "progress.indicator" : "arrow.clockwise")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.gray.opacity(0.5))
+                            .frame(width: 24, height: 24)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: "#2A2A2A")))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Rescan all sources")
+                }
+
+                // Sort & filter
+                Menu {
+                    ForEach(CurationSortOrder.allCases, id: \.self) { order in
+                        Button {
+                            viewModel.sortOrder = order
+                        } label: {
+                            if viewModel.sortOrder == order {
+                                Label(order.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(order.rawValue)
+                            }
+                        }
+                    }
+                    Divider()
+                    Button {
+                        viewModel.showOnlyUnmatched.toggle()
+                    } label: {
+                        if viewModel.showOnlyUnmatched {
+                            Label("Show All Takes", systemImage: "line.3.horizontal.decrease.circle")
+                        } else {
+                            Label("Show Unmatched Only", systemImage: "exclamationmark.triangle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(viewModel.sortOrder != .takeNumber || viewModel.showOnlyUnmatched ? .accentColor : .gray.opacity(0.5))
+                        .frame(width: 24, height: 24)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: "#2A2A2A")))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Sort & filter")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            // Sources in two columns
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    mediaSourceColumn(
+                        label: "VIDEO",
+                        icon: "video.fill",
+                        color: .accentColor,
+                        sources: viewModel.mediaSources.filter { $0.type == .video },
+                        fileCount: viewModel.totalVideoFiles,
+                        addLabel: "Add camera folder",
+                        onAdd: { viewModel.addVideoSource() }
+                    )
+
+                    Rectangle()
+                        .fill(Color.white.opacity(0.04))
+                        .frame(width: 1)
+
+                    mediaSourceColumn(
+                        label: "AUDIO",
+                        icon: "waveform",
+                        color: .blue,
+                        sources: viewModel.mediaSources.filter { $0.type == .audio },
+                        fileCount: viewModel.totalAudioFiles,
+                        addLabel: "Add audio folder",
+                        onAdd: { viewModel.addAudioSource() }
+                    )
+                }
+
+                // Match actions
+                if !viewModel.cameraFiles.isEmpty || !viewModel.audioFiles.isEmpty {
+                    HStack(spacing: 8) {
+                        if !viewModel.cameraFiles.isEmpty {
+                            Button {
+                                let results = viewModel.autoMatchByTimestamp(project: project)
+                                if !results.isEmpty {
+                                    viewModel.applyAutoMatchResults(results, project: &project)
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "clock.arrow.2.circlepath").font(.system(size: 9, weight: .semibold))
+                                    Text("Auto-Match by Timestamp").font(.system(size: 10, weight: .medium))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 14).padding(.vertical, 7)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
+                            }
+                            .buttonStyle(.plain)
+
+                            let hasClipNames = project.sequences.flatMap { $0.scenes }.flatMap { $0.shots }.flatMap { $0.takes }.contains { $0.cameraClipName != nil }
+                            if hasClipNames {
+                                Button {
+                                    let results = viewModel.autoMatchByClipName(project: project)
+                                    if !results.isEmpty {
+                                        viewModel.applyAutoMatchResults(results, project: &project)
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "text.magnifyingglass").font(.system(size: 9, weight: .semibold))
+                                        Text("Match by Clip Name").font(.system(size: 10, weight: .medium))
+                                    }
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .padding(.horizontal, 14).padding(.vertical, 7)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: "#2A2A2A")))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        Spacer()
+
+                        // Remap all — re-run matching after adding new sources
+                        Button {
+                            viewModel.rescanAllSources()
+                            // Re-run both matching strategies
+                            let tsResults = viewModel.autoMatchByTimestamp(project: project)
+                            if !tsResults.isEmpty {
+                                viewModel.applyAutoMatchResults(tsResults, project: &project)
+                            }
+                            let clipResults = viewModel.autoMatchByClipName(project: project)
+                            if !clipResults.isEmpty {
+                                viewModel.applyAutoMatchResults(clipResults, project: &project)
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 9, weight: .semibold))
+                                Text("Remap All").font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 14).padding(.vertical, 7)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: "#2A2A2A")))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Rescan sources and re-run all matching")
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+        }
+        .background(Color(hex: "#1E1E1E"))
+    }
+
+    // MARK: - Media Source Column
+
+    private func mediaSourceColumn(
+        label: String,
+        icon: String,
+        color: Color,
+        sources: [MediaSource],
+        fileCount: Int,
+        addLabel: String,
+        onAdd: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Column header
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+                    .foregroundColor(color.opacity(0.7))
+                Text(label)
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundColor(.gray.opacity(0.5))
+
+                Spacer()
+
+                if fileCount > 0 {
+                    Text("\(fileCount) files")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundColor(color.opacity(0.5))
+                }
+            }
+
+            // Source rows
+            ForEach(sources) { source in
+                mediaSourceRow(source: source, color: color)
+            }
+
+            // Add button
+            Button(action: onAdd) {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 8, weight: .bold))
+                    Text(sources.isEmpty ? addLabel : "Add source")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(color.opacity(0.5))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(color.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Media Source Row
+
+    private func mediaSourceRow(source: MediaSource, color: Color) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: source.type == .video ? "sdcard.fill" : "mic.fill")
+                .font(.system(size: 9))
+                .foregroundColor(color.opacity(0.6))
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(source.label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text("\(source.fileCount) files")
+                        .font(.system(size: 8))
+                        .foregroundColor(color.opacity(0.45))
+                    if let t = source.lastScanned {
+                        Text(t, style: .relative)
+                            .font(.system(size: 8))
+                            .foregroundColor(.gray.opacity(0.25))
+                    }
+                }
+            }
+
+            Spacer()
+
+            Button { NSWorkspace.shared.open(source.url) } label: {
+                Image(systemName: "folder")
+                    .font(.system(size: 8))
+                    .foregroundColor(.gray.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+            .help("Reveal in Finder")
+
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    viewModel.removeSource(source)
+                }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray.opacity(0.2))
+            }
+            .buttonStyle(.plain)
+            .help("Remove source")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: "#252525")))
+    }
+
     // MARK: - Navigator Panel
 
     private var navigatorPanel: some View {
@@ -414,19 +1282,37 @@ struct CurationView: View {
             Divider().opacity(0.3)
 
             // Scene tree
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    let scenes = viewModel.filteredScenes(from: project)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 1) {
+                        let scenes = viewModel.filteredScenes(from: project)
 
-                    if scenes.isEmpty {
-                        emptyNavigator
-                    } else {
-                        ForEach(scenes, id: \.name) { scene in
-                            sceneSection(scene)
+                        if scenes.isEmpty {
+                            emptyNavigator
+                        } else {
+                            ForEach(scenes, id: \.name) { scene in
+                                sceneSection(scene)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+                .onChange(of: viewModel.selectedTake?.id) { _, newId in
+                    if let id = newId {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(id, anchor: .center)
                         }
                     }
                 }
-                .padding(.vertical, 6)
+                .onAppear {
+                    if let id = viewModel.selectedTake?.id {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo(id, anchor: .center)
+                            }
+                        }
+                    }
+                }
             }
 
             Divider().opacity(0.3)
@@ -558,9 +1444,14 @@ struct CurationView: View {
                 }
             }
 
-            // Takes
-            ForEach(shot.takes.sorted(by: { $0.takeNumber < $1.takeNumber })) { take in
+            // Takes (sorted + filtered)
+            let sortedTakes = viewModel.sortedTakes(shot.takes)
+            let displayTakes = viewModel.showOnlyUnmatched
+                ? sortedTakes.filter { $0.capturedVideoPath != nil && $0.cameraSourceFileName == nil }
+                : sortedTakes
+            ForEach(displayTakes) { take in
                 takeNavigatorRow(take, shot: shot, scene: scene)
+                    .id(take.id)
             }
         }
     }
@@ -593,7 +1484,7 @@ struct CurationView: View {
 
                 // Compact timestamp for matching
                 if let ts = take.startTimestamp {
-                    Text(curationCompactTimeFormatter.string(from: ts))
+                    Text(Self.curationCompactTimeFormatter.string(from: ts))
                         .font(.system(size: 8, weight: .medium, design: .monospaced))
                         .foregroundColor(.accentColor.opacity(0.5))
                         .monospacedDigit()
@@ -607,11 +1498,41 @@ struct CurationView: View {
                         .monospacedDigit()
                 }
 
-                // Has video indicator
-                if take.capturedVideoPath != nil || take.cameraSourceFileName != nil {
-                    Image(systemName: "film.fill")
+                // Connection status icons (compact)
+                let navVideoColor: Color = {
+                    if take.cameraSourceFileName != nil { return .green }
+                    if take.hasCameraMetadata { return .yellow }
+                    if !viewModel.cameraFiles.isEmpty { return .red }
+                    if take.capturedVideoPath != nil { return .gray }
+                    return .clear
+                }()
+                if navVideoColor != .clear {
+                    Image(systemName: take.cameraSourceFileName != nil ? "video.fill" : "film.fill")
                         .font(.system(size: 7))
-                        .foregroundColor(.green.opacity(0.4))
+                        .foregroundColor(navVideoColor.opacity(0.6))
+                }
+
+                let navAudioColor: Color = {
+                    if take.externalAudioFileName != nil { return .green }
+                    if !viewModel.audioFiles.isEmpty { return .red }
+                    return .clear
+                }()
+                if navAudioColor != .clear {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 7))
+                        .foregroundColor(navAudioColor.opacity(0.6))
+                }
+
+                let navSyncColor: Color = {
+                    if take.isAudioVideoSynced == true { return .green }
+                    if take.isAudioVideoSynced == false { return .red }
+                    if take.cameraSourceFileName != nil && take.externalAudioFileName != nil { return .yellow }
+                    return .clear
+                }()
+                if navSyncColor != .clear {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 7))
+                        .foregroundColor(navSyncColor.opacity(0.6))
                 }
 
                 // Notes indicator
@@ -833,6 +1754,9 @@ struct CurationView: View {
                 // Video preview
                 videoPreview(take: take)
 
+                // Audio cue detection timeline
+                audioCueTimeline(take: take, shot: shot)
+
                 // Two-column: Rating + Metadata
                 HStack(alignment: .top, spacing: 16) {
                     // Rating card
@@ -845,8 +1769,14 @@ struct CurationView: View {
                 // Notes
                 notesCard(take: take, shot: shot)
 
+                // Camera footage metadata (OCR-extracted)
+                cameraFootageMetadataCard(take: take, shot: shot)
+
                 // Camera source
                 cameraSourceCard(take: take, shot: shot)
+
+                // External audio
+                externalAudioCard(take: take, shot: shot)
 
                 // Tags
                 tagsCard(take: take, shot: shot)
@@ -882,9 +1812,14 @@ struct CurationView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 // Shot description
-                Text("Shot #\(shot.shotId)")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                HStack(spacing: 8) {
+                    Text("Shot #\(shot.shotId)")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    // Status icons
+                    takeStatusIcons(take: take)
+                }
 
                 Text(scene.name)
                     .font(.system(size: 11))
@@ -925,6 +1860,21 @@ struct CurationView: View {
                     .buttonStyle(.plain)
                 }
 
+                // Navigate to Shot List → Takes section
+                Button {
+                    coordinator.scrollToShotSection = "takes"
+                    coordinator.selectShot(shot)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "camera.viewfinder").font(.system(size: 9))
+                        Text("Shot List").font(.system(size: 10, weight: .medium))
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Capsule().fill(Color(hex: "#3A3A3A")))
+                    .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+
                 // Delete take
                 Button { deleteTake(take, in: shot) } label: {
                     Image(systemName: "trash")
@@ -936,6 +1886,121 @@ struct CurationView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    // MARK: - Take Status Icons
+
+    private enum ConnectionStatus {
+        case connected   // green — file mapped
+        case partial     // yellow — metadata extracted / dir browsed but not mapped
+        case unmatched   // red — browsed but no match found
+        case inactive    // gray — nothing done
+
+        var color: Color {
+            switch self {
+            case .connected: return .green
+            case .partial: return .yellow
+            case .unmatched: return .red
+            case .inactive: return .gray
+            }
+        }
+    }
+
+    /// Shows connection status icons for camera file, audio file, and sync state
+    private func takeStatusIcons(take: Take) -> some View {
+        HStack(spacing: 5) {
+            // Video status
+            let videoStatus: ConnectionStatus = {
+                if take.cameraSourceFileName != nil && !(take.cameraSourceFileName!.isEmpty) {
+                    return .connected
+                } else if take.hasCameraMetadata {
+                    return .partial
+                } else if !viewModel.cameraFiles.isEmpty {
+                    return .unmatched
+                }
+                return .inactive
+            }()
+            statusBadge(
+                icon: "video.fill",
+                status: videoStatus,
+                label: {
+                    switch videoStatus {
+                    case .connected: return "Camera file linked: \(take.cameraSourceFileName ?? "")"
+                    case .partial: return "Metadata extracted — no camera file mapped"
+                    case .unmatched: return "Camera files browsed — no match"
+                    case .inactive: return "No camera file"
+                    }
+                }()
+            )
+
+            // Audio status
+            let audioStatus: ConnectionStatus = {
+                if take.useAudioFromVideo {
+                    return .connected
+                } else if take.externalAudioFileName != nil && !(take.externalAudioFileName!.isEmpty) {
+                    return .connected
+                } else if !viewModel.audioFiles.isEmpty {
+                    return .unmatched
+                }
+                return .inactive
+            }()
+            statusBadge(
+                icon: take.useAudioFromVideo ? "video.fill" : "waveform",
+                status: audioStatus,
+                label: {
+                    if take.useAudioFromVideo { return "Audio sourced from video file" }
+                    switch audioStatus {
+                    case .connected: return "Audio linked: \(take.externalAudioFileName ?? "")"
+                    case .partial: return "Audio detected — not mapped"
+                    case .unmatched: return "Audio files browsed — no match"
+                    case .inactive: return "No audio file"
+                    }
+                }()
+            )
+
+            // Sync status (placeholder)
+            let syncStatus: ConnectionStatus = {
+                if take.useAudioFromVideo { return .connected }
+                if let synced = take.isAudioVideoSynced {
+                    return synced ? .connected : .unmatched
+                }
+                if take.cameraSourceFileName != nil && take.externalAudioFileName != nil {
+                    return .partial
+                }
+                return .inactive
+            }()
+            statusBadge(
+                icon: "arrow.triangle.2.circlepath",
+                status: syncStatus,
+                label: {
+                    if take.useAudioFromVideo { return "Audio from video — always synced" }
+                    switch syncStatus {
+                    case .connected: return "Audio & video synced"
+                    case .partial: return "Sync not checked"
+                    case .unmatched: return "Not synced"
+                    case .inactive: return "Sync unavailable"
+                    }
+                }()
+            )
+        }
+    }
+
+    private func statusBadge(icon: String, status: ConnectionStatus, label: String) -> some View {
+        let color = status.color
+        let isActive = status != .inactive
+        return Image(systemName: icon)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(isActive ? color : .gray.opacity(0.2))
+            .frame(width: 20, height: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isActive ? color.opacity(0.15) : Color(hex: "#2A2A2A"))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(isActive ? color.opacity(0.4) : Color.clear, lineWidth: 1)
+            )
+            .help(label)
     }
 
     // MARK: - Video Preview
@@ -992,6 +2057,330 @@ struct CurationView: View {
                 Text("No video file")
                     .font(.system(size: 10))
                     .foregroundColor(.gray.opacity(0.3))
+            }
+        }
+    }
+
+    // MARK: - Audio Cue Timeline
+
+    private func audioCueTimeline(take: Take, shot: Shot) -> some View {
+        Group {
+            if take.capturedVideoPath != nil {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Header
+                    HStack(spacing: 6) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 11))
+                            .foregroundColor(.accentColor)
+                        Text("AUDIO CUES")
+                            .font(.system(size: 10, weight: .bold))
+                            .tracking(1.2)
+                            .foregroundColor(.gray)
+
+                        Spacer()
+
+                        // Detection status / button
+                        if viewModel.isDetectingCues {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(detectionStatusText)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.gray)
+                            }
+                        } else {
+                            Button {
+                                guard let dir = projectDir else { return }
+                                Task {
+                                    if let result = await viewModel.detectAudioCues(for: take, projectDir: dir),
+                                       result.hasResults {
+                                        updateTake(take, in: shot) { t in
+                                            result.apply(to: &t)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: take.hasAudioCueDetection ? "arrow.clockwise" : "waveform.badge.magnifyingglass")
+                                        .font(.system(size: 9))
+                                    Text(take.hasAudioCueDetection ? "Re-detect" : "Detect Cues")
+                                        .font(.system(size: 10, weight: .medium))
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Capsule().fill(Color(hex: "#3A3A3A")))
+                                .foregroundColor(.gray)
+                            }
+                            .buttonStyle(.plain)
+
+                            // Detect Sync button
+                            if viewModel.isDetectingSyncTones {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Detecting sync...")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.purple)
+                                }
+                            } else {
+                                Button {
+                                    guard let dir = projectDir else { return }
+                                    Task {
+                                        if let result = await viewModel.detectSyncTones(for: take, projectDir: dir),
+                                           result.hasResults {
+                                            updateTake(take, in: shot) { t in
+                                                result.apply(to: &t)
+                                            }
+                                            // Also try computing offset if camera footage is mapped
+                                            if let offset = await viewModel.computeSyncOffset(for: take, projectDir: dir) {
+                                                updateTake(take, in: shot) { t in
+                                                    t.syncOffset = offset
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: take.hasSyncToneDetection ? "arrow.clockwise" : "waveform.badge.plus")
+                                            .font(.system(size: 9))
+                                        Text(take.hasSyncToneDetection ? "Re-detect Sync" : "Detect Sync")
+                                            .font(.system(size: 10, weight: .medium))
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Capsule().fill(Color.purple.opacity(0.3)))
+                                    .foregroundColor(.purple)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    if take.hasAudioCueDetection || take.hasSyncToneDetection {
+                        // Visual timeline bar
+                        audioCueTimelineBar(take: take)
+
+                        // Timestamp readout
+                        audioCueTimestampReadout(take: take)
+                    } else if !viewModel.isDetectingCues && !viewModel.isDetectingSyncTones {
+                        // Empty state
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 6) {
+                                Image(systemName: "waveform.slash")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.gray.opacity(0.2))
+                                Text("No cues detected yet")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.gray.opacity(0.3))
+                            }
+                            .padding(.vertical, 12)
+                            Spacer()
+                        }
+                    }
+                }
+                .padding(14)
+                .background(Color(hex: "#252525"))
+                .cornerRadius(10)
+            }
+        }
+    }
+
+    private var detectionStatusText: String {
+        switch viewModel.detectionStatus {
+        case .idle: return "Starting..."
+        case .extractingAudio: return "Extracting audio..."
+        case .recognizingSpeech(let progress): return "Recognizing speech \(Int(progress * 100))%..."
+        case .analyzing: return "Analyzing words..."
+        case .completed: return "Done"
+        case .failed(let msg): return "Failed: \(msg)"
+        }
+    }
+
+    private func audioCueTimelineBar(take: Take) -> some View {
+        let duration = take.durationSeconds ?? 1.0
+
+        return GeometryReader { geo in
+            let width = geo.size.width
+
+            ZStack(alignment: .leading) {
+                // Background bar (full duration)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(hex: "#1A1A1A"))
+                    .frame(height: 32)
+
+                // Highlighted region between action and cut
+                if let actionTime = take.actionTimestamp, let cutTime = take.cutTimestamp, cutTime > actionTime {
+                    let startX = CGFloat(actionTime / duration) * width
+                    let endX = CGFloat(cutTime / duration) * width
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor.opacity(0.15))
+                        .frame(width: max(endX - startX, 2), height: 32)
+                        .offset(x: startX)
+                }
+
+                // Action marker (green vertical line)
+                if let actionTime = take.actionTimestamp {
+                    let xPos = CGFloat(actionTime / duration) * width
+                    VStack(spacing: 2) {
+                        Text("ACTION")
+                            .font(.system(size: 7, weight: .bold))
+                            .tracking(0.5)
+                            .foregroundColor(.green)
+                        Rectangle()
+                            .fill(Color.green)
+                            .frame(width: 2, height: 20)
+                    }
+                    .offset(x: xPos - 16)
+                }
+
+                // Cut marker (red vertical line)
+                if let cutTime = take.cutTimestamp {
+                    let xPos = CGFloat(cutTime / duration) * width
+                    VStack(spacing: 2) {
+                        Text("CUT")
+                            .font(.system(size: 7, weight: .bold))
+                            .tracking(0.5)
+                            .foregroundColor(.red)
+                        Rectangle()
+                            .fill(Color.red)
+                            .frame(width: 2, height: 20)
+                    }
+                    .offset(x: xPos - 8)
+                }
+
+                // Sync tone markers (purple vertical lines)
+                if let syncTimestamps = take.syncToneTimestamps {
+                    ForEach(Array(syncTimestamps.enumerated()), id: \.offset) { _, syncTime in
+                        let xPos = CGFloat(syncTime / duration) * width
+                        VStack(spacing: 2) {
+                            Text("SYNC")
+                                .font(.system(size: 7, weight: .bold))
+                                .tracking(0.5)
+                                .foregroundColor(.purple)
+                            Rectangle()
+                                .fill(Color.purple)
+                                .frame(width: 2, height: 20)
+                        }
+                        .offset(x: xPos - 10)
+                    }
+                }
+            }
+        }
+        .frame(height: 44)
+    }
+
+    private func audioCueTimestampReadout(take: Take) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 16) {
+                // Action info
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(take.actionTimestamp != nil ? Color.green : Color.gray.opacity(0.3))
+                        .frame(width: 7, height: 7)
+
+                    if let actionTime = take.actionTimestamp {
+                        Text("Action at \(viewModel.formatCueTimestamp(actionTime))")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+
+                        if let word = take.detectedActionWord, word.lowercased() != "action" {
+                            Text("(\"\(word)\")")
+                                .font(.system(size: 9))
+                                .foregroundColor(.gray)
+                        }
+
+                        if let conf = take.actionConfidence {
+                            Text("\(Int(conf * 100))%")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundColor(.green.opacity(0.7))
+                        }
+                    } else {
+                        Text("Action: not detected")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray.opacity(0.5))
+                    }
+                }
+
+                Spacer()
+
+                // Cut info
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(take.cutTimestamp != nil ? Color.red : Color.gray.opacity(0.3))
+                        .frame(width: 7, height: 7)
+
+                    if let cutTime = take.cutTimestamp {
+                        Text("Cut at \(viewModel.formatCueTimestamp(cutTime))")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+
+                        if let word = take.detectedCutWord, word.lowercased() != "cut" {
+                            Text("(\"\(word)\")")
+                                .font(.system(size: 9))
+                                .foregroundColor(.gray)
+                        }
+
+                        if let conf = take.cutConfidence {
+                            Text("\(Int(conf * 100))%")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundColor(.red.opacity(0.7))
+                        }
+                    } else {
+                        Text("Cut: not detected")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray.opacity(0.5))
+                    }
+                }
+            }
+
+            // Useful duration
+            if let useful = take.usefulDuration {
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                        .font(.system(size: 9))
+                        .foregroundColor(.accentColor)
+                    Text("Useful: \(viewModel.formatCueTimestamp(useful))")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                }
+            }
+
+            // Sync tone info
+            if let syncTimestamps = take.syncToneTimestamps, !syncTimestamps.isEmpty {
+                Divider().opacity(0.3)
+
+                HStack(spacing: 16) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.purple)
+                            .frame(width: 7, height: 7)
+
+                        Text("Sync at \(syncTimestamps.map { viewModel.formatCueTimestamp($0) }.joined(separator: ", "))")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+
+                        if let bestConf = take.bestSyncConfidence {
+                            Text("\(Int(bestConf * 100))%")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundColor(.purple.opacity(0.7))
+                        }
+                    }
+
+                    Spacer()
+
+                    // Sync offset display
+                    if let offset = take.syncOffset {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.left.and.right")
+                                .font(.system(size: 8))
+                                .foregroundColor(.purple)
+                            Text(String(format: "%+.3fs", offset))
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(.purple)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1177,6 +2566,143 @@ struct CurationView: View {
         .cornerRadius(10)
     }
 
+    // MARK: - Camera Footage Metadata Card
+
+    private func cameraFootageMetadataCard(take: Take, shot: Shot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: 11))
+                    .foregroundColor(.accentColor)
+                Text("CAMERA FOOTAGE METADATA")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(.gray)
+
+                Spacer()
+
+                if viewModel.isExtractingMetadata {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                } else {
+                    Button {
+                        guard let dir = projectDir else { return }
+                        Task {
+                            if let metadata = await viewModel.extractCameraMetadata(for: take, projectDir: dir),
+                               metadata.hasData {
+                                updateTake(take, in: shot) { t in
+                                    metadata.apply(to: &t)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "eye.viewfinder").font(.system(size: 9))
+                            Text("Extract from Video").font(.system(size: 9, weight: .medium))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Capsule().fill(Color.accentColor))
+                        .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(take.capturedVideoPath == nil)
+                    .opacity(take.capturedVideoPath == nil ? 0.4 : 1)
+                }
+            }
+
+            if take.hasCameraMetadata {
+                let columns = [GridItem(.flexible()), GridItem(.flexible())]
+                LazyVGrid(columns: columns, spacing: 8) {
+                    cameraMetadataCell(icon: "doc.text", label: "Clip Name", value: take.cameraClipName, highlight: true)
+                    cameraMetadataCell(icon: "rectangle.split.2x2", label: "Resolution", value: take.cameraResolution)
+                    cameraMetadataCell(icon: "speedometer", label: "Frame Rate", value: take.cameraFrameRate)
+                    cameraMetadataCell(icon: "sun.max", label: "ISO", value: take.cameraISO)
+                    cameraMetadataCell(icon: "camera.aperture", label: "Aperture", value: take.cameraAperture)
+                    cameraMetadataCell(icon: "thermometer.medium", label: "White Balance", value: take.cameraWhiteBalance)
+                    cameraMetadataCell(icon: "clock", label: "Timecode", value: take.cameraTimecode)
+                    cameraMetadataCell(icon: "slider.horizontal.3", label: "LUT / Gamma", value: take.cameraLUT)
+                    cameraMetadataCell(icon: "scope", label: "Focus Mode", value: take.cameraFocusMode)
+                }
+            } else {
+                VStack(spacing: 6) {
+                    Text("No camera metadata extracted")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray.opacity(0.4))
+                    Text("Click \"Extract from Video\" to read viewfinder overlay via OCR")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.3))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            }
+        }
+        .padding(14)
+        .background(Color(hex: "#252525"))
+        .cornerRadius(10)
+    }
+
+    @ViewBuilder
+    private func cameraMetadataCell(icon: String, label: String, value: String?, highlight: Bool = false) -> some View {
+        if let value {
+            let isCopied = copiedMetadataLabel == label
+
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(value, forType: .string)
+                copiedMetadataLabel = label
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if copiedMetadataLabel == label { copiedMetadataLabel = nil }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isCopied ? "checkmark.circle.fill" : icon)
+                        .font(.system(size: 10))
+                        .foregroundColor(isCopied ? .green : (highlight ? .accentColor : .gray.opacity(0.5)))
+                        .frame(width: 14)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(label.uppercased())
+                            .font(.system(size: 7, weight: .semibold))
+                            .tracking(0.8)
+                            .foregroundColor(.gray.opacity(0.5))
+                        Text(value)
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(highlight ? .accentColor : .white)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: "#1E1E1E")))
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                hoveredMetadataLabel = hovering ? label : nil
+                if hovering { NSCursor.pointingHand.push() }
+                else { NSCursor.pop() }
+            }
+            .overlay(alignment: .top) {
+                if hoveredMetadataLabel == label || isCopied {
+                    Text(isCopied ? "Copied!" : "Click to copy")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(isCopied ? .green : .white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(Color(hex: "#333333"))
+                                .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                        )
+                        .offset(y: -28)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.15), value: isCopied)
+                }
+            }
+        }
+    }
+
     // MARK: - Camera Source Card
 
     private func cameraSourceCard(take: Take, shot: Shot) -> some View {
@@ -1191,6 +2717,45 @@ struct CurationView: View {
                     .foregroundColor(.gray)
 
                 Spacer()
+
+                // Auto-match by timestamp
+                if !viewModel.cameraFiles.isEmpty {
+                    Button {
+                        let results = viewModel.autoMatchByTimestamp(project: project)
+                        if !results.isEmpty {
+                            viewModel.applyAutoMatchResults(results, project: &project)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock.arrow.2.circlepath").font(.system(size: 9))
+                            Text("Auto-Match").font(.system(size: 9, weight: .medium))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Capsule().fill(Color.accentColor))
+                        .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
+
+                    // Match by clip name — only when OCR data exists
+                    let hasAnyClipName = project.sequences.flatMap { $0.scenes }.flatMap { $0.shots }.flatMap { $0.takes }.contains { $0.cameraClipName != nil }
+                    if hasAnyClipName {
+                        Button {
+                            let results = viewModel.autoMatchByClipName(project: project)
+                            if !results.isEmpty {
+                                viewModel.applyAutoMatchResults(results, project: &project)
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "text.magnifyingglass").font(.system(size: 9))
+                                Text("Clip Name").font(.system(size: 9, weight: .medium))
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Capsule().fill(Color(hex: "#3A3A3A")))
+                            .foregroundColor(.gray)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
 
                 Button { viewModel.selectCameraSourceDirectory() } label: {
                     HStack(spacing: 4) {
@@ -1279,6 +2844,173 @@ struct CurationView: View {
         .padding(14)
         .background(Color(hex: "#252525"))
         .cornerRadius(10)
+    }
+
+    // MARK: - External Audio Card
+
+    private func externalAudioCard(take: Take, shot: Shot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 11))
+                    .foregroundColor(.accentColor)
+                Text("EXTERNAL AUDIO")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(.gray)
+
+                Spacer()
+
+                // "Audio from Video" toggle
+                Button {
+                    updateTake(take, in: shot) {
+                        $0.useAudioFromVideo.toggle()
+                        if $0.useAudioFromVideo { $0.externalAudioFileName = nil }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: take.useAudioFromVideo ? "checkmark.circle.fill" : "video.fill")
+                            .font(.system(size: 9))
+                        Text("Audio from Video")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(take.useAudioFromVideo ? Color.purple.opacity(0.2) : Color(hex: "#3A3A3A")))
+                    .foregroundColor(take.useAudioFromVideo ? .purple : .gray)
+                    .overlay(Capsule().stroke(take.useAudioFromVideo ? Color.purple.opacity(0.4) : Color.clear, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("Use audio track from the video file instead of external audio")
+
+                if !take.useAudioFromVideo {
+                    Button { viewModel.selectAudioDirectory() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "folder.badge.plus").font(.system(size: 9))
+                            Text("Browse").font(.system(size: 9, weight: .medium))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Capsule().fill(Color(hex: "#3A3A3A")))
+                        .foregroundColor(.gray)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Current mapping
+            if take.useAudioFromVideo {
+                HStack(spacing: 8) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.purple)
+                    Text("Audio sourced from video file")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.purple.opacity(0.8))
+                    Spacer()
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: take.externalAudioFileName != nil ? "checkmark.circle.fill" : "circle.dashed")
+                        .font(.system(size: 12))
+                        .foregroundColor(take.externalAudioFileName != nil ? .green : .gray.opacity(0.3))
+
+                    if let name = take.externalAudioFileName, !name.isEmpty {
+                        Text(name)
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        Button {
+                            viewModel.clearAudioMapping(for: take, inShot: shot, project: &project)
+                            if let updatedTake = findTake(take.id, inShot: shot) {
+                                viewModel.selectedTake = updatedTake
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text("No external audio mapped")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray.opacity(0.4))
+
+                        Spacer()
+                    }
+                }
+            }
+
+            // Audio files grid
+            if !take.useAudioFromVideo && !viewModel.audioFiles.isEmpty {
+                Divider().opacity(0.2)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(viewModel.audioFiles) { file in
+                            let isMapped = take.externalAudioFileName == file.fileName
+
+                            Button {
+                                viewModel.mapAudioFile(file, toTake: take, inShot: shot, project: &project)
+                                if let updatedTake = findTake(take.id, inShot: shot) {
+                                    viewModel.selectedTake = updatedTake
+                                }
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: isMapped ? "waveform.circle.fill" : "waveform")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(isMapped ? .green : .gray.opacity(0.5))
+
+                                    Text(file.fileName)
+                                        .font(.system(size: 8, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.8))
+                                        .lineLimit(1)
+
+                                    Text(viewModel.formatFileSize(file.fileSize))
+                                        .font(.system(size: 7))
+                                        .foregroundColor(.gray.opacity(0.4))
+
+                                    if let created = file.creationDate {
+                                        Text(Take.formatForCameraMatch(created))
+                                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                                            .foregroundColor(.accentColor.opacity(0.7))
+                                            .lineLimit(1)
+                                            .monospacedDigit()
+                                    }
+                                }
+                                .frame(width: 90)
+                                .padding(8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(isMapped ? Color.green.opacity(0.1) : Color(hex: "#2A2A2A"))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(isMapped ? Color.green.opacity(0.3) : Color.clear, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(height: 80)
+            }
+        }
+        .padding(14)
+        .background(Color(hex: "#252525"))
+        .cornerRadius(10)
+    }
+
+    /// Helper to find a take in the project after mutation
+    private func findTake(_ takeId: String, inShot shot: Shot) -> Take? {
+        for seq in project.sequences {
+            for scene in seq.scenes {
+                for s in scene.shots where s.id == shot.id {
+                    return s.takes.first { $0.id == takeId }
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Tags Card
@@ -1752,12 +3484,12 @@ struct CurationView: View {
     }
 
     /// Compact time-only formatter for navigator sidebar (HH:mm:ss)
-    private var curationCompactTimeFormatter: DateFormatter {
+    private static let curationCompactTimeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
-    }
+    }()
 
     private func mapCameraFileToCurrentTake(_ file: CameraFile, take: Take, shot: Shot) {
         viewModel.mapCameraFile(file, toTake: take, inShot: shot, project: &project)
@@ -1769,13 +3501,14 @@ struct CurationView: View {
             for sceneIdx in project.sequences[seqIdx].scenes.indices {
                 for shotIdx in project.sequences[seqIdx].scenes[sceneIdx].shots.indices {
                     let s = project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx]
-                    if s.shotId == shot.shotId {
+                    if s.id == shot.id {
                         for takeIdx in project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].takes.indices {
                             if project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].takes[takeIdx].id == take.id {
                                 modify(&project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].takes[takeIdx])
                                 viewModel.selectedTake = project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].takes[takeIdx]
                             }
                         }
+                        project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].updateStatusFromTakes()
                     }
                 }
             }
@@ -1787,8 +3520,9 @@ struct CurationView: View {
             for sceneIdx in project.sequences[seqIdx].scenes.indices {
                 for shotIdx in project.sequences[seqIdx].scenes[sceneIdx].shots.indices {
                     let s = project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx]
-                    if s.shotId == shot.shotId {
+                    if s.id == shot.id {
                         project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].takes.removeAll { $0.id == take.id }
+                        project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].updateStatusFromTakes()
                         // Clear selection if the deleted take was selected
                         if viewModel.selectedTake?.id == take.id {
                             let remaining = project.sequences[seqIdx].scenes[sceneIdx].shots[shotIdx].takes

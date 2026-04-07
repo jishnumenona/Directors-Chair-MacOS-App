@@ -6,7 +6,9 @@ import Foundation
 
 /// Represents a scene containing dialogues, actions, narrations, notes, and cinematography
 public struct Scene: Codable, Identifiable, Hashable {
-    public var id: String { name }
+    public var id: String { uuid }
+
+    public var uuid: String
 
     // MARK: - Basic Information
     public var name: String
@@ -40,6 +42,7 @@ public struct Scene: Codable, Identifiable, Hashable {
     public var sceneOverviewSummary: String?  // AI-generated 2-3 sentence summary
 
     public init(
+        uuid: String = UUID().uuidString,
         name: String,
         description: String = "",
         notes: String = "",
@@ -62,6 +65,7 @@ public struct Scene: Codable, Identifiable, Hashable {
         sceneOverviewPrompt: String? = nil,
         sceneOverviewSummary: String? = nil
     ) {
+        self.uuid = uuid
         self.name = name
         self.description = description
         self.notes = notes
@@ -86,6 +90,7 @@ public struct Scene: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case name
         case description
         case notes
@@ -114,6 +119,9 @@ public struct Scene: Codable, Identifiable, Hashable {
     /// Custom decoder to provide defaults for fields missing in Python JSON
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // uuid: generate fresh if missing (migration from old projects)
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
 
         // Required fields
         name = try container.decode(String.self, forKey: .name)

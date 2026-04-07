@@ -335,6 +335,9 @@ struct ScreenplayTextView: NSViewRepresentable {
         private var autocompletePanel: NSPanel?
         private var autocompleteVC: AutocompleteViewController?
 
+        // Wizard autocomplete filter prefix (typing filters without modifying placeholder text)
+        var wizardFilterPrefix = ""
+
         // Transliteration state
         private var transliterationPanel: NSPanel?
         private var transliterationVC: TransliterationCandidatesVC?
@@ -496,9 +499,16 @@ struct ScreenplayTextView: NSViewRepresentable {
             guard let textView = textView else { return }
 
             isUpdating = true
+            // Save cursor position so the second rebuild (from updateNSView) doesn't lose it
+            let savedSelection = textView.selectedRange()
             defer {
                 isUpdating = false
                 invalidateCache() // paragraph positions changed
+                // Restore cursor position (clamped to valid range)
+                let maxPos = (textView.string as NSString).length
+                let restoredLoc = min(savedSelection.location, maxPos)
+                let restoredLen = min(savedSelection.length, max(0, maxPos - restoredLoc))
+                textView.setSelectedRange(NSRange(location: restoredLoc, length: restoredLen))
             }
 
             let fullString = NSMutableAttributedString()
@@ -668,9 +678,7 @@ struct ScreenplayTextView: NSViewRepresentable {
                         let mergeIndex = elementIndex + 1
                         if mergeIndex < parent.elements.count {
                             if let instruction = parent.onBackspace?(mergeIndex, 0) {
-                                DispatchQueue.main.async { [weak self] in
-                                    self?.applyRebuildInstruction(instruction)
-                                }
+                                applyRebuildInstruction(instruction)
                             }
                         }
                         return false // we handled it
@@ -679,16 +687,17 @@ struct ScreenplayTextView: NSViewRepresentable {
             }
 
             // PHASE 2: Handle placeholder elements — typing replaces placeholder
-            if let replacement = replacementString, !replacement.isEmpty, replacement != "\n" {
-                let elementIndex = elementIndexForCursor(affectedCharRange.location)
-                if elementIndex >= 0, elementIndex < parent.elements.count,
-                   parent.elements[elementIndex].isPlaceholder {
-                    if let instruction = parent.onPlaceholderEdit?(elementIndex, replacement) {
-                        DispatchQueue.main.async { [weak self] in
-                            self?.applyRebuildInstruction(instruction)
+            // Skip when autocomplete is active (wizard mode) so chars go through for filtering
+            if autocompletePanel == nil {
+                if let replacement = replacementString, !replacement.isEmpty, replacement != "\n" {
+                    let elementIndex = elementIndexForCursor(affectedCharRange.location)
+                    if elementIndex >= 0, elementIndex < parent.elements.count,
+                       parent.elements[elementIndex].isPlaceholder {
+                        if let instruction = parent.onPlaceholderEdit?(elementIndex, replacement) {
+                            applyRebuildInstruction(instruction)
                         }
+                        return false // we handled it
                     }
-                    return false // we handled it
                 }
             }
 
@@ -905,6 +914,16 @@ struct ScreenplayTextView: NSViewRepresentable {
                 }
             }
 
+            // During wizard mode, block structural keys (Return/Tab/Escape) when
+            // autocomplete is hidden (e.g. filter returned no matches)
+            if parent.isWizardActive {
+                if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                    parent.onAutocompleteDismissed?()
+                    return true
+                }
+                return true // consume all other commands during wizard
+            }
+
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 handleReturnKey()
                 return true
@@ -944,24 +963,27 @@ struct ScreenplayTextView: NSViewRepresentable {
                 parent.onAutocompleteSelected?(text)
                 hideAutocompletePanel()
 
-                // Apply the instruction
-                DispatchQueue.main.async { [weak self] in
-                    self?.applyRebuildInstruction(instruction)
-                }
+                // Apply the instruction synchronously to prevent race conditions
+                applyRebuildInstruction(instruction)
             } else {
-                // Fallback: just insert text
+                // Fallback: insert text via model path to stay model-authoritative
+                isUpdating = true
                 let range = textView.selectedRange()
                 let attrs = ScreenplayFormatting.attributes(for: .character)
                 let insertStr = NSAttributedString(string: text.uppercased(), attributes: attrs)
                 textView.textStorage?.replaceCharacters(in: range, with: insertStr)
                 textView.setSelectedRange(NSRange(location: range.location + text.count, length: 0))
                 textView.typingAttributes = ScreenplayFormatting.attributes(for: .dialogue)
+                isUpdating = false
+
+                invalidateCache()
+
+                // Notify model of the text change
+                let newText = textForParagraph(elementIndex)
+                parent.onTextChanged?(elementIndex, newText)
 
                 parent.onAutocompleteSelected?(text)
                 hideAutocompletePanel()
-
-                // Notify textDidChange manually
-                textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
             }
         }
 
@@ -973,9 +995,7 @@ struct ScreenplayTextView: NSViewRepresentable {
             let elementIndex = elementIndexForCursor(cursorLocation)
 
             if let instruction = parent.onTabCycle?(elementIndex) {
-                DispatchQueue.main.async { [weak self] in
-                    self?.applyRebuildInstruction(instruction)
-                }
+                applyRebuildInstruction(instruction)
             }
         }
 
@@ -988,9 +1008,7 @@ struct ScreenplayTextView: NSViewRepresentable {
             let cursorOffset = cursorOffsetInParagraph(elementIndex)
 
             if let instruction = parent.onReturn?(elementIndex, cursorOffset) {
-                DispatchQueue.main.async { [weak self] in
-                    self?.applyRebuildInstruction(instruction)
-                }
+                applyRebuildInstruction(instruction)
             }
         }
 
@@ -1030,6 +1048,9 @@ struct ScreenplayTextView: NSViewRepresentable {
         func showAutocompletePopover(items: [AutocompleteItem], trigger: String) {
             guard let textView = textView,
                   let window = textView.window else { return }
+
+            // Reset wizard filter when new autocomplete items are provided (new wizard step)
+            wizardFilterPrefix = ""
 
             let rowHeight: CGFloat = 32
             let panelWidth: CGFloat = 240
