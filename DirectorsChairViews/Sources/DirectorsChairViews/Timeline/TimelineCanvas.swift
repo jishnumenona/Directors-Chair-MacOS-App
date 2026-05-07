@@ -72,6 +72,9 @@ public struct TimelineCanvas: View {
     /// Available viewport height for the tracks area (used to size the Canvas)
     public let availableHeight: CGFloat
 
+    /// Effective total duration (includes cue extents beyond last dialogue), or nil to auto-compute from segments
+    public var effectiveDuration: CGFloat? = nil
+
     /// Currently selected segment IDs (supports multi-select with Command+click)
     @Binding public var selectedSegmentIds: Set<UUID>
 
@@ -169,8 +172,8 @@ public struct TimelineCanvas: View {
 
     /// Total timeline duration in seconds
     private var totalSeconds: CGFloat {
-        guard let maxEnd = segments.map({ $0.end }).max() else { return 0 }
-        return maxEnd
+        let segmentMax = segments.map({ $0.end }).max() ?? 0
+        return max(segmentMax, effectiveDuration ?? 0)
     }
 
     /// Total canvas width - fills viewport or content, whichever is larger

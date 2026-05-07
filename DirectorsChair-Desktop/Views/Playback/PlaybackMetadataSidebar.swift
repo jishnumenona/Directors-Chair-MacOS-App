@@ -20,15 +20,18 @@ struct PlaybackMetadataSidebar: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 16) {
                 if let item = viewModel.currentItem {
+                    scriptCard
+                    lightingCard
+                    sfxCard
+                    supportCard
+                    soundCard
+                    propsCard
                     charactersCard
                     locationsCard
                     costumesCard
                     currentShotCard(item)
                     sceneCard
                     takesCard(item)
-                    propsCard
-                    soundCard
-                    scriptCard
                 } else {
                     emptyState
                 }
@@ -179,6 +182,253 @@ struct PlaybackMetadataSidebar: View {
         }
         .onTapGesture(count: 2) {
             navigateToScene()
+        }
+    }
+
+    // MARK: - Lighting Card
+
+    private var lightingCard: some View {
+        MetadataCard(icon: "lightbulb.fill", title: "LIGHTING") {
+            if !viewModel.currentLightCues.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.currentLightCues, id: \.id) { cue in
+                        VStack(alignment: .leading, spacing: 4) {
+                            // Header: cue number + name + color swatch
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color(hex: cue.markerColor))
+                                    .frame(width: 8, height: 8)
+                                Text(cue.cueNumber)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                Text(cue.name)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(Int(cue.intensity * 100))%")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.primary)
+                            }
+
+                            // Details row
+                            HStack(spacing: 8) {
+                                Image(systemName: cue.fixtureType.icon)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                                Text(cue.fixtureType.rawValue)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+
+                                Text("\u{00B7}")
+                                    .foregroundStyle(.quaternary)
+
+                                Text(cue.position.rawValue)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+
+                                if cue.colorTemperature != nil {
+                                    Text("\u{00B7}")
+                                        .foregroundStyle(.quaternary)
+                                    Text("\(cue.colorTemperature!)K")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            // Transition info
+                            if cue.fadeInDuration > 0 || cue.fadeOutDuration > 0 {
+                                HStack(spacing: 8) {
+                                    if cue.fadeInDuration > 0 {
+                                        HStack(spacing: 2) {
+                                            Image(systemName: cue.transitionIn.icon)
+                                                .font(.system(size: 8))
+                                            Text(String(format: "%.1fs in", cue.fadeInDuration))
+                                                .font(.system(size: 9))
+                                        }
+                                        .foregroundStyle(.tertiary)
+                                    }
+                                    if cue.fadeOutDuration > 0 {
+                                        HStack(spacing: 2) {
+                                            Image(systemName: cue.transitionOut.icon)
+                                                .font(.system(size: 8))
+                                            Text(String(format: "%.1fs out", cue.fadeOutDuration))
+                                                .font(.system(size: 9))
+                                        }
+                                        .foregroundStyle(.tertiary)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(hex: cue.markerColor).opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(hex: cue.markerColor).opacity(0.2), lineWidth: 0.5)
+                        )
+                    }
+                }
+            } else {
+                Text("No active light cues")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .onTapGesture(count: 2) {
+            // Navigate to lighting design
+            viewModel.pause()
+            if let firstCue = viewModel.currentLightCues.first {
+                coordinator.selectedLightCueId = firstCue.id
+            }
+            coordinator.preferredStoryDesignMode = "lighting"
+            coordinator.navigateTo(.storyDesign)
+        }
+    }
+
+    // MARK: - SFX Card
+
+    private var sfxCard: some View {
+        MetadataCard(icon: "sparkles", title: "SPECIAL EFFECTS") {
+            if !viewModel.currentSFXCues.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.currentSFXCues, id: \.id) { cue in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color(hex: cue.markerColor))
+                                    .frame(width: 8, height: 8)
+                                Text(cue.cueNumber)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                Text(cue.name)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(Int(cue.intensity * 100))%")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.primary)
+                            }
+
+                            HStack(spacing: 8) {
+                                Image(systemName: cue.effectType.icon)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                                Text(cue.effectType.rawValue)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+
+                                Text("\u{00B7}")
+                                    .foregroundStyle(.quaternary)
+
+                                Text(cue.placement.rawValue)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(hex: cue.markerColor).opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(hex: cue.markerColor).opacity(0.2), lineWidth: 0.5)
+                        )
+                    }
+                }
+            } else {
+                Text("No active effects")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .onTapGesture(count: 2) {
+            viewModel.pause()
+            if let firstCue = viewModel.currentSFXCues.first {
+                coordinator.selectedSFXCueId = firstCue.id
+            }
+            coordinator.preferredStoryDesignMode = "lighting"
+            coordinator.navigateTo(.storyDesign)
+        }
+    }
+
+    // MARK: - Support Card
+
+    private var supportCard: some View {
+        MetadataCard(icon: "person.2.fill", title: "SUPPORT") {
+            if !viewModel.currentSupportCues.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.currentSupportCues, id: \.id) { cue in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color(hex: cue.markerColor))
+                                    .frame(width: 8, height: 8)
+                                Text(cue.cueNumber)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                Text(cue.name)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: cue.priority.icon)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            HStack(spacing: 8) {
+                                Image(systemName: cue.actionType.icon)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                                Text(cue.actionType.rawValue)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+
+                                if !cue.assignedTo.isEmpty {
+                                    Text("\u{00B7}")
+                                        .foregroundStyle(.quaternary)
+                                    Text(cue.assignedTo)
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Text("\u{00B7}")
+                                    .foregroundStyle(.quaternary)
+
+                                Text(cue.stageArea.rawValue)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(hex: cue.markerColor).opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(hex: cue.markerColor).opacity(0.2), lineWidth: 0.5)
+                        )
+                    }
+                }
+            } else {
+                Text("No active support actions")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .onTapGesture(count: 2) {
+            viewModel.pause()
+            if let firstCue = viewModel.currentSupportCues.first {
+                coordinator.selectedSupportCueId = firstCue.id
+            }
+            coordinator.preferredStoryDesignMode = "lighting"
+            coordinator.navigateTo(.storyDesign)
         }
     }
 

@@ -556,6 +556,10 @@ private struct TraitBarEditor: View {
     let color: Color
 
     @State private var isHovered = false
+    @State private var localValue: Double = 0
+    @State private var isDragging = false
+
+    private var displayValue: Double { isDragging ? localValue : value }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -567,7 +571,7 @@ private struct TraitBarEditor: View {
                 Spacer()
 
                 // Value badge
-                Text("\(Int(value))")
+                Text("\(Int(displayValue))")
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundColor(color)
                     .frame(width: 36)
@@ -595,7 +599,7 @@ private struct TraitBarEditor: View {
                                 endPoint: .trailing
                             )
                         )
-                        .frame(width: geometry.size.width * (value / 100), height: 6)
+                        .frame(width: geometry.size.width * (displayValue / 100), height: 6)
                 }
                 .frame(height: 6)
             }
@@ -606,9 +610,16 @@ private struct TraitBarEditor: View {
                     .font(.system(size: 9))
                     .foregroundColor(Color(nsColor: .tertiaryLabelColor))
 
-                Slider(value: $value, in: 0...100, step: 1)
-                    .controlSize(.mini)
-                    .tint(color)
+                Slider(value: $localValue, in: 0...100, step: 1) { editing in
+                    if editing {
+                        isDragging = true
+                    } else {
+                        value = localValue
+                        isDragging = false
+                    }
+                }
+                .controlSize(.mini)
+                .tint(color)
 
                 Text("High")
                     .font(.system(size: 9))
@@ -622,6 +633,10 @@ private struct TraitBarEditor: View {
                 .fill(isHovered ? Color(nsColor: .quaternarySystemFill).opacity(0.5) : Color.clear)
         )
         .onHover { isHovered = $0 }
+        .onAppear { localValue = value }
+        .onChange(of: value) { newValue in
+            if !isDragging { localValue = newValue }
+        }
     }
 }
 

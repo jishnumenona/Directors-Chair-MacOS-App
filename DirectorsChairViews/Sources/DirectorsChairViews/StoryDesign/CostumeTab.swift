@@ -4,7 +4,9 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - CostumeTab
 
@@ -24,6 +26,17 @@ public struct CostumeTab: View {
     @State private var discoveredImages: DiscoveredCostumeImages = DiscoveredCostumeImages()
     @State private var newAccessoryText = ""
     @State private var showScenePicker = false
+    @State private var isGeneratingFromReferences = false
+    @State private var referenceGenProgress: Double = 0
+    @State private var referenceImageRefreshIds: [String: UUID] = [:]
+    // Annotation editor state
+    @State private var showingAnnotationEditor = false
+    @State private var annotationEditorImage: NSImage?
+    @State private var annotationEditorAngle: String = ""
+    @State private var annotationEditorTitle: String = ""
+    // Set as base image state
+    @State private var showingSetAsBaseConfirmation = false
+    @State private var pendingBaseImagePath: String?
 
     public init(
         character: Binding<Character>,
@@ -77,6 +90,7 @@ public struct CostumeTab: View {
                                 classificationCard(costume: costumeBinding)
                                 colorPaletteCard(costume: costumeBinding)
                                 garmentBreakdownCard(costume: costumeBinding)
+                                outfitReferencesCard(costume: costumeBinding)
                                 materialsCard(costume: costumeBinding)
                                 productionCard(costume: costumeBinding)
                                 scenesCard(costume: costumeBinding)
@@ -129,6 +143,29 @@ public struct CostumeTab: View {
                     }
                 }
             )
+        }
+        .sheet(isPresented: $showingAnnotationEditor) {
+            if let image = annotationEditorImage {
+                ImageAnnotationEditor(
+                    image: image,
+                    title: "EDIT COSTUME — \(annotationEditorTitle.uppercased())",
+                    subtitle: character.name,
+                    isPresented: $showingAnnotationEditor,
+                    onApplyEdits: { annotations in
+                        generateCostumeAngleWithAnnotations(angle: annotationEditorAngle, annotations: annotations)
+                    }
+                )
+            }
+        }
+        .alert("Replace Base Image?", isPresented: $showingSetAsBaseConfirmation) {
+            Button("Replace", role: .destructive) {
+                if let path = pendingBaseImagePath {
+                    applyCostumeAsBaseImage(imagePath: path)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This character already has a base image. Do you want to replace it with this costume image?")
         }
     }
 
@@ -222,7 +259,7 @@ public struct CostumeTab: View {
                 }
             }
 
-            // View and Download for hero
+            // View, Edit, and Download for hero
             if let imagePath = costume.wrappedValue.imageFront ?? discoveredImages.front,
                let basePath = projectBasePath {
                 let fullPath = basePath.appendingPathComponent(imagePath)
@@ -232,9 +269,15 @@ public struct CostumeTab: View {
                         fullScreenImageTitle = "\(character.name) - \(costume.wrappedValue.name)"
                         showingFullScreenImage = true
                     }
+                    CostumeGalleryButton(label: "Edit", icon: "pencil.and.outline", color: .orange) {
+                        openCostumeAnnotationEditor(angleKey: "front", label: "Front", imagePath: imagePath)
+                    }
                     CostumeGalleryButton(label: "Download", icon: "arrow.down.circle", color: .green) {
                         downloadImage(from: fullPath, suggestedName: "\(character.name)_\(costume.wrappedValue.name)_front.png")
                     }
+                }
+                CostumeGalleryButton(label: "Set as Character Base Image", icon: "person.crop.rectangle", color: .purple) {
+                    setAsBaseImage(imagePath: imagePath)
                 }
             }
 
@@ -851,7 +894,10 @@ public struct CostumeTab: View {
             },
             onGenerate: {
                 generateCostumeImage(costume: costume, angle: angleKey, angleDescription: anglePrompt)
-            }
+            },
+            onEditAnnotate: imagePath != nil ? {
+                openCostumeAnnotationEditor(angleKey: angleKey, label: label, imagePath: imagePath!)
+            } : nil
         )
     }
 
@@ -897,6 +943,500 @@ public struct CostumeTab: View {
         }
     }
 
+    // MARK: - Set as Base Image
+
+    private func setAsBaseImage(imagePath: String) {
+        let hasExistingBase = character.baseImage != nil ||
+            DiscoveredCharacterImages.discover(for: character.name, basePath: projectBasePath).baseImage != nil
+
+        if hasExistingBase {
+            pendingBaseImagePath = imagePath
+            showingSetAsBaseConfirmation = true
+        } else {
+            applyCostumeAsBaseImage(imagePath: imagePath)
+        }
+    }
+
+    private func applyCostumeAsBaseImage(imagePath: String) {
+        guard let basePath = projectBasePath else { return }
+
+        let sourcePath = basePath.appendingPathComponent(imagePath)
+        guard let imageData = try? Data(contentsOf: sourcePath) else { return }
+
+        let sanitizedName = DiscoveredCharacterImages.sanitizedName(for: character.name)
+        let destDir = basePath
+            .appendingPathComponent("assets")
+            .appendingPathComponent("characters")
+            .appendingPathComponent(sanitizedName)
+            .appendingPathComponent("face")
+        let destPath = destDir.appendingPathComponent("base.png")
+
+        // Convert to PNG
+        let pngData: Data
+        if let nsImage = NSImage(data: imageData), let tiffRep = nsImage.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiffRep),
+           let converted = bitmap.representation(using: .png, properties: [:]) {
+            pngData = converted
+        } else {
+            pngData = imageData
+        }
+
+        do {
+            _ = basePath.startAccessingSecurityScopedResource()
+            defer { basePath.stopAccessingSecurityScopedResource() }
+
+            try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+            try pngData.write(to: destPath)
+        } catch {
+            print("Failed to set costume as base image: \(error)")
+            return
+        }
+
+        character.baseImage = "assets/characters/\(sanitizedName)/face/base.png"
+    }
+
+    // MARK: - Annotation Editor
+
+    private func costumeImagePath(for angleKey: String) -> String? {
+        guard let costume = selectedCostume else { return nil }
+        switch angleKey {
+        case "front": return costume.imageFront ?? discoveredImages.front
+        case "three_quarter_left": return costume.imageThreeQuarterLeft ?? discoveredImages.threeQuarterLeft
+        case "three_quarter_right": return costume.imageThreeQuarterRight ?? discoveredImages.threeQuarterRight
+        case "profile": return costume.imageProfile ?? discoveredImages.profile
+        case "back": return costume.imageBack ?? discoveredImages.back
+        case "full_body": return costume.imageFullBody ?? discoveredImages.fullBody
+        default: return nil
+        }
+    }
+
+    private func openCostumeAnnotationEditor(angleKey: String, label: String, imagePath: String) {
+        guard let basePath = projectBasePath else { return }
+        let fullPath = basePath.appendingPathComponent(imagePath)
+        guard let image = NSImage(contentsOf: fullPath) else { return }
+        annotationEditorImage = image
+        annotationEditorAngle = angleKey
+        annotationEditorTitle = label
+        showingAnnotationEditor = true
+    }
+
+    private func generateCostumeAngleWithAnnotations(angle: String, annotations: [KeyframeAnnotation]) {
+        guard let imagePath = costumeImagePath(for: angle),
+              let basePath = projectBasePath else { return }
+
+        let fullPath = basePath.appendingPathComponent(imagePath)
+        guard let imageData = try? Data(contentsOf: fullPath) else { return }
+
+        var promptParts: [String] = []
+        promptParts.append("Edit this image by making the following changes while keeping everything else identical:")
+        for ann in annotations.sorted(by: { $0.number < $1.number }) {
+            let xPercent = Int(ann.normalizedX * 100)
+            let yPercent = Int(ann.normalizedY * 100)
+            promptParts.append("\(ann.number). \(ann.text) at position (\(xPercent)%, \(yPercent)%)")
+        }
+        let editPrompt = promptParts.joined(separator: "\n")
+
+        let referenceBase64 = imageData.base64EncodedString()
+        let request = ImageGenerationRequest(
+            prompt: editPrompt,
+            provider: .googleImagen,
+            aspectRatio: "1:1",
+            referenceImageBase64: referenceBase64,
+            referenceMimeType: "image/png"
+        )
+
+        let progressKey = "costume_\(angle)"
+        generatingProgress[progressKey] = 0.0
+
+        Task {
+            do {
+                let response = try await AIServiceClient.shared.generateImage(request)
+
+                guard let newImageData = response.images.first else {
+                    await MainActor.run {
+                        generatingProgress.removeValue(forKey: progressKey)
+                    }
+                    return
+                }
+
+                _ = basePath.startAccessingSecurityScopedResource()
+                defer { basePath.stopAccessingSecurityScopedResource() }
+                try newImageData.write(to: fullPath)
+
+                await MainActor.run {
+                    imageRefreshIds[angle] = UUID()
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        generatingProgress.removeValue(forKey: progressKey)
+                    }
+                    refreshDiscoveredImages()
+                }
+            } catch {
+                await MainActor.run {
+                    generatingProgress.removeValue(forKey: progressKey)
+                }
+                print("Costume annotation edit failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: - Outfit References Card
+
+    private func outfitReferencesCard(costume: Binding<CharacterCostume>) -> some View {
+        CostumeAttributeCard(title: "OUTFIT REFERENCES", icon: "paperclip") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Upload photos of clothing or accessories to dress the character.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+
+                let refs = costume.wrappedValue.referenceImages ?? []
+
+                // Reference images grid
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 8)], spacing: 8) {
+                    ForEach(Array(refs.enumerated()), id: \.element.id) { index, ref in
+                        outfitReferenceThumbnail(ref: ref, index: index, costume: costume)
+                    }
+
+                    // Add placeholder
+                    Button {
+                        browseReferenceImage(costume: costume)
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 18))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(width: 80, height: 80)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Browse & Paste buttons
+                HStack(spacing: 8) {
+                    CostumeGalleryButton(label: "Browse...", icon: "folder", color: .accentColor) {
+                        browseReferenceImage(costume: costume)
+                    }
+                    CostumeGalleryButton(label: "Paste from Clipboard", icon: "doc.on.clipboard", color: .accentColor) {
+                        pasteReferenceImage(costume: costume)
+                    }
+                }
+
+                // Generate button
+                ZStack {
+                    CostumeGalleryButton(
+                        label: isGeneratingFromReferences ? "Generating..." : "Generate Character in This Outfit",
+                        icon: isGeneratingFromReferences ? "hourglass" : "wand.and.stars",
+                        color: .accentColor,
+                        isProminent: true
+                    ) {
+                        generateFromReferences(costume: costume)
+                    }
+                    .disabled(refs.isEmpty || isGeneratingFromReferences)
+                    .opacity(refs.isEmpty ? 0.5 : 1)
+
+                    if isGeneratingFromReferences {
+                        ProgressView(value: referenceGenProgress)
+                            .progressViewStyle(.linear)
+                            .tint(.white)
+                            .padding(.horizontal, 12)
+                            .offset(y: 14)
+                    }
+                }
+            }
+        }
+    }
+
+    private func outfitReferenceThumbnail(ref: CostumeReferenceImage, index: Int, costume: Binding<CharacterCostume>) -> some View {
+        VStack(spacing: 4) {
+            ZStack(alignment: .topTrailing) {
+                if let basePath = projectBasePath {
+                    let fullPath = basePath.appendingPathComponent(ref.imagePath)
+                    AsyncImage(url: fullPath) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        case .failure:
+                            refPlaceholder
+                        case .empty:
+                            ProgressView().frame(width: 80, height: 80)
+                        @unknown default:
+                            refPlaceholder
+                        }
+                    }
+                    .id(referenceImageRefreshIds[ref.id] ?? UUID())
+                } else {
+                    refPlaceholder
+                }
+
+                // Delete button overlay
+                Button {
+                    deleteReferenceImage(at: index, costume: costume)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .background(Circle().fill(Color.red).frame(width: 16, height: 16))
+                }
+                .buttonStyle(.plain)
+                .padding(4)
+            }
+            .frame(width: 80, height: 80)
+
+            // Editable label
+            TextField("Label", text: Binding(
+                get: {
+                    guard let refs = costume.wrappedValue.referenceImages, index < refs.count else { return ref.label }
+                    return refs[index].label
+                },
+                set: { newVal in
+                    if costume.wrappedValue.referenceImages != nil, index < costume.wrappedValue.referenceImages!.count {
+                        costume.wrappedValue.referenceImages![index].label = newVal
+                    }
+                }
+            ))
+            .textFieldStyle(.plain)
+            .font(.system(size: 10))
+            .multilineTextAlignment(.center)
+            .frame(width: 80)
+        }
+    }
+
+    private var refPlaceholder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .quaternarySystemFill))
+                .frame(width: 80, height: 80)
+            Image(systemName: "photo")
+                .font(.system(size: 16))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    // MARK: - Reference Image Upload
+
+    private func browseReferenceImage(costume: Binding<CharacterCostume>) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .heic]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "Select outfit or accessory photos"
+
+        guard panel.runModal() == .OK else { return }
+
+        for url in panel.urls {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let label = url.deletingPathExtension().lastPathComponent
+            addReferenceImage(data: data, label: label, costume: costume)
+        }
+    }
+
+    private func pasteReferenceImage(costume: Binding<CharacterCostume>) {
+        let pasteboard = NSPasteboard.general
+        var imageData: Data?
+
+        if let pngData = pasteboard.data(forType: .png) {
+            imageData = pngData
+        } else if let tiffData = pasteboard.data(forType: .tiff) {
+            if let image = NSImage(data: tiffData), let tiffRep = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffRep),
+               let pngData = bitmap.representation(using: .png, properties: [:]) {
+                imageData = pngData
+            }
+        }
+
+        guard let data = imageData else { return }
+        addReferenceImage(data: data, label: "Pasted Item", costume: costume)
+    }
+
+    private func addReferenceImage(data: Data, label: String, costume: Binding<CharacterCostume>) {
+        guard let basePath = projectBasePath else { return }
+
+        // Convert to PNG
+        let pngData: Data
+        if let nsImage = NSImage(data: data), let tiffRep = nsImage.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiffRep),
+           let converted = bitmap.representation(using: .png, properties: [:]) {
+            pngData = converted
+        } else {
+            pngData = data
+        }
+
+        let sanitizedCharName = DiscoveredCostumeImages.sanitizedName(for: character.name)
+        let sanitizedCostumeName = DiscoveredCostumeImages.sanitizedName(for: costume.wrappedValue.name)
+        let refId = UUID().uuidString.prefix(8)
+        let relativePath = "assets/characters/\(sanitizedCharName)/costumes/\(sanitizedCostumeName)/references/ref_\(refId).png"
+        let fullPath = basePath.appendingPathComponent(relativePath)
+        let dirPath = fullPath.deletingLastPathComponent()
+
+        do {
+            _ = basePath.startAccessingSecurityScopedResource()
+            defer { basePath.stopAccessingSecurityScopedResource() }
+
+            try FileManager.default.createDirectory(at: dirPath, withIntermediateDirectories: true)
+            try pngData.write(to: fullPath)
+        } catch {
+            print("Failed to save reference image: \(error)")
+            return
+        }
+
+        let ref = CostumeReferenceImage(label: label, imagePath: relativePath)
+        if costume.wrappedValue.referenceImages == nil {
+            costume.wrappedValue.referenceImages = [ref]
+        } else {
+            costume.wrappedValue.referenceImages!.append(ref)
+        }
+    }
+
+    private func deleteReferenceImage(at index: Int, costume: Binding<CharacterCostume>) {
+        guard var refs = costume.wrappedValue.referenceImages, index < refs.count else { return }
+
+        // Delete file from disk
+        if let basePath = projectBasePath {
+            let fullPath = basePath.appendingPathComponent(refs[index].imagePath)
+            _ = basePath.startAccessingSecurityScopedResource()
+            defer { basePath.stopAccessingSecurityScopedResource() }
+            try? FileManager.default.removeItem(at: fullPath)
+        }
+
+        refs.remove(at: index)
+        costume.wrappedValue.referenceImages = refs.isEmpty ? nil : refs
+    }
+
+    // MARK: - Generate From References
+
+    private func generateFromReferences(costume: Binding<CharacterCostume>) {
+        guard let basePath = projectBasePath,
+              let refs = costume.wrappedValue.referenceImages, !refs.isEmpty else { return }
+        guard !isGeneratingFromReferences else { return }
+
+        isGeneratingFromReferences = true
+        referenceGenProgress = 0
+
+        Task {
+            do {
+                _ = basePath.startAccessingSecurityScopedResource()
+                defer { basePath.stopAccessingSecurityScopedResource() }
+
+                var allRefs: [ReferenceImage] = []
+
+                // Load character base image as reference
+                let baseImagePath = character.baseImage ?? DiscoveredCharacterImages.discover(
+                    for: character.name,
+                    basePath: projectBasePath
+                ).baseImage
+                if let bip = baseImagePath {
+                    let fullBasePath = basePath.appendingPathComponent(bip)
+                    if let baseData = try? Data(contentsOf: fullBasePath) {
+                        allRefs.append(ReferenceImage(
+                            base64: baseData.base64EncodedString(),
+                            mimeType: "image/png",
+                            label: "character"
+                        ))
+                    }
+                }
+
+                // Load each reference image
+                var labels: [String] = []
+                for ref in refs {
+                    let refFullPath = basePath.appendingPathComponent(ref.imagePath)
+                    guard let refData = try? Data(contentsOf: refFullPath) else { continue }
+                    allRefs.append(ReferenceImage(
+                        base64: refData.base64EncodedString(),
+                        mimeType: "image/png",
+                        label: ref.label
+                    ))
+                    labels.append(ref.label)
+                }
+
+                await MainActor.run { referenceGenProgress = 0.2 }
+
+                // Build prompt with style directive
+                let styleDirective: String
+                switch character.imageStyle {
+                case "Photorealistic":
+                    styleDirective = "photorealistic, ultra-realistic photograph, natural lighting"
+                case "Cinematic":
+                    styleDirective = "cinematic still frame, dramatic movie lighting, film grain, shallow depth of field"
+                case "Illustration":
+                    styleDirective = "digital illustration, hand-drawn style, detailed line art with color"
+                case "Anime":
+                    styleDirective = "anime style, Japanese animation, cel-shaded, large expressive eyes"
+                case "Comic Book":
+                    styleDirective = "comic book art, bold ink outlines, halftone dots, vibrant colors"
+                case "Watercolor":
+                    styleDirective = "watercolor painting, soft washes, visible brush strokes, paper texture"
+                case "Oil Painting":
+                    styleDirective = "classical oil painting, rich textures, museum quality, fine brush work"
+                case "3D Render":
+                    styleDirective = "3D rendered character, CGI, Pixar-quality, subsurface scattering"
+                default:
+                    styleDirective = "photorealistic"
+                }
+
+                let prompt = """
+                \(styleDirective). Generate a full-body portrait of this exact character \
+                (shown in the "character" reference image) wearing ALL of the following items \
+                from the reference images: \(labels.joined(separator: ", ")). \
+                Match the character's face, body, and skin tone exactly from the "character" reference. \
+                Full body view, costume design reference sheet.
+                """
+
+                let request = ImageGenerationRequest(
+                    prompt: prompt,
+                    provider: .googleImagen,
+                    aspectRatio: "1:1",
+                    referenceImages: allRefs
+                )
+
+                await MainActor.run { referenceGenProgress = 0.4 }
+
+                let response = try await AIServiceClient.shared.generateImage(request)
+
+                await MainActor.run { referenceGenProgress = 0.8 }
+
+                guard let newImageData = response.images.first else {
+                    await MainActor.run {
+                        isGeneratingFromReferences = false
+                        referenceGenProgress = 0
+                    }
+                    return
+                }
+
+                // Save to costume front image
+                let sanitizedCharName = DiscoveredCostumeImages.sanitizedName(for: character.name)
+                let sanitizedCostumeName = DiscoveredCostumeImages.sanitizedName(for: costume.wrappedValue.name)
+                let relativePath = "assets/characters/\(sanitizedCharName)/costumes/\(sanitizedCostumeName)/front.png"
+                let savePath = basePath.appendingPathComponent(relativePath)
+                let saveDir = savePath.deletingLastPathComponent()
+
+                try FileManager.default.createDirectory(at: saveDir, withIntermediateDirectories: true)
+                try newImageData.write(to: savePath)
+
+                await MainActor.run {
+                    costume.wrappedValue.imageFront = relativePath
+                    imageRefreshIds["front"] = UUID()
+                    referenceGenProgress = 1.0
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isGeneratingFromReferences = false
+                        referenceGenProgress = 0
+                    }
+                    refreshDiscoveredImages()
+                }
+            } catch {
+                await MainActor.run {
+                    isGeneratingFromReferences = false
+                    referenceGenProgress = 0
+                }
+                print("Generate from references failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     // MARK: - Image Generation
 
     private func generateCostumeImage(costume: CharacterCostume, angle: String, angleDescription: String? = nil) {
@@ -929,6 +1469,30 @@ public struct CostumeTab: View {
 
     private func buildCostumePrompt(costume: CharacterCostume) -> String {
         var parts: [String] = []
+
+        // Art style directive
+        let styleDirective: String
+        switch character.imageStyle {
+        case "Photorealistic":
+            styleDirective = "photorealistic, ultra-realistic photograph, natural lighting"
+        case "Cinematic":
+            styleDirective = "cinematic still frame, dramatic movie lighting, film grain, shallow depth of field"
+        case "Illustration":
+            styleDirective = "digital illustration, hand-drawn style, detailed line art with color"
+        case "Anime":
+            styleDirective = "anime style, Japanese animation, cel-shaded, large expressive eyes"
+        case "Comic Book":
+            styleDirective = "comic book art, bold ink outlines, halftone dots, vibrant colors"
+        case "Watercolor":
+            styleDirective = "watercolor painting, soft washes, visible brush strokes, paper texture"
+        case "Oil Painting":
+            styleDirective = "classical oil painting, rich textures, museum quality, fine brush work"
+        case "3D Render":
+            styleDirective = "3D rendered character, CGI, Pixar-quality, subsurface scattering"
+        default:
+            styleDirective = "photorealistic"
+        }
+        parts.append(styleDirective)
 
         // Character physical description
         parts.append("\(character.gender) character")
@@ -1245,6 +1809,7 @@ private struct CostumeAngleThumbnailView: View {
     var onView: ((URL) -> Void)?
     var onDownload: ((URL) -> Void)?
     var onGenerate: (() -> Void)?
+    var onEditAnnotate: (() -> Void)?
 
     @State private var isHovering = false
 
@@ -1286,6 +1851,15 @@ private struct CostumeAngleThumbnailView: View {
                                         .foregroundColor(.white)
                                         .frame(width: 26, height: 26)
                                         .background(Circle().fill(Color.white.opacity(0.2)))
+                                }
+                                .buttonStyle(.plain)
+
+                                Button { onEditAnnotate?() } label: {
+                                    Image(systemName: "pencil.and.outline")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white)
+                                        .frame(width: 26, height: 26)
+                                        .background(Circle().fill(Color.orange.opacity(0.6)))
                                 }
                                 .buttonStyle(.plain)
 
@@ -1507,6 +2081,10 @@ struct DiscoveredCostumeImages {
         result.fullBody = findImage(patterns: ["full_body", "fullbody"])
 
         return result
+    }
+
+    static func sanitizedName(for name: String) -> String {
+        return sanitizeName(name)
     }
 
     private static func sanitizeName(_ name: String) -> String {

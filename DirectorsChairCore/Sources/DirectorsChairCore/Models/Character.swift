@@ -96,6 +96,9 @@ public struct Character: Codable, Identifiable, Hashable {
     public var costumes: [CharacterCostume]?
     public var activeCostumeIndex: Int?
 
+    // AI Image Style
+    public var imageStyle: String  // "Photorealistic", "Cinematic", "Illustration", "Anime", "Comic Book", "Watercolor", "Oil Painting", "3D Render"
+
     // AI Generation prompts
     public var imagePrompts: [String: String]?  // Maps angle field name to generation prompt
 
@@ -213,6 +216,7 @@ public struct Character: Codable, Identifiable, Hashable {
         backgroundSetting: String? = nil,
         costumes: [CharacterCostume]? = nil,
         activeCostumeIndex: Int? = nil,
+        imageStyle: String = "Photorealistic",
         imagePrompts: [String: String]? = nil,
         imageAnnotations: [String: [[String: String]]]? = nil,
         overviewPortrait: String? = nil,
@@ -305,6 +309,7 @@ public struct Character: Codable, Identifiable, Hashable {
         self.backgroundSetting = backgroundSetting
         self.costumes = costumes
         self.activeCostumeIndex = activeCostumeIndex
+        self.imageStyle = imageStyle
         self.imagePrompts = imagePrompts
         self.imageAnnotations = imageAnnotations
         self.overviewPortrait = overviewPortrait
@@ -430,6 +435,7 @@ public struct Character: Codable, Identifiable, Hashable {
         case backgroundSetting = "background_setting"
         case costumes
         case activeCostumeIndex = "active_costume_index"
+        case imageStyle = "image_style"
         case imagePrompts = "image_prompts"
         case imageAnnotations = "image_annotations"
         case overviewPortrait = "overview_portrait"
@@ -554,6 +560,7 @@ public struct Character: Codable, Identifiable, Hashable {
         self.backgroundSetting = try container.decodeIfPresent(String.self, forKey: .backgroundSetting)
         self.costumes = try container.decodeIfPresent([CharacterCostume].self, forKey: .costumes)
         self.activeCostumeIndex = try container.decodeIfPresent(Int.self, forKey: .activeCostumeIndex)
+        self.imageStyle = try container.decodeIfPresent(String.self, forKey: .imageStyle) ?? "Photorealistic"
         self.imagePrompts = try container.decodeIfPresent([String: String].self, forKey: .imagePrompts)
         self.imageAnnotations = try container.decodeIfPresent([String: [[String: String]]].self, forKey: .imageAnnotations)
 

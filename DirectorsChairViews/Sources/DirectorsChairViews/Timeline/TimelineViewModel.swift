@@ -84,6 +84,53 @@ public class TimelineViewModel: ObservableObject {
     /// Per-track visibility: set of hidden track names (character names, "Action", "Narration", "Sound")
     @Published public var hiddenTracks: Set<String> = []
 
+    // MARK: - Soundtrack Tracks
+
+    /// Whether to show soundtrack waveform lanes in the header
+    @Published public var showSoundtracks: Bool = true
+
+    /// Imported soundtrack tracks with waveform data
+    @Published public var soundtrackTracks: [SoundtrackTrack] = []
+
+    /// Callback when soundtrack tracks are modified (add/remove/move/mute)
+    public var onSoundtracksChanged: (([SoundtrackTrack]) -> Void)?
+
+    /// Callback when the user clicks "Import Audio" in the controls
+    public var onImportSoundtrack: (() -> Void)?
+
+    // MARK: - Light Cues
+
+    /// Light cues for the lighting lane
+    @Published public var lightCues: [LightCue] = []
+
+    /// Whether to show the lighting cue lane
+    @Published public var showLightingLane: Bool = true
+
+    /// Callback when light cues are modified
+    public var onLightCuesChanged: (([LightCue]) -> Void)?
+
+    // MARK: - SFX Cues
+
+    /// SFX cues for the SFX lane
+    @Published public var sfxCues: [SFXCue] = []
+
+    /// Whether to show the SFX cue lane
+    @Published public var showSFXLane: Bool = true
+
+    /// Callback when SFX cues are modified
+    public var onSFXCuesChanged: (([SFXCue]) -> Void)?
+
+    // MARK: - Support Cues
+
+    /// Support cues for the support lane
+    @Published public var supportCues: [SupportCue] = []
+
+    /// Whether to show the support cue lane
+    @Published public var showSupportLane: Bool = true
+
+    /// Callback when support cues are modified
+    public var onSupportCuesChanged: (([SupportCue]) -> Void)?
+
     // MARK: - Scene Navigation
 
     /// Current scene index within allScenesInScope
@@ -483,6 +530,49 @@ public class TimelineViewModel: ObservableObject {
         return project
     }
 
+    // MARK: - Soundtrack CRUD
+
+    /// Add a new soundtrack track
+    public func addSoundtrack(_ track: SoundtrackTrack) {
+        var t = track
+        t.sortOrder = soundtrackTracks.count
+        soundtrackTracks.append(t)
+        onSoundtracksChanged?(soundtrackTracks)
+    }
+
+    /// Remove a soundtrack track by ID
+    public func removeSoundtrack(id: String) {
+        soundtrackTracks.removeAll { $0.id == id }
+        for i in soundtrackTracks.indices {
+            soundtrackTracks[i].sortOrder = i
+        }
+        onSoundtracksChanged?(soundtrackTracks)
+    }
+
+    /// Move a soundtrack track to a new timeline offset
+    public func moveSoundtrack(id: String, newOffset: Double) {
+        if let idx = soundtrackTracks.firstIndex(where: { $0.id == id }) {
+            soundtrackTracks[idx].startTimeOffset = max(0, newOffset)
+            onSoundtracksChanged?(soundtrackTracks)
+        }
+    }
+
+    /// Toggle mute on a soundtrack track
+    public func toggleSoundtrackMute(id: String) {
+        if let idx = soundtrackTracks.firstIndex(where: { $0.id == id }) {
+            soundtrackTracks[idx].isMuted.toggle()
+            onSoundtracksChanged?(soundtrackTracks)
+        }
+    }
+
+    /// Set volume on a soundtrack track
+    public func setSoundtrackVolume(id: String, volume: Double) {
+        if let idx = soundtrackTracks.firstIndex(where: { $0.id == id }) {
+            soundtrackTracks[idx].volume = max(0, min(1, volume))
+            onSoundtracksChanged?(soundtrackTracks)
+        }
+    }
+
     /// Select a segment by ID (replaces current selection)
     public func selectSegment(_ id: UUID?) {
         if let id = id {
@@ -765,6 +855,108 @@ public class TimelineViewModel: ObservableObject {
     public func getMarkerPlacementTime() -> CGFloat {
         if let t = playheadTime { return t }
         return getCurrentTimeFromViewport()
+    }
+
+    // MARK: - Light Cue CRUD
+
+    /// Add a new light cue at the given time
+    public func addLightCue(at time: CGFloat, name: String = "New Light Cue", color: String = "#FFD60A", intensity: Double = 1.0, duration: Double = 5.0) {
+        let nextNumber = lightCues.count + 1
+        let cue = LightCue(
+            name: name,
+            cueNumber: "Q\(nextNumber)",
+            startTime: Double(time),
+            duration: duration,
+            intensity: intensity,
+            color: color,
+            markerColor: color
+        )
+        lightCues.append(cue)
+        onLightCuesChanged?(lightCues)
+        extendDurationIfNeeded()
+    }
+
+    /// Update an existing light cue
+    public func updateLightCue(_ cue: LightCue) {
+        if let index = lightCues.firstIndex(where: { $0.id == cue.id }) {
+            lightCues[index] = cue
+            onLightCuesChanged?(lightCues)
+            extendDurationIfNeeded()
+        }
+    }
+
+    /// Remove a light cue by ID
+    public func removeLightCue(id: String) {
+        lightCues.removeAll { $0.id == id }
+        onLightCuesChanged?(lightCues)
+    }
+
+    // MARK: - SFX Cue CRUD
+
+    /// Add a new SFX cue at the given time
+    public func addSFXCue(at time: CGFloat, name: String = "New SFX Cue", effectType: SFXEffectType = .smoke, intensity: Double = 0.8, duration: Double = 5.0, color: String = "#FF6B35") {
+        let nextNumber = sfxCues.count + 1
+        let cue = SFXCue(
+            name: name,
+            cueNumber: "FX\(nextNumber)",
+            effectType: effectType,
+            startTime: Double(time),
+            duration: duration,
+            intensity: intensity,
+            color: color,
+            markerColor: color
+        )
+        sfxCues.append(cue)
+        onSFXCuesChanged?(sfxCues)
+        extendDurationIfNeeded()
+    }
+
+    /// Update an existing SFX cue
+    public func updateSFXCue(_ cue: SFXCue) {
+        if let index = sfxCues.firstIndex(where: { $0.id == cue.id }) {
+            sfxCues[index] = cue
+            onSFXCuesChanged?(sfxCues)
+            extendDurationIfNeeded()
+        }
+    }
+
+    /// Remove an SFX cue by ID
+    public func removeSFXCue(id: String) {
+        sfxCues.removeAll { $0.id == id }
+        onSFXCuesChanged?(sfxCues)
+    }
+
+    // MARK: - Support Cue CRUD
+
+    /// Add a new support cue at the given time
+    public func addSupportCue(at time: CGFloat, name: String = "New Support Cue", actionType: SupportActionType = .propMove, duration: Double = 5.0, color: String = "#2DD4BF") {
+        let nextNumber = supportCues.count + 1
+        let cue = SupportCue(
+            name: name,
+            cueNumber: "S\(nextNumber)",
+            actionType: actionType,
+            startTime: Double(time),
+            duration: duration,
+            markerColor: color
+        )
+        supportCues.append(cue)
+        onSupportCuesChanged?(supportCues)
+        extendDurationIfNeeded()
+    }
+
+    /// Update an existing support cue
+    public func updateSupportCue(_ cue: SupportCue) {
+        if let index = supportCues.firstIndex(where: { $0.id == cue.id }) {
+            supportCues[index] = cue
+            onSupportCuesChanged?(supportCues)
+            extendDurationIfNeeded()
+        }
+    }
+
+    /// Remove a support cue by ID
+    public func removeSupportCue(id: String) {
+        supportCues.removeAll { $0.id == id }
+        onSupportCuesChanged?(supportCues)
     }
 
     // MARK: - Private Methods
@@ -1109,6 +1301,9 @@ public class TimelineViewModel: ObservableObject {
         // Update scenes in scope and duration
         allScenesInScope = [scene]
         currentSceneIndex = 0
+        // Extend duration if any cue bubbles exceed the last dialogue
+        let cueMax = maxCueEndTime()
+        if cueMax > t { t = cueMax }
         currentSceneDuration = t
         totalDuration = t
     }
@@ -1417,6 +1612,9 @@ public class TimelineViewModel: ObservableObject {
         // Update scenes in scope and duration
         allScenesInScope = sequence.scenes
         currentSceneIndex = 0
+        // Extend duration if any cue bubbles exceed the last dialogue
+        let cueMax = maxCueEndTime()
+        if cueMax > t { t = cueMax }
         totalDuration = t
         currentSceneDuration = t  // In sequence mode, show total duration
     }
@@ -1736,8 +1934,31 @@ public class TimelineViewModel: ObservableObject {
         // Update scenes in scope and duration
         allScenesInScope = allScenes
         currentSceneIndex = 0
+        // Extend duration if any cue bubbles exceed the last dialogue
+        let cueMax = maxCueEndTime()
+        if cueMax > t { t = cueMax }
         totalDuration = t
         currentSceneDuration = t  // In global mode, show total duration
+    }
+
+    // MARK: - Cue Duration Extension
+
+    /// Returns the maximum end time across all cue lanes (light, SFX, support) + soundtrack tracks.
+    private func maxCueEndTime() -> CGFloat {
+        let lightMax = lightCues.map { CGFloat($0.startTime + $0.duration) }.max() ?? 0
+        let sfxMax = sfxCues.map { CGFloat($0.startTime + $0.duration) }.max() ?? 0
+        let supportMax = supportCues.map { CGFloat($0.startTime + $0.duration) }.max() ?? 0
+        let soundtrackMax = soundtrackTracks.map { CGFloat($0.startTimeOffset + $0.duration) }.max() ?? 0
+        return max(lightMax, sfxMax, supportMax, soundtrackMax)
+    }
+
+    /// Extends totalDuration if any cue bubble extends beyond the current timeline length.
+    public func extendDurationIfNeeded() {
+        let cueMax = maxCueEndTime()
+        if cueMax > totalDuration {
+            totalDuration = cueMax
+            currentSceneDuration = cueMax
+        }
     }
 
     // MARK: - Manual Position Overrides

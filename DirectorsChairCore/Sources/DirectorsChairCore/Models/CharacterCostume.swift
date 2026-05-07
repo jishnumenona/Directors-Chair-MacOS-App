@@ -4,6 +4,24 @@
 
 import Foundation
 
+/// A reference image uploaded by the user for costume generation (e.g., a photo of a jacket, hat, boots)
+public struct CostumeReferenceImage: Codable, Identifiable, Hashable {
+    public var id: String
+    public var label: String
+    public var imagePath: String
+
+    public init(id: String = UUID().uuidString, label: String, imagePath: String) {
+        self.id = id
+        self.label = label
+        self.imagePath = imagePath
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, label
+        case imagePath = "image_path"
+    }
+}
+
 /// Represents a single costume for a character with multi-angle images
 public struct CharacterCostume: Codable, Identifiable, Hashable {
     public var id: String { costumeId }
@@ -46,6 +64,9 @@ public struct CharacterCostume: Codable, Identifiable, Hashable {
     public var sfxRequirements: String?
     public var directorNotes: String?
 
+    // Reference Images (user-uploaded outfit/accessory photos)
+    public var referenceImages: [CostumeReferenceImage]?
+
     // Metadata
     public var transformationPrompt: String?
     public var createdAt: Date?
@@ -76,6 +97,7 @@ public struct CharacterCostume: Codable, Identifiable, Hashable {
         scriptDay: String? = nil,
         sfxRequirements: String? = nil,
         directorNotes: String? = nil,
+        referenceImages: [CostumeReferenceImage]? = nil,
         transformationPrompt: String? = nil,
         createdAt: Date? = nil
     ) {
@@ -104,6 +126,7 @@ public struct CharacterCostume: Codable, Identifiable, Hashable {
         self.scriptDay = scriptDay
         self.sfxRequirements = sfxRequirements
         self.directorNotes = directorNotes
+        self.referenceImages = referenceImages
         self.transformationPrompt = transformationPrompt
         self.createdAt = createdAt ?? Date()
     }
@@ -134,6 +157,7 @@ public struct CharacterCostume: Codable, Identifiable, Hashable {
         case scriptDay = "script_day"
         case sfxRequirements = "sfx_requirements"
         case directorNotes = "director_notes"
+        case referenceImages = "reference_images"
         case transformationPrompt = "transformation_prompt"
         case createdAt = "created_at"
     }
@@ -175,6 +199,7 @@ public struct CharacterCostume: Codable, Identifiable, Hashable {
         scriptDay = try container.decodeIfPresent(String.self, forKey: .scriptDay)
         sfxRequirements = try container.decodeIfPresent(String.self, forKey: .sfxRequirements)
         directorNotes = try container.decodeIfPresent(String.self, forKey: .directorNotes)
+        referenceImages = try container.decodeIfPresent([CostumeReferenceImage].self, forKey: .referenceImages)
         transformationPrompt = try container.decodeIfPresent(String.self, forKey: .transformationPrompt)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
     }

@@ -232,7 +232,7 @@ public struct SoundNoteBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(globalIndex ?? soundNote.chronologyNumber)"
+        editedIndex = "\(soundNote.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

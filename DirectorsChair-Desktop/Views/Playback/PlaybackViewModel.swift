@@ -98,6 +98,11 @@ class PlaybackViewModel: ObservableObject {
     // MARK: - Scene Reference
     @Published var currentScene: DirectorsChairCore.Scene?
 
+    // MARK: - Active Light Cues
+    @Published var currentLightCues: [LightCue] = []
+    @Published var currentSFXCues: [SFXCue] = []
+    @Published var currentSupportCues: [SupportCue] = []
+
     // MARK: - Timeline Integration
     /// Set by PlaybackView to allow direct playhead sync without SwiftUI onChange overhead
     weak var timelineViewModel: TimelineViewModel?
@@ -362,6 +367,9 @@ class PlaybackViewModel: ObservableObject {
         // Preload audio
         audioEngine.preloadAudio(cues: cues, basePath: basePath)
 
+        // Preload soundtrack audio
+        audioEngine.preloadSoundtracks(tracks: project.soundtracks, basePath: basePath)
+
         // Set initial item
         if let first = items.first {
             currentItem = first
@@ -378,6 +386,7 @@ class PlaybackViewModel: ObservableObject {
         guard !playlistItems.isEmpty else { return }
         isPlaying = true
         audioEngine.resumeAll(speed: playbackSpeed)
+        audioEngine.resumeAllSoundtracks(speed: playbackSpeed)
         startTimer()
     }
 
@@ -385,6 +394,7 @@ class PlaybackViewModel: ObservableObject {
         isPlaying = false
         stopTimer()
         audioEngine.pauseAll()
+        audioEngine.pauseAllSoundtracks()
     }
 
     func togglePlayPause() {
@@ -398,7 +408,11 @@ class PlaybackViewModel: ObservableObject {
         currentTime = 0
         timelineViewModel?.playheadTime = 0
         audioEngine.stopAll()
+        audioEngine.stopAllSoundtracks()
         updateCurrentItem()
+        updateActiveLightCues(at: internalTime)
+        updateActiveSFXCues(at: internalTime)
+        updateActiveSupportCues(at: internalTime)
     }
 
     func seekTo(time: CGFloat) {
@@ -407,8 +421,12 @@ class PlaybackViewModel: ObservableObject {
         currentTime = t
         timelineViewModel?.playheadTime = t
         updateCurrentItem()
+        updateActiveLightCues(at: t)
+        updateActiveSFXCues(at: t)
+        updateActiveSupportCues(at: t)
         // Use seek (stop-then-restart) only on explicit user scrub
         audioEngine.seek(to: t, speed: playbackSpeed, volume: effectiveVolume)
+        audioEngine.seekSoundtracks(to: t, speed: playbackSpeed, volume: effectiveVolume)
         // Scroll timeline to keep playhead visible
         timelineViewModel?.followPlayheadIfNeeded()
     }
@@ -524,11 +542,15 @@ class PlaybackViewModel: ObservableObject {
             // Throttle audio sync to ~15fps (every 4th frame)
             if tickCount % 4 == 0 {
                 audioEngine.syncAudio(to: internalTime, speed: playbackSpeed, volume: effectiveVolume, mutedCharacters: mutedTracks)
+                audioEngine.syncSoundtracks(to: internalTime, speed: playbackSpeed, volume: effectiveVolume)
             }
 
-            // Update subtitle (throttled to ~12fps with currentTime)
+            // Update subtitle and light cues (throttled to ~12fps with currentTime)
             if tickCount % 5 == 0 {
                 updateSubtitle(at: internalTime)
+                updateActiveLightCues(at: internalTime)
+                updateActiveSFXCues(at: internalTime)
+                updateActiveSupportCues(at: internalTime)
             }
 
             // Auto-scroll timeline to follow playhead (~4fps, every 15th frame)
@@ -587,6 +609,64 @@ class PlaybackViewModel: ObservableObject {
         currentLinkedDialogues = scene.dialogues.filter { item.linkedDialogueIds.contains($0.id) }
         currentLinkedActions = scene.actions.filter { item.linkedActionIds.contains($0.id) }
         currentLinkedNarrations = scene.narrations.filter { item.linkedNarrationIds.contains($0.id) }
+    }
+
+    // MARK: - Light Cue Tracking
+
+    /// Cache of previous active cue IDs to avoid redundant @Published writes
+    private var lastLightCueIds: Set<String> = []
+    private var lastSFXCueIds: Set<String> = []
+    private var lastSupportCueIds: Set<String> = []
+
+    private func updateActiveLightCues(at time: CGFloat) {
+        guard let project = projectRef else {
+            if !currentLightCues.isEmpty { currentLightCues = [] }
+            return
+        }
+        let active = project.lightCues.filter { cue in
+            cue.isActive &&
+            Double(time) >= cue.startTime &&
+            Double(time) < cue.startTime + cue.duration
+        }
+        let ids = Set(active.map { $0.id })
+        if ids != lastLightCueIds {
+            lastLightCueIds = ids
+            currentLightCues = active
+        }
+    }
+
+    private func updateActiveSFXCues(at time: CGFloat) {
+        guard let project = projectRef else {
+            if !currentSFXCues.isEmpty { currentSFXCues = [] }
+            return
+        }
+        let active = project.sfxCues.filter { cue in
+            cue.isActive &&
+            Double(time) >= cue.startTime &&
+            Double(time) < cue.startTime + cue.duration
+        }
+        let ids = Set(active.map { $0.id })
+        if ids != lastSFXCueIds {
+            lastSFXCueIds = ids
+            currentSFXCues = active
+        }
+    }
+
+    private func updateActiveSupportCues(at time: CGFloat) {
+        guard let project = projectRef else {
+            if !currentSupportCues.isEmpty { currentSupportCues = [] }
+            return
+        }
+        let active = project.supportCues.filter { cue in
+            cue.isActive &&
+            Double(time) >= cue.startTime &&
+            Double(time) < cue.startTime + cue.duration
+        }
+        let ids = Set(active.map { $0.id })
+        if ids != lastSupportCueIds {
+            lastSupportCueIds = ids
+            currentSupportCues = active
+        }
     }
 
     // MARK: - Subtitle Tracking

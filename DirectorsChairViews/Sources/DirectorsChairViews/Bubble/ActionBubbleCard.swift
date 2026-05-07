@@ -173,7 +173,7 @@ public struct ActionBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(globalIndex ?? action.chronologyNumber)"
+        editedIndex = "\(action.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

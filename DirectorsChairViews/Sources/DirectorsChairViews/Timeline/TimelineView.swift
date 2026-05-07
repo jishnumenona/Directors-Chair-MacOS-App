@@ -28,6 +28,15 @@ public struct TimelineView: View {
     /// Callback when a scene marker is double-clicked (passes sceneName)
     public var onSceneMarkerDoubleClicked: ((String) -> Void)?
 
+    /// Callback when a light cue is double-clicked (passes cueId)
+    public var onLightCueDoubleClicked: ((String) -> Void)?
+
+    /// Callback when an SFX cue is double-clicked (passes cueId)
+    public var onSFXCueDoubleClicked: ((String) -> Void)?
+
+    /// Callback when a support cue is double-clicked (passes cueId)
+    public var onSupportCueDoubleClicked: ((String) -> Void)?
+
     /// Callback when a shot label is dragged to a new time (shotId, sceneName, newTime)
     public var onShotLabelMoved: ((Int, String, CGFloat) -> Void)?
 
@@ -69,6 +78,9 @@ public struct TimelineView: View {
         onOptionClickShotLabel: ((Int, String) -> Void)? = nil,
         onShotLabelDoubleClicked: ((Int, String) -> Void)? = nil,
         onSceneMarkerDoubleClicked: ((String) -> Void)? = nil,
+        onLightCueDoubleClicked: ((String) -> Void)? = nil,
+        onSFXCueDoubleClicked: ((String) -> Void)? = nil,
+        onSupportCueDoubleClicked: ((String) -> Void)? = nil,
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
         onShotLabelResized: ((Int, String, CGFloat) -> Void)? = nil,
         onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)? = nil,
@@ -86,6 +98,9 @@ public struct TimelineView: View {
         self.onOptionClickShotLabel = onOptionClickShotLabel
         self.onShotLabelDoubleClicked = onShotLabelDoubleClicked
         self.onSceneMarkerDoubleClicked = onSceneMarkerDoubleClicked
+        self.onLightCueDoubleClicked = onLightCueDoubleClicked
+        self.onSFXCueDoubleClicked = onSFXCueDoubleClicked
+        self.onSupportCueDoubleClicked = onSupportCueDoubleClicked
         self.onShotLabelMoved = onShotLabelMoved
         self.onShotLabelResized = onShotLabelResized
         self.onSegmentMoved = onSegmentMoved
@@ -99,6 +114,69 @@ public struct TimelineView: View {
     // MARK: - Computed Layout
 
     /// Total content height of all track lanes (for scroll range calculation)
+    /// Compute number of sub-lanes for overlapping light cues (greedy interval coloring)
+    private func lightCueSubLaneCount(_ cues: [LightCue]) -> Int {
+        guard !cues.isEmpty else { return 0 }
+        let sorted = cues.sorted { $0.startTime < $1.startTime }
+        var subLaneEnds: [Double] = []
+        for cue in sorted {
+            var placed = false
+            for i in 0..<subLaneEnds.count {
+                if cue.startTime >= subLaneEnds[i] {
+                    subLaneEnds[i] = cue.startTime + cue.duration
+                    placed = true
+                    break
+                }
+            }
+            if !placed {
+                subLaneEnds.append(cue.startTime + cue.duration)
+            }
+        }
+        return subLaneEnds.count
+    }
+
+    /// Compute number of sub-lanes for overlapping SFX cues
+    private func sfxCueSubLaneCount(_ cues: [SFXCue]) -> Int {
+        guard !cues.isEmpty else { return 0 }
+        let sorted = cues.sorted { $0.startTime < $1.startTime }
+        var subLaneEnds: [Double] = []
+        for cue in sorted {
+            var placed = false
+            for i in 0..<subLaneEnds.count {
+                if cue.startTime >= subLaneEnds[i] {
+                    subLaneEnds[i] = cue.startTime + cue.duration
+                    placed = true
+                    break
+                }
+            }
+            if !placed {
+                subLaneEnds.append(cue.startTime + cue.duration)
+            }
+        }
+        return subLaneEnds.count
+    }
+
+    /// Compute number of sub-lanes for overlapping support cues
+    private func supportCueSubLaneCount(_ cues: [SupportCue]) -> Int {
+        guard !cues.isEmpty else { return 0 }
+        let sorted = cues.sorted { $0.startTime < $1.startTime }
+        var subLaneEnds: [Double] = []
+        for cue in sorted {
+            var placed = false
+            for i in 0..<subLaneEnds.count {
+                if cue.startTime >= subLaneEnds[i] {
+                    subLaneEnds[i] = cue.startTime + cue.duration
+                    placed = true
+                    break
+                }
+            }
+            if !placed {
+                subLaneEnds.append(cue.startTime + cue.duration)
+            }
+        }
+        return subLaneEnds.count
+    }
+
     private func totalTracksContentHeight() -> CGFloat {
         var seen = Set<String>()
         var order: [String] = []
@@ -129,15 +207,55 @@ public struct TimelineView: View {
         return max(TimelineLayoutConstants.minCanvasHeight, contentHeight)
     }
 
-    /// Height of the fixed header area (scope markers + ruler + ruler gap + shot lane)
+    /// Height of the fixed header area (scope markers + ruler + ruler gap + shot lane + soundtrack lanes + lighting lane)
     private var headerHeight: CGFloat {
         let shotLaneOffset = viewModel.showShotLabels
             ? CGFloat(viewModel.shotLaneSubLaneCount) * TimelineLayoutConstants.shotLaneHeight
             : 0
+        let soundtrackOffset: CGFloat = (viewModel.showSoundtracks && !viewModel.soundtrackTracks.isEmpty)
+            ? CGFloat(viewModel.soundtrackTracks.count) * TimelineLayoutConstants.soundtrackLaneHeight
+            : 0
+        let lightingOffset: CGFloat
+        if !viewModel.lightCues.isEmpty {
+            if viewModel.showLightingLane {
+                let lightingSubLaneCount = lightCueSubLaneCount(viewModel.lightCues)
+                lightingOffset = CGFloat(lightingSubLaneCount) * TimelineLayoutConstants.lightingLaneHeight
+            } else {
+                lightingOffset = 24 // Collapsed strip
+            }
+        } else {
+            lightingOffset = 0
+        }
+        let sfxOffset: CGFloat
+        if !viewModel.sfxCues.isEmpty {
+            if viewModel.showSFXLane {
+                let sfxSubLaneCount = sfxCueSubLaneCount(viewModel.sfxCues)
+                sfxOffset = CGFloat(sfxSubLaneCount) * TimelineLayoutConstants.sfxLaneHeight
+            } else {
+                sfxOffset = 24
+            }
+        } else {
+            sfxOffset = 0
+        }
+        let supportOffset: CGFloat
+        if !viewModel.supportCues.isEmpty {
+            if viewModel.showSupportLane {
+                let supportSubLaneCount = supportCueSubLaneCount(viewModel.supportCues)
+                supportOffset = CGFloat(supportSubLaneCount) * TimelineLayoutConstants.supportLaneHeight
+            } else {
+                supportOffset = 24
+            }
+        } else {
+            supportOffset = 0
+        }
         return TimelineLayoutConstants.topMargin +
                TimelineLayoutConstants.rulerHeight +
                TimelineLayoutConstants.rulerGap +
-               shotLaneOffset
+               shotLaneOffset +
+               soundtrackOffset +
+               lightingOffset +
+               sfxOffset +
+               supportOffset
     }
 
     // MARK: - State
@@ -241,6 +359,139 @@ public struct TimelineView: View {
             playheadActive: viewModel.playheadActive,
             userMarkers: viewModel.showUserMarkers ? viewModel.userMarkers : [],
             projectBasePath: projectBasePath,
+            soundtrackTracks: viewModel.soundtrackTracks,
+            showSoundtracks: viewModel.showSoundtracks,
+            lightCues: viewModel.lightCues,
+            showLightingLane: viewModel.showLightingLane,
+            sfxCues: viewModel.sfxCues,
+            showSFXLane: viewModel.showSFXLane,
+            supportCues: viewModel.supportCues,
+            showSupportLane: viewModel.showSupportLane,
+            onLightCueAdded: { time, name, number, workflow, fixture, intensity, duration, color in
+                let cue = LightCue(
+                    name: name,
+                    cueNumber: number,
+                    workflow: workflow,
+                    fixtureType: fixture,
+                    startTime: Double(time),
+                    duration: duration,
+                    intensity: intensity,
+                    color: color,
+                    markerColor: color
+                )
+                viewModel.lightCues.append(cue)
+                viewModel.onLightCuesChanged?(viewModel.lightCues)
+            },
+            onLightCueDeleted: { cueId in
+                viewModel.removeLightCue(id: cueId)
+            },
+            onLightCueUpdated: { cue in
+                viewModel.updateLightCue(cue)
+            },
+            onLightCueMoved: { cueId, newStartTime in
+                if var cue = viewModel.lightCues.first(where: { $0.id == cueId }) {
+                    cue.startTime = newStartTime
+                    viewModel.updateLightCue(cue)
+                }
+            },
+            onLightCueResized: { cueId, newDuration in
+                if var cue = viewModel.lightCues.first(where: { $0.id == cueId }) {
+                    cue.duration = newDuration
+                    viewModel.updateLightCue(cue)
+                }
+            },
+            onLightCueDoubleClicked: { cueId in
+                onLightCueDoubleClicked?(cueId)
+            },
+            onLightingLaneToggled: {
+                viewModel.showLightingLane.toggle()
+            },
+            onSFXCueAdded: { time, name, number, effectType, intensity, duration, color in
+                let cue = SFXCue(
+                    name: name,
+                    cueNumber: number,
+                    effectType: effectType,
+                    startTime: Double(time),
+                    duration: duration,
+                    intensity: intensity,
+                    color: color,
+                    markerColor: color
+                )
+                viewModel.sfxCues.append(cue)
+                viewModel.onSFXCuesChanged?(viewModel.sfxCues)
+            },
+            onSFXCueDeleted: { cueId in
+                viewModel.removeSFXCue(id: cueId)
+            },
+            onSFXCueUpdated: { cue in
+                viewModel.updateSFXCue(cue)
+            },
+            onSFXCueMoved: { cueId, newStartTime in
+                if var cue = viewModel.sfxCues.first(where: { $0.id == cueId }) {
+                    cue.startTime = newStartTime
+                    viewModel.updateSFXCue(cue)
+                }
+            },
+            onSFXCueResized: { cueId, newDuration in
+                if var cue = viewModel.sfxCues.first(where: { $0.id == cueId }) {
+                    cue.duration = newDuration
+                    viewModel.updateSFXCue(cue)
+                }
+            },
+            onSFXCueDoubleClicked: { cueId in
+                onSFXCueDoubleClicked?(cueId)
+            },
+            onSFXLaneToggled: {
+                viewModel.showSFXLane.toggle()
+            },
+            onSupportCueAdded: { time, name, number, actionType, duration, color in
+                let cue = SupportCue(
+                    name: name,
+                    cueNumber: number,
+                    actionType: actionType,
+                    startTime: Double(time),
+                    duration: duration,
+                    markerColor: color
+                )
+                viewModel.supportCues.append(cue)
+                viewModel.onSupportCuesChanged?(viewModel.supportCues)
+            },
+            onSupportCueDeleted: { cueId in
+                viewModel.removeSupportCue(id: cueId)
+            },
+            onSupportCueUpdated: { cue in
+                viewModel.updateSupportCue(cue)
+            },
+            onSupportCueMoved: { cueId, newStartTime in
+                if var cue = viewModel.supportCues.first(where: { $0.id == cueId }) {
+                    cue.startTime = newStartTime
+                    viewModel.updateSupportCue(cue)
+                }
+            },
+            onSupportCueResized: { cueId, newDuration in
+                if var cue = viewModel.supportCues.first(where: { $0.id == cueId }) {
+                    cue.duration = newDuration
+                    viewModel.updateSupportCue(cue)
+                }
+            },
+            onSupportCueDoubleClicked: { cueId in
+                onSupportCueDoubleClicked?(cueId)
+            },
+            onSupportLaneToggled: {
+                viewModel.showSupportLane.toggle()
+            },
+            onSoundtrackMoved: { trackId, newOffset in
+                viewModel.moveSoundtrack(id: trackId, newOffset: newOffset)
+            },
+            onSoundtrackTrackToggled: {
+                viewModel.showSoundtracks.toggle()
+            },
+            onSoundtrackMuteToggled: { trackId in
+                viewModel.toggleSoundtrackMute(id: trackId)
+            },
+            onSoundtrackRemoved: { trackId in
+                viewModel.removeSoundtrack(id: trackId)
+            },
             onShotLabelDoubleClicked: { shotId, sceneName in
                 onShotLabelDoubleClicked?(shotId, sceneName)
             },
@@ -338,6 +589,7 @@ public struct TimelineView: View {
                 onSegmentsMoved?(moves)
             }
         )
+        canvas.effectiveDuration = viewModel.totalDuration
         canvas.generatingAudioSourceIds = viewModel.generatingAudioSourceIds
         canvas.playingAudioSourceId = viewModel.playingAudioSourceId
         canvas.onEmptySpaceClicked = { x in
@@ -711,6 +963,22 @@ struct TimelineControlsView: View {
                 }
                 .toggleStyle(.checkbox)
                 .help("Show shots lane on timeline")
+
+                // Soundtrack toggle
+                Toggle(isOn: $viewModel.showSoundtracks) {
+                    Text("Audio")
+                        .font(.system(size: 11))
+                }
+                .toggleStyle(.checkbox)
+                .help("Show/hide soundtrack waveform lanes")
+
+                // Import Audio button
+                Button(action: { viewModel.onImportSoundtrack?() }) {
+                    Image(systemName: "waveform.badge.plus")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.bordered)
+                .help("Import audio file (MP3, WAV, M4A)")
 
                 // Shot-dialogue connection lines toggle
                 Toggle(isOn: $viewModel.showShotConnections) {

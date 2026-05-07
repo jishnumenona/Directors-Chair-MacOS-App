@@ -175,7 +175,7 @@ public struct NarrationBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(globalIndex ?? narration.chronologyNumber)"
+        editedIndex = "\(narration.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

@@ -40,6 +40,7 @@ public struct Project: Codable, Identifiable, Hashable {
 
     // MARK: - Production Planning
     public var scheduleItems: [ScheduleItem]
+    public var ganttTasks: [GanttTask]
 
     // MARK: - Film Style System
     public var filmStyles: [FilmStyle]
@@ -54,6 +55,18 @@ public struct Project: Codable, Identifiable, Hashable {
 
     // MARK: - User Management
     public var userManager: ProjectUserManager?
+
+    // MARK: - Soundtracks
+    public var soundtracks: [SoundtrackTrack]
+
+    // MARK: - Light Cues
+    public var lightCues: [LightCue]
+
+    // MARK: - SFX Cues
+    public var sfxCues: [SFXCue]
+
+    // MARK: - Support Cues
+    public var supportCues: [SupportCue]
 
     // MARK: - Budget
     public var projectBudget: ProjectBudget?
@@ -104,6 +117,7 @@ public struct Project: Codable, Identifiable, Hashable {
         sequences: [Sequence] = [],
         beats: [VisionCard] = [],
         scheduleItems: [ScheduleItem] = [],
+        ganttTasks: [GanttTask] = [],
         filmStyles: [FilmStyle] = [],
         defaultFilmStyle: String? = nil,
         castMembers: [CastMember] = [],
@@ -111,6 +125,10 @@ public struct Project: Codable, Identifiable, Hashable {
         teams: [Team] = [],
         equipmentLibrary: [EquipmentItem] = [],
         equipmentAllocations: [EquipmentAllocation] = [],
+        soundtracks: [SoundtrackTrack] = [],
+        lightCues: [LightCue] = [],
+        sfxCues: [SFXCue] = [],
+        supportCues: [SupportCue] = [],
         userManager: ProjectUserManager? = nil,
         projectBudget: ProjectBudget? = nil,
         defaultExpenseDepartment: String = "",
@@ -149,6 +167,7 @@ public struct Project: Codable, Identifiable, Hashable {
         self.sequences = sequences
         self.beats = beats
         self.scheduleItems = scheduleItems
+        self.ganttTasks = ganttTasks
         self.filmStyles = filmStyles
         self.defaultFilmStyle = defaultFilmStyle
         self.castMembers = castMembers
@@ -156,6 +175,10 @@ public struct Project: Codable, Identifiable, Hashable {
         self.teams = teams
         self.equipmentLibrary = equipmentLibrary
         self.equipmentAllocations = equipmentAllocations
+        self.soundtracks = soundtracks
+        self.lightCues = lightCues
+        self.sfxCues = sfxCues
+        self.supportCues = supportCues
         self.userManager = userManager
         self.projectBudget = projectBudget
         self.defaultExpenseDepartment = defaultExpenseDepartment
@@ -196,6 +219,7 @@ public struct Project: Codable, Identifiable, Hashable {
         case sequences
         case beats
         case scheduleItems = "schedule_items"
+        case ganttTasks = "gantt_tasks"
         case filmStyles = "film_styles"
         case defaultFilmStyle = "default_film_style"
         case castMembers = "cast_members"
@@ -203,6 +227,10 @@ public struct Project: Codable, Identifiable, Hashable {
         case teams
         case equipmentLibrary = "equipment_library"
         case equipmentAllocations = "equipment_allocations"
+        case soundtracks
+        case lightCues = "light_cues"
+        case sfxCues = "sfx_cues"
+        case supportCues = "support_cues"
         case userManager = "user_manager"
         case projectBudget = "project_budget"
         case defaultExpenseDepartment = "default_expense_department"
@@ -255,6 +283,7 @@ public struct Project: Codable, Identifiable, Hashable {
 
         // Production planning
         scheduleItems = try container.decodeIfPresent([ScheduleItem].self, forKey: .scheduleItems) ?? []
+        ganttTasks = try container.decodeIfPresent([GanttTask].self, forKey: .ganttTasks) ?? []
 
         // Film styles
         filmStyles = try container.decodeIfPresent([FilmStyle].self, forKey: .filmStyles) ?? []
@@ -266,6 +295,18 @@ public struct Project: Codable, Identifiable, Hashable {
         teams = try container.decodeIfPresent([Team].self, forKey: .teams) ?? []
         equipmentLibrary = try container.decodeIfPresent([EquipmentItem].self, forKey: .equipmentLibrary) ?? []
         equipmentAllocations = try container.decodeIfPresent([EquipmentAllocation].self, forKey: .equipmentAllocations) ?? []
+
+        // Soundtracks
+        soundtracks = try container.decodeIfPresent([SoundtrackTrack].self, forKey: .soundtracks) ?? []
+
+        // Light cues
+        lightCues = try container.decodeIfPresent([LightCue].self, forKey: .lightCues) ?? []
+
+        // SFX cues
+        sfxCues = try container.decodeIfPresent([SFXCue].self, forKey: .sfxCues) ?? []
+
+        // Support cues
+        supportCues = try container.decodeIfPresent([SupportCue].self, forKey: .supportCues) ?? []
 
         // User management and budget
         userManager = try container.decodeIfPresent(ProjectUserManager.self, forKey: .userManager)

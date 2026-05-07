@@ -214,7 +214,7 @@ public struct NoteBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(globalIndex ?? note.chronologyNumber)"
+        editedIndex = "\(note.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

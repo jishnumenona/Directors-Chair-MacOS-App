@@ -455,7 +455,7 @@ public struct DialogueBubbleCard: View {
     }
 
     private func startIndexEditing() {
-        editedIndex = "\(globalIndex ?? dialogue.chronologyNumber)"
+        editedIndex = "\(dialogue.chronologyNumber)"
         isEditingIndex = true
         indexFieldFocused = true
     }

@@ -120,6 +120,7 @@ public struct CinematographyView: View {
                         set: { viewModel.editingShot = $0 }
                     ),
                     presets: viewModel.cameraPresets,
+                    characters: characters,
                     isPresented: $viewModel.showingShotEditor,
                     onSave: {
                         viewModel.saveEditedShot()
@@ -460,6 +461,7 @@ public struct CinematographyView: View {
                     // Description (Click to edit)
                     InlineDescriptionEditor(
                         description: shot.description,
+                        characters: characters,
                         onDescriptionChange: { newDescription in
                             updateShotField(shot) { $0.description = newDescription }
                         }
@@ -2684,6 +2686,7 @@ private struct DurationEditor: View {
 
 private struct InlineDescriptionEditor: View {
     let description: String
+    let characters: [Character]
     let onDescriptionChange: (String) -> Void
 
     @State private var editText = ""
@@ -2701,34 +2704,22 @@ private struct InlineDescriptionEditor: View {
                     .foregroundColor(.gray)
             }
 
-            // Always-editable inline text — clean, no box
-            ZStack(alignment: .topLeading) {
-                if editText.isEmpty {
-                    Text("Write a description...")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray.opacity(0.35))
-                        .italic()
-                        .padding(.vertical, 2)
-                        .allowsHitTesting(false)
-                }
-                TextEditor(text: $editText)
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.9))
-                    .scrollContentBackground(.hidden)
-                    .lineSpacing(3)
-                    .frame(minHeight: 20)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .onChange(of: editText) { _, newValue in
-                        if hasInitialized && newValue != description {
-                            onDescriptionChange(newValue)
-                        }
-                    }
-            }
+            // Always-editable inline text with @mention support
+            CharacterMentionTextEditor(
+                text: $editText,
+                characters: characters,
+                placeholder: "Write a description..."
+            )
         }
         .onAppear {
             editText = description
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 hasInitialized = true
+            }
+        }
+        .onChange(of: editText) { _, newValue in
+            if hasInitialized && newValue != description {
+                onDescriptionChange(newValue)
             }
         }
         .onChange(of: description) { _, newValue in
@@ -3420,6 +3411,7 @@ private struct PresetCard: View {
 private struct ShotEditorSheet: View {
     @Binding var shot: Shot
     let presets: [CameraPreset]
+    let characters: [Character]
     @Binding var isPresented: Bool
     var onSave: (() -> Void)?
 
@@ -3445,16 +3437,18 @@ private struct ShotEditorSheet: View {
                         Text("Description")
                             .font(.caption)
                             .foregroundColor(.gray)
-                        TextEditor(text: $shot.description)
-                            .frame(height: 80)
-                            .font(.body)
-                            .scrollContentBackground(.hidden)
-                            .background(Color(hex: "#1E1E1E"))
-                            .cornerRadius(6)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                            )
+                        CharacterMentionTextEditor(
+                            text: $shot.description,
+                            characters: characters,
+                            placeholder: "Write a description..."
+                        )
+                        .frame(minHeight: 80)
+                        .background(Color(hex: "#1E1E1E"))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                        )
                     }
 
                     // Status

@@ -126,6 +126,11 @@ class AppCoordinator: ObservableObject {
     /// Preferred Story Design mode when navigating without a specific character/location
     @Published var preferredStoryDesignMode: String?
 
+    /// Light cue ID to select when navigating to lighting design
+    @Published var selectedLightCueId: String?
+    @Published var selectedSFXCueId: String?
+    @Published var selectedSupportCueId: String?
+
     /// When true, PlaybackView should auto-play on appear (set by global space bar shortcut)
     @Published var shouldAutoPlay: Bool = false
 

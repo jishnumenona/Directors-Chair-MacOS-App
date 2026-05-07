@@ -9,6 +9,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairViews
 import DirectorsChairProduction
@@ -565,6 +566,7 @@ final class AIProgressTracker: ObservableObject, @unchecked Sendable {
 struct CentralViewStack: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @EnvironmentObject var timelineViewModel: TimelineViewModel
 
     /// Incremented on each projectChanged event to trigger BubbleView cache refresh
     @State private var bubbleRefreshTrigger = 0
@@ -581,6 +583,7 @@ struct CentralViewStack: View {
     @StateObject private var castCrewViewModel = CastCrewViewModel(castMembers: [], crewMembers: [], teams: [], equipment: [])
     @StateObject private var budgetViewModel = BudgetViewModel(budget: ProjectBudget())
     @StateObject private var equipmentViewModel = EquipmentViewModel()
+    @StateObject private var ganttViewModel = GanttViewModel()
 
     var body: some View {
         let currentView = coordinator.selectedView
@@ -669,7 +672,8 @@ struct CentralViewStack: View {
                 scheduleViewModel: scheduleViewModel,
                 castCrewViewModel: castCrewViewModel,
                 budgetViewModel: budgetViewModel,
-                equipmentViewModel: equipmentViewModel
+                equipmentViewModel: equipmentViewModel,
+                ganttViewModel: ganttViewModel
             )
             .onAppear { debugLog("📱 ProductionContainer appeared") }
         case .storyDesign:
@@ -679,6 +683,10 @@ struct CentralViewStack: View {
                 initialCharacterId: coordinator.selectedCharacter?.id,
                 initialLocationId: coordinator.selectedLocation?.id,
                 preferredMode: coordinator.preferredStoryDesignMode,
+                initialLightCueId: coordinator.selectedLightCueId,
+                initialSFXCueId: coordinator.selectedSFXCueId,
+                initialSupportCueId: coordinator.selectedSupportCueId,
+                markers: timelineViewModel.userMarkers,
                 traitAnalysisProgress: aiProgress.traitAnalysis,
                 biographyProgress: aiProgress.biography,
                 onGenerateImage: { character, angle, prompt, progressHandler in
@@ -699,6 +707,11 @@ struct CentralViewStack: View {
                 onGenerateLocationImage: { location, variation, prompt, progressHandler in
                     Task {
                         await generateLocationImage(location: location, variation: variation, prompt: prompt, progressHandler: progressHandler)
+                    }
+                },
+                onUploadReferenceImage: { character, imageData, progressHandler in
+                    Task {
+                        await analyzeCharacterReferenceImage(character: character, imageData: imageData, progressHandler: progressHandler)
                     }
                 }
             )
@@ -1025,6 +1038,231 @@ struct CentralViewStack: View {
             return ("body", "profile")
         default:
             return ("face", "front")
+        }
+    }
+
+    // MARK: - Analyze Character Reference Image
+
+    private func analyzeCharacterReferenceImage(
+        character: Character,
+        imageData: Data,
+        progressHandler: @escaping @MainActor (Double) -> Void
+    ) async {
+        let aiClient = AIServiceClient.shared
+
+        await MainActor.run { progressHandler(0.1) }
+
+        guard await aiClient.testConnection() else {
+            await MainActor.run {
+                progressHandler(1.0)
+                projectViewModel.errorAlert = ErrorAlert(
+                    title: "AI Service Unavailable",
+                    message: "Could not connect to AI server. Please check your internet connection and try again."
+                )
+            }
+            return
+        }
+
+        await MainActor.run { progressHandler(0.2) }
+
+        let base64 = imageData.base64EncodedString()
+
+        let prompt = """
+        Analyze this character reference image and extract physical attributes and costume details.
+        Return ONLY valid JSON with no markdown formatting or code fences.
+
+        {
+          "gender": "male|female|neutral",
+          "age": <estimated age as integer>,
+          "build": "Slim|Athletic|Average|Stocky|Heavy",
+          "heightCm": <estimated height in cm>,
+          "weightKg": <estimated weight in kg>,
+          "hairColor": "<hex color string like #8B4513>",
+          "hairStyle": "<e.g., Wavy, Straight, Curly, Braided>",
+          "hairLength": "Bald|Short|Medium|Long|Very Long",
+          "eyeColor": "<hex color string>",
+          "eyeColorDescription": "<e.g., Brown, Blue, Hazel>",
+          "eyeShape": "Almond|Round|Hooded|Monolid|Deep-set|Upturned|Downturned",
+          "skinTone": "<hex color string>",
+          "ethnicity": "<estimated ethnicity description>",
+          "facialStructure": "Oval|Round|Square|Heart|Oblong|Diamond",
+          "distinguishingFeatures": "<scars, tattoos, birthmarks, or 'None'>",
+          "costume": {
+            "name": "<descriptive costume name>",
+            "description": "<brief overall description>",
+            "garmentTop": "<top garment description>",
+            "garmentBottom": "<bottom garment description>",
+            "footwear": "<footwear description or empty string>",
+            "outerwear": "<outerwear description or empty string>",
+            "headwear": "<headwear description or empty string>",
+            "accessories": ["<item1>", "<item2>"],
+            "colorPalette": ["#hex1", "#hex2", "#hex3"],
+            "era": "<Modern|Period|Fantasy|Sci-Fi|Victorian|Medieval|etc>",
+            "styleCategory": "<Casual|Formal|Military|Athletic|etc>"
+          }
+        }
+        """
+
+        do {
+            let request = TextGenerationRequest(
+                prompt: prompt,
+                provider: .google,
+                maxTokens: 2000,
+                temperature: 0.3,
+                imageBase64: base64,
+                imageMimeType: "image/png"
+            )
+
+            await MainActor.run { progressHandler(0.4) }
+
+            let response = try await aiClient.generateText(request)
+
+            await MainActor.run { progressHandler(0.7) }
+
+            // Strip markdown code fences if present
+            var jsonText = response.text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if jsonText.hasPrefix("```") {
+                if let firstNewline = jsonText.firstIndex(of: "\n") {
+                    jsonText = String(jsonText[jsonText.index(after: firstNewline)...])
+                }
+                if jsonText.hasSuffix("```") {
+                    jsonText = String(jsonText.dropLast(3))
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            guard let jsonData = jsonText.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                await MainActor.run {
+                    progressHandler(1.0)
+                    projectViewModel.errorAlert = ErrorAlert(
+                        title: "Analysis Failed",
+                        message: "Could not parse AI response. The image may not contain a clear character."
+                    )
+                }
+                return
+            }
+
+            await MainActor.run { progressHandler(0.8) }
+
+            guard let charIndex = projectViewModel.project.characters.firstIndex(where: { $0.id == character.id }) else {
+                await MainActor.run { progressHandler(1.0) }
+                return
+            }
+
+            await MainActor.run {
+                var char = projectViewModel.project.characters[charIndex]
+
+                if let gender = json["gender"] as? String, !gender.isEmpty {
+                    let g = gender.lowercased()
+                    if g == "male" || g == "female" || g == "neutral" {
+                        char.gender = g
+                    }
+                }
+                if let age = json["age"] as? Int, age > 0 {
+                    char.age = age
+                }
+                if let build = json["build"] as? String, !build.isEmpty {
+                    char.build = build
+                }
+                if let heightCm = json["heightCm"] as? Double, heightCm > 0 {
+                    char.heightCm = heightCm
+                }
+                if let weightKg = json["weightKg"] as? Double, weightKg > 0 {
+                    char.weightKg = weightKg
+                }
+                if let hairColor = json["hairColor"] as? String, !hairColor.isEmpty {
+                    char.hairColor = hairColor
+                }
+                if let hairStyle = json["hairStyle"] as? String, !hairStyle.isEmpty {
+                    char.hairStyle = hairStyle
+                }
+                if let hairLength = json["hairLength"] as? String, !hairLength.isEmpty {
+                    char.hairLength = hairLength
+                }
+                if let eyeColor = json["eyeColor"] as? String, !eyeColor.isEmpty {
+                    char.eyeColor = eyeColor
+                }
+                if let eyeColorDesc = json["eyeColorDescription"] as? String, !eyeColorDesc.isEmpty {
+                    char.eyeColorDescription = eyeColorDesc
+                }
+                if let eyeShape = json["eyeShape"] as? String, !eyeShape.isEmpty {
+                    char.eyeShape = eyeShape
+                }
+                if let skinTone = json["skinTone"] as? String, !skinTone.isEmpty {
+                    char.skinTone = skinTone
+                }
+                if let ethnicity = json["ethnicity"] as? String, !ethnicity.isEmpty {
+                    char.ethnicity = ethnicity
+                }
+                if let facialStructure = json["facialStructure"] as? String, !facialStructure.isEmpty {
+                    char.facialStructure = facialStructure
+                }
+                if let features = json["distinguishingFeatures"] as? String, !features.isEmpty, features != "None" {
+                    char.distinguishingFeatures = features
+                }
+
+                // Create costume if present
+                if let costumeJson = json["costume"] as? [String: Any],
+                   let costumeName = costumeJson["name"] as? String, !costumeName.isEmpty {
+                    let costume = CharacterCostume(
+                        name: costumeName,
+                        description: costumeJson["description"] as? String ?? "",
+                        era: costumeJson["era"] as? String,
+                        styleCategory: costumeJson["styleCategory"] as? String,
+                        colorPalette: costumeJson["colorPalette"] as? [String],
+                        garmentTop: costumeJson["garmentTop"] as? String,
+                        garmentBottom: costumeJson["garmentBottom"] as? String,
+                        footwear: costumeJson["footwear"] as? String,
+                        outerwear: costumeJson["outerwear"] as? String,
+                        headwear: costumeJson["headwear"] as? String,
+                        accessories: costumeJson["accessories"] as? [String]
+                    )
+
+                    if char.costumes == nil {
+                        char.costumes = [costume]
+                    } else {
+                        char.costumes?.append(costume)
+                    }
+
+                    // Copy uploaded image as costume front image
+                    if let projectPath = projectViewModel.projectPath {
+                        let projectDir = projectPath.deletingLastPathComponent()
+                        let sanitizedCharName = sanitizeAssetName(char.name)
+                        let sanitizedCostumeName = sanitizeAssetName(costumeName)
+                        let costumeDir = projectDir
+                            .appendingPathComponent("assets/characters/\(sanitizedCharName)/costumes/\(sanitizedCostumeName)")
+                        let costumeFrontPath = costumeDir.appendingPathComponent("front.png")
+
+                        do {
+                            _ = projectDir.startAccessingSecurityScopedResource()
+                            defer { projectDir.stopAccessingSecurityScopedResource() }
+                            try FileManager.default.createDirectory(at: costumeDir, withIntermediateDirectories: true)
+                            try imageData.write(to: costumeFrontPath)
+
+                            let relativePath = "assets/characters/\(sanitizedCharName)/costumes/\(sanitizedCostumeName)/front.png"
+                            if let lastIndex = char.costumes?.indices.last {
+                                char.costumes?[lastIndex].imageFront = relativePath
+                            }
+                        } catch {
+                            print("Failed to save costume image: \(error)")
+                        }
+                    }
+                }
+
+                projectViewModel.project.characters[charIndex] = char
+                projectViewModel.isDirty = true
+                progressHandler(1.0)
+            }
+        } catch {
+            await MainActor.run {
+                progressHandler(1.0)
+                projectViewModel.errorAlert = ErrorAlert(
+                    title: "Analysis Failed",
+                    message: "Failed to analyze reference image: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -1724,6 +1962,9 @@ struct TimelineContainer: View {
     /// Audio player for timeline TTS playback
     @State private var timelineAudioPlayer: AVAudioPlayer?
 
+    /// Whether the soundtrack file importer is showing
+    @State private var showSoundtrackImporter: Bool = false
+
     /// Project base path as URL for image loading (matches CinematographyView resolution)
     private var projectBaseURL: URL? {
         projectViewModel.projectPath?.deletingLastPathComponent()
@@ -1811,6 +2052,24 @@ struct TimelineContainer: View {
                     coordinator.selectScene(scene)
                     coordinator.navigateTo(.scenes)
                 }
+            },
+            onLightCueDoubleClicked: { cueId in
+                // Double-click light cue → open in Lighting Cue Editor
+                coordinator.selectedLightCueId = cueId
+                coordinator.preferredStoryDesignMode = "lighting"
+                coordinator.navigateTo(.storyDesign)
+            },
+            onSFXCueDoubleClicked: { cueId in
+                // Double-click SFX cue → open in SFX Editor
+                coordinator.selectedSFXCueId = cueId
+                coordinator.preferredStoryDesignMode = "lighting"
+                coordinator.navigateTo(.storyDesign)
+            },
+            onSupportCueDoubleClicked: { cueId in
+                // Double-click support cue → open in choreography editor
+                coordinator.selectedSupportCueId = cueId
+                coordinator.preferredStoryDesignMode = "lighting"
+                coordinator.navigateTo(.storyDesign)
             },
             onShotLabelMoved: { _, _, _ in
                 // Sync updated project and save silently (no loading overlay)
@@ -1973,6 +2232,60 @@ struct TimelineContainer: View {
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.showGlobal()
             lastSequenceCount = projectViewModel.project.sequences.count
+
+            // Load existing soundtracks from project
+            timelineViewModel.soundtrackTracks = projectViewModel.project.soundtracks
+
+            // Load existing light cues from project
+            timelineViewModel.lightCues = projectViewModel.project.lightCues
+
+            // Load existing SFX cues from project
+            timelineViewModel.sfxCues = projectViewModel.project.sfxCues
+
+            // Load existing support cues from project
+            timelineViewModel.supportCues = projectViewModel.project.supportCues
+
+            // Wire soundtrack import callback
+            timelineViewModel.onImportSoundtrack = {
+                showSoundtrackImporter = true
+            }
+
+            // Wire soundtrack changed callback to persist
+            timelineViewModel.onSoundtracksChanged = { tracks in
+                projectViewModel.project.soundtracks = tracks
+                Task { await projectViewModel.saveSilently() }
+            }
+
+            // Wire light cues changed callback to persist
+            timelineViewModel.onLightCuesChanged = { cues in
+                projectViewModel.project.lightCues = cues
+                Task { await projectViewModel.saveSilently() }
+            }
+
+            // Wire SFX cues changed callback to persist
+            timelineViewModel.onSFXCuesChanged = { cues in
+                projectViewModel.project.sfxCues = cues
+                Task { await projectViewModel.saveSilently() }
+            }
+
+            // Wire support cues changed callback to persist
+            timelineViewModel.onSupportCuesChanged = { cues in
+                projectViewModel.project.supportCues = cues
+                Task { await projectViewModel.saveSilently() }
+            }
+        }
+        .fileImporter(
+            isPresented: $showSoundtrackImporter,
+            allowedContentTypes: [.audio, .mp3, .wav, .aiff],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                importSoundtrackFile(url: url)
+            case .failure(let error):
+                print("Soundtrack import error: \(error)")
+            }
         }
         // Refresh when project finishes loading (catches async restoreLastProject)
         .onChange(of: projectViewModel.hasProject) { _, hasProject in
@@ -1981,6 +2294,10 @@ struct TimelineContainer: View {
                 timelineViewModel.setProject(projectViewModel.project)
                 timelineViewModel.showGlobal()
                 lastSequenceCount = projectViewModel.project.sequences.count
+                timelineViewModel.soundtrackTracks = projectViewModel.project.soundtracks
+                timelineViewModel.lightCues = projectViewModel.project.lightCues
+                timelineViewModel.sfxCues = projectViewModel.project.sfxCues
+                timelineViewModel.supportCues = projectViewModel.project.supportCues
 
                 // Auto-open AI chat on first launch after project loads
                 if !UserDefaults.standard.bool(forKey: "hasShownAIChatWelcome") {
@@ -2000,11 +2317,88 @@ struct TimelineContainer: View {
                 timelineViewModel.refresh()
             }
         }
+        // Keep timeline cue lanes in sync when editor changes project cues
+        .onChange(of: projectViewModel.project.lightCues) { _, newCues in
+            if timelineViewModel.lightCues != newCues {
+                timelineViewModel.lightCues = newCues
+                timelineViewModel.extendDurationIfNeeded()
+                Task { await projectViewModel.saveSilently() }
+            }
+        }
+        .onChange(of: projectViewModel.project.sfxCues) { _, newCues in
+            if timelineViewModel.sfxCues != newCues {
+                timelineViewModel.sfxCues = newCues
+                timelineViewModel.extendDurationIfNeeded()
+                Task { await projectViewModel.saveSilently() }
+            }
+        }
+        .onChange(of: projectViewModel.project.supportCues) { _, newCues in
+            if timelineViewModel.supportCues != newCues {
+                timelineViewModel.supportCues = newCues
+                timelineViewModel.extendDurationIfNeeded()
+                Task { await projectViewModel.saveSilently() }
+            }
+        }
         // Subscribe to project changed events (e.g., when bubbles are reordered)
         .onReceive(coordinator.projectChanged) { _ in
             debugLog("🎬 TimelineContainer: projectChanged received, refreshing timeline")
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.refresh()
+        }
+    }
+
+    // MARK: - Soundtrack Import
+
+    private func importSoundtrackFile(url: URL) {
+        guard let projectPath = projectViewModel.projectPath else { return }
+        let projectDir = projectPath.deletingLastPathComponent()
+
+        // Start security-scoped access
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+
+        Task {
+            do {
+                // Extract waveform data
+                let waveformData = try WaveformExtractor.extract(from: url)
+
+                // Create soundtrack directory
+                let soundtrackDir = projectDir.appendingPathComponent("assets/audio/soundtracks")
+                try FileManager.default.createDirectory(at: soundtrackDir, withIntermediateDirectories: true)
+
+                // Copy audio file
+                let trackId = UUID().uuidString
+                let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
+                let destFileName = "\(trackId).\(ext)"
+                let destURL = soundtrackDir.appendingPathComponent(destFileName)
+                try FileManager.default.copyItem(at: url, to: destURL)
+
+                let relativePath = "assets/audio/soundtracks/\(destFileName)"
+
+                // Assign a color based on existing track count
+                let colors = ["#00BCD4", "#E91E63", "#4CAF50", "#FF9800", "#9C27B0", "#03A9F4"]
+                let colorIndex = timelineViewModel.soundtrackTracks.count % colors.count
+
+                // Create track model
+                let track = SoundtrackTrack(
+                    id: trackId,
+                    name: url.deletingPathExtension().lastPathComponent,
+                    audioFilePath: relativePath,
+                    startTimeOffset: 0,
+                    duration: waveformData.duration,
+                    volume: 1.0,
+                    color: colors[colorIndex],
+                    isMuted: false,
+                    waveformSamples: waveformData.samples,
+                    sortOrder: timelineViewModel.soundtrackTracks.count
+                )
+
+                await MainActor.run {
+                    timelineViewModel.addSoundtrack(track)
+                }
+            } catch {
+                print("Failed to import soundtrack: \(error)")
+            }
         }
     }
 }
@@ -2019,6 +2413,7 @@ struct ProductionContainer: View {
     @ObservedObject var castCrewViewModel: CastCrewViewModel
     @ObservedObject var budgetViewModel: BudgetViewModel
     @ObservedObject var equipmentViewModel: EquipmentViewModel
+    @ObservedObject var ganttViewModel: GanttViewModel
 
     var body: some View {
         ProductionViewWrapper(
@@ -2035,6 +2430,13 @@ struct ProductionContainer: View {
                         isSelected: coordinator.selectedProductionTab == "Schedule"
                     ) {
                         coordinator.selectedProductionTab = "Schedule"
+                    }
+                    ProductionTabButton(
+                        icon: "chart.bar.xaxis",
+                        title: "Gantt",
+                        isSelected: coordinator.selectedProductionTab == "Gantt"
+                    ) {
+                        coordinator.selectedProductionTab = "Gantt"
                     }
                     ProductionTabButton(
                         icon: "person.3",
@@ -2069,6 +2471,8 @@ struct ProductionContainer: View {
                 switch coordinator.selectedProductionTab {
                 case "Schedule":
                     ScheduleView(viewModel: scheduleViewModel, sequences: projectViewModel.project.sequences, onSceneStatusUpdate: updateSceneStatus)
+                case "Gantt":
+                    GanttChartView(viewModel: ganttViewModel)
                 case "Cast & Crew":
                     CastCrewView(viewModel: castCrewViewModel)
                 case "Accounting":
@@ -2254,6 +2658,11 @@ struct ProductionContainer: View {
         equipmentViewModel.onAllocationsChanged = { allocations in
             projectViewModel.project.equipmentAllocations = allocations
         }
+
+        // Sync Gantt task changes back to project
+        ganttViewModel.onTasksChanged = { tasks in
+            projectViewModel.project.ganttTasks = tasks
+        }
     }
 
     private func loadProductionData() {
@@ -2299,6 +2708,16 @@ struct ProductionContainer: View {
             if let projectPath = projectViewModel.projectPath {
                 budgetViewModel.projectBasePath = projectPath.deletingLastPathComponent()
             }
+        case "Gantt":
+            ganttViewModel.setTasks(projectViewModel.project.ganttTasks)
+            ganttViewModel.scheduleItems = projectViewModel.project.scheduleItems
+            ganttViewModel.castMembers = projectViewModel.project.castMembers
+            ganttViewModel.crewMembers = projectViewModel.project.crewMembers
+            ganttViewModel.characters = projectViewModel.project.characters
+            ganttViewModel.props = projectViewModel.project.props
+            ganttViewModel.equipment = projectViewModel.project.equipmentLibrary
+            ganttViewModel.locations = projectViewModel.project.locations
+            ganttViewModel.sequences = projectViewModel.project.sequences
         case "Equipment":
             equipmentViewModel.setEquipment(projectViewModel.project.equipmentLibrary)
             equipmentViewModel.setAllocations(projectViewModel.project.equipmentAllocations)

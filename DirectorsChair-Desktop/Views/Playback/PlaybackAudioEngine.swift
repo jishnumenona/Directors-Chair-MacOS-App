@@ -10,6 +10,7 @@
 
 import Foundation
 import AVFoundation
+import DirectorsChairCore
 
 @MainActor
 class PlaybackAudioEngine {
@@ -20,6 +21,11 @@ class PlaybackAudioEngine {
     private var currentlyPlayingIds: Set<String> = []
     private var volume: Double = 1.0
     private var speed: Double = 1.0
+
+    // MARK: - Soundtrack Players
+    private var soundtrackPlayers: [String: AVAudioPlayer] = [:]  // keyed by track ID
+    private var soundtrackTracks: [SoundtrackTrack] = []
+    private var currentlyPlayingSoundtrackIds: Set<String> = []
 
     // MARK: - Preloading
 
@@ -161,5 +167,95 @@ class PlaybackAudioEngine {
             }
         }
         currentlyPlayingIds = currentlyPlayingIds.filter { cueCharacterMap[$0] != character }
+    }
+
+    // MARK: - Soundtrack Playback
+
+    func preloadSoundtracks(tracks: [SoundtrackTrack], basePath: URL?) {
+        stopAllSoundtracks()
+        self.soundtrackTracks = tracks
+        soundtrackPlayers.removeAll()
+
+        guard let base = basePath else { return }
+
+        for track in tracks {
+            let url = base.appendingPathComponent(track.audioFilePath)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+
+            do {
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.enableRate = true
+                player.prepareToPlay()
+                soundtrackPlayers[track.id] = player
+            } catch {
+                debugLog("PlaybackAudioEngine: Failed to load soundtrack \(track.audioFilePath): \(error)")
+            }
+        }
+
+        debugLog("PlaybackAudioEngine: Preloaded \(soundtrackPlayers.count)/\(tracks.count) soundtrack tracks")
+    }
+
+    func syncSoundtracks(to currentTime: CGFloat, speed: Double, volume: Double) {
+        for track in soundtrackTracks {
+            guard let player = soundtrackPlayers[track.id] else { continue }
+            let trackStart = CGFloat(track.startTimeOffset)
+            let trackEnd = trackStart + CGFloat(track.duration)
+            let shouldPlay = currentTime >= trackStart && currentTime < trackEnd && !track.isMuted
+
+            if shouldPlay {
+                if !currentlyPlayingSoundtrackIds.contains(track.id) {
+                    let offset = max(0, TimeInterval(currentTime - trackStart))
+                    player.currentTime = offset
+                    player.volume = Float(volume * track.volume)
+                    player.rate = Float(speed)
+                    player.play()
+                    currentlyPlayingSoundtrackIds.insert(track.id)
+                }
+            } else {
+                if currentlyPlayingSoundtrackIds.contains(track.id) {
+                    player.stop()
+                    currentlyPlayingSoundtrackIds.remove(track.id)
+                }
+            }
+        }
+    }
+
+    func pauseAllSoundtracks() {
+        for trackId in currentlyPlayingSoundtrackIds {
+            soundtrackPlayers[trackId]?.pause()
+        }
+    }
+
+    func resumeAllSoundtracks(speed: Double) {
+        for trackId in currentlyPlayingSoundtrackIds {
+            guard let player = soundtrackPlayers[trackId] else { continue }
+            player.rate = Float(speed)
+            player.play()
+        }
+    }
+
+    func stopAllSoundtracks() {
+        for (_, player) in soundtrackPlayers {
+            player.stop()
+            player.currentTime = 0
+        }
+        currentlyPlayingSoundtrackIds.removeAll()
+    }
+
+    func seekSoundtracks(to currentTime: CGFloat, speed: Double, volume: Double) {
+        stopAllSoundtracks()
+        for track in soundtrackTracks {
+            guard let player = soundtrackPlayers[track.id] else { continue }
+            let trackStart = CGFloat(track.startTimeOffset)
+            let trackEnd = trackStart + CGFloat(track.duration)
+            guard currentTime >= trackStart && currentTime < trackEnd && !track.isMuted else { continue }
+
+            let offset = max(0, TimeInterval(currentTime - trackStart))
+            player.currentTime = offset
+            player.volume = Float(volume * track.volume)
+            player.rate = Float(speed)
+            player.play()
+            currentlyPlayingSoundtrackIds.insert(track.id)
+        }
     }
 }

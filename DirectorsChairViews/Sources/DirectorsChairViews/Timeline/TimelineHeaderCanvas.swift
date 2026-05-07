@@ -5,6 +5,7 @@
 
 import SwiftUI
 import AppKit
+import DirectorsChairCore
 
 /// Fixed header canvas that renders the time ruler, shot labels lane, and scope marker labels.
 /// This stays pinned at the top while character-lane tracks scroll vertically underneath.
@@ -58,6 +59,105 @@ public struct TimelineHeaderCanvas: View {
 
     /// Project base path for resolving preview image paths
     public let projectBasePath: URL?
+
+    /// Soundtrack tracks with waveform data
+    public let soundtrackTracks: [SoundtrackTrack]
+
+    /// Whether to show soundtrack waveform lanes
+    public let showSoundtracks: Bool
+
+    /// Light cues for the lighting lane
+    public let lightCues: [LightCue]
+
+    /// Whether to show the lighting cue lane
+    public let showLightingLane: Bool
+
+    /// SFX cues for the SFX lane
+    public let sfxCues: [SFXCue]
+
+    /// Whether to show the SFX cue lane
+    public let showSFXLane: Bool
+
+    /// Callback when a light cue is added (time)
+    public var onLightCueAdded: ((CGFloat, String, String, LightingWorkflow, LightFixtureType, Double, Double, String) -> Void)?
+
+    /// Callback when a light cue is deleted (cueId)
+    public var onLightCueDeleted: ((String) -> Void)?
+
+    /// Callback when a light cue is updated
+    public var onLightCueUpdated: ((LightCue) -> Void)?
+
+    /// Callback when a light cue is moved to a new time (cueId, newStartTime)
+    public var onLightCueMoved: ((String, Double) -> Void)?
+
+    /// Callback when a light cue is resized (cueId, newDuration)
+    public var onLightCueResized: ((String, Double) -> Void)?
+
+    /// Callback when a light cue is double-clicked (cueId) — opens full editor
+    public var onLightCueDoubleClicked: ((String) -> Void)?
+
+    /// Callback when the lighting lane visibility is toggled
+    public var onLightingLaneToggled: (() -> Void)?
+
+    /// Callback when an SFX cue is added
+    public var onSFXCueAdded: ((CGFloat, String, String, SFXEffectType, Double, Double, String) -> Void)?
+
+    /// Callback when an SFX cue is deleted
+    public var onSFXCueDeleted: ((String) -> Void)?
+
+    /// Callback when an SFX cue is updated
+    public var onSFXCueUpdated: ((SFXCue) -> Void)?
+
+    /// Callback when an SFX cue is moved (cueId, newStartTime)
+    public var onSFXCueMoved: ((String, Double) -> Void)?
+
+    /// Callback when an SFX cue is resized (cueId, newDuration)
+    public var onSFXCueResized: ((String, Double) -> Void)?
+
+    /// Callback when an SFX cue is double-clicked (cueId)
+    public var onSFXCueDoubleClicked: ((String) -> Void)?
+
+    /// Callback when the SFX lane visibility is toggled
+    public var onSFXLaneToggled: (() -> Void)?
+
+    /// Support cues for the support lane
+    public let supportCues: [SupportCue]
+
+    /// Whether to show the support cue lane
+    public let showSupportLane: Bool
+
+    /// Callback when a support cue is added
+    public var onSupportCueAdded: ((CGFloat, String, String, SupportActionType, Double, String) -> Void)?
+
+    /// Callback when a support cue is deleted
+    public var onSupportCueDeleted: ((String) -> Void)?
+
+    /// Callback when a support cue is updated
+    public var onSupportCueUpdated: ((SupportCue) -> Void)?
+
+    /// Callback when a support cue is moved (cueId, newStartTime)
+    public var onSupportCueMoved: ((String, Double) -> Void)?
+
+    /// Callback when a support cue is resized (cueId, newDuration)
+    public var onSupportCueResized: ((String, Double) -> Void)?
+
+    /// Callback when a support cue is double-clicked (cueId)
+    public var onSupportCueDoubleClicked: ((String) -> Void)?
+
+    /// Callback when the support lane visibility is toggled
+    public var onSupportLaneToggled: (() -> Void)?
+
+    /// Callback when a soundtrack track is moved (trackId, newOffset)
+    public var onSoundtrackMoved: ((String, Double) -> Void)?
+
+    /// Callback when soundtrack visibility is toggled
+    public var onSoundtrackTrackToggled: (() -> Void)?
+
+    /// Callback when a soundtrack track mute is toggled (trackId)
+    public var onSoundtrackMuteToggled: ((String) -> Void)?
+
+    /// Callback when a soundtrack track is removed (trackId)
+    public var onSoundtrackRemoved: ((String) -> Void)?
 
     /// Callback when a shot label is double-clicked (shotId, sceneName)
     public var onShotLabelDoubleClicked: ((Int, String) -> Void)?
@@ -157,18 +257,99 @@ public struct TimelineHeaderCanvas: View {
     /// Anchor point for marker popover (local view coordinates of the right-click)
     @State private var markerPopoverAnchor: CGPoint = .zero
 
+    /// ID of soundtrack track being dragged
+    @State private var draggingSoundtrackId: String?
+
+    /// X position where soundtrack drag started
+    @State private var soundtrackDragStartX: CGFloat = 0
+
     /// Whether the Command key is currently held down (for showing shot previews)
     @State private var isCommandKeyDown: Bool = false
 
     /// Cache for loaded preview images (keyed by relative path)
     @State private var previewImageCache: [String: NSImage] = [:]
 
+    /// Light cue targeted by context menu
+    @State private var contextMenuLightCue: LightCue?
+
+    /// Whether the light cue config popover is showing
+    @State private var showLightCuePopover: Bool = false
+
+    /// Light cue edit fields
+    @State private var lightCueEditName: String = "New Light Cue"
+    @State private var lightCueEditNumber: String = "Q1"
+    @State private var lightCueEditWorkflow: LightingWorkflow = .cinema
+    @State private var lightCueEditFixture: LightFixtureType = .keyLight
+    @State private var lightCueEditIntensity: Double = 1.0
+    @State private var lightCueEditDuration: Double = 5.0
+    @State private var lightCueEditColor: String = "#FFD60A"
+
+    /// Time position for adding a new light cue (nil = editing existing)
+    @State private var addLightCueTime: CGFloat? = nil
+
+    /// Anchor point for light cue popover
+    @State private var lightCuePopoverAnchor: CGPoint = .zero
+
+    /// ID of the light cue currently being dragged
+    @State private var draggingLightCueId: String?
+
+    /// X position where light cue drag started
+    @State private var lightCueDragStartX: CGFloat = 0
+
+    /// ID of the light cue currently being resized
+    @State private var resizingLightCueId: String?
+
+    /// X position where light cue resize started
+    @State private var lightCueResizeStartX: CGFloat = 0
+
+    /// Original duration when light cue resize started
+    @State private var lightCueResizeStartDuration: CGFloat = 0
+
+    // SFX cue interaction state
+    @State private var contextMenuSFXCue: SFXCue?
+    @State private var showSFXCuePopover: Bool = false
+    @State private var sfxCueEditName: String = "New SFX Cue"
+    @State private var sfxCueEditNumber: String = "FX1"
+    @State private var sfxCueEditEffectType: SFXEffectType = .smoke
+    @State private var sfxCueEditIntensity: Double = 0.8
+    @State private var sfxCueEditDuration: Double = 5.0
+    @State private var sfxCueEditColor: String = "#FF6B35"
+    @State private var addSFXCueTime: CGFloat? = nil
+    @State private var sfxCuePopoverAnchor: CGPoint = .zero
+    @State private var draggingSFXCueId: String?
+    @State private var sfxCueDragStartX: CGFloat = 0
+    @State private var resizingSFXCueId: String?
+    @State private var sfxCueResizeStartX: CGFloat = 0
+    @State private var sfxCueResizeStartDuration: CGFloat = 0
+
+    // Support cue interaction state
+    @State private var contextMenuSupportCue: SupportCue?
+    @State private var showSupportCuePopover: Bool = false
+    @State private var supportCueEditName: String = "New Support Cue"
+    @State private var supportCueEditNumber: String = "S1"
+    @State private var supportCueEditActionType: SupportActionType = .propMove
+    @State private var supportCueEditPriority: SupportPriority = .medium
+    @State private var supportCueEditAssignedTo: String = ""
+    @State private var supportCueEditDuration: Double = 5.0
+    @State private var supportCueEditColor: String = "#2DD4BF"
+    @State private var addSupportCueTime: CGFloat? = nil
+    @State private var supportCuePopoverAnchor: CGPoint = .zero
+    @State private var draggingSupportCueId: String?
+    @State private var supportCueDragStartX: CGFloat = 0
+    @State private var resizingSupportCueId: String?
+    @State private var supportCueResizeStartX: CGFloat = 0
+    @State private var supportCueResizeStartDuration: CGFloat = 0
+
     // MARK: - Computed Properties
 
-    /// Total timeline duration in seconds
+    /// Total timeline duration in seconds (includes cue extents beyond last dialogue)
     private var totalSeconds: CGFloat {
-        guard let maxEnd = segments.map({ $0.end }).max() else { return 0 }
-        return maxEnd
+        let segmentMax = segments.map({ $0.end }).max() ?? 0
+        let lightMax = lightCues.map { CGFloat($0.startTime + $0.duration) }.max() ?? 0
+        let sfxMax = sfxCues.map { CGFloat($0.startTime + $0.duration) }.max() ?? 0
+        let supportMax = supportCues.map { CGFloat($0.startTime + $0.duration) }.max() ?? 0
+        let soundtrackMax = soundtrackTracks.map { CGFloat($0.startTimeOffset + $0.duration) }.max() ?? 0
+        return max(segmentMax, lightMax, sfxMax, supportMax, soundtrackMax)
     }
 
     /// Total canvas width
@@ -189,12 +370,112 @@ public struct TimelineHeaderCanvas: View {
         }
     }
 
+    /// Height of the soundtrack waveform area
+    private var soundtrackLaneHeight: CGFloat {
+        guard showSoundtracks, !soundtrackTracks.isEmpty else { return 0 }
+        return CGFloat(soundtrackTracks.count) * TimelineLayoutConstants.soundtrackLaneHeight
+    }
+
+    // Cached sub-lane layouts (recomputed via .onChange instead of on every access)
+    @State private var cachedLightSubLanes: [String: Int] = [:]
+    @State private var cachedSFXSubLanes: [String: Int] = [:]
+    @State private var cachedSupportSubLanes: [String: Int] = [:]
+
+    private var lightCueSubLanes: [String: Int] { cachedLightSubLanes }
+    private var sfxCueSubLanes: [String: Int] { cachedSFXSubLanes }
+    private var supportCueSubLanes: [String: Int] { cachedSupportSubLanes }
+
+    /// Number of sub-lanes needed for light cues
+    private var lightCueSubLaneCount: Int {
+        guard showLightingLane, !lightCues.isEmpty else { return 0 }
+        return (cachedLightSubLanes.values.max() ?? 0) + 1
+    }
+
+    /// Height of the lighting cue lane (dynamic based on sub-lane count, or collapsed strip)
+    private var lightingLaneOffset: CGFloat {
+        guard !lightCues.isEmpty else { return 0 }
+        if showLightingLane {
+            return CGFloat(lightCueSubLaneCount) * TimelineLayoutConstants.lightingLaneHeight
+        } else {
+            return 24 // Collapsed strip height
+        }
+    }
+
+    /// Number of sub-lanes needed for SFX cues
+    private var sfxCueSubLaneCount: Int {
+        guard showSFXLane, !sfxCues.isEmpty else { return 0 }
+        return (cachedSFXSubLanes.values.max() ?? 0) + 1
+    }
+
+    /// Height of the SFX cue lane (dynamic based on sub-lane count, or collapsed strip)
+    private var sfxLaneOffset: CGFloat {
+        guard !sfxCues.isEmpty else { return 0 }
+        if showSFXLane {
+            return CGFloat(sfxCueSubLaneCount) * TimelineLayoutConstants.sfxLaneHeight
+        } else {
+            return 24
+        }
+    }
+
+    /// Number of sub-lanes needed for support cues
+    private var supportCueSubLaneCount: Int {
+        guard showSupportLane, !supportCues.isEmpty else { return 0 }
+        return (cachedSupportSubLanes.values.max() ?? 0) + 1
+    }
+
+    /// Height of the support cue lane (dynamic based on sub-lane count, or collapsed strip)
+    private var supportLaneOffset: CGFloat {
+        guard !supportCues.isEmpty else { return 0 }
+        if showSupportLane {
+            return CGFloat(supportCueSubLaneCount) * TimelineLayoutConstants.supportLaneHeight
+        } else {
+            return 24
+        }
+    }
+
+    /// Recompute all cached sub-lane dictionaries
+    private func recomputeCachedSubLanes() {
+        cachedLightSubLanes = Self.computeSubLanes(ids: lightCues.map(\.id), starts: lightCues.map(\.startTime), durations: lightCues.map(\.duration))
+        cachedSFXSubLanes = Self.computeSubLanes(ids: sfxCues.map(\.id), starts: sfxCues.map(\.startTime), durations: sfxCues.map(\.duration))
+        cachedSupportSubLanes = Self.computeSubLanes(ids: supportCues.map(\.id), starts: supportCues.map(\.startTime), durations: supportCues.map(\.duration))
+    }
+
+    /// Compute sub-lane assignments using greedy interval partitioning
+    private static func computeSubLanes(ids: [String], starts: [Double], durations: [Double]) -> [String: Int] {
+        guard !ids.isEmpty else { return [:] }
+        let indices = ids.indices.sorted { starts[$0] < starts[$1] }
+        var assignments: [String: Int] = [:]
+        var subLaneEnds: [Double] = []
+
+        for i in indices {
+            let start = starts[i]
+            var placed = false
+            for lane in 0..<subLaneEnds.count {
+                if start >= subLaneEnds[lane] {
+                    assignments[ids[i]] = lane
+                    subLaneEnds[lane] = start + durations[i]
+                    placed = true
+                    break
+                }
+            }
+            if !placed {
+                assignments[ids[i]] = subLaneEnds.count
+                subLaneEnds.append(start + durations[i])
+            }
+        }
+        return assignments
+    }
+
     /// Height of this header canvas
     public var headerHeight: CGFloat {
         TimelineLayoutConstants.topMargin +
         TimelineLayoutConstants.rulerHeight +
         TimelineLayoutConstants.rulerGap +
-        shotLaneOffset
+        shotLaneOffset +
+        soundtrackLaneHeight +
+        lightingLaneOffset +
+        sfxLaneOffset +
+        supportLaneOffset
     }
 
     /// Content origin X (where timeline content starts, after labels)
@@ -221,6 +502,39 @@ public struct TimelineHeaderCanvas: View {
         playheadActive: Bool = false,
         userMarkers: [TimelineMarker] = [],
         projectBasePath: URL? = nil,
+        soundtrackTracks: [SoundtrackTrack] = [],
+        showSoundtracks: Bool = true,
+        lightCues: [LightCue] = [],
+        showLightingLane: Bool = true,
+        sfxCues: [SFXCue] = [],
+        showSFXLane: Bool = true,
+        supportCues: [SupportCue] = [],
+        showSupportLane: Bool = true,
+        onLightCueAdded: ((CGFloat, String, String, LightingWorkflow, LightFixtureType, Double, Double, String) -> Void)? = nil,
+        onLightCueDeleted: ((String) -> Void)? = nil,
+        onLightCueUpdated: ((LightCue) -> Void)? = nil,
+        onLightCueMoved: ((String, Double) -> Void)? = nil,
+        onLightCueResized: ((String, Double) -> Void)? = nil,
+        onLightCueDoubleClicked: ((String) -> Void)? = nil,
+        onLightingLaneToggled: (() -> Void)? = nil,
+        onSFXCueAdded: ((CGFloat, String, String, SFXEffectType, Double, Double, String) -> Void)? = nil,
+        onSFXCueDeleted: ((String) -> Void)? = nil,
+        onSFXCueUpdated: ((SFXCue) -> Void)? = nil,
+        onSFXCueMoved: ((String, Double) -> Void)? = nil,
+        onSFXCueResized: ((String, Double) -> Void)? = nil,
+        onSFXCueDoubleClicked: ((String) -> Void)? = nil,
+        onSFXLaneToggled: (() -> Void)? = nil,
+        onSupportCueAdded: ((CGFloat, String, String, SupportActionType, Double, String) -> Void)? = nil,
+        onSupportCueDeleted: ((String) -> Void)? = nil,
+        onSupportCueUpdated: ((SupportCue) -> Void)? = nil,
+        onSupportCueMoved: ((String, Double) -> Void)? = nil,
+        onSupportCueResized: ((String, Double) -> Void)? = nil,
+        onSupportCueDoubleClicked: ((String) -> Void)? = nil,
+        onSupportLaneToggled: (() -> Void)? = nil,
+        onSoundtrackMoved: ((String, Double) -> Void)? = nil,
+        onSoundtrackTrackToggled: (() -> Void)? = nil,
+        onSoundtrackMuteToggled: ((String) -> Void)? = nil,
+        onSoundtrackRemoved: ((String) -> Void)? = nil,
         onShotLabelDoubleClicked: ((Int, String) -> Void)? = nil,
         onSceneMarkerDoubleClicked: ((String) -> Void)? = nil,
         onShotLabelMoved: ((Int, String, CGFloat) -> Void)? = nil,
@@ -252,6 +566,39 @@ public struct TimelineHeaderCanvas: View {
         self.playheadActive = playheadActive
         self.userMarkers = userMarkers
         self.projectBasePath = projectBasePath
+        self.soundtrackTracks = soundtrackTracks
+        self.showSoundtracks = showSoundtracks
+        self.lightCues = lightCues
+        self.showLightingLane = showLightingLane
+        self.sfxCues = sfxCues
+        self.showSFXLane = showSFXLane
+        self.supportCues = supportCues
+        self.showSupportLane = showSupportLane
+        self.onLightCueAdded = onLightCueAdded
+        self.onLightCueDeleted = onLightCueDeleted
+        self.onLightCueUpdated = onLightCueUpdated
+        self.onLightCueMoved = onLightCueMoved
+        self.onLightCueResized = onLightCueResized
+        self.onLightCueDoubleClicked = onLightCueDoubleClicked
+        self.onLightingLaneToggled = onLightingLaneToggled
+        self.onSFXCueAdded = onSFXCueAdded
+        self.onSFXCueDeleted = onSFXCueDeleted
+        self.onSFXCueUpdated = onSFXCueUpdated
+        self.onSFXCueMoved = onSFXCueMoved
+        self.onSFXCueResized = onSFXCueResized
+        self.onSFXCueDoubleClicked = onSFXCueDoubleClicked
+        self.onSFXLaneToggled = onSFXLaneToggled
+        self.onSupportCueAdded = onSupportCueAdded
+        self.onSupportCueDeleted = onSupportCueDeleted
+        self.onSupportCueUpdated = onSupportCueUpdated
+        self.onSupportCueMoved = onSupportCueMoved
+        self.onSupportCueResized = onSupportCueResized
+        self.onSupportCueDoubleClicked = onSupportCueDoubleClicked
+        self.onSupportLaneToggled = onSupportLaneToggled
+        self.onSoundtrackMoved = onSoundtrackMoved
+        self.onSoundtrackTrackToggled = onSoundtrackTrackToggled
+        self.onSoundtrackMuteToggled = onSoundtrackMuteToggled
+        self.onSoundtrackRemoved = onSoundtrackRemoved
         self.onShotLabelDoubleClicked = onShotLabelDoubleClicked
         self.onSceneMarkerDoubleClicked = onSceneMarkerDoubleClicked
         self.onShotLabelMoved = onShotLabelMoved
@@ -278,6 +625,10 @@ public struct TimelineHeaderCanvas: View {
             // Always draw shot lane (expanded or collapsed strip)
             drawShotLabels(context: context, size: size)
 
+            drawSoundtrackLane(context: context, size: size)
+            drawLightingCueLane(context: context, size: size)
+            drawSFXCueLane(context: context, size: size)
+            drawSupportCueLane(context: context, size: size)
             drawHeaderUserMarkers(context: context, size: size)
             drawScopeMarkers(context: context, size: size)
             drawPlayhead(context: context, size: size)
@@ -294,12 +645,42 @@ public struct TimelineHeaderCanvas: View {
                 onShotLabelDoubleClicked?(shotLabel.shotId, shotLabel.sceneName)
                 return
             }
+            // Check for light cue double-click → open full editor
+            if showLightingLane, let cue = findLightCue(at: location) {
+                onLightCueDoubleClicked?(cue.id)
+                return
+            }
+            // Check for SFX cue double-click → open full editor
+            if showSFXLane, let cue = findSFXCue(at: location) {
+                onSFXCueDoubleClicked?(cue.id)
+                return
+            }
+            // Check for support cue double-click → open full editor
+            if showSupportLane, let cue = findSupportCue(at: location) {
+                onSupportCueDoubleClicked?(cue.id)
+                return
+            }
             // Double-click anywhere else in header → position playhead
             if location.x >= originX {
                 onRulerClicked?(location.x)
             }
         }
         .onTapGesture(count: 1) { location in
+            // Check for support lane eye toggle
+            if isSupportEyeToggleHit(at: location) {
+                onSupportLaneToggled?()
+                return
+            }
+            // Check for SFX lane eye toggle
+            if isSFXEyeToggleHit(at: location) {
+                onSFXLaneToggled?()
+                return
+            }
+            // Check for lighting lane eye toggle
+            if isLightingEyeToggleHit(at: location) {
+                onLightingLaneToggled?()
+                return
+            }
             // Check for shot track eye toggle first
             if isShotEyeToggleHit(at: location) {
                 onShotTrackToggled?()
@@ -326,14 +707,56 @@ public struct TimelineHeaderCanvas: View {
             DragGesture(minimumDistance: 4)
                 .onChanged { value in
                     // First frame: decide what we're dragging
-                    if draggingShotId == nil && resizingShotId == nil && draggingBoundaryId == nil && !isDraggingPlayhead {
+                    if draggingShotId == nil && resizingShotId == nil && draggingBoundaryId == nil && !isDraggingPlayhead && draggingSoundtrackId == nil && draggingLightCueId == nil && resizingLightCueId == nil && draggingSFXCueId == nil && resizingSFXCueId == nil && draggingSupportCueId == nil && resizingSupportCueId == nil {
+                        // 0x. Check support cue right-edge (resize)
+                        if showSupportLane, let cue = findSupportCueRightEdge(at: value.startLocation) {
+                            resizingSupportCueId = cue.id
+                            supportCueResizeStartX = value.startLocation.x
+                            supportCueResizeStartDuration = CGFloat(cue.duration)
+                        }
+                        // 0x2. Check support cue body (move)
+                        else if showSupportLane, let cue = findSupportCue(at: value.startLocation) {
+                            draggingSupportCueId = cue.id
+                            supportCueDragStartX = value.startLocation.x
+                        }
+                        // 0w. Check SFX cue right-edge (resize)
+                        else if showSFXLane, let cue = findSFXCueRightEdge(at: value.startLocation) {
+                            resizingSFXCueId = cue.id
+                            sfxCueResizeStartX = value.startLocation.x
+                            sfxCueResizeStartDuration = CGFloat(cue.duration)
+                        }
+                        // 0v. Check SFX cue body (move)
+                        else if showSFXLane, let cue = findSFXCue(at: value.startLocation) {
+                            draggingSFXCueId = cue.id
+                            sfxCueDragStartX = value.startLocation.x
+                        }
+                        // 0z. Check light cue right-edge (resize)
+                        else if showLightingLane, let cue = findLightCueRightEdge(at: value.startLocation) {
+                            resizingLightCueId = cue.id
+                            lightCueResizeStartX = value.startLocation.x
+                            lightCueResizeStartDuration = CGFloat(cue.duration)
+                        }
+                        // 0y. Check light cue body (move)
+                        else if showLightingLane, let cue = findLightCue(at: value.startLocation) {
+                            draggingLightCueId = cue.id
+                            lightCueDragStartX = value.startLocation.x
+                        }
+                        // 0a. Check soundtrack waveform drag
+                        else if let trackId = findSoundtrackTrack(at: value.startLocation) {
+                            draggingSoundtrackId = trackId
+                            soundtrackDragStartX = value.startLocation.x
+                        }
                         // 0. Check playhead handle or any area not on a shot label/boundary (FCP-style scrub)
                         let startInClickableArea = value.startLocation.x >= originX
                         let startOnShotLabel = showShotLabels && findShotLabel(at: value.startLocation) != nil
                         let startOnShotEdge = showShotLabels && findShotLabelRightEdge(at: value.startLocation) != nil
                         let startOnBoundary = findBoundaryMarker(at: value.startLocation) != nil
-                        if findPlayheadHandle(at: value.startLocation) ||
-                           (startInClickableArea && !startOnShotLabel && !startOnShotEdge && !startOnBoundary) {
+                        let startOnSoundtrack = draggingSoundtrackId != nil
+                        let startOnLightCue = draggingLightCueId != nil || resizingLightCueId != nil
+                        let startOnSFXCue = draggingSFXCueId != nil || resizingSFXCueId != nil
+                        let startOnSupportCue = draggingSupportCueId != nil || resizingSupportCueId != nil
+                        if !startOnSoundtrack && !startOnLightCue && !startOnSFXCue && !startOnSupportCue && (findPlayheadHandle(at: value.startLocation) ||
+                           (startInClickableArea && !startOnShotLabel && !startOnShotEdge && !startOnBoundary)) {
                             isDraggingPlayhead = true
                             onPlayheadDragged?(value.location.x)
                             return
@@ -359,6 +782,18 @@ public struct TimelineHeaderCanvas: View {
                     if isDraggingPlayhead {
                         onPlayheadDragged?(value.location.x)
                         return
+                    }
+                    if draggingSoundtrackId != nil {
+                        dragCurrentX = value.location.x
+                    }
+                    if draggingLightCueId != nil || resizingLightCueId != nil {
+                        dragCurrentX = value.location.x
+                    }
+                    if draggingSFXCueId != nil || resizingSFXCueId != nil {
+                        dragCurrentX = value.location.x
+                    }
+                    if draggingSupportCueId != nil || resizingSupportCueId != nil {
+                        dragCurrentX = value.location.x
                     }
                     if draggingShotId != nil || resizingShotId != nil || draggingBoundaryId != nil {
                         dragCurrentX = value.location.x
@@ -402,10 +837,80 @@ public struct TimelineHeaderCanvas: View {
                         let newTime = max(0, shotLabel.time + deltaTime)
                         onShotLabelMoved?(shotLabel.shotId, shotLabel.sceneName, newTime)
                     }
+                    // Handle light cue resize end
+                    if let resizeId = resizingLightCueId,
+                       let cue = lightCues.first(where: { $0.id == resizeId }) {
+                        let deltaX = value.location.x - lightCueResizeStartX
+                        let newDuration = max(0.5, Double(lightCueResizeStartDuration + deltaX / pxPerSec))
+                        onLightCueResized?(cue.id, newDuration)
+                    }
+                    // Handle light cue move end
+                    else if let dragId = draggingLightCueId,
+                       let cue = lightCues.first(where: { $0.id == dragId }) {
+                        let deltaX = value.location.x - lightCueDragStartX
+                        let deltaTime = Double(deltaX / pxPerSec)
+                        let newTime = max(0, cue.startTime + deltaTime)
+                        onLightCueMoved?(cue.id, newTime)
+                    }
+                    // Handle SFX cue resize end
+                    if let resizeId = resizingSFXCueId,
+                       let cue = sfxCues.first(where: { $0.id == resizeId }) {
+                        let deltaX = value.location.x - sfxCueResizeStartX
+                        let newDuration = max(0.5, Double(sfxCueResizeStartDuration + deltaX / pxPerSec))
+                        onSFXCueResized?(cue.id, newDuration)
+                    }
+                    // Handle SFX cue move end
+                    else if let dragId = draggingSFXCueId,
+                       let cue = sfxCues.first(where: { $0.id == dragId }) {
+                        let deltaX = value.location.x - sfxCueDragStartX
+                        let deltaTime = Double(deltaX / pxPerSec)
+                        let newTime = max(0, cue.startTime + deltaTime)
+                        onSFXCueMoved?(cue.id, newTime)
+                    }
+                    // Handle support cue resize end
+                    if let resizeId = resizingSupportCueId,
+                       let cue = supportCues.first(where: { $0.id == resizeId }) {
+                        let deltaX = value.location.x - supportCueResizeStartX
+                        let newDuration = max(0.5, Double(supportCueResizeStartDuration + deltaX / pxPerSec))
+                        onSupportCueResized?(cue.id, newDuration)
+                    }
+                    // Handle support cue move end
+                    else if let dragId = draggingSupportCueId,
+                       let cue = supportCues.first(where: { $0.id == dragId }) {
+                        let deltaX = value.location.x - supportCueDragStartX
+                        let deltaTime = Double(deltaX / pxPerSec)
+                        let newTime = max(0, cue.startTime + deltaTime)
+                        onSupportCueMoved?(cue.id, newTime)
+                    }
+                    // Handle soundtrack move end
+                    if let trackId = draggingSoundtrackId,
+                       let track = soundtrackTracks.first(where: { $0.id == trackId }) {
+                        let deltaX = value.location.x - soundtrackDragStartX
+                        let deltaTime = Double(deltaX / pxPerSec)
+                        let newOffset = max(0, track.startTimeOffset + deltaTime)
+                        onSoundtrackMoved?(trackId, newOffset)
+                    }
                     draggingShotId = nil
                     resizingShotId = nil
                     draggingBoundaryId = nil
                     draggingBoundaryIsSequence = false
+                    draggingSoundtrackId = nil
+                    soundtrackDragStartX = 0
+                    draggingLightCueId = nil
+                    lightCueDragStartX = 0
+                    resizingLightCueId = nil
+                    lightCueResizeStartX = 0
+                    lightCueResizeStartDuration = 0
+                    draggingSFXCueId = nil
+                    sfxCueDragStartX = 0
+                    resizingSFXCueId = nil
+                    sfxCueResizeStartX = 0
+                    sfxCueResizeStartDuration = 0
+                    draggingSupportCueId = nil
+                    supportCueDragStartX = 0
+                    resizingSupportCueId = nil
+                    supportCueResizeStartX = 0
+                    supportCueResizeStartDuration = 0
                     dragCurrentX = 0
                     dragStartX = 0
                     dragBoundaryStartX = 0
@@ -416,8 +921,12 @@ public struct TimelineHeaderCanvas: View {
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
-                // Cursor changes for shot label resize handles
+                // Cursor changes for resize handles
                 if showShotLabels, findShotLabelRightEdge(at: location) != nil {
+                    NSCursor.resizeLeftRight.set()
+                } else if showLightingLane, findLightCueRightEdge(at: location) != nil {
+                    NSCursor.resizeLeftRight.set()
+                } else if showSFXLane, findSFXCueRightEdge(at: location) != nil {
                     NSCursor.resizeLeftRight.set()
                 } else {
                     NSCursor.arrow.set()
@@ -493,7 +1002,154 @@ public struct TimelineHeaderCanvas: View {
 
                     menu.addItem(addItem)
 
+                    // Add Lighting Cue Here
+                    menu.addItem(NSMenuItem.separator())
+                    let addLightingItem = NSMenuItem(title: "Add Lighting Cue Here", action: nil, keyEquivalent: "")
+                    addLightingItem.image = NSImage(systemSymbolName: "lightbulb.fill", accessibilityDescription: nil)
+
+                    let addLightingHandler = MarkerMenuHandler {
+                        addLightCueTime = time
+                        contextMenuLightCue = nil
+                        lightCuePopoverAnchor = point
+                        lightCueEditName = "New Light Cue"
+                        let nextNum = lightCues.count + 1
+                        lightCueEditNumber = "Q\(nextNum)"
+                        lightCueEditWorkflow = .cinema
+                        lightCueEditFixture = .keyLight
+                        lightCueEditIntensity = 1.0
+                        lightCueEditDuration = 5.0
+                        lightCueEditColor = "#FFD60A"
+                        showLightCuePopover = true
+                    }
+                    addLightingItem.target = addLightingHandler
+                    addLightingItem.action = #selector(MarkerMenuHandler.execute)
+                    objc_setAssociatedObject(addLightingItem, "handler", addLightingHandler, .OBJC_ASSOCIATION_RETAIN)
+
+                    menu.addItem(addLightingItem)
+
+                    // Add SFX Cue Here
+                    let addSFXItem = NSMenuItem(title: "Add SFX Cue Here", action: nil, keyEquivalent: "")
+                    addSFXItem.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
+
+                    let addSFXHandler = MarkerMenuHandler {
+                        addSFXCueTime = time
+                        contextMenuSFXCue = nil
+                        sfxCuePopoverAnchor = point
+                        sfxCueEditName = "New SFX Cue"
+                        let nextNum = sfxCues.count + 1
+                        sfxCueEditNumber = "FX\(nextNum)"
+                        sfxCueEditEffectType = .smoke
+                        sfxCueEditIntensity = 0.8
+                        sfxCueEditDuration = 5.0
+                        sfxCueEditColor = "#FF6B35"
+                        showSFXCuePopover = true
+                    }
+                    addSFXItem.target = addSFXHandler
+                    addSFXItem.action = #selector(MarkerMenuHandler.execute)
+                    objc_setAssociatedObject(addSFXItem, "handler", addSFXHandler, .OBJC_ASSOCIATION_RETAIN)
+
+                    menu.addItem(addSFXItem)
+
+                    // Add Support Cue Here
+                    let addSupportItem = NSMenuItem(title: "Add Support Cue Here", action: nil, keyEquivalent: "")
+                    addSupportItem.image = NSImage(systemSymbolName: "person.2.fill", accessibilityDescription: nil)
+
+                    let addSupportHandler = MarkerMenuHandler {
+                        addSupportCueTime = time
+                        contextMenuSupportCue = nil
+                        supportCuePopoverAnchor = point
+                        supportCueEditName = "New Support Cue"
+                        let nextNum = supportCues.count + 1
+                        supportCueEditNumber = "S\(nextNum)"
+                        supportCueEditActionType = .propMove
+                        supportCueEditPriority = .medium
+                        supportCueEditAssignedTo = ""
+                        supportCueEditDuration = 5.0
+                        supportCueEditColor = "#2DD4BF"
+                        showSupportCuePopover = true
+                    }
+                    addSupportItem.target = addSupportHandler
+                    addSupportItem.action = #selector(MarkerMenuHandler.execute)
+                    objc_setAssociatedObject(addSupportItem, "handler", addSupportHandler, .OBJC_ASSOCIATION_RETAIN)
+
+                    menu.addItem(addSupportItem)
+
                     // Use unflipped coordinates relative to the NSView
+                    let unflippedY = nsView.bounds.height - point.y
+                    menu.popUp(positioning: nil, at: NSPoint(x: point.x, y: unflippedY), in: nsView)
+                    return
+                }
+                // Right-click on an SFX cue bar → Edit/Delete
+                if let cue = findSFXCue(at: point) {
+                    let menu = NSMenu()
+                    let editItem = NSMenuItem(title: "Edit SFX Cue...", action: nil, keyEquivalent: "")
+                    let deleteItem = NSMenuItem(title: "Delete SFX Cue", action: nil, keyEquivalent: "")
+                    deleteItem.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
+
+                    let editHandler = MarkerMenuHandler {
+                        contextMenuSFXCue = cue
+                        addSFXCueTime = nil
+                        sfxCuePopoverAnchor = point
+                        sfxCueEditName = cue.name
+                        sfxCueEditNumber = cue.cueNumber
+                        sfxCueEditEffectType = cue.effectType
+                        sfxCueEditIntensity = cue.intensity
+                        sfxCueEditDuration = cue.duration
+                        sfxCueEditColor = cue.markerColor
+                        showSFXCuePopover = true
+                    }
+                    editItem.target = editHandler
+                    editItem.action = #selector(MarkerMenuHandler.execute)
+                    objc_setAssociatedObject(editItem, "handler", editHandler, .OBJC_ASSOCIATION_RETAIN)
+
+                    let deleteHandler = MarkerMenuHandler {
+                        onSFXCueDeleted?(cue.id)
+                    }
+                    deleteItem.target = deleteHandler
+                    deleteItem.action = #selector(MarkerMenuHandler.execute)
+                    objc_setAssociatedObject(deleteItem, "handler", deleteHandler, .OBJC_ASSOCIATION_RETAIN)
+
+                    menu.addItem(editItem)
+                    menu.addItem(deleteItem)
+
+                    let unflippedY = nsView.bounds.height - point.y
+                    menu.popUp(positioning: nil, at: NSPoint(x: point.x, y: unflippedY), in: nsView)
+                    return
+                }
+                // Right-click on a light cue bar → Edit/Delete
+                if let cue = findLightCue(at: point) {
+                    let menu = NSMenu()
+                    let editItem = NSMenuItem(title: "Edit Light Cue...", action: nil, keyEquivalent: "")
+                    let deleteItem = NSMenuItem(title: "Delete Light Cue", action: nil, keyEquivalent: "")
+                    deleteItem.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
+
+                    let editHandler = MarkerMenuHandler {
+                        contextMenuLightCue = cue
+                        addLightCueTime = nil
+                        lightCuePopoverAnchor = point
+                        lightCueEditName = cue.name
+                        lightCueEditNumber = cue.cueNumber
+                        lightCueEditWorkflow = cue.workflow
+                        lightCueEditFixture = cue.fixtureType
+                        lightCueEditIntensity = cue.intensity
+                        lightCueEditDuration = cue.duration
+                        lightCueEditColor = cue.markerColor
+                        showLightCuePopover = true
+                    }
+                    editItem.target = editHandler
+                    editItem.action = #selector(MarkerMenuHandler.execute)
+                    objc_setAssociatedObject(editItem, "handler", editHandler, .OBJC_ASSOCIATION_RETAIN)
+
+                    let deleteHandler = MarkerMenuHandler {
+                        onLightCueDeleted?(cue.id)
+                    }
+                    deleteItem.target = deleteHandler
+                    deleteItem.action = #selector(MarkerMenuHandler.execute)
+                    objc_setAssociatedObject(deleteItem, "handler", deleteHandler, .OBJC_ASSOCIATION_RETAIN)
+
+                    menu.addItem(editItem)
+                    menu.addItem(deleteItem)
+
                     let unflippedY = nsView.bounds.height - point.y
                     menu.popUp(positioning: nil, at: NSPoint(x: point.x, y: unflippedY), in: nsView)
                     return
@@ -584,7 +1240,120 @@ public struct TimelineHeaderCanvas: View {
                     }
                 }
         )
+        .overlay(
+            Color.clear
+                .frame(width: 1, height: 1)
+                .position(lightCuePopoverAnchor)
+                .popover(isPresented: $showLightCuePopover, arrowEdge: .bottom) {
+                    if let cue = contextMenuLightCue {
+                        LightCueConfigPopover(
+                            cueName: $lightCueEditName,
+                            cueNumber: $lightCueEditNumber,
+                            workflow: $lightCueEditWorkflow,
+                            fixtureType: $lightCueEditFixture,
+                            intensity: $lightCueEditIntensity,
+                            duration: $lightCueEditDuration,
+                            cueColor: $lightCueEditColor,
+                            isEditing: true,
+                            onSave: {
+                                var updated = cue
+                                updated.name = lightCueEditName
+                                updated.cueNumber = lightCueEditNumber
+                                updated.workflow = lightCueEditWorkflow
+                                updated.fixtureType = lightCueEditFixture
+                                updated.intensity = lightCueEditIntensity
+                                updated.duration = lightCueEditDuration
+                                updated.markerColor = lightCueEditColor
+                                updated.color = lightCueEditColor
+                                onLightCueUpdated?(updated)
+                                showLightCuePopover = false
+                                contextMenuLightCue = nil
+                            },
+                            onCancel: {
+                                showLightCuePopover = false
+                                contextMenuLightCue = nil
+                            }
+                        )
+                    } else if let time = addLightCueTime {
+                        LightCueConfigPopover(
+                            cueName: $lightCueEditName,
+                            cueNumber: $lightCueEditNumber,
+                            workflow: $lightCueEditWorkflow,
+                            fixtureType: $lightCueEditFixture,
+                            intensity: $lightCueEditIntensity,
+                            duration: $lightCueEditDuration,
+                            cueColor: $lightCueEditColor,
+                            isEditing: false,
+                            onSave: {
+                                onLightCueAdded?(time, lightCueEditName, lightCueEditNumber, lightCueEditWorkflow, lightCueEditFixture, lightCueEditIntensity, lightCueEditDuration, lightCueEditColor)
+                                showLightCuePopover = false
+                                addLightCueTime = nil
+                            },
+                            onCancel: {
+                                showLightCuePopover = false
+                                addLightCueTime = nil
+                            }
+                        )
+                    }
+                }
+        )
+        .popover(isPresented: $showSFXCuePopover, arrowEdge: .bottom) {
+            if let cue = contextMenuSFXCue {
+                SFXCueConfigPopover(
+                    cueName: $sfxCueEditName,
+                    cueNumber: $sfxCueEditNumber,
+                    effectType: $sfxCueEditEffectType,
+                    intensity: $sfxCueEditIntensity,
+                    duration: $sfxCueEditDuration,
+                    cueColor: $sfxCueEditColor,
+                    isEditing: true,
+                    onSave: {
+                        var updated = cue
+                        updated.name = sfxCueEditName
+                        updated.cueNumber = sfxCueEditNumber
+                        updated.effectType = sfxCueEditEffectType
+                        updated.intensity = sfxCueEditIntensity
+                        updated.duration = sfxCueEditDuration
+                        updated.markerColor = sfxCueEditColor
+                        updated.color = sfxCueEditColor
+                        onSFXCueUpdated?(updated)
+                        showSFXCuePopover = false
+                        contextMenuSFXCue = nil
+                    },
+                    onCancel: {
+                        showSFXCuePopover = false
+                        contextMenuSFXCue = nil
+                    }
+                )
+            } else if let time = addSFXCueTime {
+                SFXCueConfigPopover(
+                    cueName: $sfxCueEditName,
+                    cueNumber: $sfxCueEditNumber,
+                    effectType: $sfxCueEditEffectType,
+                    intensity: $sfxCueEditIntensity,
+                    duration: $sfxCueEditDuration,
+                    cueColor: $sfxCueEditColor,
+                    isEditing: false,
+                    onSave: {
+                        onSFXCueAdded?(time, sfxCueEditName, sfxCueEditNumber, sfxCueEditEffectType, sfxCueEditIntensity, sfxCueEditDuration, sfxCueEditColor)
+                        showSFXCuePopover = false
+                        addSFXCueTime = nil
+                    },
+                    onCancel: {
+                        showSFXCuePopover = false
+                        addSFXCueTime = nil
+                    }
+                )
+            }
+        }
         .overlay(CommandKeyMonitor(isCommandKeyDown: $isCommandKeyDown))
+        .onAppear { recomputeCachedSubLanes() }
+        .onChange(of: lightCues) { _ in recomputeCachedSubLanes() }
+        .onChange(of: sfxCues) { _ in recomputeCachedSubLanes() }
+        .onChange(of: supportCues) { _ in recomputeCachedSubLanes() }
+        .onChange(of: showLightingLane) { _ in recomputeCachedSubLanes() }
+        .onChange(of: showSFXLane) { _ in recomputeCachedSubLanes() }
+        .onChange(of: showSupportLane) { _ in recomputeCachedSubLanes() }
     }
 
     // MARK: - Duration Input
@@ -759,6 +1528,29 @@ public struct TimelineHeaderCanvas: View {
             let x = originX + marker.time * pxPerSec
             if abs(point.x - x) <= hitRadius && abs(point.y - rulerBaselineY) <= (diamondSize + hitRadius) {
                 return marker
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Soundtrack Hit Testing
+
+    /// Find soundtrack track ID at a given point (for drag repositioning)
+    private func findSoundtrackTrack(at point: CGPoint) -> String? {
+        guard showSoundtracks, !soundtrackTracks.isEmpty else { return nil }
+        let soundtrackBaseY = TimelineLayoutConstants.topMargin +
+                              TimelineLayoutConstants.rulerHeight +
+                              TimelineLayoutConstants.rulerGap +
+                              shotLaneOffset
+        let laneH = TimelineLayoutConstants.soundtrackLaneHeight
+
+        for (index, track) in soundtrackTracks.enumerated() {
+            let y = soundtrackBaseY + CGFloat(index) * laneH
+            let trackX = originX + CGFloat(track.startTimeOffset) * pxPerSec
+            let trackW = CGFloat(track.duration) * pxPerSec
+            let rect = CGRect(x: trackX, y: y, width: trackW, height: laneH)
+            if rect.contains(point) {
+                return track.id
             }
         }
         return nil
@@ -1162,6 +1954,132 @@ public struct TimelineHeaderCanvas: View {
         }
     }
 
+    /// Draw soundtrack waveform lanes below the shot lane
+    private func drawSoundtrackLane(context: GraphicsContext, size: CGSize) {
+        guard showSoundtracks, !soundtrackTracks.isEmpty else { return }
+
+        let soundtrackBaseY = TimelineLayoutConstants.topMargin +
+                              TimelineLayoutConstants.rulerHeight +
+                              TimelineLayoutConstants.rulerGap +
+                              shotLaneOffset
+        let laneH = TimelineLayoutConstants.soundtrackLaneHeight
+        let padding = TimelineLayoutConstants.soundtrackWaveformPadding
+
+        // Background for entire soundtrack area
+        let bgRect = CGRect(x: 0, y: soundtrackBaseY, width: size.width, height: soundtrackLaneHeight)
+        context.fill(Path(bgRect), with: .color(Color(hex: "#1A1A1A").opacity(0.6)))
+
+        // Top separator
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: soundtrackBaseY)); p.addLine(to: CGPoint(x: size.width, y: soundtrackBaseY)) },
+            with: .color(Color(hex: "#444444")), lineWidth: 1
+        )
+
+        for (index, track) in soundtrackTracks.enumerated() {
+            let laneY = soundtrackBaseY + CGFloat(index) * laneH
+            let trackColor = Color(hex: track.color) ?? Color(hex: TimelineDefaultColors.soundtrackWaveform)
+            let alpha: CGFloat = track.isMuted ? 0.3 : 1.0
+
+            // Track background
+            let trackRect = CGRect(x: originX, y: laneY, width: size.width - originX, height: laneH)
+            context.fill(Path(trackRect), with: .color(trackColor.opacity(0.05 * alpha)))
+
+            // Label on left
+            let labelRect = CGRect(x: 4, y: laneY + 4, width: originX - 12, height: laneH - 8)
+            context.fill(Path(roundedRect: labelRect, cornerRadius: 3), with: .color(Color(hex: "#333333").opacity(0.7)))
+
+            // Mute icon
+            let muteIcon = track.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"
+            context.draw(
+                Text(Image(systemName: muteIcon)).font(.system(size: 9)).foregroundColor(trackColor.opacity(alpha)),
+                at: CGPoint(x: labelRect.minX + 14, y: laneY + laneH / 2), anchor: .center
+            )
+
+            // Track name
+            let displayName = track.name.count > 16 ? String(track.name.prefix(16)) + "..." : track.name
+            context.draw(
+                Text(displayName).font(.system(size: 9, weight: .medium)).foregroundColor(Color(hex: "#CCCCCC").opacity(alpha)),
+                at: CGPoint(x: labelRect.minX + 28, y: laneY + laneH / 2), anchor: .leading
+            )
+
+            // Waveform rendering
+            let samples = track.waveformSamples
+            guard !samples.isEmpty else { continue }
+
+            // Account for drag offset
+            var trackOffsetSec = track.startTimeOffset
+            if let dragId = draggingSoundtrackId, dragId == track.id {
+                let deltaX = dragCurrentX - soundtrackDragStartX
+                trackOffsetSec = max(0, trackOffsetSec + Double(deltaX / pxPerSec))
+            }
+
+            let waveX = originX + CGFloat(trackOffsetSec) * pxPerSec
+            let waveW = CGFloat(track.duration) * pxPerSec
+            let waveH = laneH - padding * 2
+            let midY = laneY + laneH / 2
+
+            // Viewport culling
+            let visibleLeft: CGFloat = 0
+            let visibleRight = size.width + 20
+            if waveX + waveW < visibleLeft || waveX > visibleRight { continue }
+
+            // Draw waveform background bar
+            let waveRect = CGRect(x: waveX, y: laneY + padding, width: waveW, height: waveH)
+            context.fill(Path(roundedRect: waveRect, cornerRadius: 4), with: .color(trackColor.opacity(0.12 * alpha)))
+            context.stroke(Path(roundedRect: waveRect, cornerRadius: 4), with: .color(trackColor.opacity(0.3 * alpha)), lineWidth: 1)
+
+            // Draw mirrored waveform path
+            let samplesCount = samples.count
+            let pixelsPerSample = waveW / CGFloat(samplesCount)
+
+            // Skip rendering very thin waveforms
+            guard pixelsPerSample > 0.1 else { continue }
+
+            var waveformPath = Path()
+            // Top half
+            for i in 0..<samplesCount {
+                let x = waveX + CGFloat(i) * pixelsPerSample
+                let amp = CGFloat(samples[i]) * (waveH / 2) * alpha
+                if i == 0 {
+                    waveformPath.move(to: CGPoint(x: x, y: midY - amp))
+                } else {
+                    waveformPath.addLine(to: CGPoint(x: x, y: midY - amp))
+                }
+            }
+            // Bottom half (mirror)
+            for i in stride(from: samplesCount - 1, through: 0, by: -1) {
+                let x = waveX + CGFloat(i) * pixelsPerSample
+                let amp = CGFloat(samples[i]) * (waveH / 2) * alpha
+                waveformPath.addLine(to: CGPoint(x: x, y: midY + amp))
+            }
+            waveformPath.closeSubpath()
+
+            context.fill(waveformPath, with: .color(trackColor.opacity(0.6 * alpha)))
+
+            // Center line
+            context.stroke(
+                Path { p in p.move(to: CGPoint(x: waveX, y: midY)); p.addLine(to: CGPoint(x: waveX + waveW, y: midY)) },
+                with: .color(trackColor.opacity(0.3 * alpha)), lineWidth: 0.5
+            )
+
+            // Bottom separator between tracks
+            if index < soundtrackTracks.count - 1 {
+                let sepY = laneY + laneH
+                context.stroke(
+                    Path { p in p.move(to: CGPoint(x: 0, y: sepY)); p.addLine(to: CGPoint(x: size.width, y: sepY)) },
+                    with: .color(Color(hex: "#333333")), lineWidth: 0.5
+                )
+            }
+        }
+
+        // Bottom separator for entire soundtrack area
+        let bottomY = soundtrackBaseY + soundtrackLaneHeight
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: bottomY)); p.addLine(to: CGPoint(x: size.width, y: bottomY)) },
+            with: .color(Color(hex: "#444444")), lineWidth: 1
+        )
+    }
+
     /// Draw the playhead (red vertical line with triangle handle)
     private func drawPlayhead(context: GraphicsContext, size: CGSize) {
         guard let time = playheadTime else { return }
@@ -1209,6 +2127,806 @@ public struct TimelineHeaderCanvas: View {
         let secs = totalSec % 60
         let frac = Int((t - CGFloat(totalSec)) * 10)
         return String(format: "%02d:%02d.%d", minutes, secs, frac)
+    }
+
+    // MARK: - Lighting Cue Lane
+
+    /// Find a light cue at the given point
+    private func findLightCue(at point: CGPoint) -> LightCue? {
+        guard showLightingLane, !lightCues.isEmpty else { return nil }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight
+        let singleLaneH = TimelineLayoutConstants.lightingLaneHeight
+        let barHeight: CGFloat = 36
+        let hitMargin: CGFloat = 4
+        let subLanes = lightCueSubLanes
+
+        for cue in lightCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+            let cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            let cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let cueRect = CGRect(
+                x: cueX - hitMargin,
+                y: barY - hitMargin,
+                width: cueW + hitMargin * 2,
+                height: barHeight + hitMargin * 2
+            )
+            if cueRect.contains(point) {
+                return cue
+            }
+        }
+        return nil
+    }
+
+    /// Find a light cue whose right edge is within 8px of the given point (for resize)
+    private func findLightCueRightEdge(at point: CGPoint) -> LightCue? {
+        guard showLightingLane, !lightCues.isEmpty else { return nil }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight
+        let singleLaneH = TimelineLayoutConstants.lightingLaneHeight
+        let barHeight: CGFloat = 36
+        let edgeThreshold: CGFloat = 8
+        let subLanes = lightCueSubLanes
+
+        for cue in lightCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+            let cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            let cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let cueRight = cueX + cueW
+
+            if point.y >= barY && point.y <= barY + barHeight &&
+               abs(point.x - cueRight) <= edgeThreshold {
+                return cue
+            }
+        }
+        return nil
+    }
+
+    /// Check if a point hits the lighting lane eye toggle area
+    private func isLightingEyeToggleHit(at point: CGPoint) -> Bool {
+        guard !lightCues.isEmpty else { return false }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight
+        let totalLaneHeight = lightingLaneOffset
+
+        if showLightingLane {
+            // Expanded: eye icon area in the label
+            let labelRect = CGRect(x: 4, y: baseLaneY + 4, width: TimelineLayoutConstants.rowLabelWidth - 12, height: totalLaneHeight - 8)
+            let eyeRect = CGRect(x: labelRect.minX, y: labelRect.minY, width: 28, height: labelRect.height)
+            return eyeRect.contains(point)
+        } else {
+            // Collapsed: entire label strip is clickable to re-expand
+            let labelRect = CGRect(x: 4, y: baseLaneY + 2, width: TimelineLayoutConstants.rowLabelWidth - 12, height: 20)
+            return labelRect.contains(point)
+        }
+    }
+
+    /// Draw the lighting cue lane below the soundtrack lane
+    private func drawLightingCueLane(context: GraphicsContext, size: CGSize) {
+        guard !lightCues.isEmpty else { return }
+
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight
+        let totalLaneHeight = lightingLaneOffset
+
+        // --- Collapsed strip ---
+        if !showLightingLane {
+            let collapsedRect = CGRect(x: 0, y: baseLaneY, width: size.width, height: totalLaneHeight)
+            context.fill(Path(collapsedRect), with: .color(Color(hex: "#1A1A1A").opacity(0.7)))
+
+            // Separator lines
+            context.stroke(
+                Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY)) },
+                with: .color(Color(hex: "#444444")), lineWidth: 1
+            )
+            context.stroke(
+                Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY + totalLaneHeight)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY + totalLaneHeight)) },
+                with: .color(Color(hex: "#444444")), lineWidth: 1
+            )
+
+            // Collapsed label
+            let labelRect = CGRect(x: 4, y: baseLaneY + 2, width: TimelineLayoutConstants.rowLabelWidth - 12, height: 20)
+            context.fill(Path(roundedRect: labelRect, cornerRadius: 3), with: .color(Color(hex: "#333333").opacity(0.7)))
+            context.stroke(Path(roundedRect: labelRect, cornerRadius: 3), with: .color(Color(hex: "#555555")), lineWidth: 1)
+
+            let centerY = baseLaneY + totalLaneHeight / 2
+
+            // Eye.slash icon
+            context.draw(
+                Text(Image(systemName: "eye.slash")).font(.system(size: 9)).foregroundColor(Color(hex: "#888888")),
+                at: CGPoint(x: labelRect.minX + 14, y: centerY), anchor: .center
+            )
+            // Lightbulb icon
+            context.draw(
+                Text(Image(systemName: "lightbulb.fill")).font(.system(size: 9)).foregroundColor(Color(hex: "#666666")),
+                at: CGPoint(x: labelRect.minX + 34, y: centerY), anchor: .center
+            )
+            // "Lights" text
+            context.draw(
+                Text("Lights").font(.system(size: 10, weight: .medium)).foregroundColor(Color(hex: "#666666")),
+                at: CGPoint(x: labelRect.maxX - 8, y: centerY), anchor: .trailing
+            )
+            return
+        }
+
+        // --- Expanded lane ---
+        let singleLaneH = TimelineLayoutConstants.lightingLaneHeight
+        let barHeight: CGFloat = 36
+        let subLanes = lightCueSubLanes
+
+        // Lane background
+        let laneBg = CGRect(x: 0, y: baseLaneY, width: size.width, height: totalLaneHeight)
+        context.fill(Path(laneBg), with: .color(Color(nsColor: .controlBackgroundColor).opacity(0.3)))
+
+        // Top separator
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY)) },
+            with: .color(Color(hex: "#555555")), lineWidth: 1
+        )
+        // Bottom separator
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY + totalLaneHeight)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY + totalLaneHeight)) },
+            with: .color(Color(hex: "#555555")), lineWidth: 1
+        )
+
+        // Lane label with eye toggle
+        let labelRect = CGRect(x: 4, y: baseLaneY + 4, width: TimelineLayoutConstants.rowLabelWidth - 12, height: totalLaneHeight - 8)
+        context.fill(Path(roundedRect: labelRect, cornerRadius: 4), with: .color(Color(hex: "#2A2A2A")))
+        context.stroke(Path(roundedRect: labelRect, cornerRadius: 4), with: .color(Color(hex: "#444444")), lineWidth: 1)
+
+        let centerY = baseLaneY + totalLaneHeight / 2
+
+        // Eye toggle icon (leftmost)
+        context.draw(
+            Text(Image(systemName: "eye.fill")).font(.system(size: 10)).foregroundColor(Color(hex: "#666666")),
+            at: CGPoint(x: labelRect.minX + 14, y: centerY), anchor: .center
+        )
+        // Lightbulb icon (after eye)
+        context.draw(
+            Text(Image(systemName: "lightbulb.fill")).font(.system(size: 10)).foregroundColor(Color(hex: "#999999")),
+            at: CGPoint(x: labelRect.minX + 34, y: centerY), anchor: .center
+        )
+        context.draw(
+            Text("Lights").font(.system(size: 11, weight: .medium)).foregroundColor(Color(hex: "#BBBBBB")),
+            at: CGPoint(x: labelRect.maxX - 8, y: centerY), anchor: .trailing
+        )
+
+        for cue in lightCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+
+            var cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            var cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let isDragging = cue.id == draggingLightCueId
+            let isResizing = cue.id == resizingLightCueId
+
+            // Apply drag offset for move
+            if isDragging && !isResizing {
+                cueX += (dragCurrentX - lightCueDragStartX)
+            }
+
+            // Apply resize offset
+            if isResizing {
+                cueW += (dragCurrentX - lightCueResizeStartX)
+                cueW = max(20, cueW)
+            }
+
+            // Skip if outside viewport
+            if cueX + cueW < 0 || cueX > size.width { continue }
+
+            let cueColor = Color(hex: cue.markerColor)
+
+            // Main bar
+            let barRect = CGRect(x: cueX, y: barY, width: cueW, height: barHeight)
+            let barPath = Path(roundedRect: barRect, cornerRadius: 4)
+            context.fill(barPath, with: .color(cueColor.opacity(CGFloat(cue.intensity) * 0.6 + 0.15)))
+            context.stroke(barPath, with: .color(cueColor.opacity(isDragging || isResizing ? 1.0 : 0.8)), lineWidth: isDragging || isResizing ? 2 : 1)
+
+            // Fade-in ramp (left gradient)
+            if cue.fadeInDuration > 0 {
+                let fadeW = min(CGFloat(cue.fadeInDuration) * pxPerSec, cueW * 0.4)
+                let fadeRect = CGRect(x: cueX, y: barY, width: fadeW, height: barHeight)
+                context.fill(
+                    Path(fadeRect),
+                    with: .linearGradient(
+                        Gradient(colors: [cueColor.opacity(0), cueColor.opacity(CGFloat(cue.intensity) * 0.4)]),
+                        startPoint: CGPoint(x: cueX, y: barY),
+                        endPoint: CGPoint(x: cueX + fadeW, y: barY)
+                    )
+                )
+            }
+
+            // Fade-out ramp (right gradient)
+            if cue.fadeOutDuration > 0 {
+                let fadeW = min(CGFloat(cue.fadeOutDuration) * pxPerSec, cueW * 0.4)
+                let fadeRect = CGRect(x: cueX + cueW - fadeW, y: barY, width: fadeW, height: barHeight)
+                context.fill(
+                    Path(fadeRect),
+                    with: .linearGradient(
+                        Gradient(colors: [cueColor.opacity(CGFloat(cue.intensity) * 0.4), cueColor.opacity(0)]),
+                        startPoint: CGPoint(x: cueX + cueW - fadeW, y: barY),
+                        endPoint: CGPoint(x: cueX + cueW, y: barY)
+                    )
+                )
+            }
+
+            // Label: lightbulb icon + truncated name
+            let labelMaxW = max(0, cueW - 8)
+            if labelMaxW > 20 {
+                var clipped = context
+                clipped.clip(to: Path(CGRect(x: cueX + 4, y: barY, width: labelMaxW, height: barHeight)))
+
+                // Icon
+                clipped.draw(
+                    Text(Image(systemName: "lightbulb.fill"))
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.9)),
+                    at: CGPoint(x: cueX + 12, y: barY + barHeight / 2),
+                    anchor: .center
+                )
+
+                // Name text
+                if labelMaxW > 40 {
+                    let displayName = cue.cueNumber + " " + cue.name
+                    clipped.draw(
+                        Text(displayName)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9)),
+                        at: CGPoint(x: cueX + 22, y: barY + barHeight / 2),
+                        anchor: .leading
+                    )
+                }
+            }
+
+            // Intensity indicator (small bar at bottom)
+            let intensityW = cueW * CGFloat(cue.intensity)
+            let intensityRect = CGRect(x: cueX, y: barY + barHeight - 3, width: intensityW, height: 3)
+            context.fill(Path(intensityRect), with: .color(cueColor))
+
+            // Resize handle (thin line at right edge)
+            let handleX = cueX + cueW - 2
+            context.stroke(
+                Path { p in
+                    p.move(to: CGPoint(x: handleX, y: barY + 4))
+                    p.addLine(to: CGPoint(x: handleX, y: barY + barHeight - 4))
+                },
+                with: .color(.white.opacity(0.3)),
+                lineWidth: 2
+            )
+        }
+    }
+
+    // MARK: - SFX Cue Lane Drawing
+
+    private func drawSFXCueLane(context: GraphicsContext, size: CGSize) {
+        guard !sfxCues.isEmpty else { return }
+
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset
+        let totalLaneHeight = sfxLaneOffset
+
+        // --- Collapsed strip ---
+        if !showSFXLane {
+            let collapsedRect = CGRect(x: 0, y: baseLaneY, width: size.width, height: totalLaneHeight)
+            context.fill(Path(collapsedRect), with: .color(Color(hex: "#1A1A1A").opacity(0.7)))
+
+            context.stroke(
+                Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY)) },
+                with: .color(Color(hex: "#444444")), lineWidth: 1
+            )
+            context.stroke(
+                Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY + totalLaneHeight)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY + totalLaneHeight)) },
+                with: .color(Color(hex: "#444444")), lineWidth: 1
+            )
+
+            let labelRect = CGRect(x: 4, y: baseLaneY + 2, width: TimelineLayoutConstants.rowLabelWidth - 12, height: 20)
+            context.fill(Path(roundedRect: labelRect, cornerRadius: 3), with: .color(Color(hex: "#333333").opacity(0.7)))
+            context.stroke(Path(roundedRect: labelRect, cornerRadius: 3), with: .color(Color(hex: "#555555")), lineWidth: 1)
+
+            let centerY = baseLaneY + totalLaneHeight / 2
+
+            context.draw(
+                Text(Image(systemName: "eye.slash")).font(.system(size: 9)).foregroundColor(Color(hex: "#888888")),
+                at: CGPoint(x: labelRect.minX + 14, y: centerY), anchor: .center
+            )
+            context.draw(
+                Text(Image(systemName: "sparkles")).font(.system(size: 9)).foregroundColor(Color(hex: "#666666")),
+                at: CGPoint(x: labelRect.minX + 34, y: centerY), anchor: .center
+            )
+            context.draw(
+                Text("SFX").font(.system(size: 10, weight: .medium)).foregroundColor(Color(hex: "#666666")),
+                at: CGPoint(x: labelRect.maxX - 8, y: centerY), anchor: .trailing
+            )
+            return
+        }
+
+        // --- Expanded lane ---
+        let singleLaneH = TimelineLayoutConstants.sfxLaneHeight
+        let barHeight: CGFloat = 36
+        let subLanes = sfxCueSubLanes
+
+        // Lane background
+        let laneBg = CGRect(x: 0, y: baseLaneY, width: size.width, height: totalLaneHeight)
+        context.fill(Path(laneBg), with: .color(Color(nsColor: .controlBackgroundColor).opacity(0.3)))
+
+        // Top separator
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY)) },
+            with: .color(Color(hex: "#555555")), lineWidth: 1
+        )
+        // Bottom separator
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY + totalLaneHeight)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY + totalLaneHeight)) },
+            with: .color(Color(hex: "#555555")), lineWidth: 1
+        )
+
+        // Lane label with eye toggle
+        let labelRect = CGRect(x: 4, y: baseLaneY + 4, width: TimelineLayoutConstants.rowLabelWidth - 12, height: totalLaneHeight - 8)
+        context.fill(Path(roundedRect: labelRect, cornerRadius: 4), with: .color(Color(hex: "#2A2A2A")))
+        context.stroke(Path(roundedRect: labelRect, cornerRadius: 4), with: .color(Color(hex: "#444444")), lineWidth: 1)
+
+        let centerY = baseLaneY + totalLaneHeight / 2
+
+        context.draw(
+            Text(Image(systemName: "eye.fill")).font(.system(size: 10)).foregroundColor(Color(hex: "#666666")),
+            at: CGPoint(x: labelRect.minX + 14, y: centerY), anchor: .center
+        )
+        context.draw(
+            Text(Image(systemName: "sparkles")).font(.system(size: 10)).foregroundColor(Color(hex: "#FF6B35")),
+            at: CGPoint(x: labelRect.minX + 34, y: centerY), anchor: .center
+        )
+        context.draw(
+            Text("SFX").font(.system(size: 11, weight: .medium)).foregroundColor(Color(hex: "#BBBBBB")),
+            at: CGPoint(x: labelRect.maxX - 8, y: centerY), anchor: .trailing
+        )
+
+        for cue in sfxCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+
+            var cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            var cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let isDragging = cue.id == draggingSFXCueId
+            let isResizing = cue.id == resizingSFXCueId
+
+            if isDragging && !isResizing {
+                cueX += (dragCurrentX - sfxCueDragStartX)
+            }
+
+            if isResizing {
+                cueW += (dragCurrentX - sfxCueResizeStartX)
+                cueW = max(20, cueW)
+            }
+
+            if cueX + cueW < 0 || cueX > size.width { continue }
+
+            let cueColor = Color(hex: cue.markerColor)
+
+            // Main bar
+            let barRect = CGRect(x: cueX, y: barY, width: cueW, height: barHeight)
+            let barPath = Path(roundedRect: barRect, cornerRadius: 4)
+            context.fill(barPath, with: .color(cueColor.opacity(CGFloat(cue.intensity) * 0.6 + 0.15)))
+            context.stroke(barPath, with: .color(cueColor.opacity(isDragging || isResizing ? 1.0 : 0.8)), lineWidth: isDragging || isResizing ? 2 : 1)
+
+            // Fade-in ramp
+            if cue.fadeInDuration > 0 {
+                let fadeW = min(CGFloat(cue.fadeInDuration) * pxPerSec, cueW * 0.4)
+                let fadeRect = CGRect(x: cueX, y: barY, width: fadeW, height: barHeight)
+                context.fill(
+                    Path(fadeRect),
+                    with: .linearGradient(
+                        Gradient(colors: [cueColor.opacity(0), cueColor.opacity(CGFloat(cue.intensity) * 0.4)]),
+                        startPoint: CGPoint(x: cueX, y: barY),
+                        endPoint: CGPoint(x: cueX + fadeW, y: barY)
+                    )
+                )
+            }
+
+            // Fade-out ramp
+            if cue.fadeOutDuration > 0 {
+                let fadeW = min(CGFloat(cue.fadeOutDuration) * pxPerSec, cueW * 0.4)
+                let fadeRect = CGRect(x: cueX + cueW - fadeW, y: barY, width: fadeW, height: barHeight)
+                context.fill(
+                    Path(fadeRect),
+                    with: .linearGradient(
+                        Gradient(colors: [cueColor.opacity(CGFloat(cue.intensity) * 0.4), cueColor.opacity(0)]),
+                        startPoint: CGPoint(x: cueX + cueW - fadeW, y: barY),
+                        endPoint: CGPoint(x: cueX + cueW, y: barY)
+                    )
+                )
+            }
+
+            // Label: effect icon + truncated name
+            let labelMaxW = max(0, cueW - 8)
+            if labelMaxW > 20 {
+                var clipped = context
+                clipped.clip(to: Path(CGRect(x: cueX + 4, y: barY, width: labelMaxW, height: barHeight)))
+
+                clipped.draw(
+                    Text(Image(systemName: cue.effectType.icon))
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.9)),
+                    at: CGPoint(x: cueX + 12, y: barY + barHeight / 2),
+                    anchor: .center
+                )
+
+                if labelMaxW > 40 {
+                    let displayName = cue.cueNumber + " " + cue.name
+                    clipped.draw(
+                        Text(displayName)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9)),
+                        at: CGPoint(x: cueX + 22, y: barY + barHeight / 2),
+                        anchor: .leading
+                    )
+                }
+            }
+
+            // Intensity indicator
+            let intensityW = cueW * CGFloat(cue.intensity)
+            let intensityRect = CGRect(x: cueX, y: barY + barHeight - 3, width: intensityW, height: 3)
+            context.fill(Path(intensityRect), with: .color(cueColor))
+
+            // Resize handle
+            let handleX = cueX + cueW - 2
+            context.stroke(
+                Path { p in
+                    p.move(to: CGPoint(x: handleX, y: barY + 4))
+                    p.addLine(to: CGPoint(x: handleX, y: barY + barHeight - 4))
+                },
+                with: .color(.white.opacity(0.3)),
+                lineWidth: 2
+            )
+        }
+    }
+
+    // MARK: - SFX Hit Testing
+
+    private func findSFXCue(at point: CGPoint) -> SFXCue? {
+        guard showSFXLane, !sfxCues.isEmpty else { return nil }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset
+        let singleLaneH = TimelineLayoutConstants.sfxLaneHeight
+        let barHeight: CGFloat = 36
+        let hitMargin: CGFloat = 4
+        let subLanes = sfxCueSubLanes
+
+        for cue in sfxCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+            let cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            let cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let cueRect = CGRect(
+                x: cueX - hitMargin,
+                y: barY - hitMargin,
+                width: cueW + hitMargin * 2,
+                height: barHeight + hitMargin * 2
+            )
+            if cueRect.contains(point) {
+                return cue
+            }
+        }
+        return nil
+    }
+
+    private func findSFXCueRightEdge(at point: CGPoint) -> SFXCue? {
+        guard showSFXLane, !sfxCues.isEmpty else { return nil }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset
+        let singleLaneH = TimelineLayoutConstants.sfxLaneHeight
+        let barHeight: CGFloat = 36
+        let edgeThreshold: CGFloat = 8
+        let subLanes = sfxCueSubLanes
+
+        for cue in sfxCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+            let cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            let cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let cueRight = cueX + cueW
+
+            if point.y >= barY && point.y <= barY + barHeight &&
+               abs(point.x - cueRight) <= edgeThreshold {
+                return cue
+            }
+        }
+        return nil
+    }
+
+    private func isSFXEyeToggleHit(at point: CGPoint) -> Bool {
+        guard !sfxCues.isEmpty else { return false }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset
+        let totalLaneHeight = sfxLaneOffset
+
+        if showSFXLane {
+            let labelRect = CGRect(x: 4, y: baseLaneY + 4, width: TimelineLayoutConstants.rowLabelWidth - 12, height: totalLaneHeight - 8)
+            let eyeRect = CGRect(x: labelRect.minX, y: labelRect.minY, width: 28, height: labelRect.height)
+            return eyeRect.contains(point)
+        } else {
+            let labelRect = CGRect(x: 4, y: baseLaneY + 2, width: TimelineLayoutConstants.rowLabelWidth - 12, height: 20)
+            return labelRect.contains(point)
+        }
+    }
+
+    // MARK: - Support Cue Lane Drawing
+
+    private func drawSupportCueLane(context: GraphicsContext, size: CGSize) {
+        guard !supportCues.isEmpty else { return }
+
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset +
+                        sfxLaneOffset
+        let totalLaneHeight = supportLaneOffset
+        let supportAccent = Color(hex: "#2DD4BF")
+
+        // --- Collapsed strip ---
+        if !showSupportLane {
+            let collapsedRect = CGRect(x: 0, y: baseLaneY, width: size.width, height: totalLaneHeight)
+            context.fill(Path(collapsedRect), with: .color(Color(hex: "#1A1A1A").opacity(0.7)))
+
+            context.stroke(
+                Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY)) },
+                with: .color(Color(hex: "#444444")), lineWidth: 1
+            )
+            context.stroke(
+                Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY + totalLaneHeight)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY + totalLaneHeight)) },
+                with: .color(Color(hex: "#444444")), lineWidth: 1
+            )
+
+            let labelRect = CGRect(x: 4, y: baseLaneY + 2, width: TimelineLayoutConstants.rowLabelWidth - 12, height: 20)
+            context.fill(Path(roundedRect: labelRect, cornerRadius: 3), with: .color(Color(hex: "#333333").opacity(0.7)))
+            context.stroke(Path(roundedRect: labelRect, cornerRadius: 3), with: .color(Color(hex: "#555555")), lineWidth: 1)
+
+            let centerY = baseLaneY + totalLaneHeight / 2
+
+            context.draw(
+                Text(Image(systemName: "eye.slash")).font(.system(size: 9)).foregroundColor(Color(hex: "#888888")),
+                at: CGPoint(x: labelRect.minX + 14, y: centerY), anchor: .center
+            )
+            context.draw(
+                Text(Image(systemName: "person.2.fill")).font(.system(size: 9)).foregroundColor(Color(hex: "#666666")),
+                at: CGPoint(x: labelRect.minX + 34, y: centerY), anchor: .center
+            )
+            context.draw(
+                Text("SUPPORT").font(.system(size: 10, weight: .medium)).foregroundColor(Color(hex: "#666666")),
+                at: CGPoint(x: labelRect.maxX - 8, y: centerY), anchor: .trailing
+            )
+            return
+        }
+
+        // --- Expanded lane ---
+        let singleLaneH = TimelineLayoutConstants.supportLaneHeight
+        let barHeight: CGFloat = 36
+        let subLanes = supportCueSubLanes
+
+        // Lane background
+        let laneBg = CGRect(x: 0, y: baseLaneY, width: size.width, height: totalLaneHeight)
+        context.fill(Path(laneBg), with: .color(Color(nsColor: .controlBackgroundColor).opacity(0.3)))
+
+        // Top separator
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY)) },
+            with: .color(Color(hex: "#555555")), lineWidth: 1
+        )
+        // Bottom separator
+        context.stroke(
+            Path { p in p.move(to: CGPoint(x: 0, y: baseLaneY + totalLaneHeight)); p.addLine(to: CGPoint(x: size.width, y: baseLaneY + totalLaneHeight)) },
+            with: .color(Color(hex: "#555555")), lineWidth: 1
+        )
+
+        // Lane label with eye toggle
+        let labelRect = CGRect(x: 4, y: baseLaneY + 4, width: TimelineLayoutConstants.rowLabelWidth - 12, height: totalLaneHeight - 8)
+        context.fill(Path(roundedRect: labelRect, cornerRadius: 4), with: .color(Color(hex: "#2A2A2A")))
+        context.stroke(Path(roundedRect: labelRect, cornerRadius: 4), with: .color(Color(hex: "#444444")), lineWidth: 1)
+
+        let centerY = baseLaneY + totalLaneHeight / 2
+
+        context.draw(
+            Text(Image(systemName: "eye.fill")).font(.system(size: 10)).foregroundColor(Color(hex: "#666666")),
+            at: CGPoint(x: labelRect.minX + 14, y: centerY), anchor: .center
+        )
+        context.draw(
+            Text(Image(systemName: "person.2.fill")).font(.system(size: 10)).foregroundColor(supportAccent),
+            at: CGPoint(x: labelRect.minX + 34, y: centerY), anchor: .center
+        )
+        context.draw(
+            Text("SUPPORT").font(.system(size: 11, weight: .medium)).foregroundColor(Color(hex: "#BBBBBB")),
+            at: CGPoint(x: labelRect.maxX - 8, y: centerY), anchor: .trailing
+        )
+
+        for cue in supportCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+
+            var cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            var cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let isDragging = cue.id == draggingSupportCueId
+            let isResizing = cue.id == resizingSupportCueId
+
+            if isDragging && !isResizing {
+                cueX += (dragCurrentX - supportCueDragStartX)
+            }
+
+            if isResizing {
+                cueW += (dragCurrentX - supportCueResizeStartX)
+                cueW = max(20, cueW)
+            }
+
+            if cueX + cueW < 0 || cueX > size.width { continue }
+
+            let cueColor = Color(hex: cue.markerColor)
+
+            // Main bar (no fade gradients for support actions)
+            let barRect = CGRect(x: cueX, y: barY, width: cueW, height: barHeight)
+            let barPath = Path(roundedRect: barRect, cornerRadius: 4)
+            context.fill(barPath, with: .color(cueColor.opacity(0.5)))
+            context.stroke(barPath, with: .color(cueColor.opacity(isDragging || isResizing ? 1.0 : 0.8)), lineWidth: isDragging || isResizing ? 2 : 1)
+
+            // Label: action type icon + truncated name
+            let labelMaxW = max(0, cueW - 8)
+            if labelMaxW > 20 {
+                var clipped = context
+                clipped.clip(to: Path(CGRect(x: cueX + 4, y: barY, width: labelMaxW, height: barHeight)))
+
+                clipped.draw(
+                    Text(Image(systemName: cue.actionType.icon))
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.9)),
+                    at: CGPoint(x: cueX + 12, y: barY + barHeight / 2),
+                    anchor: .center
+                )
+
+                if labelMaxW > 40 {
+                    let displayName = cue.cueNumber + " " + cue.name
+                    clipped.draw(
+                        Text(displayName)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9)),
+                        at: CGPoint(x: cueX + 22, y: barY + barHeight / 2),
+                        anchor: .leading
+                    )
+                }
+            }
+
+            // Resize handle
+            let handleX = cueX + cueW - 2
+            context.stroke(
+                Path { p in
+                    p.move(to: CGPoint(x: handleX, y: barY + 4))
+                    p.addLine(to: CGPoint(x: handleX, y: barY + barHeight - 4))
+                },
+                with: .color(.white.opacity(0.3)),
+                lineWidth: 2
+            )
+        }
+    }
+
+    // MARK: - Support Hit Testing
+
+    private func findSupportCue(at point: CGPoint) -> SupportCue? {
+        guard showSupportLane, !supportCues.isEmpty else { return nil }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset +
+                        sfxLaneOffset
+        let singleLaneH = TimelineLayoutConstants.supportLaneHeight
+        let barHeight: CGFloat = 36
+        let hitMargin: CGFloat = 4
+        let subLanes = supportCueSubLanes
+
+        for cue in supportCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+            let cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            let cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let cueRect = CGRect(
+                x: cueX - hitMargin,
+                y: barY - hitMargin,
+                width: cueW + hitMargin * 2,
+                height: barHeight + hitMargin * 2
+            )
+            if cueRect.contains(point) {
+                return cue
+            }
+        }
+        return nil
+    }
+
+    private func findSupportCueRightEdge(at point: CGPoint) -> SupportCue? {
+        guard showSupportLane, !supportCues.isEmpty else { return nil }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset +
+                        sfxLaneOffset
+        let singleLaneH = TimelineLayoutConstants.supportLaneHeight
+        let barHeight: CGFloat = 36
+        let edgeThreshold: CGFloat = 8
+        let subLanes = supportCueSubLanes
+
+        for cue in supportCues {
+            let subLane = subLanes[cue.id] ?? 0
+            let laneY = baseLaneY + CGFloat(subLane) * singleLaneH
+            let barY = laneY + (singleLaneH - barHeight) / 2
+            let cueX = originX + CGFloat(cue.startTime) * pxPerSec
+            let cueW = max(20, CGFloat(cue.duration) * pxPerSec)
+            let cueRight = cueX + cueW
+
+            if point.y >= barY && point.y <= barY + barHeight &&
+               abs(point.x - cueRight) <= edgeThreshold {
+                return cue
+            }
+        }
+        return nil
+    }
+
+    private func isSupportEyeToggleHit(at point: CGPoint) -> Bool {
+        guard !supportCues.isEmpty else { return false }
+        let baseLaneY = TimelineLayoutConstants.topMargin +
+                        TimelineLayoutConstants.rulerHeight +
+                        TimelineLayoutConstants.rulerGap +
+                        shotLaneOffset +
+                        soundtrackLaneHeight +
+                        lightingLaneOffset +
+                        sfxLaneOffset
+        let totalLaneHeight = supportLaneOffset
+
+        if showSupportLane {
+            let labelRect = CGRect(x: 4, y: baseLaneY + 4, width: TimelineLayoutConstants.rowLabelWidth - 12, height: totalLaneHeight - 8)
+            let eyeRect = CGRect(x: labelRect.minX, y: labelRect.minY, width: 28, height: labelRect.height)
+            return eyeRect.contains(point)
+        } else {
+            let labelRect = CGRect(x: 4, y: baseLaneY + 2, width: TimelineLayoutConstants.rowLabelWidth - 12, height: 20)
+            return labelRect.contains(point)
+        }
     }
 
     /// Draw user markers on the ruler baseline

@@ -146,6 +146,29 @@ public struct TimelineLayoutConstants {
     /// Spacing between film perforation holes
     public static let filmPerforationSpacing: CGFloat = 8
 
+    // MARK: - Lighting Cue Lane
+
+    /// Height of the lighting cue lane
+    public static let lightingLaneHeight: CGFloat = 44
+
+    // MARK: - SFX Cue Lane
+
+    /// Height of the SFX cue lane
+    public static let sfxLaneHeight: CGFloat = 44
+
+    // MARK: - Support Cue Lane
+
+    /// Height of the support cue lane
+    public static let supportLaneHeight: CGFloat = 44
+
+    // MARK: - Soundtrack Lane
+
+    /// Height of a single soundtrack waveform lane
+    public static let soundtrackLaneHeight: CGFloat = 48
+
+    /// Vertical padding inside the waveform lane
+    public static let soundtrackWaveformPadding: CGFloat = 4
+
     // MARK: - Playhead
 
     /// Width of the playhead triangle handle
@@ -254,6 +277,9 @@ public struct TimelineDefaultColors {
 
     /// Secondary text color
     public static let secondaryText = "#AAAAAA"
+
+    /// Soundtrack waveform color
+    public static let soundtrackWaveform = "#00BCD4"
 
     /// Lane background alpha
     public static let laneBackgroundAlpha: CGFloat = 0.08
