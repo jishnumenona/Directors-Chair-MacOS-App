@@ -462,9 +462,22 @@ public class AuthManager: ObservableObject {
 
         let (data, response) = try await session.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            // Refresh failed — session expired
+        guard let httpResponse = response as? HTTPURLResponse else {
+            // No HTTP response (transient) — keep the session, allow a retry.
+            throw AuthError.sessionExpired
+        }
+
+        if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
+            // The refresh token itself is rejected (invalid_grant) — the session
+            // is genuinely dead. This is the only case that logs the user out.
             await clearSession()
+            throw AuthError.sessionExpired
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            // Server-side or transient failure (5xx, rate limit, etc.). Do NOT
+            // clear the session — a temporary hiccup must not log the user out
+            // and tear down their open project. Let the caller retry later.
             throw AuthError.sessionExpired
         }
 

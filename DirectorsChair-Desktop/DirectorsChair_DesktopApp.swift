@@ -92,20 +92,30 @@ struct DirectorsChair_DesktopApp: App {
                         NSLog("[App] .task: no auth user, currentUsername=%@", ProjectDirectoryManager.currentUsername)
                     }
                 }
-                .onChange(of: authManager.currentUser?.username) { _, newUsername in
-                    NSLog("[App] .onChange: username changed to %@", newUsername ?? "nil")
-                    // User logged in or switched accounts
-                    if let username = newUsername {
-                        ProjectDirectoryManager.setCurrentUser(username)
-                    } else {
-                        // Logged out — reset to offline namespace
-                        ProjectDirectoryManager.setCurrentUser(nil)
+                .onChange(of: authManager.currentUser?.username) { oldUsername, newUsername in
+                    NSLog("[App] .onChange: username %@ -> %@", oldUsername ?? "nil", newUsername ?? "nil")
+                    // Keep the per-user project namespace in sync.
+                    ProjectDirectoryManager.setCurrentUser(newUsername)
+
+                    // Only tear down the open project on a GENUINE account change:
+                    // a logout, or a switch to a different user. The initial
+                    // session restore at launch fires this handler as nil -> user
+                    // (and a transient token-refresh failure fires it as user ->
+                    // nil), so an unguarded reset here silently wiped the project
+                    // the user had open and replaced it with the sample template.
+                    let isLogout = newUsername == nil && oldUsername != nil
+                    let isAccountSwitch = oldUsername != nil && newUsername != nil && oldUsername != newUsername
+
+                    if isLogout || isAccountSwitch {
+                        projectViewModel.projectPath = nil
+                        projectViewModel.hasProject = false
+                        projectViewModel.project = Project.empty()
+                        coordinator.navigateTo(.projects)
+                    } else if !projectViewModel.hasProject {
+                        // First sign-in of the session with nothing open: land on
+                        // the projects list without disturbing any open project.
+                        coordinator.navigateTo(.projects)
                     }
-                    // Reset project state and navigate to projects list
-                    projectViewModel.projectPath = nil
-                    projectViewModel.hasProject = false
-                    projectViewModel.project = Project.empty()
-                    coordinator.navigateTo(.projects)
                 }
                 .onOpenURL { url in
                     // Handle OAuth callback URL scheme
