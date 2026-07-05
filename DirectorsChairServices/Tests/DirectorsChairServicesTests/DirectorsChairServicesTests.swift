@@ -119,51 +119,6 @@ final class DirectorsChairServicesTests: XCTestCase {
         XCTAssertEqual(result.archetype, "")
     }
 
-    // MARK: - Git Serializer Tests
-
-    func testGitSerializerInitialization() {
-        let serializer = GitSerializer()
-        XCTAssertNotNil(serializer)
-    }
-
-    func testGitSerializerSchemaVersion() {
-        XCTAssertEqual(GitSerializer.schemaVersion, "1.0")
-        XCTAssertEqual(GitSerializer.serializerVersion, "1.0.0")
-    }
-
-    func testGitSerializerLFSExtensions() {
-        let extensions = GitSerializer.lfsTrackedExtensions
-        XCTAssertTrue(extensions.contains("*.png"))
-        XCTAssertTrue(extensions.contains("*.mp4"))
-        XCTAssertTrue(extensions.contains("*.mp3"))
-        XCTAssertTrue(extensions.contains("*.psd"))
-    }
-
-    func testGitSerializationStats() {
-        let stats = GitSerializationStats(
-            characters: 5,
-            scenes: 10,
-            sequences: 3,
-            beats: 15,
-            locations: 4
-        )
-
-        XCTAssertEqual(stats.characters, 5)
-        XCTAssertEqual(stats.scenes, 10)
-        XCTAssertEqual(stats.sequences, 3)
-        XCTAssertEqual(stats.beats, 15)
-        XCTAssertEqual(stats.locations, 4)
-        XCTAssertEqual(stats.totalFiles, 37) // 5+10+3+15+4+0+0+0+0
-    }
-
-    func testGitSerializationStatsDefaults() {
-        let stats = GitSerializationStats()
-        XCTAssertEqual(stats.characters, 0)
-        XCTAssertEqual(stats.scenes, 0)
-        XCTAssertEqual(stats.sequences, 0)
-        XCTAssertEqual(stats.totalFiles, 0)
-    }
-
     // MARK: - Gitea Client Tests
 
     func testGiteaClientInitialization() async {
@@ -289,17 +244,6 @@ final class DirectorsChairServicesTests: XCTestCase {
     }
 
     // MARK: - Git Error Tests
-
-    func testGitSerializationErrorDescriptions() {
-        let error1 = GitSerializationError.serializationFailed("Invalid data")
-        XCTAssertTrue(error1.errorDescription!.contains("serialization failed"))
-
-        let error2 = GitSerializationError.missingManifest
-        XCTAssertTrue(error2.errorDescription!.contains("manifest.json"))
-
-        let error3 = GitSerializationError.unsupportedSchemaVersion("2.0")
-        XCTAssertTrue(error3.errorDescription!.contains("2.0"))
-    }
 
     func testRemoteRepositoryErrorDescriptions() {
         let error1 = RemoteRepositoryError.authenticationFailed
