@@ -153,4 +153,13 @@ final class CloudSyncManagerNetworkTests: XCTestCase {
             XCTFail("syncState must be .error after failed uploads, got \(manager.syncState)")
         }
     }
+
+    // WS4.3: git blob SHA must match git's algorithm so unchanged files are
+    // correctly recognised and skipped. Values from `git hash-object`.
+    func testGitBlobSHAMatchesGit() {
+        XCTAssertEqual(CloudSyncManager.gitBlobSHA(Data()),
+                       "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")            // empty
+        XCTAssertEqual(CloudSyncManager.gitBlobSHA(Data("hello\n".utf8)),
+                       "ce013625030ba8dba906f756967f9e9ca394464a")            // "hello\n"
+    }
 }

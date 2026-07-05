@@ -4,6 +4,7 @@
 // Uses direct mirror sync — the remote repo is a byte-for-byte copy of the local project folder.
 
 import Foundation
+import CryptoKit
 import DirectorsChairCore
 
 // MARK: - Sync State
@@ -211,6 +212,15 @@ public class CloudSyncManager: ObservableObject {
                 continue
             }
 
+            // Skip files whose content already matches the remote, by git blob
+            // SHA — previously every file was re-uploaded on every sync. Only for
+            // non-LFS files: an LFS tree entry is its pointer's SHA, not content's.
+            if !GiteaClient.isLFSFile(relativePath),
+               let remoteSHA = remoteSHAs[relativePath],
+               remoteSHA == Self.gitBlobSHA(content) {
+                continue
+            }
+
             let commitMessage = "Sync from DirectorsChair Desktop"
 
             do {
@@ -303,6 +313,15 @@ public class CloudSyncManager: ObservableObject {
         syncState = .lastSynced(now)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "lastSyncTime_\(repoName)")
         log("Push complete: \(total) files synced")
+    }
+
+    /// Git's blob object id for content: SHA-1 of "blob <bytes>\0" + content.
+    /// Matches the sha in a Gitea tree entry, so identical files can be skipped.
+    static func gitBlobSHA(_ data: Data) -> String {
+        var hasher = Insecure.SHA1()
+        hasher.update(data: Data("blob \(data.count)\u{0}".utf8))
+        hasher.update(data: data)
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// True for errors that mean the credential is bad (401/403), as opposed to
