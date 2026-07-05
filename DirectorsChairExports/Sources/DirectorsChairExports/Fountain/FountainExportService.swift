@@ -223,8 +223,10 @@ public struct FountainExportService: Sendable {
     }
     
     private static func formatNarration(_ narration: Narration) -> String {
-        // Narration as action with emphasis
-        return ">\(narration.text)"
+        // Centered text (>text<). A leading '>' WITHOUT a trailing '<' is a
+        // Fountain TRANSITION, so the old ">text" turned every narration into a
+        // transition in any conforming parser.
+        return ">\(narration.text)<"
     }
     
     private static func formatNote(_ note: Note) -> String {

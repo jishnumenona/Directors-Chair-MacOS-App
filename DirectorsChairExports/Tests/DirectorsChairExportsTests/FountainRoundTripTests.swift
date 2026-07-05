@@ -243,11 +243,13 @@ final class FountainRoundTripTests: XCTestCase {
         let project = makeTestProject()
         let output = FountainExportService.exportProject(project)
 
-        // Narrations are formatted with > prefix (centered text)
-        XCTAssertTrue(
-            output.contains(">In that moment, John knew there was no turning back."),
-            "Narration should be formatted with > prefix"
-        )
+        // Narration must be CENTERED text (>text<), not a transition (>text).
+        // A leading '>' without a trailing '<' is a Fountain transition.
+        let text = "In that moment, John knew there was no turning back."
+        XCTAssertTrue(output.contains(">\(text)<"),
+                      "Narration should be centered text (wrapped in > … <), not a transition")
+        XCTAssertFalse(output.contains(">\(text)\n"),
+                       "Narration must not be emitted as a bare '>text' transition")
     }
 
     // MARK: - Note Tests
