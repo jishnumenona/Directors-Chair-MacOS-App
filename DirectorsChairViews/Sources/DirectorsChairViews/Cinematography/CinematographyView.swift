@@ -16,6 +16,12 @@ public struct CinematographyView: View {
     @StateObject private var viewModel: CinematographyViewModel
     @EnvironmentObject var captureService: LiveCaptureService
 
+    /// The shots passed in from the project. The view model is seeded from this
+    /// once; an .onChange keeps the model in sync when the project changes
+    /// externally (e.g. shots added from the script view, or another view's
+    /// edits), which a once-seeded @StateObject would otherwise miss.
+    let shots: [Shot]
+
     /// All scenes for resolving shot-to-scene context
     let scenes: [DCScene]
     let characters: [Character]
@@ -73,6 +79,7 @@ public struct CinematographyView: View {
         onSceneUpdated: ((DCScene) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: CinematographyViewModel(shots: shots))
+        self.shots = shots
         self.scenes = scenes
         self.characters = characters
         self.locations = locations
@@ -144,6 +151,11 @@ public struct CinematographyView: View {
         .onAppear {
             viewModel.onShotsChanged = onShotsChanged
             applyInitialSelection()
+        }
+        .onChange(of: shots) { _, newShots in
+            // Resync when the project's shots change externally. notify:false so
+            // this does not echo back to the parent as a fresh edit.
+            viewModel.setShots(newShots, notify: false)
         }
         .onChange(of: initialSelectedShotId) { _, newValue in
             applyInitialSelection()
