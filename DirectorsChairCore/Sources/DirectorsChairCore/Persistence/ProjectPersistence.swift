@@ -3,6 +3,9 @@
 // Thread-safe actor for project JSON persistence operations
 
 import Foundation
+import os
+
+private let log = Logger(subsystem: "com.directorschair.core", category: "persistence")
 
 /// Actor responsible for loading and saving Project data to/from JSON files
 /// Provides thread-safe access to file I/O operations with atomic saves and backup management
@@ -55,19 +58,37 @@ public actor ProjectPersistence {
             throw ProjectError.permissionDenied(url)
         }
 
+        let decoded: Project
         do {
-            // Read file data
             let data = try Data(contentsOf: url)
-
-            // Decode project
-            let project = try decoder.decode(Project.self, from: data)
-
-            return project
+            decoded = try decoder.decode(Project.self, from: data)
         } catch let error as DecodingError {
             throw ProjectError.decodingFailed(error)
         } catch {
             throw ProjectError.invalidJSON(url, error)
         }
+
+        // Refuse files written by a newer major version rather than silently
+        // dropping fields this build doesn't know and rewriting a lossy file.
+        guard decoded.schemaVersion <= Project.currentSchemaVersion else {
+            throw ProjectError.unsupportedSchemaVersion(
+                found: decoded.schemaVersion,
+                supported: Project.currentSchemaVersion
+            )
+        }
+
+        // Single entry point for forward migration of older documents. No
+        // migrations exist yet (v1 is the first versioned format); future
+        // versions add their upgrade steps here.
+        return migrate(decoded)
+    }
+
+    /// Upgrade an older-but-supported project document to the current schema.
+    /// Currently a pass-through; the seam exists so migration logic lands in one
+    /// place as the format evolves.
+    private func migrate(_ project: Project) -> Project {
+        // switch on project.schemaVersion to apply stepwise upgrades in future.
+        return project
     }
 
     // MARK: - Save Operations
@@ -84,7 +105,7 @@ public actor ProjectPersistence {
                 try await createBackup(of: url)
             } catch {
                 // Backup failure is non-fatal - log warning and continue
-                print("Warning: Failed to create backup: \(error.localizedDescription)")
+                log.warning("Failed to create backup: \(error.localizedDescription, privacy: .public)")
             }
         }
 
@@ -101,7 +122,7 @@ public actor ProjectPersistence {
                     try await rotateBackups(for: url)
                 } catch {
                     // Rotation failure is non-fatal - log warning
-                    print("Warning: Failed to rotate backups: \(error.localizedDescription)")
+                    log.warning("Failed to rotate backups: \(error.localizedDescription, privacy: .public)")
                 }
             }
         } catch let error as EncodingError {
@@ -127,22 +148,36 @@ public actor ProjectPersistence {
             )
         }
 
-        // Create temporary file URL
+        // Create a unique temporary file URL (unique suffix avoids collisions
+        // between concurrent saves of the same document).
         let tempURL = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(url.lastPathComponent).tmp")
+            .appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
 
-        // Write to temporary file
-        try data.write(to: tempURL, options: .atomic)
-
-        // Validate written data by attempting to decode it
-        let writtenData = try Data(contentsOf: tempURL)
-        _ = try decoder.decode(Project.self, from: writtenData)
-
-        // Move temp file to final location (atomic operation)
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+        // Write to the temporary file, then validate it decodes before it is
+        // allowed to replace the real file. Any failure cleans up the temp file
+        // so validation errors never strand partial writes on disk.
+        do {
+            try data.write(to: tempURL, options: .atomic)
+            let writtenData = try Data(contentsOf: tempURL)
+            _ = try decoder.decode(Project.self, from: writtenData)
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
         }
-        try FileManager.default.moveItem(at: tempURL, to: url)
+
+        // Atomically swap the validated temp file into place. replaceItemAt is a
+        // single atomic operation (no window where the destination is missing);
+        // it also removes the temp file. moveItem covers the first-write case.
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
+            } else {
+                try FileManager.default.moveItem(at: tempURL, to: url)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
     }
 
     // MARK: - Backup Management
@@ -203,7 +238,7 @@ public actor ProjectPersistence {
             }
         } catch {
             // Non-fatal: log but don't throw
-            print("Warning: Failed to rotate backups: \(error.localizedDescription)")
+            log.warning("Failed to rotate backups: \(error.localizedDescription, privacy: .public)")
         }
     }
 

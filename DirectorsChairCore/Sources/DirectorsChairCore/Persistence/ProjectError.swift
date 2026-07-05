@@ -14,9 +14,13 @@ public enum ProjectError: LocalizedError {
     case backupFailed(URL, Error)
     case invalidProjectData(String)
     case permissionDenied(URL)
+    case unsupportedSchemaVersion(found: Int, supported: Int)
 
     public var errorDescription: String? {
         switch self {
+        case .unsupportedSchemaVersion(let found, let supported):
+            return "This project was created by a newer version of the app "
+                + "(format v\(found); this app supports up to v\(supported))."
         case .fileNotFound(let url):
             return "Project file not found at: \(url.path)"
         case .invalidJSON(let url, let error):
@@ -55,6 +59,8 @@ public enum ProjectError: LocalizedError {
             return "Verify the project data meets all requirements."
         case .permissionDenied:
             return "Check file permissions and access rights."
+        case .unsupportedSchemaVersion:
+            return "Update the app to the latest version to open this project."
         }
     }
 
