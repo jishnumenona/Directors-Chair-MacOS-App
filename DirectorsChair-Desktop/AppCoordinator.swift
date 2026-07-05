@@ -9,46 +9,19 @@
 import Foundation
 import SwiftUI
 import Combine
+import os
 import DirectorsChairCore
 
-// MARK: - Debug File Logger
-private let debugLogPath = "/tmp/directorschair_debug.log"
-private let debugLogQueue = DispatchQueue(label: "com.directorschair.debuglog", qos: .utility)
-private let debugDateFormatter: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    return formatter
-}()
+// MARK: - Debug Logging
 
-private func initDebugLog() {
-    debugLogQueue.async {
-        let header = "=== DirectorsChair Debug Log - \(Date()) ===\n"
-        try? header.write(toFile: debugLogPath, atomically: true, encoding: .utf8)
-    }
-}
+private let appLog = Logger(subsystem: "com.directorschair", category: "app")
 
+/// Lightweight debug logging routed through os.Logger at the .debug level.
+/// Unlike the previous implementation, this does NOT write to a world-readable
+/// /tmp file and is not persisted in release builds — messages are visible only
+/// when actively streaming logs during development.
 func debugLog(_ message: String) {
-    // Capture timestamp on main thread for accuracy
-    let timestamp = debugDateFormatter.string(from: Date())
-
-    // Async write to not block main thread
-    debugLogQueue.async {
-        let line = "[\(timestamp)] \(message)\n"
-
-        // Append to file
-        if let handle = FileHandle(forWritingAtPath: debugLogPath) {
-            handle.seekToEndOfFile()
-            if let data = line.data(using: .utf8) {
-                handle.write(data)
-            }
-            handle.closeFile()
-        } else {
-            // File doesn't exist, create it
-            try? line.write(toFile: debugLogPath, atomically: true, encoding: .utf8)
-        }
-    }
-
-    // Print to console synchronously for immediate feedback
-    print(message)
+    appLog.debug("\(message, privacy: .public)")
 }
 
 /// Main application coordinator - manages navigation state and acts as event bus
@@ -59,7 +32,6 @@ class AppCoordinator: ObservableObject {
     // MARK: - Initialization
 
     init() {
-        initDebugLog()
         debugLog("🚀 AppCoordinator initialized")
     }
 
