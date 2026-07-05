@@ -31,20 +31,19 @@ fi
 for p in $PACKAGES; do
   echo "==> Testing $p..."
   out=$(cd "$p" && swift test 2>&1)
-  if echo "$out" | grep -qE "error: (cannot|couldn't|no such|missing)|Compilation failed"; then
-    b=$(echo "$out" | grep -cE "error: (cannot|couldn't|no such|missing)")
-    SUMMARY="$SUMMARY\nFAIL  $p  (build errors: $b -- suite did not run)"
+  # Reliable signals: per-failure "error: -[" markers, per-build-error markers,
+  # and the grand-total test count (max of all "Executed N tests" lines).
+  builderr=$(echo "$out" | grep -cE "error: (cannot|couldn't|no such|missing)|Compilation failed")
+  testfail=$(echo "$out" | grep -c "error: -\[")
+  tests=$(echo "$out" | grep -oE "Executed [0-9]+ tests" | grep -oE "[0-9]+" | sort -rn | head -1)
+  if [ "$builderr" -gt 0 ]; then
+    SUMMARY="$SUMMARY\nFAIL  $p  (build errors: $builderr -- suite did not run)"
+    FAIL=1
+  elif [ "$testfail" -gt 0 ]; then
+    SUMMARY="$SUMMARY\nFAIL  $p  ($testfail tests failing of ${tests:-?})"
     FAIL=1
   else
-    line=$(echo "$out" | grep -oE "Executed [0-9]+ tests, with [0-9]+ failure" | tail -1)
-    tests=$(echo "$line" | grep -oE "Executed [0-9]+" | grep -oE "[0-9]+")
-    fails=$(echo "$line" | grep -oE "with [0-9]+" | grep -oE "[0-9]+")
-    if [ "${fails:-0}" -gt 0 ] 2>/dev/null; then
-      SUMMARY="$SUMMARY\nFAIL  $p  ($fails of $tests tests failing)"
-      FAIL=1
-    else
-      SUMMARY="$SUMMARY\nok    $p  (${tests:-?} tests)"
-    fi
+    SUMMARY="$SUMMARY\nok    $p  (${tests:-?} tests)"
   fi
 done
 
