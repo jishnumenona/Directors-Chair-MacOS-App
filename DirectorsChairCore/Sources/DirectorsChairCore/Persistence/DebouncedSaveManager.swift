@@ -34,18 +34,25 @@ public class DebouncedSaveManager: ObservableObject {
 
     // MARK: - Dependencies
 
-    private let persistence: ProjectPersistence
+    private let persistence: any ProjectPersisting
 
     // MARK: - State
 
-    private var saveTask: Task<Void, Never>?
+    /// The most recent snapshot awaiting persistence. `nil` once fully flushed.
     private var pendingSave: (project: Project, url: URL)?
+    /// Monotonic counter bumped every time a new snapshot is queued. Used to
+    /// detect that a newer edit arrived while an older one was being written,
+    /// so the newer one is never discarded.
+    private var saveGeneration: UInt64 = 0
+    /// The in-flight save chain. New saves await this before running, so writes
+    /// are serialized rather than dropped when one is already in progress.
+    private var inFlight: Task<Void, Never>?
     private var debounceTimer: Timer?
 
     // MARK: - Initialization
 
     public init(
-        persistence: ProjectPersistence = ProjectPersistence(),
+        persistence: any ProjectPersisting = ProjectPersistence(),
         debounceInterval: TimeInterval = 0.5
     ) {
         self.persistence = persistence
@@ -64,38 +71,43 @@ public class DebouncedSaveManager: ObservableObject {
             return
         }
 
-        // Store pending save
+        // Store the latest snapshot and mark it as a new generation.
         pendingSave = (project, url)
+        saveGeneration &+= 1
         hasUnsavedChanges = true
 
-        // Cancel existing timer
+        // Restart the debounce timer.
         debounceTimer?.invalidate()
-
-        // Start new debounce timer
         debounceTimer = Timer.scheduledTimer(
             withTimeInterval: debounceInterval,
             repeats: false
         ) { [weak self] _ in
             Task { @MainActor in
-                await self?.executeSave()
+                self?.scheduleDrain()
             }
         }
     }
 
-    /// Force immediate save without debouncing
+    /// Force immediate save without debouncing. Awaits any in-flight save first,
+    /// then persists the latest snapshot, and rethrows any failure to the caller.
     /// - Parameters:
     ///   - project: The project to save
     ///   - url: The URL to save to
     public func saveImmediately(project: Project, to url: URL) async throws {
-        // Cancel any pending debounced save
         debounceTimer?.invalidate()
         debounceTimer = nil
 
-        // Store as pending
         pendingSave = (project, url)
+        saveGeneration &+= 1
+        hasUnsavedChanges = true
+        lastError = nil
 
-        // Execute immediately
-        try await performSave()
+        await scheduleDrain().value
+
+        // The drain leaves pendingSave set and lastError populated on failure.
+        if let error = lastError {
+            throw error
+        }
     }
 
     /// Cancel any pending save operations
@@ -104,56 +116,55 @@ public class DebouncedSaveManager: ObservableObject {
         debounceTimer = nil
         pendingSave = nil
         hasUnsavedChanges = false
-        saveTask?.cancel()
-        saveTask = nil
+        inFlight?.cancel()
+        inFlight = nil
     }
 
     // MARK: - Private Methods
 
-    /// Execute the debounced save
-    private func executeSave() async {
-        guard let (_, url) = pendingSave else {
-            return
+    /// Enqueue a drain that runs after any in-flight save completes, so writes
+    /// never overlap or get silently dropped. Returns the task for callers that
+    /// need to await completion (e.g. `saveImmediately`).
+    @discardableResult
+    private func scheduleDrain() -> Task<Void, Never> {
+        let previous = inFlight
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            await self?.drainSaves()
         }
-
-        do {
-            try await performSave()
-        } catch let error as ProjectError {
-            lastError = error
-            print("Save failed: \(error.localizedDescription)")
-        } catch {
-            lastError = ProjectError.fileWriteFailed(url, error)
-            print("Save failed: \(error.localizedDescription)")
-        }
+        inFlight = task
+        return task
     }
 
-    /// Perform the actual save operation
-    private func performSave() async throws {
-        guard let (project, url) = pendingSave else {
-            return
-        }
-
-        // Prevent concurrent saves
-        if isSaving {
-            return
-        }
-
-        isSaving = true
-        defer {
+    /// Persist the latest pending snapshot, looping if a newer snapshot arrives
+    /// mid-write so the freshest state always reaches disk. On failure the
+    /// pending snapshot is retained (for retry) and surfaced via `lastError`.
+    private func drainSaves() async {
+        while let (project, url) = pendingSave {
+            let generation = saveGeneration
+            isSaving = true
+            do {
+                try await persistence.save(project, to: url)
+            } catch let error as ProjectError {
+                isSaving = false
+                lastError = error
+                return
+            } catch {
+                isSaving = false
+                lastError = ProjectError.fileWriteFailed(url, error)
+                return
+            }
             isSaving = false
-        }
-
-        do {
-            // Execute save through persistence layer
-            try await persistence.save(project, to: url)
-
-            // Update state on success
             lastSaveDate = Date()
-            hasUnsavedChanges = false
             lastError = nil
-            pendingSave = nil
-        } catch {
-            throw error
+
+            if saveGeneration == generation {
+                // Nothing newer queued while we were writing — fully flushed.
+                pendingSave = nil
+                hasUnsavedChanges = false
+                return
+            }
+            // A newer snapshot arrived during the await; loop and write it too.
         }
     }
 
@@ -174,9 +185,20 @@ public class DebouncedSaveManager: ObservableObject {
 
     deinit {
         debounceTimer?.invalidate()
-        saveTask?.cancel()
+        inFlight?.cancel()
     }
 }
+
+// MARK: - Persistence Seam
+
+/// Abstraction over the on-disk project store so the save manager can be tested
+/// against a controllable double. `ProjectPersistence` is the production actor.
+public protocol ProjectPersisting: Sendable {
+    func save(_ project: Project, to url: URL) async throws
+    func load(from url: URL) async throws -> Project
+}
+
+extension ProjectPersistence: ProjectPersisting {}
 
 // MARK: - Save Status
 
