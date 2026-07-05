@@ -2703,6 +2703,7 @@ private struct InlineDescriptionEditor: View {
 
     @State private var editText = ""
     @State private var hasInitialized = false
+    @State private var commitTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -2730,13 +2731,32 @@ private struct InlineDescriptionEditor: View {
             }
         }
         .onChange(of: editText) { _, newValue in
-            if hasInitialized && newValue != description {
-                onDescriptionChange(newValue)
+            guard hasInitialized, newValue != description else { return }
+            // Debounce the commit to the project model. `editText` is local
+            // state so the field itself stays responsive; committing on every
+            // keystroke reassigned the whole @Published project and broadcast a
+            // global projectChanged (refreshing the timeline/outline/script per
+            // character), which made typing lag. Commit ~0.4s after the last
+            // keystroke instead.
+            commitTask?.cancel()
+            let text = newValue
+            commitTask = Task {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
+                onDescriptionChange(text)
             }
         }
         .onChange(of: description) { _, newValue in
             if newValue != editText {
                 editText = newValue
+            }
+        }
+        .onDisappear {
+            // Flush any pending edit when leaving the field (e.g. selecting
+            // another shot) so a debounced change is never lost.
+            commitTask?.cancel()
+            if hasInitialized && editText != description {
+                onDescriptionChange(editText)
             }
         }
     }
