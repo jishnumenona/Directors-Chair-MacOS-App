@@ -133,6 +133,9 @@ public class AuthManager: ObservableObject {
     /// Expected OAuth `state` for the in-flight login, checked on callback to
     /// prevent CSRF. Set when login() starts, cleared once consumed.
     private var oauthState: String?
+    /// The single in-flight token refresh, so concurrent 401s share one refresh
+    /// instead of each POSTing (which would invalidate the rotated token).
+    private var inFlightRefresh: Task<Void, Error>?
 
     private let keychain: KeychainService
     private let session = URLSession.shared
@@ -426,6 +429,20 @@ public class AuthManager: ObservableObject {
     }
 
     private func refreshAccessToken() async throws {
+        // Coalesce concurrent refreshes: if two requests hit 401 at once, they
+        // must share one refresh, not both POST (Gitea rotates the refresh token
+        // so the second would fail and drop a still-valid session).
+        if let existing = inFlightRefresh {
+            try await existing.value
+            return
+        }
+        let task = Task { try await performTokenRefresh() }
+        inFlightRefresh = task
+        defer { inFlightRefresh = nil }
+        try await task.value
+    }
+
+    private func performTokenRefresh() async throws {
         guard let refresh = refreshToken else {
             throw AuthError.noRefreshToken
         }
