@@ -49,14 +49,16 @@ class ShotsAdapter: ObservableObject {
                 var updatedScene = scene
                 var updatedSceneShots: [Shot] = []
 
-                // Update existing shots — preserve shots not in the update set
+                // `updatedShots` is the authoritative complete set of shots. A
+                // scene shot present in it is updated; one ABSENT from it was
+                // deleted and must be dropped. Previously such shots were "kept
+                // as-is", so deletions never persisted and resurrected on reload
+                // (zombie shots).
                 for shot in scene.shots {
                     if let updatedShot = shotMap[shot.id] {
                         updatedSceneShots.append(updatedShot)
-                    } else {
-                        // Shot not in update set — keep as-is
-                        updatedSceneShots.append(shot)
                     }
+                    // else: deleted from the update set — do not carry it forward.
                 }
 
                 updatedScene.shots = updatedSceneShots
