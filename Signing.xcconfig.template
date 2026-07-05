@@ -1,0 +1,22 @@
+// Signing.xcconfig.template
+//
+// Real code signing (required to replace the plaintext-UserDefaults credential
+// store with a real Keychain in WS3, and for notarized / App Store distribution).
+//
+// SETUP (owner — needs your Apple Developer account):
+//   1. Copy this file to `Signing.xcconfig` (git-ignored; never commit your Team ID).
+//   2. Fill in DEVELOPMENT_TEAM with your 10-character Apple Team ID
+//      (Xcode ▸ Settings ▸ Accounts ▸ your team, or developer.apple.com/account).
+//   3. In Xcode: project ▸ Info ▸ Configurations ▸ set Debug & Release to use
+//      Signing.xcconfig (or add `#include "Signing.xcconfig"` to an existing
+//      base xcconfig).
+//   4. Build once signed; then WS3.1 can migrate KeychainService to
+//      Security.framework without the ad-hoc-signing Keychain prompts that
+//      were the reason tokens ended up in UserDefaults in the first place.
+
+DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+
+// For notarized Developer ID distribution (release), instead use:
+// CODE_SIGN_IDENTITY = Developer ID Application

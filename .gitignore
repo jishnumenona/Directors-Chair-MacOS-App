@@ -37,3 +37,6 @@ default.profraw
 
 # Accidental capture files
 amp
+
+# Signing (contains Team ID — use the .template)
+Signing.xcconfig
