@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "TheaterFeatures", "chore/**", "feature/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: SwiftLint (non-blocking)
+    runs-on: macos-15
+    # Non-blocking for now: surfaces god-file / force-unwrap debt without failing
+    # green CI on code slated for decomposition in WS8/WS9. Remove once
+    # file_length no longer errors, then it becomes a required check.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: Lint
+        run: swiftlint lint --strict --reporter github-actions-logging
+
+  package-tests:
+    name: SPM package tests
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - DirectorsChairCore
+          - DirectorsChairExports
+          - DirectorsChairServices
+          - DirectorsChairProduction
+          - DirectorsChairViews
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app || true
+      - name: Test ${{ matrix.package }}
+        working-directory: ${{ matrix.package }}
+        run: swift test --parallel
+
+  app-tests:
+    name: App target tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app || true
+      - name: Install xcbeautify
+        run: brew install xcbeautify
+      - name: Build & test app target
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme DirectorsChair-Desktop \
+            -destination 'platform=macOS' \
+            -only-testing:DirectorsChair-DesktopTests \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-test-results
+          path: TestResults.xcresult
+          retention-days: 7
