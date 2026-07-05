@@ -169,12 +169,26 @@ public actor GiteaClient: RemoteRepositoryProtocol {
 
     /// List repositories for current user
     public func listRepositories() async throws -> [RemoteRepository] {
-        let response: [[String: Any]] = try await request(
-            method: "GET",
-            endpoint: "user/repos"
-        )
+        // /user/repos paginates (default 30/page); fetching only page 1 hid a
+        // user's projects past the first page from the "open from cloud" picker.
+        let perPage = 50
+        let maxPages = 200
+        var repos: [RemoteRepository] = []
+        var page = 1
 
-        return response.compactMap { try? parseRepository(from: $0) }
+        while page <= maxPages {
+            let response: [[String: Any]] = try await request(
+                method: "GET",
+                endpoint: "user/repos",
+                queryParams: ["page": "\(page)", "per_page": "\(perPage)"]
+            )
+            if response.isEmpty { break }
+            repos.append(contentsOf: response.compactMap { try? parseRepository(from: $0) })
+            if response.count < perPage { break }
+            page += 1
+        }
+
+        return repos
     }
 
     /// Add collaborator to repository
@@ -788,28 +802,47 @@ public actor GiteaClient: RemoteRepositoryProtocol {
         ref: String = "main",
         recursive: Bool = true
     ) async throws -> [TreeEntry] {
-        var query: [String: String] = [:]
-        if recursive { query["recursive"] = "true" }
+        // Gitea caps a recursive tree response (default ~1000 entries) and sets
+        // `truncated: true` when there is more. Ignoring that flag silently
+        // dropped every file past the cap, so media-heavy projects (>1000 files)
+        // never fully synced. Page through until the tree is complete.
+        let perPage = 1000
+        let maxPages = 1000  // safety backstop (up to ~1M files)
+        var entries: [TreeEntry] = []
+        var page = 1
 
-        let response: [String: Any] = try await request(
-            method: "GET",
-            endpoint: "repos/\(owner)/\(repo)/git/trees/\(ref)",
-            queryParams: query
-        )
+        while page <= maxPages {
+            var query: [String: String] = [
+                "page": "\(page)",
+                "per_page": "\(perPage)",
+            ]
+            if recursive { query["recursive"] = "true" }
 
-        guard let tree = response["tree"] as? [[String: Any]] else {
-            return []
-        }
-
-        return tree.map { item in
-            TreeEntry(
-                path: item["path"] as? String ?? "",
-                mode: item["mode"] as? String ?? "",
-                type: item["type"] as? String ?? "blob",
-                sha: item["sha"] as? String ?? "",
-                size: item["size"] as? Int
+            let response: [String: Any] = try await request(
+                method: "GET",
+                endpoint: "repos/\(owner)/\(repo)/git/trees/\(ref)",
+                queryParams: query
             )
+
+            guard let tree = response["tree"] as? [[String: Any]] else { break }
+            entries.append(contentsOf: tree.map { item in
+                TreeEntry(
+                    path: item["path"] as? String ?? "",
+                    mode: item["mode"] as? String ?? "",
+                    type: item["type"] as? String ?? "blob",
+                    sha: item["sha"] as? String ?? "",
+                    size: item["size"] as? Int
+                )
+            })
+
+            // Stop when the server reports the tree is not truncated, or the
+            // page came back short (defensive — no more entries to fetch).
+            let truncated = response["truncated"] as? Bool ?? false
+            if !truncated || tree.count < perPage { break }
+            page += 1
         }
+
+        return entries
     }
 
     /// Get raw file content by path.

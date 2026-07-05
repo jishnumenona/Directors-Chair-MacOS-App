@@ -194,12 +194,16 @@ public class CloudSyncManager: ObservableObject {
         let lfsCount = sortedFiles.filter { GiteaClient.isLFSFile($0.0) }.count
         log("Uploading \(total) files (\(lfsCount) via LFS, \(total - lfsCount) via Contents API)...")
 
+        var failedPaths: [String] = []
+        var abortedForAuth = false
+
         for (index, (relativePath, fileURL)) in sortedFiles.enumerated() {
             let progress = 0.4 + (Double(index) / Double(max(total, 1))) * 0.45
             syncState = .syncing(progress: progress, message: "Uploading \(relativePath)...")
 
             guard let content = try? Data(contentsOf: fileURL) else {
-                log("SKIP: Could not read \(relativePath)")
+                log("FAILED: could not read \(relativePath)")
+                failedPaths.append(relativePath)
                 continue
             }
 
@@ -261,6 +265,13 @@ public class CloudSyncManager: ObservableObject {
                 }
             } catch {
                 log("FAILED upload \(relativePath): \(error)")
+                failedPaths.append(relativePath)
+                // An auth failure makes every remaining upload fail identically —
+                // stop and report it rather than hammering the server.
+                if Self.isAuthError(error) {
+                    abortedForAuth = true
+                    break
+                }
             }
         }
 
@@ -271,11 +282,36 @@ public class CloudSyncManager: ObservableObject {
             log("Remote-only files (kept): \(remoteOnlyFiles.joined(separator: ", "))")
         }
 
+        // Only report success when every file uploaded. Reporting .lastSynced
+        // after swallowed failures is a silent data-loss illusion: the user
+        // believes the project is safely in the cloud when it is not.
+        guard failedPaths.isEmpty else {
+            let detail = abortedForAuth
+                ? "authentication failed — please sign in again"
+                : "\(failedPaths.count) of \(total) file(s) failed to upload"
+            syncState = .error("Sync incomplete: \(detail)")
+            log("Push FAILED: \(detail); failed: \(failedPaths.joined(separator: ", "))")
+            throw SyncError.remoteFailed(detail)
+        }
+
         pendingChanges = 0
         let now = Date()
         syncState = .lastSynced(now)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "lastSyncTime_\(repoName)")
         log("Push complete: \(total) files synced")
+    }
+
+    /// True for errors that mean the credential is bad (401/403), as opposed to
+    /// a transient per-file failure worth continuing past.
+    private static func isAuthError(_ error: Error) -> Bool {
+        switch error {
+        case RemoteRepositoryError.authenticationFailed,
+             RemoteRepositoryError.permissionDenied,
+             RemoteRepositoryError.invalidCredentials:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Pull (Cloud → Local) — Direct Download to basePath
@@ -306,6 +342,8 @@ public class CloudSyncManager: ObservableObject {
 
         // 3. Download each blob directly to basePath/{blob.path}
         let total = blobs.count
+        var failedDownloads: [String] = []
+        var abortedForAuth = false
         for (index, blob) in blobs.enumerated() {
             let progress = 0.1 + (Double(index) / Double(max(total, 1))) * 0.7
             syncState = .syncing(progress: progress, message: "Downloading \(blob.path)...")
@@ -345,7 +383,23 @@ public class CloudSyncManager: ObservableObject {
                 log("Downloaded: \(blob.path) (\(data.count) bytes)")
             } catch {
                 log("FAILED download \(blob.path): \(error)")
+                failedDownloads.append(blob.path)
+                if Self.isAuthError(error) {
+                    abortedForAuth = true
+                    break
+                }
             }
+        }
+
+        // A partial pull leaves an incomplete local project — fail rather than
+        // silently returning a project that is missing files.
+        guard failedDownloads.isEmpty else {
+            let detail = abortedForAuth
+                ? "authentication failed — please sign in again"
+                : "\(failedDownloads.count) of \(total) file(s) failed to download"
+            syncState = .error("Sync incomplete: \(detail)")
+            log("Pull FAILED: \(detail)")
+            throw SyncError.remoteFailed(detail)
         }
 
         // 4. Read project.json from basePath and decode into Project
