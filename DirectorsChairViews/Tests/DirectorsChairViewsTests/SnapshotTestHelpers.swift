@@ -37,11 +37,15 @@ extension XCTestCase {
         // Force layout
         hostingView.layoutSubtreeIfNeeded()
 
+        // Allow batch re-recording via the environment (e.g. RECORD_SNAPSHOTS=1 swift test)
+        // so reference images can be regenerated on the CI runner image without editing call sites.
+        let shouldRecord = record || ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"] == "1"
+
         assertSnapshot(
             of: hostingView,
             as: .image,
             named: name,
-            record: record,
+            record: shouldRecord,
             file: file,
             testName: testName,
             line: line

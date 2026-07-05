@@ -12,22 +12,21 @@ final class KeychainServiceTests: XCTestCase {
 
     // MARK: - Properties
 
-    /// The KeychainService is an actor with a shared singleton.
-    /// We use it directly since it wraps UserDefaults (suite: com.directorschair.auth).
-    /// Tests clean up after themselves to avoid cross-contamination.
-    private let keychain = KeychainService.shared
+    /// Each test gets its own KeychainService backed by a unique UserDefaults suite,
+    /// so tests are isolated under parallel execution and never touch the shared
+    /// production suite (which holds the developer's real login).
+    private var keychain: KeychainService!
 
     // MARK: - Setup / Teardown
 
     override func setUp() async throws {
         try await super.setUp()
-        // Clean slate before each test
-        try await keychain.deleteAll()
+        keychain = KeychainService(suiteName: "com.directorschair.auth.tests.\(UUID().uuidString)")
     }
 
     override func tearDown() async throws {
-        // Clean up after each test
-        try await keychain.deleteAll()
+        await keychain.removePersistentDomain()
+        keychain = nil
         try await super.tearDown()
     }
 

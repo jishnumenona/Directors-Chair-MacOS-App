@@ -15,7 +15,24 @@ public actor KeychainService {
 
     // MARK: - Constants
 
-    private let defaults = UserDefaults(suiteName: "com.directorschair.auth")!
+    /// Default production suite. The app's real credentials live here.
+    public static let defaultSuiteName = "com.directorschair.auth"
+
+    private let suiteName: String
+    private let defaults: UserDefaults
+
+    /// - Parameter suiteName: The UserDefaults suite backing storage. Tests pass a
+    ///   unique suite so they neither collide with each other under parallel execution
+    ///   nor wipe the developer's real login in the shared production suite.
+    public init(suiteName: String = KeychainService.defaultSuiteName) {
+        self.suiteName = suiteName
+        self.defaults = UserDefaults(suiteName: suiteName)!
+    }
+
+    /// Removes the entire backing suite. Intended for test teardown.
+    func removePersistentDomain() {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
 
     /// Well-known keys
     public enum Key: String {

@@ -17,7 +17,9 @@ final class AuthManagerTests: XCTestCase {
     private var testConfig: AuthConfiguration!
 
     // Use a dedicated UserDefaults suite for tests so we don't pollute real data
-    private let testKeychainSuite = "com.directorschair.auth.test"
+    /// Isolated credential store shared by the test and its AuthManager, so tests
+    /// never touch the shared production login and don't collide under parallel runs.
+    private var testKeychain: KeychainService!
 
     // MARK: - Setup / Teardown
 
@@ -31,18 +33,13 @@ final class AuthManagerTests: XCTestCase {
             localCallbackPort: 19999
         )
 
-        authManager = AuthManager(configuration: testConfig)
-
-        // Clean up any leftover keychain state from previous test runs
-        let keychain = KeychainService.shared
-        try await keychain.deleteAll()
+        testKeychain = KeychainService(suiteName: "com.directorschair.auth.tests.\(UUID().uuidString)")
+        authManager = AuthManager(configuration: testConfig, keychain: testKeychain)
     }
 
     override func tearDown() async throws {
-        // Clean up keychain state after tests
-        let keychain = KeychainService.shared
-        try await keychain.deleteAll()
-
+        await testKeychain.removePersistentDomain()
+        testKeychain = nil
         authManager = nil
         testConfig = nil
         try await super.tearDown()
@@ -156,7 +153,7 @@ final class AuthManagerTests: XCTestCase {
     }
 
     func testLogoutClearsKeychain() async throws {
-        let keychain = KeychainService.shared
+        let keychain = testKeychain!
 
         // Pre-populate keychain with test tokens
         try await keychain.save("test-access-token", forKey: .accessToken)
@@ -213,7 +210,7 @@ final class AuthManagerTests: XCTestCase {
     func testRestoreSessionWithInvalidTokenClearsState() async throws {
         // Store an invalid token — the fetchUserInfo call will fail,
         // causing restoreSession to clear everything
-        let keychain = KeychainService.shared
+        let keychain = testKeychain!
         try await keychain.save("invalid-token-that-will-fail", forKey: .accessToken)
 
         await authManager.restoreSession()
