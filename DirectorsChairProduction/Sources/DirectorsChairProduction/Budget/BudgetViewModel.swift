@@ -108,16 +108,25 @@ public class BudgetViewModel: ObservableObject {
     }
 
     public func updateCategory(_ category: BudgetCategory) {
-        if let index = budget.categories.firstIndex(where: { $0.name == category.name }) {
-            budget.categories[index] = category
-            notifyChange()
+        // Match by stable id so a rename is found (matching by name lost the
+        // edit). If the name changed, cascade it to expenses linked by name so
+        // they stay attached to the category.
+        guard let index = budget.categories.firstIndex(where: { $0.id == category.id }) else { return }
+        let oldName = budget.categories[index].name
+        budget.categories[index] = category
+        if oldName != category.name {
+            for i in budget.expenses.indices where budget.expenses[i].category == oldName {
+                budget.expenses[i].category = category.name
+            }
         }
+        notifyChange()
     }
 
     public func removeCategory(_ category: BudgetCategory) {
-        budget.categories.removeAll { $0.name == category.name }
-        // Also remove related expenses
-        budget.expenses.removeAll { $0.category == category.name }
+        guard let removed = budget.categories.first(where: { $0.id == category.id }) else { return }
+        budget.categories.removeAll { $0.id == category.id }
+        // Also remove expenses linked to the removed category by name.
+        budget.expenses.removeAll { $0.category == removed.name }
         notifyChange()
     }
 

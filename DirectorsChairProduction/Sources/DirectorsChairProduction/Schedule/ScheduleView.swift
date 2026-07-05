@@ -2246,16 +2246,16 @@ struct ScheduleItemEditorSheet: View {
         let finalCallTime = callTime.isEmpty ? nil : callTime
         let finalWrapTime = wrapTime.isEmpty ? nil : wrapTime
 
-        // Auto-promote status to "Scheduled" when a date is assigned and status is still "Planned"
-        let finalStatus: String = {
-            if status == "Planned" && !dateStr.isEmpty {
-                return "Scheduled"
-            }
-            return status
-        }()
+        // Save exactly the status the user chose. (The previous "auto-promote
+        // Planned to Scheduled when a date is set" always fired — shootDate is
+        // non-optional so dateStr is never empty — which made "Planned"
+        // impossible to save.)
+        let finalStatus = status
 
         if var existingItem = item {
-            existingItem.sceneId = selectedScene?.name
+            // Store the scene's stable id; preserve the existing link when the
+            // picker was left untouched (selectedScene == nil).
+            existingItem.sceneId = selectedScene?.id ?? existingItem.sceneId
             existingItem.sceneName = finalSceneName
             existingItem.sequenceName = finalSequenceName
             existingItem.shotIds = shotIds
@@ -2273,7 +2273,7 @@ struct ScheduleItemEditorSheet: View {
             viewModel.updateScheduleItem(existingItem)
         } else {
             let newItem = ScheduleItem(
-                sceneId: selectedScene?.name,
+                sceneId: selectedScene?.id,
                 sceneName: finalSceneName,
                 sequenceName: finalSequenceName,
                 shotIds: shotIds,
@@ -2292,9 +2292,10 @@ struct ScheduleItemEditorSheet: View {
             viewModel.addScheduleItem(newItem)
         }
 
-        // Update the scene's productionStatus to "Scheduled"
+        // Reflect the chosen status on the scene, not a hardcoded "Scheduled"
+        // (which previously overrode Cancelled/Complete/Postponed).
         if !finalSceneName.isEmpty && !finalSequenceName.isEmpty {
-            onSceneStatusUpdate?(finalSequenceName, finalSceneName, "Scheduled")
+            onSceneStatusUpdate?(finalSequenceName, finalSceneName, finalStatus)
         }
 
         dismiss()

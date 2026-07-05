@@ -354,4 +354,30 @@ final class ScheduleModelTests: XCTestCase {
 
         wait(for: [expectation], timeout: 1.0)
     }
+
+    // WS8.3 — a linked Gantt task must re-sync when its schedule item changes,
+    // instead of being skipped and left stale (a divergent second schedule).
+    func testGanttResyncsLinkedTaskFromScheduleItem() {
+        let gantt = GanttViewModel()
+        gantt.scheduleItems = [
+            ScheduleItem(id: "s1", sceneName: "Scene A", shootDate: "2026-08-01",
+                         status: "Planned", estimatedCost: 100)
+        ]
+        gantt.syncFromScheduleItems()
+        XCTAssertEqual(gantt.tasks.count, 1)
+        XCTAssertEqual(gantt.tasks.first?.startDate, "2026-08-01")
+        XCTAssertEqual(gantt.tasks.first?.estimatedCost, 100)
+
+        // Edit the same schedule item (same id): date, status, cost.
+        gantt.scheduleItems = [
+            ScheduleItem(id: "s1", sceneName: "Scene A", shootDate: "2026-08-15",
+                         status: "Complete", estimatedCost: 250)
+        ]
+        gantt.syncFromScheduleItems()
+
+        XCTAssertEqual(gantt.tasks.count, 1, "Must not create a duplicate task")
+        XCTAssertEqual(gantt.tasks.first?.startDate, "2026-08-15", "Date change must propagate")
+        XCTAssertEqual(gantt.tasks.first?.status, "Complete", "Status change must propagate")
+        XCTAssertEqual(gantt.tasks.first?.estimatedCost, 250, "Cost change must propagate")
+    }
 }

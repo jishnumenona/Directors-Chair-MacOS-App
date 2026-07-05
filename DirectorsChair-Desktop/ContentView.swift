@@ -2654,21 +2654,11 @@ struct ProductionContainer: View {
     private func loadProductionData() {
         switch coordinator.selectedProductionTab {
         case "Schedule":
-            // Auto-promote any "Planned" items that have a date to "Scheduled"
-            var items = projectViewModel.project.scheduleItems
-            var changed = false
-            for i in items.indices {
-                if items[i].status == "Planned", let date = items[i].shootDate, !date.isEmpty {
-                    items[i].status = "Scheduled"
-                    changed = true
-                    // Also update the scene's productionStatus
-                    updateSceneStatus(sequenceName: items[i].sequenceName, sceneName: items[i].sceneName, status: "Scheduled")
-                }
-            }
-            if changed {
-                projectViewModel.project.scheduleItems = items
-            }
-            scheduleViewModel.setScheduleItems(items)
+            // Load schedule items as-is. (Previously this force-promoted every
+            // "Planned" item with a date to "Scheduled" on each tab open, so a
+            // user's explicit "Planned" status was reverted and could never
+            // stick — the load half of the WS8.2 bug.)
+            scheduleViewModel.setScheduleItems(projectViewModel.project.scheduleItems)
         case "Cast & Crew":
             castCrewViewModel.setCastMembers(projectViewModel.project.castMembers)
             castCrewViewModel.setCrewMembers(projectViewModel.project.crewMembers)
