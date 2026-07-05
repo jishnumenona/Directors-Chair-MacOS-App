@@ -1,41 +1,43 @@
 // DirectorsChairServices/Sources/DirectorsChairServices/Auth/KeychainService.swift
 //
-// Token storage service for OAuth2 credentials.
-// Uses UserDefaults with obfuscation for ad-hoc signed development builds.
-// For production with proper code signing, swap to Security.framework Keychain.
+// Token storage for OAuth2 credentials.
+//
+// Release builds store credentials in the Security.framework Keychain
+// (kSecClassGenericPassword), scoped to this service and this device only.
+// DEBUG builds fall back to a per-service UserDefaults suite: dev builds are
+// frequently ad-hoc signed, where Keychain access prompts or is unavailable,
+// and the unsigned `swift test` process would otherwise hang on a prompt.
+// Nothing sensitive is stored in plaintext in a shipped (release) build.
 
 import Foundation
+import Security
+import os
+
+private let keychainLog = Logger(subsystem: "com.directorschair", category: "keychain")
 
 // MARK: - Keychain Service
 
 /// Thread-safe token storage for authentication credentials.
-/// Stores tokens in a dedicated UserDefaults suite to avoid legacy
-/// Keychain password prompts on ad-hoc signed macOS builds.
 public actor KeychainService {
 
-    // MARK: - Constants
-
-    /// Default production suite. The app's real credentials live here.
+    /// Default production service/suite. The app's real credentials live here.
     public static let defaultSuiteName = "com.directorschair.auth"
 
-    private let suiteName: String
-    private let defaults: UserDefaults
+    /// Keychain service (release) / UserDefaults suite (DEBUG) name.
+    private let service: String
 
-    /// - Parameter suiteName: The UserDefaults suite backing storage. Tests pass a
-    ///   unique suite so they neither collide with each other under parallel execution
-    ///   nor wipe the developer's real login in the shared production suite.
+    #if !DEBUG
+    private var didMigrate = false
+    #endif
+
+    /// - Parameter suiteName: The storage scope. Tests pass a unique value so they
+    ///   neither collide under parallel execution nor touch the real login.
     public init(suiteName: String = KeychainService.defaultSuiteName) {
-        self.suiteName = suiteName
-        self.defaults = UserDefaults(suiteName: suiteName)!
-    }
-
-    /// Removes the entire backing suite. Intended for test teardown.
-    func removePersistentDomain() {
-        defaults.removePersistentDomain(forName: suiteName)
+        self.service = suiteName
     }
 
     /// Well-known keys
-    public enum Key: String {
+    public enum Key: String, CaseIterable {
         case accessToken = "access_token"
         case refreshToken = "refresh_token"
         case tokenExpiry = "token_expiry"
@@ -50,42 +52,120 @@ public actor KeychainService {
 
     /// Save a string value.
     public func save(_ value: String, forKey key: Key) throws {
-        defaults.set(value, forKey: key.rawValue)
+        try write(Data(value.utf8), account: key.rawValue)
     }
 
     /// Save raw data.
     public func save(data: Data, forKey key: String) throws {
-        defaults.set(data, forKey: key)
+        try write(data, account: key)
     }
 
     /// Load a string value.
     public func load(key: Key) throws -> String? {
-        return defaults.string(forKey: key.rawValue)
+        guard let data = try read(account: key.rawValue) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// Load raw data.
     public func loadData(key: String) throws -> Data? {
-        return defaults.data(forKey: key)
+        try read(account: key)
     }
 
     /// Delete a single key.
     public func delete(key: Key) throws {
-        defaults.removeObject(forKey: key.rawValue)
+        try removeItem(account: key.rawValue)
     }
 
-    /// Delete all items.
+    /// Delete all well-known items.
     public func deleteAll() throws {
         for key in Key.allCases {
-            defaults.removeObject(forKey: key.rawValue)
+            try removeItem(account: key.rawValue)
         }
     }
+
+    /// Removes all stored items. Intended for test teardown.
+    func removePersistentDomain() {
+        try? deleteAll()
+        #if DEBUG
+        UserDefaults(suiteName: service)?.removePersistentDomain(forName: service)
+        #endif
+    }
+
+    // MARK: - Storage Backend
+
+    #if DEBUG
+
+    private var defaults: UserDefaults { UserDefaults(suiteName: service)! }
+    private func write(_ data: Data, account: String) throws { defaults.set(data, forKey: account) }
+    private func read(account: String) throws -> Data? { defaults.data(forKey: account) }
+    private func removeItem(account: String) throws { defaults.removeObject(forKey: account) }
+
+    #else
+
+    private func baseQuery(account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+
+    private func write(_ data: Data, account: String) throws {
+        migrateIfNeeded()
+        try removeItem(account: account)  // upsert
+        var query = baseQuery(account: account)
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(query as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainError.saveFailed(status) }
+    }
+
+    private func read(account: String) throws -> Data? {
+        migrateIfNeeded()
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw KeychainError.loadFailed(status) }
+        return result as? Data
+    }
+
+    private func removeItem(account: String) throws {
+        let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.deleteFailed(status)
+        }
+    }
+
+    /// One-time migration of credentials written by an older UserDefaults-backed
+    /// build into the Keychain (then clears the plaintext copies).
+    private func migrateIfNeeded() {
+        guard !didMigrate else { return }
+        didMigrate = true
+        guard let ud = UserDefaults(suiteName: service),
+              ud.string(forKey: Key.accessToken.rawValue) != nil else { return }
+        for key in Key.allCases {
+            if let value = ud.string(forKey: key.rawValue), let data = value.data(using: .utf8) {
+                try? {
+                    var query = baseQuery(account: key.rawValue)
+                    query[kSecValueData as String] = data
+                    query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                    SecItemDelete(baseQuery(account: key.rawValue) as CFDictionary)
+                    let status = SecItemAdd(query as CFDictionary, nil)
+                    if status != errSecSuccess { throw KeychainError.saveFailed(status) }
+                }()
+            }
+            ud.removeObject(forKey: key.rawValue)
+        }
+        keychainLog.info("Migrated credentials from UserDefaults to the Keychain")
+    }
+
+    #endif
 }
 
-// MARK: - Key CaseIterable
-
-extension KeychainService.Key: CaseIterable {}
-
-// MARK: - Keychain Error (kept for API compatibility)
+// MARK: - Keychain Error
 
 public enum KeychainError: LocalizedError {
     case saveFailed(OSStatus)
