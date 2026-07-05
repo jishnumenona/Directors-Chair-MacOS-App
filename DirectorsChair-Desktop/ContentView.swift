@@ -584,6 +584,9 @@ struct CentralViewStack: View {
     @StateObject private var budgetViewModel = BudgetViewModel(budget: ProjectBudget())
     @StateObject private var equipmentViewModel = EquipmentViewModel()
     @StateObject private var ganttViewModel = GanttViewModel()
+    /// Owns the video-generation lifecycle app-side so jobs aren't orphaned by
+    /// navigating away from the cinematography view (WS6.1).
+    @StateObject private var videoJobCoordinator = VideoJobCoordinator()
 
     var body: some View {
         let currentView = coordinator.selectedView
@@ -604,6 +607,18 @@ struct CentralViewStack: View {
         }
         .onAppear {
             visitedViews.insert(currentView)
+            // Persist video-job results into the project (app-scoped, so a job
+            // completes even after the generation view is gone).
+            videoJobCoordinator.onEvent = { event in
+                switch event {
+                case .started(let shotId, let jobId):
+                    projectViewModel.setShotVideoJobId(shotId: shotId, jobId: jobId)
+                case .completed(let shotId, let path):
+                    projectViewModel.setShotVideoPath(shotId: shotId, videoRelativePath: path)
+                case .cleared(let shotId):
+                    projectViewModel.setShotVideoJobId(shotId: shotId, jobId: nil)
+                }
+            }
         }
         // Removed animation to prevent stacking during rapid view switches
         .onReceive(coordinator.projectChanged) { _ in
@@ -665,6 +680,7 @@ struct CentralViewStack: View {
                 subtitle: "Shot List"
             ) {
                 CinematographyViewAdapter()
+                    .environmentObject(videoJobCoordinator)
             }
             .onAppear { debugLog("📱 CinematographyView appeared") }
         case .production:

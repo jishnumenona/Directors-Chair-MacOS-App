@@ -450,6 +450,36 @@ class ProjectViewModel: ObservableObject {
         storageSizeTimer?.invalidate()
         storageSizeTimer = nil
     }
+
+    // MARK: - Video Generation Persistence (WS6.1)
+    //
+    // App-scoped shot mutations used by VideoJobCoordinator so a video job
+    // persists its result even after the generation view is gone. Mutating the
+    // @Published project triggers the auto-save sink.
+
+    /// Set (or clear) the in-flight video generation job id on a shot.
+    func setShotVideoJobId(shotId: String, jobId: String?) {
+        mutateShot(shotId) { $0.videoGenerationJobId = jobId }
+    }
+
+    /// Record a completed generated video on a shot and clear its job id.
+    func setShotVideoPath(shotId: String, videoRelativePath: String) {
+        mutateShot(shotId) {
+            $0.videoPath = videoRelativePath
+            $0.videoGenerationJobId = nil
+        }
+    }
+
+    private func mutateShot(_ shotId: String, _ body: (inout Shot) -> Void) {
+        for si in project.sequences.indices {
+            for sci in project.sequences[si].scenes.indices {
+                if let shi = project.sequences[si].scenes[sci].shots.firstIndex(where: { $0.id == shotId }) {
+                    body(&project.sequences[si].scenes[sci].shots[shi])
+                    return
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Project Extension

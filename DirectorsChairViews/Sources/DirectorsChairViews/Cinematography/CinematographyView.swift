@@ -3835,6 +3835,7 @@ struct CinematographyView_Previews: PreviewProvider {
             )
         ])
         .frame(width: 1200, height: 800)
+        .environmentObject(VideoJobCoordinator())
     }
 }
 #endif

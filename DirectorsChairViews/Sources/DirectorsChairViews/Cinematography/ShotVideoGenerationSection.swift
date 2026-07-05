@@ -161,7 +161,9 @@ struct ShotVideoGenerationSection: View {
     @State private var videoURL: URL? = nil
     @State private var showingFullScreenPlayer: Bool = false
     @State private var syncDuration: Bool = true
-    @State private var pollingTask: Task<Void, Never>? = nil
+    /// App-scoped owner of the generation lifecycle. Polling/download/persist
+    /// happen here so a job is never orphaned by navigating away (WS6.1).
+    @EnvironmentObject private var videoJobs: VideoJobCoordinator
     @State private var activeKeyframeId: String? = nil
     @State private var keyframePrompt: String = ""
     @State private var showingKeyframePromptSheet: Bool = false
@@ -296,8 +298,15 @@ struct ShotVideoGenerationSection: View {
                 .cornerRadius(12)
             }
         }
-        .onAppear { setupInitialState() }
-        .onDisappear { pollingTask?.cancel() }
+        .onAppear {
+            setupInitialState()
+            resumeJobIfNeeded()
+        }
+        // No .onDisappear cancel: the coordinator owns the job so it keeps
+        // running (and persists) when this view is recreated or navigated away.
+        .onChange(of: videoJobs.jobs[shot.id]) { _, state in
+            syncFromCoordinator(state)
+        }
         .sheet(isPresented: $showingPromptEditor) {
             PromptEditorSheet(
                 prompt: $editablePrompt,
@@ -788,116 +797,70 @@ struct ShotVideoGenerationSection: View {
             projectId: nil
         )
 
-        pollingTask = Task {
-            do {
-                let response = try await AIServiceClient.shared.submitVideoGeneration(request)
-                await MainActor.run {
-                    generationJobId = response.jobId
-                    generationStatus = "Processing..."
-                    var updated = shot
-                    updated.videoGenerationJobId = response.jobId
-                    onShotUpdated(updated)
-                }
-                await pollForCompletion(jobId: response.jobId)
-            } catch {
-                await MainActor.run {
-                    isGenerating = false
-                    errorMessage = error.localizedDescription
-                }
-            }
+        guard let context = makeJobContext() else {
+            isGenerating = false
+            errorMessage = "Open the project from disk before generating video."
+            return
+        }
+        // Hand the job to the app-scoped coordinator. It submits, polls,
+        // downloads, and persists independently of this view's lifecycle.
+        videoJobs.submit(request, context: context)
+    }
+
+    /// Build the context the coordinator needs to run/resume a job for this shot.
+    /// Returns nil if the project isn't on disk (no place to save the video).
+    private func makeJobContext() -> VideoJobContext? {
+        guard let basePath = projectBasePath else { return nil }
+        return VideoJobContext(
+            shotId: shot.id,
+            shotShotId: shot.shotId,
+            aiProvider: selectedProvider.aiProvider,
+            folderName: selectedProvider.folderName,
+            providerRawValue: selectedProvider.rawValue,
+            providerDisplayName: selectedProvider.displayName,
+            basePath: basePath,
+            duration: duration,
+            quality: quality
+        )
+    }
+
+    /// Mirror the coordinator's job state into this view's display state.
+    private func syncFromCoordinator(_ state: VideoJobState?) {
+        guard let state else { return }
+        generationJobId = state.jobId.isEmpty ? nil : state.jobId
+        generationProgress = state.progress
+        generationStatus = state.message
+        switch state.phase {
+        case .submitting, .active, .downloading:
+            isGenerating = true
+            errorMessage = nil
+        case .completed:
+            isGenerating = false
+            // The coordinator downloaded the file and persisted the path to the
+            // shot; refresh the on-disk versions to surface it.
+            discoverVideoVersions()
+            if videoURL == nil, let first = videoVersions.first { videoURL = first.url }
+        case .failed:
+            isGenerating = false
+            errorMessage = state.errorMessage
         }
     }
 
-    private func pollForCompletion(jobId: String) async {
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled else { break }
-            do {
-                let status = try await AIServiceClient.shared.checkVideoStatus(jobId: jobId, provider: selectedProvider.aiProvider)
-                let isTerminal = await MainActor.run { () -> Bool in
-                    generationProgress = status.progress ?? generationProgress
-                    switch status.status {
-                    case .pending:
-                        generationStatus = "Queued..."
-                        return false
-                    case .processing:
-                        generationStatus = status.estimatedTimeSeconds.map { "Processing... ~\($0)s remaining" } ?? "Processing..."
-                        return false
-                    case .completed:
-                        generationProgress = 100
-                        generationStatus = "Complete!"
-                        handleVideoCompleted(videoURLString: status.videoURL, cost: status.cost)
-                        return true
-                    case .failed:
-                        isGenerating = false
-                        errorMessage = status.errorMessage ?? "Video generation failed"
-                        return true
-                    }
-                }
-                if isTerminal { return }
-            } catch {
-                await MainActor.run { generationStatus = "Checking status..." }
-            }
-        }
-    }
-
-    private func nextTakeIndex(in providerDir: URL) -> Int {
-        let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(at: providerDir, includingPropertiesForKeys: nil) else { return 1 }
-        let indices = files.compactMap { VideoVersion.parseTakeName($0.lastPathComponent)?.takeIndex }
-        return (indices.max() ?? 0) + 1
-    }
-
-    private func handleVideoCompleted(videoURLString: String?, cost: Double?) {
-        guard let basePath = projectBasePath, let jobId = generationJobId else {
-            isGenerating = false; errorMessage = "No video data available"; return
-        }
-        let providerFolder = selectedProvider.folderName
-        let videoDir = basePath.appendingPathComponent("assets/shots/shot_\(shot.shotId)/video/\(providerFolder)")
-        try? FileManager.default.createDirectory(at: videoDir, withIntermediateDirectories: true)
-        let takeIdx = nextTakeIndex(in: videoDir)
-        let filename = "take_\(takeIdx).mp4"
-        let localVideoPath = videoDir.appendingPathComponent(filename)
-        let relativePath = "assets/shots/shot_\(shot.shotId)/video/\(providerFolder)/\(filename)"
-
-        generationStatus = "Downloading video..."
-
-        Task {
-            do {
-                try await AIServiceClient.shared.downloadVideo(
-                    jobId: jobId,
-                    provider: selectedProvider.aiProvider,
-                    to: localVideoPath
-                )
-                await MainActor.run {
-                    videoURL = localVideoPath
-                    isGenerating = false
-                    var updated = shot
-                    updated.videoPath = relativePath
-                    updated.videoGenerationJobId = nil
-                    onShotUpdated(updated)
-                    AIUsageTracker.shared.recordVideoUsage(
-                        provider: selectedProvider.rawValue, model: selectedProvider.displayName,
-                        durationSeconds: duration, quality: quality
-                    )
-                    discoverVideoVersions()
-                }
-            } catch {
-                await MainActor.run {
-                    isGenerating = false
-                    errorMessage = "Failed to download video: \(error.localizedDescription)"
-                }
-            }
-        }
+    /// Resume tracking an in-flight job for this shot (after navigation/relaunch).
+    private func resumeJobIfNeeded() {
+        syncFromCoordinator(videoJobs.state(forShot: shot.id))
+        guard let jobId = shot.videoGenerationJobId, !jobId.isEmpty,
+              videoJobs.state(forShot: shot.id) == nil,
+              let context = makeJobContext() else { return }
+        videoJobs.resume(jobId: jobId, context: context)
     }
 
     private func cancelGeneration() {
-        pollingTask?.cancel(); pollingTask = nil
-        if let jobId = generationJobId {
-            Task { _ = try? await AIServiceClient.shared.cancelVideoGeneration(jobId: jobId, provider: selectedProvider.aiProvider) }
-        }
-        isGenerating = false; generationJobId = nil; generationProgress = 0; generationStatus = ""
-        var updated = shot; updated.videoGenerationJobId = nil; onShotUpdated(updated)
+        videoJobs.cancel(shotId: shot.id, aiProvider: selectedProvider.aiProvider)
+        isGenerating = false
+        generationJobId = nil
+        generationProgress = 0
+        generationStatus = ""
     }
 
     private func openPromptEditor() {
