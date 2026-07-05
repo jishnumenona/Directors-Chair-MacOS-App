@@ -61,4 +61,28 @@ final class SchemaVersionTests: XCTestCase {
         XCTAssertEqual(loaded.schemaVersion, Project.currentSchemaVersion)
         XCTAssertEqual(loaded.name, "RoundTrip")
     }
+
+    // WS2.6 — basePath is device-local: not serialized, but populated at load
+    // from the file's own directory so it is always correct on any machine.
+    func testLoadPopulatesBasePathFromFileLocation() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-proj-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("project.json")
+        let persistence = ProjectPersistence(enableBackups: false)
+
+        // Save with a bogus basePath — it must not survive into the file.
+        var project = Project(name: "Portable")
+        project.basePath = "/some/other/machine/path"
+        try await persistence.save(project, to: url)
+
+        let json = String(decoding: try Data(contentsOf: url), as: UTF8.self)
+        XCTAssertFalse(json.contains("base_path"), "basePath must not be serialized")
+        XCTAssertFalse(json.contains("/some/other/machine/path"))
+
+        let loaded = try await persistence.load(from: url)
+        XCTAssertEqual(loaded.basePath, dir.path,
+                       "load must populate basePath from the file's own directory")
+    }
 }

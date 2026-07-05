@@ -6,8 +6,10 @@ import Foundation
 
 /// Represents a lighting setup/definition
 public struct Lighting: Codable, Identifiable, Hashable {
-    public var id: String { name }
+    public var id: String { uuid }
 
+    /// Stable identity, independent of name (legacy files get one on load).
+    public var uuid: String
     public var name: String
     public var type: String  // e.g., "Spot", "Flood", "Key", "Fill", "Back"
     public var color: String  // Hex color code
@@ -16,6 +18,7 @@ public struct Lighting: Codable, Identifiable, Hashable {
     public var notes: String
 
     public init(
+        uuid: String = UUID().uuidString,
         name: String,
         type: String = "Spot",
         color: String = "#ffffff",
@@ -23,6 +26,7 @@ public struct Lighting: Codable, Identifiable, Hashable {
         position: String = "Front",
         notes: String = ""
     ) {
+        self.uuid = uuid
         self.name = name
         self.type = type
         self.color = color
@@ -32,6 +36,7 @@ public struct Lighting: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case name
         case type
         case color
@@ -46,6 +51,7 @@ public struct Lighting: Codable, Identifiable, Hashable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
         name = try container.decode(String.self, forKey: .name)
         type = try container.decodeIfPresent(String.self, forKey: .type) ?? "Spot"
         color = try container.decodeIfPresent(String.self, forKey: .color) ?? "#ffffff"

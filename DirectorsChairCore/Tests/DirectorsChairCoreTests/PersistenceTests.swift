@@ -134,8 +134,10 @@ final class PersistenceTests: XCTestCase {
         let jsonData = try Data(contentsOf: fileURL)
         let jsonString = String(data: jsonData, encoding: .utf8)!
 
+        // base_path is device-local runtime state and must NOT be serialized.
+        XCTAssertFalse(jsonString.contains("\"base_path\""),
+                       "base_path must not be written to the portable wire format")
         // Verify snake_case keys are present
-        XCTAssertTrue(jsonString.contains("\"base_path\""))
         XCTAssertTrue(jsonString.contains("\"production_company\""))
         XCTAssertTrue(jsonString.contains("\"project_type\""))
     }

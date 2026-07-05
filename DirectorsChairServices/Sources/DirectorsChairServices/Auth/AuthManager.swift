@@ -5,6 +5,7 @@
 import Foundation
 import AuthenticationServices
 import CryptoKit
+import os
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -94,22 +95,13 @@ private struct TokenResponse: Codable {
 
 // MARK: - Auth Debug Logger
 
+private let authLogger = Logger(subsystem: "com.directorschair", category: "auth")
+
+/// Auth-flow logging via os.Logger at .debug level. Never writes to a file:
+/// OAuth callback URLs contain authorization codes and must not be persisted to
+/// a world-readable /tmp log. .debug messages are not persisted in release.
 private func authLog(_ message: String) {
-    let timestamp = ISO8601DateFormatter().string(from: Date())
-    let entry = "[\(timestamp)] \(message)\n"
-    let logPath = FileManager.default.temporaryDirectory.appendingPathComponent("dc-auth-debug.log")
-    if let data = entry.data(using: .utf8) {
-        if FileManager.default.fileExists(atPath: logPath.path) {
-            if let handle = try? FileHandle(forWritingTo: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                handle.closeFile()
-            }
-        } else {
-            try? data.write(to: logPath)
-        }
-    }
-    print(entry, terminator: "")
+    authLogger.debug("\(message, privacy: .public)")
 }
 
 // MARK: - Auth Manager
@@ -138,6 +130,9 @@ public class AuthManager: ObservableObject {
     private var refreshToken: String?
     private var tokenExpiry: Date?
     private var codeVerifier: String?
+    /// Expected OAuth `state` for the in-flight login, checked on callback to
+    /// prevent CSRF. Set when login() starts, cleared once consumed.
+    private var oauthState: String?
 
     private let keychain: KeychainService
     private let session = URLSession.shared
@@ -153,9 +148,6 @@ public class AuthManager: ObservableObject {
     public init(configuration: AuthConfiguration = .default, keychain: KeychainService = .shared) {
         self.configuration = configuration
         self.keychain = keychain
-        // Clear debug log on each launch
-        let logPath = FileManager.default.temporaryDirectory.appendingPathComponent("dc-auth-debug.log")
-        try? FileManager.default.removeItem(at: logPath)
         authLog("[Auth] AuthManager initialized, clientID: \(configuration.clientID.prefix(8))...")
     }
 
@@ -207,8 +199,30 @@ public class AuthManager: ObservableObject {
             isAuthenticated = true
 
         } catch {
-            // Session restoration failed — clear stale data
-            await clearSession()
+            // Being offline is not a reason to log the user out. If the failure
+            // is a connectivity error and we already loaded a cached token, keep
+            // the restored session (offline mode); only a genuine auth failure
+            // clears it and wipes the tokens.
+            if Self.isNetworkError(error), accessToken != nil {
+                isAuthenticated = true
+                authLog("[Auth] restoreSession: offline — keeping cached session")
+            } else {
+                await clearSession()
+            }
+        }
+    }
+
+    /// True for connectivity errors (device offline, host unreachable, timeout),
+    /// as opposed to authentication/authorization failures.
+    private static func isNetworkError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .notConnectedToInternet, .timedOut, .cannotConnectToHost,
+             .cannotFindHost, .networkConnectionLost, .dataNotAllowed,
+             .internationalRoamingOff, .callIsActive:
+            return true
+        default:
+            return false
         }
     }
 
@@ -237,6 +251,7 @@ public class AuthManager: ObservableObject {
 
         // 2. Build authorization URL
         let state = UUID().uuidString
+        self.oauthState = state
         var components = URLComponents(string: "\(configuration.giteaBaseURL)/login/oauth/authorize")!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: configuration.clientID),
@@ -264,7 +279,7 @@ public class AuthManager: ObservableObject {
                     authLog("[Auth] ASWebAuthSession error: \(error.localizedDescription)")
                     continuation.resume(throwing: AuthError.authorizationFailed(error.localizedDescription))
                 } else if let callbackURL = callbackURL {
-                    authLog("[Auth] ASWebAuthSession callback received: \(callbackURL)")
+                    authLog("[Auth] ASWebAuthSession callback received")  // URL contains the auth code — not logged
                     continuation.resume(returning: callbackURL)
                 } else {
                     authLog("[Auth] ASWebAuthSession: no callback URL")
@@ -279,7 +294,7 @@ public class AuthManager: ObservableObject {
             authLog("[Auth] ASWebAuthenticationSession started")
         }
 
-        authLog("[Auth] Callback URL received: \(callbackURL)")
+        authLog("[Auth] Callback URL received")  // URL contains the auth code — not logged
 
         // 4. Extract authorization code from callback
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
@@ -311,7 +326,7 @@ public class AuthManager: ObservableObject {
 
     /// Handle an OAuth callback URL (from URL scheme or local server).
     public func handleCallback(url: URL) async throws {
-        authLog("[Auth] handleCallback called with URL: \(url)")
+        authLog("[Auth] handleCallback called")  // URL contains the auth code — not logged
 
         // If login() flow is already handling this via ASWebAuthenticationSession, skip
         if authSession != nil {
@@ -323,6 +338,16 @@ public class AuthManager: ObservableObject {
               let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
             throw AuthError.authorizationFailed("No authorization code in callback")
         }
+
+        // CSRF protection: only accept a callback whose state matches the one we
+        // issued when login() started. A callback with no pending login, or a
+        // mismatched state, is rejected (same check login()'s own flow performs).
+        let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
+        guard let expectedState = oauthState, returnedState == expectedState else {
+            oauthState = nil
+            throw AuthError.authorizationFailed("State mismatch — possible CSRF attack")
+        }
+        oauthState = nil
 
         authLog("[Auth] handleCallback: exchanging code for tokens...")
         isLoading = true

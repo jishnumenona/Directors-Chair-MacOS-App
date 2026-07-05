@@ -6,9 +6,13 @@ import Foundation
 
 /// Represents a filming location with comprehensive world-building attributes
 public struct Location: Codable, Identifiable, Hashable {
-    public var id: String { name }
+    public var id: String { uuid }
 
     // MARK: - Core Identity
+    /// Stable identity, independent of name. Renaming no longer re-identifies
+    /// the location for SwiftUI, selection, or sync. Legacy files without a
+    /// uuid get one on first load.
+    public var uuid: String
     public var name: String
     public var description: String
     public var notes: String  // Additional notes about the location
@@ -47,6 +51,7 @@ public struct Location: Codable, Identifiable, Hashable {
     public var attributes: [String: String]  // Custom attributes (time_of_day, weather, mood, etc.)
 
     public init(
+        uuid: String = UUID().uuidString,
         name: String,
         description: String = "",
         notes: String = "",
@@ -70,6 +75,7 @@ public struct Location: Codable, Identifiable, Hashable {
         cinematographyDefaults: [String: String] = [:],
         attributes: [String: String] = [:]
     ) {
+        self.uuid = uuid
         self.name = name
         self.description = description
         self.notes = notes
@@ -95,6 +101,7 @@ public struct Location: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case name
         case description
         case notes
@@ -126,6 +133,7 @@ public struct Location: Codable, Identifiable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         // Core identity
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
         name = try container.decode(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""

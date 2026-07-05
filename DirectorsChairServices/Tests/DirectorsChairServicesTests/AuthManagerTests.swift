@@ -207,21 +207,42 @@ final class AuthManagerTests: XCTestCase {
         XCTAssertFalse(authManager.isLoading, "Should not be loading after restore completes")
     }
 
-    func testRestoreSessionWithInvalidTokenClearsState() async throws {
-        // Store an invalid token — the fetchUserInfo call will fail,
-        // causing restoreSession to clear everything
+    func testRestoreSessionOfflineKeepsCachedSession() async throws {
+        // The test config points at an unreachable host, so restoreSession's
+        // validation fails with a *network* error (host not found) rather than a
+        // 401. Per the offline-tolerant policy, a connectivity failure must NOT
+        // log the user out or wipe a still-valid token — the session is retained
+        // in offline mode and re-validated when connectivity returns.
+        //
+        // Distinguishing a genuine 401 (which DOES clear the session) from being
+        // offline requires a mocked HTTP response; that test lands with the
+        // URLProtocol stubbing in WS4.7.
         let keychain = testKeychain!
-        try await keychain.save("invalid-token-that-will-fail", forKey: .accessToken)
+        try await keychain.save("cached-token", forKey: .accessToken)
 
         await authManager.restoreSession()
 
-        // After failed restore, everything should be cleared
-        XCTAssertFalse(authManager.isAuthenticated, "Should not be authenticated after failed restore")
+        XCTAssertTrue(authManager.isAuthenticated, "Offline restore should keep the cached session")
         XCTAssertFalse(authManager.isLoading, "Should not be loading after restore completes")
 
-        // Keychain should also be cleared
         let storedToken = try await keychain.load(key: .accessToken)
-        XCTAssertNil(storedToken, "Invalid token should be cleared from keychain after failed restore")
+        XCTAssertEqual(storedToken, "cached-token", "Token must not be wiped when merely offline")
+    }
+
+    func testHandleCallbackRejectsUnsolicitedCallback() async {
+        // A callback arriving with no login in progress (no expected state) is a
+        // possible CSRF attempt and must be rejected before any token exchange.
+        let url = URL(string: "directorschair://oauth/callback?code=abc123&state=attacker")!
+        do {
+            try await authManager.handleCallback(url: url)
+            XCTFail("handleCallback should reject a callback with no pending login state")
+        } catch let error as AuthError {
+            guard case .authorizationFailed = error else {
+                return XCTFail("Expected AuthError.authorizationFailed, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected AuthError, got \(type(of: error))")
+        }
     }
 
     // MARK: - Auth State Publisher Tests (Combine)

@@ -6,19 +6,23 @@ import Foundation
 
 /// Represents a visual or atmospheric effect definition
 public struct EffectDef: Codable, Identifiable, Hashable {
-    public var id: String { name }
+    public var id: String { uuid }
 
+    /// Stable identity, independent of name (legacy files get one on load).
+    public var uuid: String
     public var name: String
     public var category: String  // e.g., "Atmospheric", "Smoke", "Rain", "Fog", "Particle"
     public var params: [String: String]  // Flexible parameters for effect configuration
     public var notes: String
 
     public init(
+        uuid: String = UUID().uuidString,
         name: String,
         category: String = "Atmospheric",
         params: [String: String] = [:],
         notes: String = ""
     ) {
+        self.uuid = uuid
         self.name = name
         self.category = category
         self.params = params
@@ -26,6 +30,7 @@ public struct EffectDef: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case name
         case category
         case params
@@ -38,6 +43,7 @@ public struct EffectDef: Codable, Identifiable, Hashable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
         name = try container.decode(String.self, forKey: .name)
         category = try container.decodeIfPresent(String.self, forKey: .category) ?? "Atmospheric"
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""

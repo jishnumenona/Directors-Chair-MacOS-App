@@ -2520,23 +2520,9 @@ struct ProductionContainer: View {
         // Capture category names upfront (on main actor) to avoid actor-isolation issues in the async closure
         let capturedBudgetVM = budgetViewModel
         budgetViewModel.onAnalyzeReceipt = { imageData, mimeType in
-            let logFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("receipt_analysis_debug.log")
-            func debugLog(_ msg: String) {
-                let line = "[\(Date())] \(msg)\n"
-                print("[Receipt Analysis] \(msg)")
-                if let data = line.data(using: .utf8) {
-                    if FileManager.default.fileExists(atPath: logFile.path) {
-                        if let handle = try? FileHandle(forWritingTo: logFile) {
-                            handle.seekToEndOfFile()
-                            handle.write(data)
-                            handle.closeFile()
-                        }
-                    } else {
-                        try? data.write(to: logFile)
-                    }
-                }
-            }
-
+            // Logging routes through the global os.Logger-based debugLog, which is
+            // not persisted in release. Receipt contents (vendor, amounts, dates)
+            // are financial data and are NEVER written to a file on disk.
             let aiClient = AIServiceClient.shared
             debugLog("Starting analysis, data size: \(imageData.count) bytes, mime: \(mimeType)")
 
@@ -2588,7 +2574,7 @@ struct ProductionContainer: View {
                 debugLog("Sending request to AI...")
                 let response = try await aiClient.generateText(request)
                 let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                debugLog("AI response: \(text)")
+                debugLog("AI response received: \(text.count) chars")  // don't log raw financial content
 
                 // Strip markdown code fences if present
                 var jsonString = text
@@ -2601,7 +2587,7 @@ struct ProductionContainer: View {
                     jsonString = String(jsonString.dropLast(3))
                 }
                 jsonString = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
-                debugLog("Cleaned JSON string: \(jsonString)")
+                debugLog("Cleaned JSON: \(jsonString.count) chars")  // don't log raw financial content
 
                 guard let jsonData = jsonString.data(using: .utf8),
                       let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {

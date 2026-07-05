@@ -950,7 +950,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Royal Robe")
-        XCTAssertEqual(decoded.id, "Royal Robe")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.character, "King")
         XCTAssertEqual(decoded.image, "costumes/robe.jpg")
         XCTAssertEqual(decoded.notes, "Velvet, deep red")
@@ -984,7 +984,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Main Key")
-        XCTAssertEqual(decoded.id, "Main Key")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.type, "Key")
         XCTAssertEqual(decoded.color, "#ffe0b2")
         XCTAssertEqual(decoded.intensity, 0.85)
@@ -1017,7 +1017,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Fog Machine")
-        XCTAssertEqual(decoded.id, "Fog Machine")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.category, "Atmospheric")
         XCTAssertEqual(decoded.params["density"], "high")
         XCTAssertEqual(decoded.params["color"], "white")
@@ -1699,7 +1699,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Test Film")
-        XCTAssertEqual(decoded.id, "Test Film")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.projectType, "Skit")
         XCTAssertEqual(decoded.status, "Pre-production")
         XCTAssertTrue(decoded.sequences.isEmpty)
@@ -1772,7 +1772,9 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Alice's Adventure")
-        XCTAssertEqual(decoded.basePath, "/projects/alice")
+        // basePath is device-local and not part of the wire format (WS2.6):
+        // it is populated at load from the file location, never round-tripped.
+        XCTAssertEqual(decoded.basePath, "")
         XCTAssertEqual(decoded.director, "Jane Director")
         XCTAssertEqual(decoded.productionCompany, "Indie Films LLC")
         XCTAssertEqual(decoded.genre, "Drama")
@@ -1813,7 +1815,8 @@ final class ModelRoundTripTests: XCTestCase {
         let data = try encoder.encode(project)
         let json = String(data: data, encoding: .utf8)!
 
-        XCTAssertTrue(json.contains("\"base_path\""))
+        XCTAssertFalse(json.contains("\"base_path\""),
+                       "base_path is device-local and must not be serialized (WS2.6)")
         XCTAssertTrue(json.contains("\"production_company\""))
         XCTAssertTrue(json.contains("\"project_type\""))
         XCTAssertTrue(json.contains("\"target_duration\""))
