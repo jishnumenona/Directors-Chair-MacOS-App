@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a note/annotation in a scene (metadata, not part of story flow)
-public struct Note: Codable, Identifiable, Hashable {
+public struct Note: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String  // Unique identifier

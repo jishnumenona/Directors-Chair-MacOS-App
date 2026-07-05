@@ -7,7 +7,7 @@ import Foundation
 // MARK: - CastMember
 
 /// Represents a cast member (actor) in the production
-public struct CastMember: Codable, Identifiable, Hashable {
+public struct CastMember: Codable, Identifiable, Hashable, Sendable {
     public var id: String
 
     // Basic Info
@@ -220,7 +220,7 @@ public struct CastMember: Codable, Identifiable, Hashable {
 // MARK: - CrewMember
 
 /// Represents a crew member in the production
-public struct CrewMember: Codable, Identifiable, Hashable {
+public struct CrewMember: Codable, Identifiable, Hashable, Sendable {
     public var id: String
 
     // Basic Info
@@ -398,7 +398,7 @@ public struct CrewMember: Codable, Identifiable, Hashable {
 // MARK: - Team
 
 /// Represents a team/unit of cast and crew members
-public struct Team: Codable, Identifiable, Hashable {
+public struct Team: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
 
@@ -480,7 +480,7 @@ public struct Team: Codable, Identifiable, Hashable {
 // MARK: - EquipmentItem
 
 /// Represents a piece of equipment in the equipment library
-public struct EquipmentItem: Codable, Identifiable, Hashable {
+public struct EquipmentItem: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
 
@@ -653,13 +653,13 @@ public struct EquipmentItem: Codable, Identifiable, Hashable {
 // MARK: - Production Allocation
 
 /// How a resource (equipment, cast, crew) is allocated to the production
-public enum ProductionAllocationMode: String, Codable, Hashable {
+public enum ProductionAllocationMode: String, Codable, Hashable, Sendable {
     case fullProduction = "full_production"
     case specificDays = "specific_days"
 }
 
 /// Tracks allocation of an equipment item to specific shoot dates
-public struct EquipmentAllocation: Codable, Identifiable, Hashable {
+public struct EquipmentAllocation: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var equipmentItemId: String
     public var allocationMode: ProductionAllocationMode

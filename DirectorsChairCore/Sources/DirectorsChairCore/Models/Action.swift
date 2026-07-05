@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a scene action or stage direction (not spoken dialogue)
-public struct Action: Codable, Identifiable, Hashable {
+public struct Action: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String  // Unique identifier

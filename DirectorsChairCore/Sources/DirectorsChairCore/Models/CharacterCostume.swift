@@ -5,7 +5,7 @@
 import Foundation
 
 /// A reference image uploaded by the user for costume generation (e.g., a photo of a jacket, hat, boots)
-public struct CostumeReferenceImage: Codable, Identifiable, Hashable {
+public struct CostumeReferenceImage: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var label: String
     public var imagePath: String
@@ -23,7 +23,7 @@ public struct CostumeReferenceImage: Codable, Identifiable, Hashable {
 }
 
 /// Represents a single costume for a character with multi-angle images
-public struct CharacterCostume: Codable, Identifiable, Hashable {
+public struct CharacterCostume: Codable, Identifiable, Hashable, Sendable {
     public var id: String { costumeId }
 
     public var costumeId: String

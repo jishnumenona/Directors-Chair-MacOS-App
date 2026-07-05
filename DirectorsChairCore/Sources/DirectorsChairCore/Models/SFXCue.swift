@@ -6,7 +6,7 @@ import Foundation
 
 // MARK: - Enums
 
-public enum SFXEffectType: String, Codable, CaseIterable, Hashable {
+public enum SFXEffectType: String, Codable, CaseIterable, Hashable, Sendable {
     case smoke = "Smoke"
     case hologram = "Hologram"
     case pyrotechnics = "Pyrotechnics"
@@ -55,7 +55,7 @@ public enum SFXEffectType: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum SFXIntensityProfile: String, Codable, CaseIterable, Hashable {
+public enum SFXIntensityProfile: String, Codable, CaseIterable, Hashable, Sendable {
     case constant = "Constant"
     case rampUp = "Ramp Up"
     case rampDown = "Ramp Down"
@@ -75,7 +75,7 @@ public enum SFXIntensityProfile: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum SFXTransition: String, Codable, CaseIterable, Hashable {
+public enum SFXTransition: String, Codable, CaseIterable, Hashable, Sendable {
     case cut = "Cut"
     case fadeIn = "Fade In"
     case fadeOut = "Fade Out"
@@ -95,7 +95,7 @@ public enum SFXTransition: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum SFXPlacement: String, Codable, CaseIterable, Hashable {
+public enum SFXPlacement: String, Codable, CaseIterable, Hashable, Sendable {
     case fullStage = "Full Stage"
     case centerStage = "Center Stage"
     case stageLeft = "Stage Left"
@@ -123,7 +123,7 @@ public enum SFXPlacement: String, Codable, CaseIterable, Hashable {
 
 // MARK: - SFXCue Model
 
-public struct SFXCue: Codable, Identifiable, Hashable {
+public struct SFXCue: Codable, Identifiable, Hashable, Sendable {
     public var id: String
 
     // Identity

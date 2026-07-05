@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents the state/condition of a prop at a specific point in production
-public struct PropContinuityState: Codable, Identifiable, Hashable {
+public struct PropContinuityState: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var sceneName: String  // Which scene this state applies to
     public var condition: String  // "Pristine", "Aged", "Damaged", "Destroyed", "Hero", "Stunt"

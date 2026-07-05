@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a lighting setup/definition
-public struct Lighting: Codable, Identifiable, Hashable {
+public struct Lighting: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     /// Stable identity, independent of name (legacy files get one on load).

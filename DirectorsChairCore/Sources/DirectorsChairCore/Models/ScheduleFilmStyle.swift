@@ -7,7 +7,7 @@ import Foundation
 // MARK: - ScheduleItem
 
 /// Represents a scheduled shoot for production planning
-public struct ScheduleItem: Codable, Identifiable, Hashable {
+public struct ScheduleItem: Codable, Identifiable, Hashable, Sendable {
     public var id: String
 
     // Link to Scene/Shot
@@ -203,7 +203,7 @@ public struct ScheduleItem: Codable, Identifiable, Hashable {
 // MARK: - FilmStyle
 
 /// Represents the visual style and texture of a film project
-public struct FilmStyle: Codable, Identifiable, Hashable {
+public struct FilmStyle: Codable, Identifiable, Hashable, Sendable {
     // Core Identity
     public var id: String
     public var name: String

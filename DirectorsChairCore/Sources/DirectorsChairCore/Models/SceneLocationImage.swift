@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents an AI-generated location image for a scene with cinematography parameters
-public struct SceneLocationImage: Codable, Identifiable, Hashable {
+public struct SceneLocationImage: Codable, Identifiable, Hashable, Sendable {
     // MARK: - Identification
     public var id: String
     public var sceneId: String  // Link to parent scene

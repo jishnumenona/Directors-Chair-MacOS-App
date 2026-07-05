@@ -6,12 +6,12 @@ import Foundation
 
 // MARK: - Enums
 
-public enum LightingWorkflow: String, Codable, CaseIterable, Hashable {
+public enum LightingWorkflow: String, Codable, CaseIterable, Hashable, Sendable {
     case cinema = "Cinema"
     case theater = "Theater"
 }
 
-public enum LightFixtureType: String, Codable, CaseIterable, Hashable {
+public enum LightFixtureType: String, Codable, CaseIterable, Hashable, Sendable {
     // Cinema
     case keyLight = "Key Light"
     case fillLight = "Fill Light"
@@ -78,7 +78,7 @@ public enum LightFixtureType: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum LightMotivation: String, Codable, CaseIterable, Hashable {
+public enum LightMotivation: String, Codable, CaseIterable, Hashable, Sendable {
     case window = "Window"
     case lamp = "Lamp"
     case fire = "Fire/Candle"
@@ -106,7 +106,7 @@ public enum LightMotivation: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum LightTransition: String, Codable, CaseIterable, Hashable {
+public enum LightTransition: String, Codable, CaseIterable, Hashable, Sendable {
     case cut = "Cut"
     case fadeIn = "Fade In"
     case fadeOut = "Fade Out"
@@ -128,7 +128,7 @@ public enum LightTransition: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum LightPosition: String, Codable, CaseIterable, Hashable {
+public enum LightPosition: String, Codable, CaseIterable, Hashable, Sendable {
     case frontHigh = "Front High"
     case frontLow = "Front Low"
     case sideLeft = "Side Left"
@@ -158,7 +158,7 @@ public enum LightPosition: String, Codable, CaseIterable, Hashable {
 
 // MARK: - LightCue Model
 
-public struct LightCue: Codable, Identifiable, Hashable {
+public struct LightCue: Codable, Identifiable, Hashable, Sendable {
     public var id: String
 
     // Identity

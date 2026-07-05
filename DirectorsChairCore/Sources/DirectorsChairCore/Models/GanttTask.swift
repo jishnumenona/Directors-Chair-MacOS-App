@@ -6,7 +6,7 @@ import Foundation
 
 // MARK: - GanttTaskCategory
 
-public enum GanttTaskCategory: String, Codable, CaseIterable, Hashable {
+public enum GanttTaskCategory: String, Codable, CaseIterable, Hashable, Sendable {
     case shooting = "Shooting"
     case preProduction = "Pre-Production"
     case postProduction = "Post-Production"
@@ -57,7 +57,7 @@ public enum GanttTaskCategory: String, Codable, CaseIterable, Hashable {
 
 // MARK: - GanttTask
 
-public struct GanttTask: Codable, Identifiable, Hashable {
+public struct GanttTask: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
     public var taskDescription: String

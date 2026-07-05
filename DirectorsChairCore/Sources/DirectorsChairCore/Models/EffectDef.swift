@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a visual or atmospheric effect definition
-public struct EffectDef: Codable, Identifiable, Hashable {
+public struct EffectDef: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     /// Stable identity, independent of name (legacy files get one on load).

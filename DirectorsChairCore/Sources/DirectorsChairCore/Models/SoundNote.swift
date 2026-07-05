@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a sound note in a scene (background sounds, music, SFX)
-public struct SoundNote: Codable, Identifiable, Hashable {
+public struct SoundNote: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String  // Unique identifier

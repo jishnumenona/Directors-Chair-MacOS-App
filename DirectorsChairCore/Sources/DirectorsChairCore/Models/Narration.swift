@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a narration element (voice-over, not tied to a character)
-public struct Narration: Codable, Identifiable, Hashable {
+public struct Narration: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String  // Unique identifier

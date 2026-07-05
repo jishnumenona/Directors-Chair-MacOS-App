@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a filming location with comprehensive world-building attributes
-public struct Location: Codable, Identifiable, Hashable {
+public struct Location: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     // MARK: - Core Identity

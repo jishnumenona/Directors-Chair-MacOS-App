@@ -6,7 +6,7 @@ import Foundation
 
 /// Root project model - aggregates all project data and metadata
 /// This is the main data structure that gets serialized to/from project.json
-public struct Project: Codable, Identifiable, Hashable {
+public struct Project: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     /// Stable identity, independent of name. Renaming a project no longer
@@ -358,7 +358,7 @@ public struct Project: Codable, Identifiable, Hashable {
 // MARK: - ProjectUserManager
 
 /// Simple user management structure (placeholder for full implementation)
-public struct ProjectUserManager: Codable, Hashable {
+public struct ProjectUserManager: Codable, Hashable, Sendable {
     public var users: [String]  // List of user IDs or names
 
     public init(users: [String] = []) {

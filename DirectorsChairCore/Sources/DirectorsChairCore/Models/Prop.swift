@@ -6,7 +6,7 @@ import Foundation
 
 /// Enhanced production prop with comprehensive tracking
 /// Backward compatible: old props only have name/thumbnail; new props have full tracking
-public struct Prop: Codable, Identifiable, Hashable {
+public struct Prop: Codable, Identifiable, Hashable, Sendable {
     // MARK: - Core Fields (existing - backward compatible)
     public var id: String
     public var name: String

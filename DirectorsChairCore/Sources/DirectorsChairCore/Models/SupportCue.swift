@@ -6,7 +6,7 @@ import Foundation
 
 // MARK: - Enums
 
-public enum SupportActionType: String, Codable, CaseIterable, Hashable {
+public enum SupportActionType: String, Codable, CaseIterable, Hashable, Sendable {
     case propMove = "Prop Move"
     case sceneChange = "Scene Change"
     case costumeChange = "Costume Change"
@@ -49,7 +49,7 @@ public enum SupportActionType: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum SupportPriority: String, Codable, CaseIterable, Hashable {
+public enum SupportPriority: String, Codable, CaseIterable, Hashable, Sendable {
     case critical = "Critical"
     case high = "High"
     case medium = "Medium"
@@ -65,7 +65,7 @@ public enum SupportPriority: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public enum SupportStageArea: String, Codable, CaseIterable, Hashable {
+public enum SupportStageArea: String, Codable, CaseIterable, Hashable, Sendable {
     case stageLeft = "Stage Left"
     case stageRight = "Stage Right"
     case centerStage = "Center Stage"
@@ -95,7 +95,7 @@ public enum SupportStageArea: String, Codable, CaseIterable, Hashable {
 
 // MARK: - SupportCue Model
 
-public struct SupportCue: Codable, Identifiable, Hashable {
+public struct SupportCue: Codable, Identifiable, Hashable, Sendable {
     public var id: String
 
     // Identity

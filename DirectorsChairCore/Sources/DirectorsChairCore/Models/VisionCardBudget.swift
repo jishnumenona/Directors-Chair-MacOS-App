@@ -8,7 +8,7 @@ import Foundation
 
 /// Represents a vision card - visual reference for filmmaking pre-production
 /// Formerly known as Beat cards - maintains backward compatibility
-public struct VisionCard: Codable, Identifiable, Hashable {
+public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
     // Core Identity
     public var id: String
     public var title: String
@@ -187,7 +187,7 @@ public struct VisionCard: Codable, Identifiable, Hashable {
 // MARK: - BudgetCategory
 
 /// A budget category with allocated and spent amounts
-public struct BudgetCategory: Codable, Identifiable, Hashable {
+public struct BudgetCategory: Codable, Identifiable, Hashable, Sendable {
     /// Stable identity, independent of name, so a category can be renamed
     /// without losing the edit or orphaning its expenses. Legacy files without
     /// an id get one on load.
@@ -257,7 +257,7 @@ public struct BudgetCategory: Codable, Identifiable, Hashable {
 // MARK: - Expense
 
 /// A single expense entry
-public struct Expense: Codable, Identifiable, Hashable {
+public struct Expense: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var date: String  // YYYY-MM-DD format
     public var category: String
@@ -377,7 +377,7 @@ public struct Expense: Codable, Identifiable, Hashable {
 // MARK: - PurchaseOrder
 
 /// A purchase order for production expenses
-public struct PurchaseOrder: Codable, Identifiable, Hashable {
+public struct PurchaseOrder: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var poNumber: String           // User-facing PO number (e.g., "PO-001")
     public var vendor: String
@@ -475,7 +475,7 @@ public struct PurchaseOrder: Codable, Identifiable, Hashable {
 // MARK: - ProjectBudget
 
 /// Complete budget for a project
-public struct ProjectBudget: Codable, Hashable {
+public struct ProjectBudget: Codable, Hashable, Sendable {
     public var categories: [BudgetCategory]
     public var expenses: [Expense]
     public var totalBudget: Double

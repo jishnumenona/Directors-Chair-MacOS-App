@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a scene containing dialogues, actions, narrations, notes, and cinematography
-public struct Scene: Codable, Identifiable, Hashable {
+public struct Scene: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String

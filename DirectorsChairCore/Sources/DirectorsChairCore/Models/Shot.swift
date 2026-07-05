@@ -6,7 +6,7 @@ import Foundation
 
 /// Represents a planned camera shot for a scene (cinematography)
 /// Note: This is a placeholder. Full implementation with all 579 lines of Python reference pending.
-public struct Shot: Codable, Identifiable, Hashable {
+public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String
@@ -248,7 +248,7 @@ public struct Shot: Codable, Identifiable, Hashable {
 // MARK: - Video Keyframe
 
 /// A keyframe position within a video generation request
-public struct VideoKeyframe: Codable, Identifiable, Hashable {
+public struct VideoKeyframe: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var position: Double     // 0.0 = start, 1.0 = end (fractional position)
     public var imagePath: String?   // Relative path to keyframe image
@@ -290,7 +290,7 @@ public struct VideoKeyframe: Codable, Identifiable, Hashable {
 // MARK: - Keyframe Annotation
 
 /// A spatial annotation pinned to a keyframe image for edit instructions
-public struct KeyframeAnnotation: Codable, Identifiable, Hashable {
+public struct KeyframeAnnotation: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var normalizedX: Double  // 0.0-1.0 (left to right)
     public var normalizedY: Double  // 0.0-1.0 (top to bottom)
@@ -315,7 +315,7 @@ public struct KeyframeAnnotation: Codable, Identifiable, Hashable {
 // MARK: - Reference Media
 
 /// Represents a reference image or video for a shot
-public struct ReferenceMedia: Codable, Identifiable, Hashable {
+public struct ReferenceMedia: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var type: MediaType
     public var path: String  // Relative path within project
@@ -336,7 +336,7 @@ public struct ReferenceMedia: Codable, Identifiable, Hashable {
         self.timestamp = timestamp
     }
 
-    public enum MediaType: String, Codable, Hashable {
+    public enum MediaType: String, Codable, Hashable, Sendable {
         case image
         case video
     }

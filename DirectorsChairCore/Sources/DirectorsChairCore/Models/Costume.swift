@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a costume in the project (project-level, not character-specific)
-public struct Costume: Codable, Identifiable, Hashable {
+public struct Costume: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     /// Stable identity, independent of name (legacy files get one on load).

@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a single dialogue line in a scene
-public struct Dialogue: Codable, Identifiable, Hashable {
+public struct Dialogue: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String  // Unique identifier

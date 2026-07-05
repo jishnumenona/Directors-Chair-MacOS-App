@@ -6,7 +6,7 @@ import Foundation
 
 /// Represents an imported audio file (music, ambient, SFX) positioned on the timeline.
 /// Waveform samples are pre-computed at import time for efficient rendering.
-public struct SoundtrackTrack: Codable, Identifiable, Hashable {
+public struct SoundtrackTrack: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String                 // "Background Music"
     public var audioFilePath: String        // "assets/audio/soundtracks/{id}.mp3"

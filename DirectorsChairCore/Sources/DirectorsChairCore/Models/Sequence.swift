@@ -5,7 +5,7 @@
 import Foundation
 
 /// Represents a sequence (or act) in the story, containing a list of scenes
-public struct Sequence: Codable, Identifiable, Hashable {
+public struct Sequence: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
 
     public var uuid: String

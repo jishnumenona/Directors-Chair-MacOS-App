@@ -7,7 +7,7 @@ import Foundation
 
 /// Comprehensive character model supporting physical appearance, personality traits,
 /// biography, relationships, and multi-angle imagery
-public struct Character: Codable, Identifiable, Hashable {
+public struct Character: Codable, Identifiable, Hashable, Sendable {
     // MARK: - Identifiable
     public var id: String { characterId }
 

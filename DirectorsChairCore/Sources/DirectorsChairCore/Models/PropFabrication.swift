@@ -5,7 +5,7 @@
 import Foundation
 
 /// Fabrication details for props that need to be built
-public struct PropFabrication: Codable, Hashable {
+public struct PropFabrication: Codable, Hashable, Sendable {
     public var materialsNeeded: [String]  // List of materials
     public var dimensions: String  // Physical dimensions (e.g., "12\" x 8\" x 4\"")
     public var weight: String  // Weight if relevant

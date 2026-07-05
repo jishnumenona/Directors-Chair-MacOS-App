@@ -6,7 +6,7 @@
 import Foundation
 
 /// Rating for a take — used by AD/editor on set
-public enum TakeRating: String, Codable, CaseIterable, Identifiable, Hashable {
+public enum TakeRating: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case none = "None"
     case circle = "Circle"
     case alt = "Alt"
@@ -34,7 +34,7 @@ public enum TakeRating: String, Codable, CaseIterable, Identifiable, Hashable {
 }
 
 /// Represents a single take of a shot during production
-public struct Take: Codable, Identifiable, Hashable {
+public struct Take: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var takeNumber: Int
     public var notes: String
