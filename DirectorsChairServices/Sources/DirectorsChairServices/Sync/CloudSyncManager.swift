@@ -69,11 +69,15 @@ public class CloudSyncManager: ObservableObject {
 
     // MARK: - Initialization
 
-    public init(giteaBaseURL: String = "https://git.directorschair.app") {
+    /// - Parameter protocolClasses: URLProtocol stubs for the underlying client,
+    ///   so the sync flow can be tested without a live server (WS4.5).
+    public init(giteaBaseURL: String = "https://git.directorschair.app",
+                protocolClasses: [AnyClass]? = nil) {
         self.giteaBaseURL = giteaBaseURL
         self.giteaClient = GiteaClient(
             baseURL: URL(string: giteaBaseURL)!,
-            timeout: 30
+            timeout: 30,
+            protocolClasses: protocolClasses
         )
     }
 

@@ -33,11 +33,15 @@ public actor GiteaClient: RemoteRepositoryProtocol {
     ///   - token: Personal access token for authentication
     ///   - verifySSL: Whether to verify SSL certificates
     ///   - timeout: Request timeout in seconds
+    /// - Parameter protocolClasses: URLProtocol subclasses to install on both
+    ///   sessions. Tests pass a stub (e.g. MockURLProtocol) to exercise the
+    ///   network paths — pagination, auth handling — without a live server.
     public init(
         baseURL: URL,
         token: String? = nil,
         verifySSL: Bool = true,
-        timeout: TimeInterval = 30
+        timeout: TimeInterval = 30,
+        protocolClasses: [AnyClass]? = nil
     ) {
         self.baseURL = baseURL
         self.apiURL = baseURL.appendingPathComponent("api/v1")
@@ -48,11 +52,13 @@ public actor GiteaClient: RemoteRepositoryProtocol {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout * 2
+        if let protocolClasses { config.protocolClasses = protocolClasses }
         self.session = URLSession(configuration: config)
 
         let lfsConfig = URLSessionConfiguration.default
         lfsConfig.timeoutIntervalForRequest = 300
         lfsConfig.timeoutIntervalForResource = 600
+        if let protocolClasses { lfsConfig.protocolClasses = protocolClasses }
         self.lfsSession = URLSession(configuration: lfsConfig)
     }
 
