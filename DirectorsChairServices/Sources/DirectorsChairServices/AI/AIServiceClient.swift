@@ -438,7 +438,11 @@ public actor AIServiceClient {
         timeout: TimeInterval = 120,
         projectName: String = ""
     ) {
-        self.baseURL = URL(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
+        // baseURL can come from a user-editable preference, so fall back to the
+        // known-good default rather than force-unwrapping (a bad string would
+        // otherwise crash the app on first AI call).
+        let trimmed = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.baseURL = URL(string: trimmed) ?? URL(string: "https://directorschair.app/ai")!
         self.timeout = timeout
         self.projectName = projectName
 
