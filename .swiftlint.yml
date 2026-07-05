@@ -1,0 +1,45 @@
+# SwiftLint configuration for DirectorsChair-Desktop
+#
+# Introduced during the professionalization effort (WS1). The lint step runs in
+# CI in NON-BLOCKING mode initially so it surfaces the existing debt (god files,
+# etc.) without failing green CI on code slated for decomposition in WS8/WS9.
+# Once no file exceeds the `file_length` error threshold, flip the CI lint job
+# to blocking (remove `continue-on-error`) so regressions fail the build.
+
+only_rules: # start focused; expand as the codebase is cleaned up
+  - file_length
+  - type_body_length
+  - force_unwrapping
+  - force_cast
+  - force_try
+  - empty_count
+  - todo
+  - redundant_optional_initialization
+  - unused_optional_binding
+
+file_length:
+  warning: 600   # target: no view/model file over ~600 lines
+  error: 4000    # current worst offender is ~3,830; this ceiling only fails on regressions
+                 # ratchet down toward 800 as WS8/WS9 land
+
+type_body_length:
+  warning: 400
+  error: 3000
+
+force_unwrapping:
+  severity: warning   # audit found force-unwrapped URLs; surface them, don't block yet
+
+force_cast:
+  severity: warning
+
+force_try:
+  severity: warning
+
+excluded:
+  - "**/.build"
+  - "**/Tests"
+  - "**/*Tests"
+  - DirectorsChairViews/.build
+  - "**/__Snapshots__"
+
+reporter: "xcode"

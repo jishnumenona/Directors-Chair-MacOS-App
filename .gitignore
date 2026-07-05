@@ -20,3 +20,20 @@ xcuserdata/
 *.swiftdeps
 *.swiftdeps~
 *.priors
+
+# IDE / editor
+.idea/
+
+# Local build & release artifacts (never tracked)
+build/
+release/
+*.dmg
+*.xcresult
+*.profraw
+default.profraw
+
+# Xcode user data (scheme management, breakpoints)
+*.xcuserdatad
+
+# Accidental capture files
+amp
