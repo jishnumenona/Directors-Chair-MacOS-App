@@ -134,39 +134,70 @@ public class GanttViewModel: ObservableObject {
     // MARK: - Sync from Schedule Items
 
     public func syncFromScheduleItems() {
-        let linkedIds = Set(tasks.compactMap { $0.scheduleItemId })
-        var added = 0
+        // Linked Gantt tasks are projections of their schedule item: re-sync the
+        // schedule-derived fields every time so edits to a ScheduleItem (date,
+        // status, cost, duration) reflect in the Gantt. Previously already-linked
+        // items were skipped, so the Gantt diverged into a stale second schedule.
+        // Gantt-owned fields (sortOrder) are preserved.
+        var indexByItemId: [String: Int] = [:]
+        for (index, task) in tasks.enumerated() {
+            if let sid = task.scheduleItemId { indexByItemId[sid] = index }
+        }
+        var changed = false
 
         for item in scheduleItems {
-            guard !linkedIds.contains(item.id) else { continue }
             guard let date = item.shootDate, !date.isEmpty else { continue }
+            let durationDays = max(1, Int(ceil(item.estimatedDurationHours / 8.0)))
 
-            var task = GanttTask(
-                name: item.sceneName,
-                category: .shooting,
-                scheduleItemId: item.id,
-                startDate: date,
-                durationDays: max(1, Int(ceil(item.estimatedDurationHours / 8.0))),
-                status: mapScheduleStatus(item.status),
-                completionPercentage: item.completionPercentage,
-                priority: item.priority
-            )
-
-            task.locationNames = [item.location].compactMap { $0?.isEmpty == false ? $0 : nil }
-            task.assignedCastIds = item.requiredActors
-            task.assignedCrewIds = item.requiredCrew
-            task.requiredEquipmentIds = item.requiredEquipment
-            task.requiredPropIds = item.requiredProps
-            task.notes = item.productionNotes ?? ""
-            task.estimatedCost = item.estimatedCost ?? 0
-            task.actualCost = item.actualCost
-            task.sortOrder = tasks.count + added
-
-            tasks.append(task)
-            added += 1
+            if let index = indexByItemId[item.id] {
+                // Update the existing linked task in place.
+                var task = tasks[index]
+                task.name = item.sceneName
+                task.startDate = date
+                task.durationDays = durationDays
+                task.status = mapScheduleStatus(item.status)
+                task.completionPercentage = item.completionPercentage
+                task.priority = item.priority
+                task.locationNames = [item.location].compactMap { $0?.isEmpty == false ? $0 : nil }
+                task.assignedCastIds = item.requiredActors
+                task.assignedCrewIds = item.requiredCrew
+                task.requiredEquipmentIds = item.requiredEquipment
+                task.requiredPropIds = item.requiredProps
+                task.notes = item.productionNotes
+                task.estimatedCost = item.estimatedCost
+                task.actualCost = item.actualCost
+                if task != tasks[index] {
+                    tasks[index] = task
+                    changed = true
+                }
+            } else {
+                // Create a new linked task.
+                var task = GanttTask(
+                    name: item.sceneName,
+                    category: .shooting,
+                    scheduleItemId: item.id,
+                    startDate: date,
+                    durationDays: durationDays,
+                    status: mapScheduleStatus(item.status),
+                    completionPercentage: item.completionPercentage,
+                    priority: item.priority
+                )
+                task.locationNames = [item.location].compactMap { $0?.isEmpty == false ? $0 : nil }
+                task.assignedCastIds = item.requiredActors
+                task.assignedCrewIds = item.requiredCrew
+                task.requiredEquipmentIds = item.requiredEquipment
+                task.requiredPropIds = item.requiredProps
+                task.notes = item.productionNotes
+                task.estimatedCost = item.estimatedCost
+                task.actualCost = item.actualCost
+                task.sortOrder = tasks.count
+                tasks.append(task)
+                indexByItemId[item.id] = tasks.count - 1
+                changed = true
+            }
         }
 
-        if added > 0 { notifyChanged() }
+        if changed { notifyChanged() }
     }
 
     private func mapScheduleStatus(_ status: String) -> String {

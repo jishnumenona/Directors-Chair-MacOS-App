@@ -193,6 +193,24 @@ final class BudgetModelTests: XCTestCase {
         XCTAssertEqual(viewModel.budget.categories.first?.allocated, 15000)
     }
 
+    func testRenameCategoryPersistsAndCascadesToExpenses() {
+        // Previously renaming a category was a silent no-op (lookup by name found
+        // nothing) and would have orphaned expenses joined by name. WS8.1.
+        var category = BudgetCategory(name: "VFX", allocated: 10000)
+        viewModel.addCategory(category)
+        viewModel.addExpense(Expense(category: "VFX", amount: 500))
+
+        category.name = "Visual Effects"   // same id, new name
+        viewModel.updateCategory(category)
+
+        XCTAssertEqual(viewModel.budget.categories.count, 1, "No duplicate created")
+        XCTAssertEqual(viewModel.budget.categories.first?.name, "Visual Effects",
+                       "Rename must persist")
+        XCTAssertEqual(viewModel.budget.categories.first?.allocated, 10000)
+        XCTAssertEqual(viewModel.budget.expenses.first?.category, "Visual Effects",
+                       "Expenses must follow the renamed category")
+    }
+
     func testRemoveCategory() {
         let category = BudgetCategory(name: "VFX", allocated: 10000)
         viewModel.addCategory(category)

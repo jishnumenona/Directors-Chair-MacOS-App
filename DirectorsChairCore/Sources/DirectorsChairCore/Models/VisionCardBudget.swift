@@ -187,7 +187,11 @@ public struct VisionCard: Codable, Identifiable, Hashable {
 // MARK: - BudgetCategory
 
 /// A budget category with allocated and spent amounts
-public struct BudgetCategory: Codable, Hashable {
+public struct BudgetCategory: Codable, Identifiable, Hashable {
+    /// Stable identity, independent of name, so a category can be renamed
+    /// without losing the edit or orphaning its expenses. Legacy files without
+    /// an id get one on load.
+    public var id: String
     public var name: String
     public var allocated: Double  // Budgeted amount
     public var spent: Double  // Actual spent
@@ -206,6 +210,7 @@ public struct BudgetCategory: Codable, Hashable {
     }
 
     public init(
+        id: String = UUID().uuidString,
         name: String,
         allocated: Double = 0.0,
         spent: Double = 0.0,
@@ -214,6 +219,7 @@ public struct BudgetCategory: Codable, Hashable {
         accountCode: String = "",
         categoryGroup: String = ""
     ) {
+        self.id = id
         self.name = name
         self.allocated = allocated
         self.spent = spent
@@ -224,6 +230,7 @@ public struct BudgetCategory: Codable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case id
         case name, allocated, spent, description
         case isCustom = "is_custom"
         case accountCode = "account_code"
@@ -236,6 +243,7 @@ public struct BudgetCategory: Codable, Hashable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         name = try container.decode(String.self, forKey: .name)
         allocated = try container.decodeIfPresent(Double.self, forKey: .allocated) ?? 0.0
         spent = try container.decodeIfPresent(Double.self, forKey: .spent) ?? 0.0

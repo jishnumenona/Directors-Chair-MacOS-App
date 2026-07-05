@@ -2452,7 +2452,10 @@ struct CategoryEditorSheet: View {
     }
 
     private func save() {
+        // Preserve the edited category's stable id so updateCategory can find it
+        // even when the name changed (a new id here would make the rename a no-op).
         let newCategory = BudgetCategory(
+            id: category?.id ?? UUID().uuidString,
             name: name,
             allocated: allocated,
             spent: spent,
