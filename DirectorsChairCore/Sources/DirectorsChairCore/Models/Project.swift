@@ -7,7 +7,12 @@ import Foundation
 /// Root project model - aggregates all project data and metadata
 /// This is the main data structure that gets serialized to/from project.json
 public struct Project: Codable, Identifiable, Hashable {
-    public var id: String { name }
+    public var id: String { uuid }
+
+    /// Stable identity, independent of name. Renaming a project no longer
+    /// changes its identity for sync, repo mapping, or cross-app references.
+    /// Legacy files without a uuid get one on first load.
+    public var uuid: String = UUID().uuidString
 
     /// The document format version this project was written with. Persisted as
     /// `schema_version`. Legacy files that predate versioning decode as 1.
@@ -203,6 +208,7 @@ public struct Project: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case uuid
         case schemaVersion = "schema_version"
         case name
         case basePath = "base_path"
@@ -260,6 +266,9 @@ public struct Project: Codable, Identifiable, Hashable {
     /// Custom decoder to provide defaults for fields missing in Python JSON
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Stable identity — legacy files without a uuid get a fresh one.
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
 
         // Format version — absent in legacy (pre-versioning) files, which are v1.
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1

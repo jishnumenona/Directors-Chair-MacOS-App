@@ -950,7 +950,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Royal Robe")
-        XCTAssertEqual(decoded.id, "Royal Robe")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.character, "King")
         XCTAssertEqual(decoded.image, "costumes/robe.jpg")
         XCTAssertEqual(decoded.notes, "Velvet, deep red")
@@ -984,7 +984,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Main Key")
-        XCTAssertEqual(decoded.id, "Main Key")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.type, "Key")
         XCTAssertEqual(decoded.color, "#ffe0b2")
         XCTAssertEqual(decoded.intensity, 0.85)
@@ -1017,7 +1017,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Fog Machine")
-        XCTAssertEqual(decoded.id, "Fog Machine")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.category, "Atmospheric")
         XCTAssertEqual(decoded.params["density"], "high")
         XCTAssertEqual(decoded.params["color"], "white")
@@ -1699,7 +1699,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Test Film")
-        XCTAssertEqual(decoded.id, "Test Film")
+        XCTAssertEqual(decoded.id, decoded.uuid)  // identity is the stable uuid, not the name (WS2.5)
         XCTAssertEqual(decoded.projectType, "Skit")
         XCTAssertEqual(decoded.status, "Pre-production")
         XCTAssertTrue(decoded.sequences.isEmpty)
