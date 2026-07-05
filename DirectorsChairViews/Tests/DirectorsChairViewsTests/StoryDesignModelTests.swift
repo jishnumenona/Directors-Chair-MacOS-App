@@ -9,9 +9,10 @@ final class StoryDesignModelTests: XCTestCase {
     // MARK: - StoryDesignMode
 
     func testStoryDesignModeAllCases() {
-        XCTAssertEqual(StoryDesignMode.allCases.count, 2)
+        XCTAssertEqual(StoryDesignMode.allCases.count, 3)
         XCTAssertTrue(StoryDesignMode.allCases.contains(.characters))
         XCTAssertTrue(StoryDesignMode.allCases.contains(.locations))
+        XCTAssertTrue(StoryDesignMode.allCases.contains(.lighting))
     }
 
     func testStoryDesignModeRawValues() {

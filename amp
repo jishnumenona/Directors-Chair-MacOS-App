@@ -1,8 +1,0 @@
-Command line invocation:
-    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -scheme DirectorsChair-Desktop -destination platform=macOS "-only-testing:DirectorsChair-DesktopTests/JSONCompatibilityTests" 2
-
-User defaults from command line:
-    IDEPackageSupportUseBuiltinSCM = YES
-
-2026-01-11 20:44:21.557 xcodebuild[39127:6151370] Writing error result bundle to /var/folders/p1/9j2mmvjj4gd8pnz3436tdyn00000gn/T/ResultBundle_2026-11-01_20-44-0021.xcresult
-xcodebuild: error: Unknown build action '2'.

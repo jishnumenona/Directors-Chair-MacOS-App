@@ -9,6 +9,14 @@ import Foundation
 public struct Project: Codable, Identifiable, Hashable {
     public var id: String { name }
 
+    /// The document format version this project was written with. Persisted as
+    /// `schema_version`. Legacy files that predate versioning decode as 1.
+    /// `ProjectPersistence.load` refuses to open a file whose major version is
+    /// newer than the app supports, so an older build can never silently strip
+    /// fields it doesn't understand and rewrite a lossy file.
+    public static let currentSchemaVersion: Int = 1
+    public var schemaVersion: Int = Project.currentSchemaVersion
+
     // MARK: - Core Identity
     public var name: String
     public var basePath: String  // Path to project directory
@@ -195,6 +203,7 @@ public struct Project: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
         case name
         case basePath = "base_path"
         case description
@@ -251,6 +260,9 @@ public struct Project: Codable, Identifiable, Hashable {
     /// Custom decoder to provide defaults for fields missing in Python JSON
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Format version — absent in legacy (pre-versioning) files, which are v1.
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
 
         // Core identity (required)
         name = try container.decode(String.self, forKey: .name)

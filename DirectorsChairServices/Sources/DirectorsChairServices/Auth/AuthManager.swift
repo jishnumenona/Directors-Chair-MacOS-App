@@ -139,7 +139,7 @@ public class AuthManager: ObservableObject {
     private var tokenExpiry: Date?
     private var codeVerifier: String?
 
-    private let keychain = KeychainService.shared
+    private let keychain: KeychainService
     private let session = URLSession.shared
     private var authSession: ASWebAuthenticationSession?
     #if canImport(AppKit)
@@ -148,8 +148,11 @@ public class AuthManager: ObservableObject {
 
     // MARK: - Initialization
 
-    public init(configuration: AuthConfiguration = .default) {
+    /// - Parameter keychain: Credential store. Defaults to the shared production
+    ///   store; tests inject an isolated instance so they never touch the real login.
+    public init(configuration: AuthConfiguration = .default, keychain: KeychainService = .shared) {
         self.configuration = configuration
+        self.keychain = keychain
         // Clear debug log on each launch
         let logPath = FileManager.default.temporaryDirectory.appendingPathComponent("dc-auth-debug.log")
         try? FileManager.default.removeItem(at: logPath)

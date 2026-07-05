@@ -94,17 +94,19 @@ final class DirectorsChairServicesTests: XCTestCase {
     // MARK: - Character Traits Tests
     
     func testCharacterTraitsDefinition() {
+        // Model uses the OCEAN taxonomy: 5 categories x 5 sub-traits = 25.
         XCTAssertEqual(CharacterTraits.allTraits.count, 25)
-        XCTAssertTrue(CharacterTraits.allTraits.contains("confidence"))
-        XCTAssertTrue(CharacterTraits.allTraits.contains("empathy"))
-        XCTAssertTrue(CharacterTraits.allTraits.contains("wisdom"))
+        XCTAssertTrue(CharacterTraits.allTraits.contains("Creativity"))
+        XCTAssertTrue(CharacterTraits.allTraits.contains("Empathy"))
+        XCTAssertTrue(CharacterTraits.allTraits.contains("Anxiety"))
     }
-    
+
     func testCharacterTraitCategories() {
+        // OCEAN dimensions.
         XCTAssertEqual(CharacterTraits.categories.count, 5)
-        XCTAssertNotNil(CharacterTraits.categories["Core Traits"])
-        XCTAssertNotNil(CharacterTraits.categories["Social Traits"])
-        XCTAssertNotNil(CharacterTraits.categories["Emotional Traits"])
+        XCTAssertNotNil(CharacterTraits.categories["Openness"])
+        XCTAssertNotNil(CharacterTraits.categories["Conscientiousness"])
+        XCTAssertNotNil(CharacterTraits.categories["Neuroticism"])
     }
     
     // MARK: - Character Analysis Result Tests

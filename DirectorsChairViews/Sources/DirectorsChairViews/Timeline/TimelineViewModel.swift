@@ -348,7 +348,6 @@ public class TimelineViewModel: ObservableObject {
     /// Set the project reference
     public func setProject(_ project: Project) {
         self.project = project
-        // Subscribe to project changes if EventBus is available
     }
 
     /// Show a single scene on the timeline
