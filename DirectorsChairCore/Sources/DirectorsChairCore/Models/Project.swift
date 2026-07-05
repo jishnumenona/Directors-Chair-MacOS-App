@@ -24,7 +24,11 @@ public struct Project: Codable, Identifiable, Hashable {
 
     // MARK: - Core Identity
     public var name: String
-    public var basePath: String  // Path to project directory
+    /// Absolute path to the project directory. This is DEVICE-LOCAL runtime
+    /// state, deliberately NOT serialized — a project.json synced to another Mac
+    /// or an iPad must not carry a dead /Users/... path. It is populated at load
+    /// time from the file's own location (ProjectPersistence.load).
+    public var basePath: String  // Path to project directory (not persisted)
 
     // MARK: - Project Metadata/Settings
     public var description: String
@@ -211,7 +215,7 @@ public struct Project: Codable, Identifiable, Hashable {
         case uuid
         case schemaVersion = "schema_version"
         case name
-        case basePath = "base_path"
+        // base_path intentionally omitted — device-local, populated at load.
         case description
         case director
         case productionCompany = "production_company"
@@ -275,7 +279,8 @@ public struct Project: Codable, Identifiable, Hashable {
 
         // Core identity (required)
         name = try container.decode(String.self, forKey: .name)
-        basePath = try container.decodeIfPresent(String.self, forKey: .basePath) ?? ""
+        // Device-local; populated after decode by ProjectPersistence.load.
+        basePath = ""
 
         // Project metadata with defaults
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""

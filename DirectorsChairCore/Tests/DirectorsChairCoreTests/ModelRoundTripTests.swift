@@ -1772,7 +1772,9 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(original)
 
         XCTAssertEqual(decoded.name, "Alice's Adventure")
-        XCTAssertEqual(decoded.basePath, "/projects/alice")
+        // basePath is device-local and not part of the wire format (WS2.6):
+        // it is populated at load from the file location, never round-tripped.
+        XCTAssertEqual(decoded.basePath, "")
         XCTAssertEqual(decoded.director, "Jane Director")
         XCTAssertEqual(decoded.productionCompany, "Indie Films LLC")
         XCTAssertEqual(decoded.genre, "Drama")
@@ -1813,7 +1815,8 @@ final class ModelRoundTripTests: XCTestCase {
         let data = try encoder.encode(project)
         let json = String(data: data, encoding: .utf8)!
 
-        XCTAssertTrue(json.contains("\"base_path\""))
+        XCTAssertFalse(json.contains("\"base_path\""),
+                       "base_path is device-local and must not be serialized (WS2.6)")
         XCTAssertTrue(json.contains("\"production_company\""))
         XCTAssertTrue(json.contains("\"project_type\""))
         XCTAssertTrue(json.contains("\"target_duration\""))

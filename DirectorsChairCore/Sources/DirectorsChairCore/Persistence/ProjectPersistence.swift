@@ -80,7 +80,13 @@ public actor ProjectPersistence {
         // Single entry point for forward migration of older documents. No
         // migrations exist yet (v1 is the first versioned format); future
         // versions add their upgrade steps here.
-        return migrate(decoded)
+        var project = migrate(decoded)
+
+        // basePath is device-local and not part of the wire format; derive it
+        // from the file's own location so every caller gets a correct path
+        // regardless of what machine wrote the file.
+        project.basePath = url.deletingLastPathComponent().path
+        return project
     }
 
     /// Upgrade an older-but-supported project document to the current schema.
