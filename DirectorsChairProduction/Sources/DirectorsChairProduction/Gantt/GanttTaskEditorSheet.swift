@@ -7,6 +7,8 @@ import DirectorsChairCore
 
 public struct GanttTaskEditorSheet: View {
     @ObservedObject var viewModel: GanttViewModel
+    /// Project budget currency for the cost fields (WS8.8 — no hardcoded USD).
+    public var currencyCode: String = "USD"
     let editingTask: GanttTask?
     let onSave: (GanttTask) -> Void
     let onCancel: () -> Void
@@ -300,7 +302,7 @@ public struct GanttTaskEditorSheet: View {
                         .font(.system(size: 9, weight: .medium))
                         .tracking(1.2)
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                    TextField("0.00", value: $estimatedCost, format: .currency(code: "USD"))
+                    TextField("0.00", value: $estimatedCost, format: .currency(code: currencyCode))
                         .textFieldStyle(.plain)
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .padding(6)
@@ -312,7 +314,7 @@ public struct GanttTaskEditorSheet: View {
                         .font(.system(size: 9, weight: .medium))
                         .tracking(1.2)
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                    TextField("0.00", value: $actualCost, format: .currency(code: "USD"))
+                    TextField("0.00", value: $actualCost, format: .currency(code: currencyCode))
                         .textFieldStyle(.plain)
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .padding(6)

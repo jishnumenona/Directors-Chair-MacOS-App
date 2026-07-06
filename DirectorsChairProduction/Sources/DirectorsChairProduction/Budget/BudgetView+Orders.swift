@@ -64,7 +64,7 @@ extension BudgetView {
                         ScrollView {
                             LazyVStack(spacing: 4) {
                                 ForEach(filteredPOs.sorted { $0.dateCreated > $1.dateCreated }) { po in
-                                    POListRow(po: po, isSelected: selectedPO?.id == po.id)
+                                    POListRow(po: po, currencyCode: viewModel.budget.currency, isSelected: selectedPO?.id == po.id)
                                         .onTapGesture {
                                             selectedPO = po
                                         }

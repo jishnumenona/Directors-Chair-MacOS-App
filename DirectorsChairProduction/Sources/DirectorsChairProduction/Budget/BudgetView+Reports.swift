@@ -194,7 +194,7 @@ extension BudgetView {
                         ScrollView {
                             LazyVStack(spacing: 4) {
                                 ForEach(filteredExpenses.sorted { $0.date > $1.date }) { expense in
-                                    ExpenseListRow(expense: expense, isSelected: selectedExpense?.id == expense.id)
+                                    ExpenseListRow(expense: expense, currencyCode: viewModel.budget.currency, isSelected: selectedExpense?.id == expense.id)
                                         .onTapGesture {
                                             selectedExpense = expense
                                         }

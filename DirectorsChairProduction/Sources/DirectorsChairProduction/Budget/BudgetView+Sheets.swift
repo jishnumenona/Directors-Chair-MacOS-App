@@ -15,6 +15,8 @@ import DirectorsChairCore
 
 struct ExpenseListRow: View {
     let expense: Expense
+    /// Project budget currency (WS8.8 — no hardcoded USD)
+    var currencyCode: String = "USD"
     var isSelected: Bool = false
     @State var isHovered = false
 
@@ -98,8 +100,8 @@ struct ExpenseListRow: View {
     func formatCurrency(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        return formatter.string(from: NSNumber(value: value)) ?? "$\(value)"
+        formatter.currencyCode = currencyCode
+        return formatter.string(from: NSNumber(value: value)) ?? "\(currencyCode) \(value)"
     }
 }
 
@@ -107,6 +109,8 @@ struct ExpenseListRow: View {
 
 struct POListRow: View {
     let po: PurchaseOrder
+    /// Project budget currency (WS8.8 — no hardcoded USD)
+    var currencyCode: String = "USD"
     var isSelected: Bool = false
     @State var isHovered = false
 
@@ -165,8 +169,8 @@ struct POListRow: View {
     func formatCurrency(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        return formatter.string(from: NSNumber(value: value)) ?? "$\(value)"
+        formatter.currencyCode = currencyCode
+        return formatter.string(from: NSNumber(value: value)) ?? "\(currencyCode) \(value)"
     }
 }
 
