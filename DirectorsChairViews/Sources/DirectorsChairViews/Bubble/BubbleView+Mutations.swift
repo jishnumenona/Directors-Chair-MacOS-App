@@ -14,23 +14,6 @@ extension BubbleView {
 
     // MARK: - Actions
 
-    func updateDialogue(_ updated: Dialogue) {
-        guard let scene = selectedScene,
-              let seqIndex = project.sequences.firstIndex(where: { seq in
-                  seq.scenes.contains { $0.id == scene.id }
-              }),
-              let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }),
-              let dialogueIndex = project.sequences[seqIndex].scenes[sceneIndex].dialogues.firstIndex(where: { $0.id == updated.id })
-        else { return }
-
-        project.sequences[seqIndex].scenes[sceneIndex].dialogues[dialogueIndex] = updated
-
-        // Update selected scene reference
-        selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-        rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-        onContentChanged?()
-    }
-
     /// Scroll to a newly added item after a brief delay for the view to settle
     func scrollToNewItem(_ itemId: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -38,60 +21,93 @@ extension BubbleView {
         }
     }
 
+    // MARK: - Generic scene-item CRUD (WS5.5)
+    //
+    // Add/update/delete for the five chronology item kinds (Dialogue, Action,
+    // Narration, Note, SoundNote) previously existed as 19 hand-copied
+    // functions (~460 lines) differing only in the item constructor and the
+    // scene array they touch. One generic commit path now serves all of them,
+    // preserving the legacy side-effect order exactly: selectedScene snapshot
+    // -> newlyAddedItemId -> hook -> bubble-cache rebuild -> sortRefreshTrigger
+    // (adds only) -> scroll -> onContentChanged.
+
+    private func commitSelectedSceneMutation(newItemId: String? = nil,
+                                             scrollTo: String? = nil,
+                                             afterMutate: () -> Void = {},
+                                             _ mutate: (inout DCScene) -> Bool) {
+        guard let scene = selectedScene,
+              let seqIndex = project.sequences.firstIndex(where: { seq in
+                  seq.scenes.contains { $0.id == scene.id }
+              }),
+              let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id })
+        else { return }
+        guard mutate(&project.sequences[seqIndex].scenes[sceneIndex]) else { return }
+        selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
+        if let newItemId { newlyAddedItemId = newItemId }
+        afterMutate()
+        rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
+        if newItemId != nil { sortRefreshTrigger = UUID() }
+        if let scrollTo { scrollToNewItem(scrollTo) }
+        onContentChanged?()
+    }
+
+    private func addItem<T: SceneChronologyItem>(_ item: T,
+                                                 to keyPath: WritableKeyPath<DCScene, [T]>,
+                                                 scrollTo: String? = nil) {
+        commitSelectedSceneMutation(newItemId: item.id, scrollTo: scrollTo ?? item.id) {
+            $0[keyPath: keyPath].append(item)
+            return true
+        }
+    }
+
+    private func updateItem<T: SceneChronologyItem>(_ item: T,
+                                                    in keyPath: WritableKeyPath<DCScene, [T]>) {
+        commitSelectedSceneMutation { scene in
+            guard let i = scene[keyPath: keyPath].firstIndex(where: { $0.uuid == item.uuid }) else { return false }
+            scene[keyPath: keyPath][i] = item
+            return true
+        }
+    }
+
+    private func deleteItem<T: SceneChronologyItem>(_ item: T,
+                                                    from keyPath: WritableKeyPath<DCScene, [T]>,
+                                                    afterMutate: () -> Void = {}) {
+        commitSelectedSceneMutation(afterMutate: afterMutate) { scene in
+            scene[keyPath: keyPath].removeAll { $0.uuid == item.uuid }
+            return true
+        }
+    }
+
+    // MARK: - Dialogue
+
+    func updateDialogue(_ updated: Dialogue) {
+        updateItem(updated, in: \.dialogues)
+    }
+
     func addDialogue(for characterName: String) {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
         let newDialogue = Dialogue(
             character: characterName,
             text: "",
             chronologyNumber: maxChronology + 1
         )
-
-        // Find and update scene in project
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].dialogues.append(newDialogue)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newDialogue.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(newDialogue.id)
-            onContentChanged?()
-        }
+        addItem(newDialogue, to: \.dialogues)
     }
 
     func deleteDialogue(_ dialogue: Dialogue) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].dialogues.removeAll { $0.id == dialogue.id }
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-
+        deleteItem(dialogue, from: \.dialogues, afterMutate: {
             // Clear selection if deleted dialogue was selected
             if selectedDialogue?.id == dialogue.id {
                 selectedDialogue = nil
             }
-
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        })
     }
 
+    // MARK: - Add items
+
     func addAction() {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newAction = Action(
+        addItem(Action(
             uuid: UUID().uuidString,
             description: "",
             tags: [],
@@ -102,29 +118,12 @@ extension BubbleView {
             chronologyNumber: maxChronology + 1,
             globalChronologyNumber: maxChronology + 1,
             characters: []
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].actions.append(newAction)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newAction.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(newAction.id)
-            onContentChanged?()
-        }
+        ), to: \.actions)
     }
 
     func addNarration() {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newNarration = Narration(
+        addItem(Narration(
             uuid: UUID().uuidString,
             text: "",
             tags: [],
@@ -135,85 +134,34 @@ extension BubbleView {
             chronologyNumber: maxChronology + 1,
             globalChronologyNumber: maxChronology + 1,
             characters: []
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].narrations.append(newNarration)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newNarration.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(newNarration.id)
-            onContentChanged?()
-        }
+        ), to: \.narrations)
     }
 
     func addNote() {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newNote = Note(
+        addItem(Note(
             uuid: UUID().uuidString,
             content: "",
             noteType: "text",
             chronologyNumber: maxChronology + 1
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.append(newNote)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newNote.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(newNote.id)
-            onContentChanged?()
-        }
+        ), to: \.sceneNotes)
     }
 
     func addSoundNote() {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newSoundNote = SoundNote(
+        addItem(SoundNote(
             uuid: UUID().uuidString,
             description: "",
             soundType: "ambient",
             chronologyNumber: maxChronology + 1
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].soundNotes.append(newSoundNote)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newSoundNote.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(newSoundNote.id)
-            onContentChanged?()
-        }
+        ), to: \.soundNotes)
     }
 
     // MARK: - Add Connected Items (directly to a dialogue)
 
     func addConnectedAction(to dialogue: Dialogue) {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newAction = Action(
+        addItem(Action(
             uuid: UUID().uuidString,
             description: "",
             tags: [],
@@ -225,29 +173,12 @@ extension BubbleView {
             globalChronologyNumber: maxChronology + 1,
             characters: [],
             parentDialogueId: dialogue.id
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].actions.append(newAction)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newAction.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(dialogue.id)
-            onContentChanged?()
-        }
+        ), to: \.actions, scrollTo: dialogue.id)
     }
 
     func addConnectedNarration(to dialogue: Dialogue) {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newNarration = Narration(
+        addItem(Narration(
             uuid: UUID().uuidString,
             text: "",
             tags: [],
@@ -259,96 +190,39 @@ extension BubbleView {
             globalChronologyNumber: maxChronology + 1,
             characters: [],
             parentDialogueId: dialogue.id
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].narrations.append(newNarration)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newNarration.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(dialogue.id)
-            onContentChanged?()
-        }
+        ), to: \.narrations, scrollTo: dialogue.id)
     }
 
     func addConnectedNote(to dialogue: Dialogue) {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newNote = Note(
+        addItem(Note(
             uuid: UUID().uuidString,
             content: "",
             noteType: "text",
             chronologyNumber: maxChronology + 1,
             parentDialogueId: dialogue.id
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.append(newNote)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newNote.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(dialogue.id)
-            onContentChanged?()
-        }
+        ), to: \.sceneNotes, scrollTo: dialogue.id)
     }
 
     func addConnectedSoundNote(to dialogue: Dialogue) {
-        guard let scene = selectedScene else { return }
-
         let maxChronology = globalMaxChronology()
-
-        let newSoundNote = SoundNote(
+        addItem(SoundNote(
             uuid: UUID().uuidString,
             description: "",
             soundType: "ambient",
             chronologyNumber: maxChronology + 1,
             parentDialogueId: dialogue.id
-        )
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].soundNotes.append(newSoundNote)
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            newlyAddedItemId = newSoundNote.id
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            sortRefreshTrigger = UUID()
-            scrollToNewItem(dialogue.id)
-            onContentChanged?()
-        }
+        ), to: \.soundNotes, scrollTo: dialogue.id)
     }
+
+    // MARK: - Edit / delete / update
 
     func editAction(_ action: Action) {
         editingAction = action
     }
 
     func deleteAction(_ action: Action) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].actions.removeAll { $0.uuid == action.uuid }
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        deleteItem(action, from: \.actions)
     }
 
     func editNarration(_ narration: Narration) {
@@ -356,18 +230,7 @@ extension BubbleView {
     }
 
     func deleteNarration(_ narration: Narration) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].narrations.removeAll { $0.uuid == narration.uuid }
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        deleteItem(narration, from: \.narrations)
     }
 
     func editNote(_ note: Note) {
@@ -375,18 +238,7 @@ extension BubbleView {
     }
 
     func deleteNote(_ note: Note) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.removeAll { $0.uuid == note.uuid }
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        deleteItem(note, from: \.sceneNotes)
     }
 
     func editSoundNote(_ soundNote: SoundNote) {
@@ -394,83 +246,25 @@ extension BubbleView {
     }
 
     func deleteSoundNote(_ soundNote: SoundNote) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].soundNotes.removeAll { $0.uuid == soundNote.uuid }
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        deleteItem(soundNote, from: \.soundNotes)
     }
 
     func updateAction(_ updated: Action) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }),
-           let actionIndex = project.sequences[seqIndex].scenes[sceneIndex].actions.firstIndex(where: { $0.uuid == updated.uuid }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].actions[actionIndex] = updated
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        updateItem(updated, in: \.actions)
     }
 
     func updateNarration(_ updated: Narration) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }),
-           let narrationIndex = project.sequences[seqIndex].scenes[sceneIndex].narrations.firstIndex(where: { $0.uuid == updated.uuid }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].narrations[narrationIndex] = updated
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        updateItem(updated, in: \.narrations)
     }
 
     func updateNote(_ updated: Note) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }),
-           let noteIndex = project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.firstIndex(where: { $0.uuid == updated.uuid }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].sceneNotes[noteIndex] = updated
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        updateItem(updated, in: \.sceneNotes)
     }
 
     func updateSoundNote(_ updated: SoundNote) {
-        guard let scene = selectedScene else { return }
-
-        if let seqIndex = project.sequences.firstIndex(where: { seq in
-            seq.scenes.contains { $0.id == scene.id }
-        }),
-           let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }),
-           let soundNoteIndex = project.sequences[seqIndex].scenes[sceneIndex].soundNotes.firstIndex(where: { $0.uuid == updated.uuid }) {
-
-            project.sequences[seqIndex].scenes[sceneIndex].soundNotes[soundNoteIndex] = updated
-            selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
-            rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])
-            onContentChanged?()
-        }
+        updateItem(updated, in: \.soundNotes)
     }
+
 
     func playSoundNote(_ soundNote: SoundNote) {
         // TODO: Implement via TTS service
@@ -766,3 +560,18 @@ extension BubbleView {
         onContentChanged?()
     }
 }
+
+// MARK: - Scene chronology item conformances (WS5.5)
+
+/// Minimal surface the generic CRUD helpers need. All five chronology item
+/// kinds expose a stable `uuid` (with `id` returning it).
+protocol SceneChronologyItem {
+    var uuid: String { get }
+    var id: String { get }
+}
+
+extension Dialogue: SceneChronologyItem {}
+extension Action: SceneChronologyItem {}
+extension Narration: SceneChronologyItem {}
+extension Note: SceneChronologyItem {}
+extension SoundNote: SceneChronologyItem {}
