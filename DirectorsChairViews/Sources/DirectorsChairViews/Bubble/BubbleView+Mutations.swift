@@ -408,16 +408,8 @@ extension BubbleView {
                 return
             }
 
-            let characterName = dialogue.character
-            let prompt = """
-            Analyze the emotion/tone of this dialogue line spoken by \(characterName):
-
-            "\(text)"
-
-            Return ONLY a comma-separated list of 1-3 emotion tags (single words, lowercase).
-            Examples: angry, sarcastic, tender, fearful, joyful, melancholic, anxious, determined, playful, bitter, hopeful, resigned, threatening, pleading, nostalgic, disgusted, confused, amused, defiant, vulnerable
-            Do not include any other text, explanation, or formatting.
-            """
+            // Prompt construction lives in ShotPromptBuilder (WS6.2).
+            let prompt = ShotPromptBuilder.dialogueEmotionPrompt(characterName: dialogue.character, text: text)
 
             let request = TextGenerationRequest(
                 prompt: prompt,

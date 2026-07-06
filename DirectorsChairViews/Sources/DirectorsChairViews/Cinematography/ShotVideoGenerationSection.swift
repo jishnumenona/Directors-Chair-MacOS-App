@@ -419,71 +419,13 @@ struct ShotVideoGenerationSection: View {
         keyframes.append(newKf)
     }
 
+    // Prompt construction lives in ShotPromptBuilder (WS6.2).
     private func buildKeyframePrompt(for keyframeId: String) -> String {
         guard let kf = keyframes.first(where: { $0.id == keyframeId }) else { return "" }
-
-        var parts: [String] = []
-
-        parts.append("A single cinematic film frame. \(shot.shotType) shot, \(shot.cameraAngle) angle.")
-        if let lens = shot.lensMm {
-            parts.append("\(lens)mm lens, \(shot.aperture).")
-        }
-
-        if !shot.description.isEmpty {
-            parts.append(shot.description)
-        }
-
-        if let currentScene = scene {
-            let charNames = resolveCharacterNames(from: currentScene)
-            if !charNames.isEmpty {
-                let charDescs = charNames.compactMap { name -> String? in
-                    guard let char = characters.first(where: { $0.name == name }) else { return name }
-                    var desc = name
-                    desc += ", age \(char.age)"
-                    if !char.gender.isEmpty { desc += ", \(char.gender)" }
-                    if !char.about.isEmpty {
-                        desc += ", \(String(char.about.prefix(100)))"
-                    } else {
-                        if !char.build.isEmpty && char.build != "Average" { desc += ", \(char.build.lowercased())" }
-                        if !char.hairColor.isEmpty && !char.hairColor.hasPrefix("#") { desc += ", \(char.hairColor) hair" }
-                        else if !char.hairStyle.isEmpty { desc += ", \(char.hairStyle) hair" }
-                        if !char.distinguishingFeatures.isEmpty { desc += ", \(char.distinguishingFeatures)" }
-                    }
-                    if let costumes = char.costumes, let first = costumes.first {
-                        desc += ", wearing \(first.name)"
-                    }
-                    return desc
-                }
-                parts.append("Characters: \(charDescs.joined(separator: "; "))")
-            }
-
-            if let loc = currentScene.location, !loc.isEmpty {
-                if let location = locations.first(where: { $0.name.lowercased() == loc.lowercased() }) {
-                    var locDesc = "Location: \(location.name)"
-                    if !location.locationType.isEmpty { locDesc += " (\(location.locationType))" }
-                    if !location.description.isEmpty { locDesc += " — \(location.description.prefix(200))" }
-                    parts.append(locDesc)
-                } else {
-                    parts.append("Location: \(loc)")
-                }
-            }
-
-            if !currentScene.props.isEmpty {
-                parts.append("Props: \(currentScene.props.joined(separator: ", "))")
-            }
-        }
-
-        // Position context
-        if kf.position == 0.0 {
-            parts.append("This is the opening frame of the shot.")
-        } else if kf.position == 1.0 {
-            parts.append("This is the final frame of the shot.")
-        } else {
-            parts.append("This frame is at \(String(format: "%.0f%%", kf.position * 100)) through the shot.")
-        }
-
-        parts.append("Dramatic lighting, cinematic quality, professional filmmaking, photorealistic.")
-        return parts.joined(separator: "\n")
+        let names = scene.map { resolveCharacterNames(from: $0) } ?? []
+        return ShotPromptBuilder.keyframePrompt(shot: shot, scene: scene, characterNames: names,
+                                                characters: characters, locations: locations,
+                                                position: kf.position)
     }
 
     /// Collect all reference images for the current scene.
