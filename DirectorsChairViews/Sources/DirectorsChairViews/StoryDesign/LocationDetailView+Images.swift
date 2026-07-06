@@ -59,49 +59,14 @@ extension LocationDetailView {
 
     // MARK: - Build Prompts
 
+    // Prompt construction lives in StoryDesignPromptBuilder (WS6.2).
     func buildLocationPrompt() -> String {
-        var parts: [String] = []
-
-        parts.append(location.name)
-
-        if !location.description.isEmpty {
-            parts.append(location.description)
-        }
-
-        parts.append("\(location.locationType) location")
-
-        if let style = location.styleAttributes["architectural_style"], !style.isEmpty {
-            parts.append("\(style) architecture")
-        }
-
-        if let mood = location.styleAttributes["mood"], !mood.isEmpty {
-            parts.append("\(mood) mood")
-        }
-
-        if let palette = location.styleAttributes["color_palette"], !palette.isEmpty {
-            parts.append(palette)
-        }
-
-        if let lighting = location.cinematographyDefaults["lighting"], !lighting.isEmpty {
-            parts.append("\(lighting) lighting")
-        }
-
-        if let timeOfDay = location.cinematographyDefaults["time_of_day"], !timeOfDay.isEmpty {
-            parts.append(timeOfDay)
-        }
-
-        parts.append("professional film production design, photorealistic")
-
-        return parts.joined(separator: ", ")
+        StoryDesignPromptBuilder.locationPrompt(location: location)
     }
 
     func buildVariationPrompt(override: String) -> String {
-        var base = buildLocationPrompt()
-        base += ", \(override)"
-        if effectiveImagePath(for: "primary") != nil {
-            base += ". EXACT SAME location as reference, maintain architectural details and environment precisely."
-        }
-        return base
+        StoryDesignPromptBuilder.locationVariationPrompt(location: location, override: override,
+                                                         hasPrimaryImage: effectiveImagePath(for: "primary") != nil)
     }
 
     // MARK: - Variation Thumbnail Builder

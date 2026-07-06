@@ -185,4 +185,39 @@ public enum StoryDesignPromptBuilder {
         return prompt
     }
 
+    /// Location establishing-shot prompt from the location model.
+    public static func locationPrompt(location: Location) -> String {
+        var parts: [String] = []
+        parts.append(location.name)
+        if !location.description.isEmpty { parts.append(location.description) }
+        parts.append("\(location.locationType) location")
+        if let style = location.styleAttributes["architectural_style"], !style.isEmpty {
+            parts.append("\(style) architecture")
+        }
+        if let mood = location.styleAttributes["mood"], !mood.isEmpty {
+            parts.append("\(mood) mood")
+        }
+        if let palette = location.styleAttributes["color_palette"], !palette.isEmpty {
+            parts.append(palette)
+        }
+        if let lighting = location.cinematographyDefaults["lighting"], !lighting.isEmpty {
+            parts.append("\(lighting) lighting")
+        }
+        if let timeOfDay = location.cinematographyDefaults["time_of_day"], !timeOfDay.isEmpty {
+            parts.append(timeOfDay)
+        }
+        parts.append("professional film production design, photorealistic")
+        return parts.joined(separator: ", ")
+    }
+
+    /// Variation prompt; when a primary reference exists the model must keep
+    /// the exact same location.
+    public static func locationVariationPrompt(location: Location, override: String, hasPrimaryImage: Bool) -> String {
+        var base = locationPrompt(location: location) + ", \(override)"
+        if hasPrimaryImage {
+            base += ". EXACT SAME location as reference, maintain architectural details and environment precisely."
+        }
+        return base
+    }
+
 }
