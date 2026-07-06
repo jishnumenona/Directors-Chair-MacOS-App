@@ -41,9 +41,12 @@ extension XCTestCase {
         // so reference images can be regenerated on the CI runner image without editing call sites.
         let shouldRecord = record || ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"] == "1"
 
+        // WS9.8: tolerate sub-perceptual rendering differences (font smoothing,
+        // GPU dithering) across machines/CI runners while still failing on any
+        // visible change: 98% of pixels must match at 98% perceptual accuracy.
         assertSnapshot(
             of: hostingView,
-            as: .image,
+            as: .image(precision: 0.98, perceptualPrecision: 0.98),
             named: name,
             record: shouldRecord,
             file: file,
