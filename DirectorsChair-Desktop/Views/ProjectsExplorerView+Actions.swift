@@ -8,6 +8,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairServices
+import DirectorsChairViews
 
 extension ProjectsExplorerView {
 
@@ -156,6 +157,23 @@ extension ProjectsExplorerView {
                 self.projects = sortedProjects
                 self.isLoading = false
             }
+        }
+    }
+
+    /// Move the project's folder to the Trash (recoverable) and refresh the
+    /// list. If the deleted project is currently open, close it first so the
+    /// app isn't pointed at a trashed directory.
+    func deleteProject(_ project: ProjectInfo) {
+        if projectViewModel.projectPath?.deletingLastPathComponent() == project.path {
+            projectViewModel.projectPath = nil
+            projectViewModel.hasProject = false
+            projectViewModel.project = Project.empty()
+        }
+        do {
+            try FileManager.default.trashItem(at: project.path, resultingItemURL: nil)
+            discoverProjects()
+        } catch {
+            ErrorPresenter.shared.present(error, context: "Deleting project")
         }
     }
 

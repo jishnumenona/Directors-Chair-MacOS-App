@@ -102,6 +102,9 @@ struct ProjectsExplorerView: View {
     @State var exampleErrorMessage = ""
     @State var hoveredExampleId: String?
 
+    /// Project pending delete confirmation (right-click → Delete Project…)
+    @State var projectPendingDelete: ProjectInfo?
+
     // Grid layout — wider for poster cards
     let columns = [
         GridItem(.adaptive(minimum: 260, maximum: 320), spacing: 20)
@@ -184,6 +187,19 @@ struct ProjectsExplorerView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(exampleErrorMessage)
+        }
+        .alert("Delete \u{201C}\(projectPendingDelete?.name ?? "")\u{201D}?",
+               isPresented: Binding(get: { projectPendingDelete != nil },
+                                    set: { if !$0 { projectPendingDelete = nil } })) {
+            Button("Cancel", role: .cancel) { projectPendingDelete = nil }
+            Button("Move to Trash", role: .destructive) {
+                if let project = projectPendingDelete {
+                    deleteProject(project)
+                }
+                projectPendingDelete = nil
+            }
+        } message: {
+            Text("The project folder and all its scenes, shots, and media will be moved to the Trash. You can restore it from the Trash if needed.")
         }
     }
 }

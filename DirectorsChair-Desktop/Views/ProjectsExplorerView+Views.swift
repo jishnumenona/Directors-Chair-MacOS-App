@@ -182,6 +182,19 @@ extension ProjectsExplorerView {
                             isHovered: hoveredProjectId == project.id,
                             onOpen: { openProject(project) }
                         )
+                        .contextMenu {
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([project.path])
+                            } label: {
+                                Label("Reveal in Finder", systemImage: "folder")
+                            }
+                            Divider()
+                            Button(role: .destructive) {
+                                projectPendingDelete = project
+                            } label: {
+                                Label("Delete Project…", systemImage: "trash")
+                            }
+                        }
                         .accessibilityIdentifier("project-card-\(project.name)")
                         .onHover { hovering in
                             withAnimation(.easeInOut(duration: 0.15)) {
