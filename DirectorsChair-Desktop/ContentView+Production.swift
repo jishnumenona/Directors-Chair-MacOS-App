@@ -97,6 +97,15 @@ struct ProductionContainer: View {
             loadProductionData()
         }
         .onChange(of: coordinator.selectedProductionTab) { _, _ in loadProductionData() }
+        // WS5.3: keep the OPEN production tab consistent with external changes
+        // (sync pulls, rename cascades, script/structure edits) without
+        // requiring a tab switch. Production tabs' own write-backs don't emit
+        // events, so this cannot loop.
+        .onReceive(coordinator.projectEvents) { event in
+            if event == .general || event == .production || event == .structure {
+                loadProductionData()
+            }
+        }
     }
 
     private func wireUpCallbacks() {
@@ -124,126 +133,16 @@ struct ProductionContainer: View {
             projectViewModel.project.projectBudget = budget
         }
 
-        // AI receipt analysis callback
-        // Capture category names upfront (on main actor) to avoid actor-isolation issues in the async closure
+        // AI receipt analysis — extracted to ReceiptAnalysisService (WS6.4);
+        // the view only supplies the category names.
         let capturedBudgetVM = budgetViewModel
         budgetViewModel.onAnalyzeReceipt = { imageData, mimeType in
-            // Logging routes through the global os.Logger-based debugLog, which is
-            // not persisted in release. Receipt contents (vendor, amounts, dates)
-            // are financial data and are NEVER written to a file on disk.
-            let aiClient = AIServiceClient.shared
-            debugLog("Starting analysis, data size: \(imageData.count) bytes, mime: \(mimeType)")
-
-            guard await aiClient.testConnection() else {
-                debugLog("AI server connection failed")
-                return []
-            }
-            debugLog("Server connection OK")
-
-            let base64 = imageData.base64EncodedString()
-            debugLog("Base64 encoded, length: \(base64.count)")
-
-            // Build category names on main actor
             let categoryNames = capturedBudgetVM.budget.categories.map { $0.name }.joined(separator: ", ")
-            debugLog("Categories: \(categoryNames)")
-
-            let prompt = """
-            Analyze this receipt image. If the receipt contains multiple distinct line items, return ALL items individually.
-            Return ONLY valid JSON with this structure:
-            {
-              "vendor": "store/vendor name",
-              "date": "YYYY-MM-DD format",
-              "items": [
-                {"description": "item 1 description", "amount": 12.99, "category": "best matching category"},
-                {"description": "item 2 description", "amount": 45.00, "category": "best matching category"}
-              ]
-            }
-
-            Rules:
-            - "vendor" and "date" are shared across all items.
-            - Each item in "items" should have its own description, amount, and category.
-            - If the receipt has only one item or a single total, return a single item in the array.
-            - Do NOT include tax/tip as separate items unless they are distinct line items on the receipt.
-            - Available budget categories: \(categoryNames)
-            - Choose the category that best matches each item. If no category matches well, use the most general one.
-            - Return ONLY the JSON object, no other text.
-            """
-
-            let request = TextGenerationRequest(
-                prompt: prompt,
-                provider: .google,
-                maxTokens: 4000,
-                temperature: 0.1,
-                imageBase64: base64,
-                imageMimeType: mimeType
-            )
-
-            do {
-                debugLog("Sending request to AI...")
-                let response = try await aiClient.generateText(request)
-                let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                debugLog("AI response received: \(text.count) chars")  // don't log raw financial content
-
-                // Strip markdown code fences if present
-                var jsonString = text
-                if jsonString.hasPrefix("```json") {
-                    jsonString = String(jsonString.dropFirst(7))
-                } else if jsonString.hasPrefix("```") {
-                    jsonString = String(jsonString.dropFirst(3))
-                }
-                if jsonString.hasSuffix("```") {
-                    jsonString = String(jsonString.dropLast(3))
-                }
-                jsonString = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
-                debugLog("Cleaned JSON: \(jsonString.count) chars")  // don't log raw financial content
-
-                guard let jsonData = jsonString.data(using: .utf8),
-                      let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                    debugLog("Failed to parse JSON")
-                    return []
-                }
-
-                debugLog("Parsed JSON: \(json)")
-
-                let sharedVendor = json["vendor"] as? String ?? ""
-                let sharedDate = json["date"] as? String ?? ""
-
-                guard let items = json["items"] as? [[String: Any]], !items.isEmpty else {
-                    debugLog("No items array found in response")
-                    return []
-                }
-
-                var results: [ReceiptAnalysisResult] = []
-                for item in items {
-                    // Handle amount as either Double or Int from JSON
-                    let parsedAmount: Double
-                    if let doubleVal = item["amount"] as? Double {
-                        parsedAmount = doubleVal
-                    } else if let intVal = item["amount"] as? Int {
-                        parsedAmount = Double(intVal)
-                    } else if let strVal = item["amount"] as? String, let numVal = Double(strVal) {
-                        parsedAmount = numVal
-                    } else {
-                        parsedAmount = 0
-                    }
-
-                    let result = ReceiptAnalysisResult(
-                        description: item["description"] as? String ?? "",
-                        vendor: sharedVendor,
-                        date: sharedDate,
-                        amount: parsedAmount,
-                        category: item["category"] as? String ?? ""
-                    )
-                    results.append(result)
-                }
-
-                debugLog("Returning \(results.count) results")
-                return results
-            } catch {
-                debugLog("Error: \(error)")
-                return []
-            }
+            return await ReceiptAnalysisService.analyze(imageData: imageData,
+                                                        mimeType: mimeType,
+                                                        categoryNames: categoryNames)
         }
+
 
         // Sync equipment changes back to project
         equipmentViewModel.onEquipmentChanged = { equipment in
