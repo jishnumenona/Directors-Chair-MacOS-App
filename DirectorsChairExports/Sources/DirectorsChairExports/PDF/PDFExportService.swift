@@ -16,12 +16,12 @@ public struct PDFExportService: Sendable {
 
     // MARK: - Export Types
 
+    // Only formats with real implementations are declared (WS8.7 — no
+    // advertised-but-stub export types). Call sheet / shot list / budget
+    // report PDFs are future work and will be added WITH their generators.
     public enum PDFExportType: String, Sendable {
         case screenplay
         case characterSheet
-        case callSheet
-        case shotList
-        case budgetReport
     }
 
     // MARK: - Page Settings

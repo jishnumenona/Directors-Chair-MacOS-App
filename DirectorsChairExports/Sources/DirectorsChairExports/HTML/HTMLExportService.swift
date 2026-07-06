@@ -11,12 +11,11 @@ public struct HTMLExportService: Sendable {
     
     // MARK: - Export Types
     
+    // Only formats with real implementations are declared (WS8.7).
     public enum HTMLExportType: String, Sendable {
         case characterOverview
         case projectOverview
-        case sceneOverview
         case screenplay
-        case callSheet
     }
     
     // MARK: - Character Overview Export
