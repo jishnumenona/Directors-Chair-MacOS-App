@@ -204,28 +204,30 @@ class AppCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Event Publishers (replaces Qt signals)
+    // MARK: - Event Publishers (WS5.2 — typed project events)
+    //
+    // One typed stream replaces the untyped Void "project changed" ping and
+    // six never-subscribed subjects (sceneChanged, sequenceChanged,
+    // dialogueSelected, actionSelected, narrationSelected, openShotList).
+    // Subscribers filter by what they render, so e.g. a schedule/budget edit
+    // no longer forces a full timeline rebuild.
 
-    /// Fired when project is changed (global refresh)
-    let projectChanged = PassthroughSubject<Void, Never>()
+    /// What kind of project change occurred.
+    enum ProjectEvent {
+        /// Sequences/scenes added, removed, renamed or reordered.
+        case structure
+        /// Script content (dialogue/action/narration text) changed.
+        case script
+        /// Shot-level changes (add/remove/edit shots, takes, video).
+        case shots
+        /// Production-side data (schedule, budget, cast) changed.
+        case production
+        /// Unclassified change — subscribers must treat as "anything".
+        case general
+    }
 
-    /// Fired when a scene is changed
-    let sceneChanged = PassthroughSubject<DirectorsChairCore.Scene, Never>()
-
-    /// Fired when a sequence is changed
-    let sequenceChanged = PassthroughSubject<DirectorsChairCore.Sequence, Never>()
-
-    /// Fired when a dialogue is selected
-    let dialogueSelected = PassthroughSubject<Dialogue, Never>()
-
-    /// Fired when an action is selected
-    let actionSelected = PassthroughSubject<Action, Never>()
-
-    /// Fired when a narration is selected
-    let narrationSelected = PassthroughSubject<Narration, Never>()
-
-    /// Fired when shot list should be opened
-    let openShotList = PassthroughSubject<Int, Never>()
+    /// Typed project-change stream.
+    let projectEvents = PassthroughSubject<ProjectEvent, Never>()
 
     // MARK: - Navigation Methods
 
@@ -333,13 +335,11 @@ class AppCoordinator: ObservableObject {
     /// Select a sequence and notify observers
     func selectSequence(_ sequence: DirectorsChairCore.Sequence) {
         selectedSequence = sequence
-        sequenceChanged.send(sequence)
     }
 
     /// Select a scene and notify observers
     func selectScene(_ scene: DirectorsChairCore.Scene) {
         selectedScene = scene
-        sceneChanged.send(scene)
     }
 
     /// Select a shot and navigate to shot list if needed
@@ -436,9 +436,10 @@ class AppCoordinator: ObservableObject {
 
     // MARK: - Global Event Methods
 
-    /// Notify that the project has changed (triggers global refresh)
-    func notifyProjectChanged() {
-        projectChanged.send()
+    /// Notify that the project has changed. Pass the most specific event you
+    /// can — unclassified callers default to `.general` (full refresh).
+    func notifyProjectChanged(_ event: ProjectEvent = .general) {
+        projectEvents.send(event)
     }
 
     /// Clear all selections (e.g., when closing a project)

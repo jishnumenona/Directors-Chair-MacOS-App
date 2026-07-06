@@ -123,7 +123,8 @@ struct ScriptView: View {
                 coordinator.scrollToScriptItemId = nil
             }
         }
-        .onReceive(coordinator.projectChanged) { _ in
+        .onReceive(coordinator.projectEvents) { event in
+            guard event != .shots && event != .production else { return }
             viewModel.refresh(from: projectViewModel.project)
         }
         .onChange(of: coordinator.scrollToScriptItemId) { newValue in

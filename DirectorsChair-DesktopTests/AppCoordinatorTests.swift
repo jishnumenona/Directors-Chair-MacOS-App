@@ -241,7 +241,7 @@ final class AppCoordinatorTests: XCTestCase {
     func testProjectChangedPublisher() {
         let expectation = XCTestExpectation(description: "Project changed event")
 
-        coordinator.projectChanged.sink { _ in
+        coordinator.projectEvents.sink { _ in
             expectation.fulfill()
         }.store(in: &cancellables)
 
@@ -250,18 +250,12 @@ final class AppCoordinatorTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
-    func testSceneChangedPublisher() {
-        let expectation = XCTestExpectation(description: "Scene changed event")
+    func testSelectSceneUpdatesSelection() {
+        // WS5.2: the dead sceneChanged subject was removed; selection is
+        // plain @Published state now.
         let scene = Scene(name: "New Scene")
-
-        coordinator.sceneChanged.sink { changedScene in
-            XCTAssertEqual(changedScene.name, "New Scene")
-            expectation.fulfill()
-        }.store(in: &cancellables)
-
         coordinator.selectScene(scene)
-
-        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(coordinator.selectedScene?.name, "New Scene")
     }
 
     // MARK: - Sub-Tab State

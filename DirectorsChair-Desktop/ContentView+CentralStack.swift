@@ -80,7 +80,9 @@ struct CentralViewStack: View {
             }
         }
         // Removed animation to prevent stacking during rapid view switches
-        .onReceive(coordinator.projectChanged) { _ in
+        .onReceive(coordinator.projectEvents) { event in
+            // Bubble view renders script content — skip shot/production churn.
+            guard event != .shots && event != .production else { return }
             bubbleRefreshTrigger += 1
         }
     }
@@ -1084,7 +1086,7 @@ struct CinematographyViewAdapter: View {
                             if let sceneIdx = projectViewModel.project.sequences[seqIdx].scenes.firstIndex(where: { $0.id == updatedScene.id }) {
                                 projectViewModel.project.sequences[seqIdx].scenes[sceneIdx] = updatedScene
                                 projectViewModel.isDirty = true
-                                coordinator.projectChanged.send(())
+                                coordinator.notifyProjectChanged()
                                 break
                             }
                         }
@@ -1103,13 +1105,16 @@ struct CinematographyViewAdapter: View {
                         projectViewModel.project = updatedProject
                         projectViewModel.isDirty = true
                         // Notify timeline and other views that shots changed
-                        coordinator.projectChanged.send(())
+                        coordinator.notifyProjectChanged()
                     }
                 )
             }
         }
         // Refresh adapter when project changes externally (e.g. navigator adds/removes shots)
-        .onReceive(coordinator.projectChanged) { _ in
+        .onReceive(coordinator.projectEvents) { event in
+            // The adapter mirrors scenes+shots — pure script/production edits
+            // don't change the shot projection.
+            guard event != .script && event != .production else { return }
             shotsAdapter?.refresh(from: projectViewModel.project)
         }
     }

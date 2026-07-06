@@ -607,7 +607,7 @@ class ScriptViewModel: ObservableObject {
             projectViewModel.isDirty = true
 
             skipNextRefresh = true
-            coordinator?.notifyProjectChanged()
+            coordinator?.notifyProjectChanged(.script)
         }
     }
 
@@ -631,7 +631,7 @@ class ScriptViewModel: ObservableObject {
         projectViewModel.isDirty = true
 
         skipNextRefresh = true
-        coordinator?.notifyProjectChanged()
+        coordinator?.notifyProjectChanged(.script)
     }
 
     // MARK: - Autocomplete
@@ -874,7 +874,7 @@ class ScriptViewModel: ObservableObject {
             // Skip the refresh triggered by this notification — our elements already have
             // the correct state including the description placeholder
             skipNextRefresh = true
-            coordinator?.notifyProjectChanged()
+            coordinator?.notifyProjectChanged(.script)
 
             focusCursorOffset = 0
             focusElementId = descId
@@ -1030,7 +1030,7 @@ class ScriptViewModel: ObservableObject {
         elementsVersion += 1
         updateOutlineAndStats()
 
-        coordinator.notifyProjectChanged()
+        coordinator.notifyProjectChanged(.script)
     }
 
     // MARK: - Private Helpers

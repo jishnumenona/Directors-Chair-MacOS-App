@@ -467,7 +467,10 @@ struct TimelineContainer: View {
             }
         }
         // Subscribe to project changed events (e.g., when bubbles are reordered)
-        .onReceive(coordinator.projectChanged) { _ in
+        .onReceive(coordinator.projectEvents) { event in
+            // Timeline renders script + shots + structure; schedule/budget
+            // edits don't require a rebuild.
+            guard event != .production else { return }
             debugLog("🎬 TimelineContainer: projectChanged received, refreshing timeline")
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.refresh()

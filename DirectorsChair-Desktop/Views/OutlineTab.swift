@@ -41,7 +41,8 @@ struct OutlineTab: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onReceive(coordinator.projectChanged) { _ in
+        .onReceive(coordinator.projectEvents) { event in
+            guard event != .production else { return }
             debugLog("📋 OutlineTab: projectChanged received, sequences=\(projectViewModel.project.sequences.count), scenes=\(projectViewModel.project.sequences.flatMap(\.scenes).count)")
             refreshToken = UUID()
         }

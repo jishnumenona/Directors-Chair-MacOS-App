@@ -64,18 +64,10 @@ final class SceneNavigationTests: XCTestCase {
         let project = makeTestProject()
         let scene1 = project.sequences[0].scenes[0]
 
-        let expectation = XCTestExpectation(description: "sceneChanged fires")
-
-        coordinator.sceneChanged
-            .sink { scene in
-                XCTAssertEqual(scene.id, scene1.id)
-                expectation.fulfill()
-            }
-            .store(in: &cancellables)
-
-        coordinator.sceneChanged.send(scene1)
-
-        wait(for: [expectation], timeout: 2.0)
+        // WS5.2: the dead sceneChanged subject was removed; selection is
+        // plain @Published state now. Verify selectScene updates it.
+        coordinator.selectScene(scene1)
+        XCTAssertEqual(coordinator.selectedScene?.id, scene1.id)
     }
 
     // MARK: - Scene Creation Tests
