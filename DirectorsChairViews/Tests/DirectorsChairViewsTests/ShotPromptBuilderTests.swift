@@ -111,4 +111,36 @@ final class ShotPromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("wool fabric"))
     }
 
+    func testAppearancePromptCoversPhysicalAttributes() {
+        var c = Character(name: "Maya")
+        c.imageStyle = "Watercolor"
+        c.gender = "female"
+        c.age = 28
+        c.skinTone = "olive"
+        c.hairColor = "black"
+        c.hairLength = "Long"
+        c.eyeShape = "Almond"
+        c.eyeColorDescription = "dark brown"
+        c.role = "Antagonist"
+
+        let prompt = StoryDesignPromptBuilder.characterAppearancePrompt(character: c)
+        XCTAssertTrue(prompt.contains("watercolor painting"))
+        XCTAssertTrue(prompt.contains("female character"))
+        XCTAssertTrue(prompt.contains("age 28"))
+        XCTAssertTrue(prompt.contains("olive skin tone"))
+        XCTAssertTrue(prompt.contains("black long"), "hair color+length present")
+        XCTAssertTrue(prompt.contains("hair"))
+        XCTAssertTrue(prompt.contains("dark brown almond eyes"))
+        XCTAssertTrue(prompt.contains("antagonist character"))
+    }
+
+    func testAnglePromptConsistencyInstruction() {
+        let with = StoryDesignPromptBuilder.anglePrompt(base: "base", angle: "profile view", hasBaseImage: true)
+        XCTAssertTrue(with.contains("EXACT SAME person"))
+        XCTAssertTrue(with.contains("profile view"))
+        let without = StoryDesignPromptBuilder.anglePrompt(base: "base", angle: "profile view", hasBaseImage: false)
+        XCTAssertFalse(without.contains("EXACT SAME person"))
+        XCTAssertTrue(without.contains("turnaround sheet"))
+    }
+
 }

@@ -190,123 +190,14 @@ extension PhysicalAppearanceTab {
 
     // MARK: - Build Image Prompt
 
+    // Prompt construction lives in StoryDesignPromptBuilder (WS6.2).
     func buildAnglePrompt(angle: String) -> String {
-        let hasBaseImage = effectiveImagePath(for: .base) != nil
-        var base = buildImagePrompt()
-        base += ", \(angle)"
-        if hasBaseImage {
-            base += ". IMPORTANT: Generate the EXACT SAME person as shown in the reference image. Match the face, skin tone, hair, clothing, and art style precisely. This is a different angle of the same character, not a new character."
-        }
-        base += ", character turnaround sheet, consistent character appearance across all angles"
-        return base
+        StoryDesignPromptBuilder.anglePrompt(base: buildImagePrompt(), angle: angle,
+                                             hasBaseImage: effectiveImagePath(for: .base) != nil)
     }
 
     func buildImagePrompt() -> String {
-        var parts: [String] = []
-
-        // Art style — prepend for strongest influence on generation
-        // Style mapping lives in StoryDesignPromptBuilder (WS6.2 — was triplicated).
-        let styleDirective = StoryDesignPromptBuilder.styleDirective(for: character.imageStyle)
-        parts.append(styleDirective)
-
-        // Basic identity
-        parts.append("\(character.gender) character")
-        if character.age > 0 {
-            parts.append("age \(character.age)")
-        }
-
-        // Physical build & body
-        if !character.build.isEmpty {
-            parts.append("\(character.build.lowercased()) build")
-        }
-        if let h = character.heightCm, h > 0 {
-            let ft = Int(h / 30.48)
-            let inches = Int((h / 2.54).truncatingRemainder(dividingBy: 12))
-            parts.append("\(ft)'\(inches)\" tall")
-        }
-
-        // Facial structure
-        if !character.facialStructure.isEmpty {
-            parts.append("\(character.facialStructure.lowercased()) face shape")
-        }
-
-        // Skin
-        if !character.skinTone.isEmpty {
-            parts.append("\(character.skinTone) skin tone")
-        }
-        if !character.ethnicity.isEmpty {
-            parts.append("\(character.ethnicity) ethnicity")
-        }
-
-        // Hair
-        if !character.hairColor.isEmpty || !character.hairStyle.isEmpty || !character.hairLength.isEmpty {
-            var hairParts: [String] = []
-            if !character.hairColor.isEmpty { hairParts.append(character.hairColor) }
-            if !character.hairLength.isEmpty { hairParts.append(character.hairLength.lowercased()) }
-            if !character.hairStyle.isEmpty { hairParts.append(character.hairStyle.lowercased()) }
-            parts.append(hairParts.joined(separator: " ") + " hair")
-        }
-
-        // Eyes
-        if !character.eyeColorDescription.isEmpty || !character.eyeShape.isEmpty {
-            var eyeParts: [String] = []
-            if !character.eyeColorDescription.isEmpty { eyeParts.append(character.eyeColorDescription) }
-            if !character.eyeShape.isEmpty { eyeParts.append(character.eyeShape.lowercased()) }
-            parts.append(eyeParts.joined(separator: " ") + " eyes")
-        }
-
-        // Distinguishing features
-        if !character.distinguishingFeatures.isEmpty {
-            parts.append(character.distinguishingFeatures)
-        }
-
-        // Costume/attire — use active costume or general costume description
-        if let costumes = character.costumes,
-           let activeIdx = character.activeCostumeIndex,
-           activeIdx < costumes.count {
-            let c = costumes[activeIdx]
-            var attire: [String] = []
-            if let top = c.garmentTop, !top.isEmpty { attire.append(top) }
-            if let bottom = c.garmentBottom, !bottom.isEmpty { attire.append(bottom) }
-            if let outer = c.outerwear, !outer.isEmpty { attire.append(outer) }
-            if let head = c.headwear, !head.isEmpty { attire.append(head) }
-            if let foot = c.footwear, !foot.isEmpty { attire.append(foot) }
-            if !attire.isEmpty {
-                parts.append("wearing " + attire.joined(separator: ", "))
-            }
-        } else if let costume = character.costume, !costume.isEmpty {
-            parts.append("wearing \(costume)")
-        }
-
-        // Occupation — influences visual portrayal
-        if let occupation = character.occupation, !occupation.isEmpty {
-            parts.append("occupation: \(occupation)")
-        }
-
-        // Personality — top distinctive traits influence expression/demeanor
-        let dominantTraits = character.traits
-            .filter { abs($0.value - 50.0) > 15 }
-            .sorted { abs($0.value - 50.0) > abs($1.value - 50.0) }
-            .prefix(3)
-        if !dominantTraits.isEmpty {
-            let traitDescs = dominantTraits.map { trait -> String in
-                let level = trait.value > 50 ? "high" : "low"
-                return "\(level) \(trait.key.lowercased())"
-            }
-            parts.append("personality: \(traitDescs.joined(separator: ", "))")
-        }
-
-        // Character role context
-        if !character.role.isEmpty {
-            parts.append("\(character.role.lowercased()) character")
-        }
-
-        // Brief description if available
-        if !character.about.isEmpty {
-            parts.append(character.about)
-        }
-
-        return parts.joined(separator: ", ")
+        StoryDesignPromptBuilder.characterAppearancePrompt(character: character)
     }
 
     // MARK: - Reference Image Upload
