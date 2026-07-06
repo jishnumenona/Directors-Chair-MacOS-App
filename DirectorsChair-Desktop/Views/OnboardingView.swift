@@ -19,6 +19,10 @@ struct OnboardingView: View {
     @State private var projectName = ""
     @State private var selectedGenre = ""
     @State private var autoAdvanceTimer: Timer?
+    /// Handle for the key monitor so it can be removed when onboarding closes.
+    /// Leaking it left a global Return-key handler alive for the whole session
+    /// that fired createProject() — replacing the open project with a new one.
+    @State private var keyMonitor: Any?
 
     private let totalPages = 9
 
@@ -77,10 +81,24 @@ struct OnboardingView: View {
             }
         }
         .onAppear {
-            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                handleKeyEvent(event)
+            // Install once; store the handle so it can be removed on disappear.
+            if keyMonitor == nil {
+                keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    handleKeyEvent(event)
+                }
             }
             startAutoAdvanceTimer()
+        }
+        .onDisappear {
+            // Critical: tear down the global key monitor and the timer when
+            // onboarding closes. Otherwise the Return-key handler stays alive
+            // app-wide and re-runs createProject() on the next Enter press.
+            if let monitor = keyMonitor {
+                NSEvent.removeMonitor(monitor)
+                keyMonitor = nil
+            }
+            autoAdvanceTimer?.invalidate()
+            autoAdvanceTimer = nil
         }
     }
 
