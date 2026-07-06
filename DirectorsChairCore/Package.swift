@@ -16,7 +16,12 @@ let package = Package(
     targets: [
         .target(
             name: "DirectorsChairCore",
-            dependencies: []),
+            dependencies: [],
+            // WS2.7: enforce complete strict-concurrency checking so any future
+            // data-race / Sendable regression surfaces as a build warning.
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ]),
         .testTarget(
             name: "DirectorsChairCoreTests",
             dependencies: ["DirectorsChairCore"]),

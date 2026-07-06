@@ -184,7 +184,11 @@ public class DebouncedSaveManager: ObservableObject {
     }
 
     deinit {
-        debounceTimer?.invalidate()
+        // The debounce timer is a one-shot `[weak self]` timer, invalidated on
+        // every active code path; if it survives to fire after deinit it simply
+        // no-ops. Touching the main-actor, non-Sendable `Timer?` from this
+        // nonisolated deinit is unsafe under Swift 6, so we only cancel the
+        // in-flight save (a Sendable Task, safe to cancel from anywhere).
         inFlight?.cancel()
     }
 }
