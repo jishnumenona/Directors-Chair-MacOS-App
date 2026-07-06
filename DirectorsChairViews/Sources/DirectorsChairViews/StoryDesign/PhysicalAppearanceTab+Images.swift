@@ -205,27 +205,8 @@ extension PhysicalAppearanceTab {
         var parts: [String] = []
 
         // Art style — prepend for strongest influence on generation
-        let styleDirective: String
-        switch character.imageStyle {
-        case "Photorealistic":
-            styleDirective = "photorealistic, ultra-realistic photograph, natural lighting"
-        case "Cinematic":
-            styleDirective = "cinematic still frame, dramatic movie lighting, film grain, shallow depth of field"
-        case "Illustration":
-            styleDirective = "digital illustration, hand-drawn style, detailed line art with color"
-        case "Anime":
-            styleDirective = "anime style, Japanese animation, cel-shaded, large expressive eyes"
-        case "Comic Book":
-            styleDirective = "comic book art, bold ink outlines, halftone dots, vibrant colors"
-        case "Watercolor":
-            styleDirective = "watercolor painting, soft washes, visible brush strokes, paper texture"
-        case "Oil Painting":
-            styleDirective = "classical oil painting, rich textures, museum quality, fine brush work"
-        case "3D Render":
-            styleDirective = "3D rendered character, CGI, Pixar-quality, subsurface scattering"
-        default:
-            styleDirective = "photorealistic"
-        }
+        // Style mapping lives in StoryDesignPromptBuilder (WS6.2 — was triplicated).
+        let styleDirective = StoryDesignPromptBuilder.styleDirective(for: character.imageStyle)
         parts.append(styleDirective)
 
         // Basic identity

@@ -289,27 +289,8 @@ extension CostumeTab {
                 await MainActor.run { referenceGenProgress = 0.2 }
 
                 // Build prompt with style directive
-                let styleDirective: String
-                switch character.imageStyle {
-                case "Photorealistic":
-                    styleDirective = "photorealistic, ultra-realistic photograph, natural lighting"
-                case "Cinematic":
-                    styleDirective = "cinematic still frame, dramatic movie lighting, film grain, shallow depth of field"
-                case "Illustration":
-                    styleDirective = "digital illustration, hand-drawn style, detailed line art with color"
-                case "Anime":
-                    styleDirective = "anime style, Japanese animation, cel-shaded, large expressive eyes"
-                case "Comic Book":
-                    styleDirective = "comic book art, bold ink outlines, halftone dots, vibrant colors"
-                case "Watercolor":
-                    styleDirective = "watercolor painting, soft washes, visible brush strokes, paper texture"
-                case "Oil Painting":
-                    styleDirective = "classical oil painting, rich textures, museum quality, fine brush work"
-                case "3D Render":
-                    styleDirective = "3D rendered character, CGI, Pixar-quality, subsurface scattering"
-                default:
-                    styleDirective = "photorealistic"
-                }
+                // Style mapping lives in StoryDesignPromptBuilder (WS6.2 — was triplicated).
+                let styleDirective = StoryDesignPromptBuilder.styleDirective(for: character.imageStyle)
 
                 let prompt = """
                 \(styleDirective). Generate a full-body portrait of this exact character \
@@ -400,64 +381,9 @@ extension CostumeTab {
         }
     }
 
+    // Prompt construction lives in StoryDesignPromptBuilder (WS6.2).
     func buildCostumePrompt(costume: CharacterCostume) -> String {
-        var parts: [String] = []
-
-        // Art style directive
-        let styleDirective: String
-        switch character.imageStyle {
-        case "Photorealistic":
-            styleDirective = "photorealistic, ultra-realistic photograph, natural lighting"
-        case "Cinematic":
-            styleDirective = "cinematic still frame, dramatic movie lighting, film grain, shallow depth of field"
-        case "Illustration":
-            styleDirective = "digital illustration, hand-drawn style, detailed line art with color"
-        case "Anime":
-            styleDirective = "anime style, Japanese animation, cel-shaded, large expressive eyes"
-        case "Comic Book":
-            styleDirective = "comic book art, bold ink outlines, halftone dots, vibrant colors"
-        case "Watercolor":
-            styleDirective = "watercolor painting, soft washes, visible brush strokes, paper texture"
-        case "Oil Painting":
-            styleDirective = "classical oil painting, rich textures, museum quality, fine brush work"
-        case "3D Render":
-            styleDirective = "3D rendered character, CGI, Pixar-quality, subsurface scattering"
-        default:
-            styleDirective = "photorealistic"
-        }
-        parts.append(styleDirective)
-
-        // Character physical description
-        parts.append("\(character.gender) character")
-        if character.age > 0 { parts.append("age \(character.age)") }
-        if !character.build.isEmpty { parts.append("\(character.build.lowercased()) build") }
-        if !character.hairColor.isEmpty { parts.append("\(character.hairColor) hair") }
-        if !character.ethnicity.isEmpty { parts.append("\(character.ethnicity) ethnicity") }
-
-        // Costume description
-        parts.append("wearing \(costume.name)")
-        if !costume.description.isEmpty { parts.append(costume.description) }
-
-        // Garment details
-        var garments: [String] = []
-        if let top = costume.garmentTop, !top.isEmpty { garments.append("top: \(top)") }
-        if let bottom = costume.garmentBottom, !bottom.isEmpty { garments.append("bottom: \(bottom)") }
-        if let foot = costume.footwear, !foot.isEmpty { garments.append("footwear: \(foot)") }
-        if let outer = costume.outerwear, !outer.isEmpty { garments.append("outerwear: \(outer)") }
-        if let head = costume.headwear, !head.isEmpty { garments.append("headwear: \(head)") }
-        if !garments.isEmpty { parts.append(garments.joined(separator: ", ")) }
-
-        if let era = costume.era { parts.append("\(era) period") }
-        if let style = costume.styleCategory { parts.append("\(style) style") }
-
-        if let palette = costume.colorPalette, !palette.isEmpty {
-            parts.append("color palette: \(palette.joined(separator: ", "))")
-        }
-        if let fabric = costume.primaryFabric, !fabric.isEmpty {
-            parts.append("\(fabric) fabric")
-        }
-
-        return parts.joined(separator: ", ")
+        StoryDesignPromptBuilder.costumePrompt(character: character, costume: costume)
     }
 
     var costumeAngleCount: Int {

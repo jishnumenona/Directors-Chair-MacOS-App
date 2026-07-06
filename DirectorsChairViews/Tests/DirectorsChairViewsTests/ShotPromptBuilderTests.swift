@@ -81,4 +81,34 @@ final class ShotPromptBuilderTests: XCTestCase {
         let summary = ShotPromptBuilder.promptSummary(shot: makeShot(), scene: DCScene(name: "S1"))
         XCTAssertEqual(summary, "Close-up • Low • S1")
     }
+    // MARK: - StoryDesignPromptBuilder (WS6.2)
+
+    func testStyleDirectiveMapping() {
+        XCTAssertTrue(StoryDesignPromptBuilder.styleDirective(for: "Anime").contains("cel-shaded"))
+        XCTAssertTrue(StoryDesignPromptBuilder.styleDirective(for: "3D Render").contains("CGI"))
+        XCTAssertEqual(StoryDesignPromptBuilder.styleDirective(for: "unknown"), "photorealistic")
+    }
+
+    func testCostumePromptIncludesGarmentsAndPalette() {
+        var c = Character(name: "Alex")
+        c.imageStyle = "Cinematic"
+        c.gender = "male"
+        c.age = 40
+        var costume = CharacterCostume(name: "Detective Coat")
+        costume.garmentTop = "grey shirt"
+        costume.outerwear = "long trench coat"
+        costume.colorPalette = ["charcoal", "rust"]
+        costume.primaryFabric = "wool"
+
+        let prompt = StoryDesignPromptBuilder.costumePrompt(character: c, costume: costume)
+        XCTAssertTrue(prompt.contains("cinematic still frame"))
+        XCTAssertTrue(prompt.contains("male character"))
+        XCTAssertTrue(prompt.contains("age 40"))
+        XCTAssertTrue(prompt.contains("wearing Detective Coat"))
+        XCTAssertTrue(prompt.contains("top: grey shirt"))
+        XCTAssertTrue(prompt.contains("outerwear: long trench coat"))
+        XCTAssertTrue(prompt.contains("color palette: charcoal, rust"))
+        XCTAssertTrue(prompt.contains("wool fabric"))
+    }
+
 }
