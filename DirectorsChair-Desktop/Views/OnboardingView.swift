@@ -241,12 +241,12 @@ struct OnboardingView: View {
         featureShowcasePage(
             preview: AnyView(EditingAutomationPreviewAnimation(accentCyan: accentCyan)),
             icon: "slider.horizontal.below.rectangle",
-            title: "Automate Your Edit",
-            subtitle: "Seamless integration with DaVinci Resolve and smart clapboard",
+            title: "From Capture to Cut",
+            subtitle: "Every take logged, rated, and mapped to your plan",
             features: [
-                FeatureItem(icon: "timeline.selection", title: "Curated timeline export", description: "Auto-generate DaVinci Resolve timelines from your shot plan"),
-                FeatureItem(icon: "ipad.landscape", title: "Smart clapboard for iPad", description: "Digital slate syncs metadata, take notes, and scene info automatically"),
-                FeatureItem(icon: "gearshape.2", title: "Automated post workflow", description: "EDL/XML export with scene markers, color tags, and clip organization"),
+                FeatureItem(icon: "video.badge.checkmark", title: "Live capture & take logging", description: "Record with a connected camera, rate takes with one tap, and log blind timestamps when there's no feed"),
+                FeatureItem(icon: "square.grid.3x1.folder.badge.plus", title: "Curation workspace", description: "Review, compare, and select takes; map camera files back to your shots"),
+                FeatureItem(icon: "square.and.arrow.up.on.square", title: "Industry-standard exports", description: "Fountain, Final Draft (FDX), HTML, and searchable PDF screenplays"),
             ]
         )
     }
@@ -256,14 +256,14 @@ struct OnboardingView: View {
     private var smartClapboardPage: some View {
         featureShowcasePage(
             preview: AnyView(SmartClapboardPreviewAnimation(accentCyan: accentCyan)),
-            icon: "ipad.landscape",
-            title: "Smart Clapboard for iPad",
-            subtitle: "A digital slate that syncs with your entire production",
+            icon: "movieclapper",
+            title: "On-Set Capture Toolkit",
+            subtitle: "Tools that keep every take organized while you shoot",
             features: [
-                FeatureItem(icon: "movieclapper", title: "Digital smart slate", description: "Scene, shot, and take info updates automatically from your script"),
-                FeatureItem(icon: "arrow.triangle.2.circlepath", title: "Auto-sync with Director's Chair", description: "Metadata flows seamlessly between iPad on set and desktop in edit"),
-                FeatureItem(icon: "note.text", title: "Take notes & annotations", description: "Add notes per take — circle selects, print, director comments"),
-                FeatureItem(icon: "waveform", title: "Audio timecode sync", description: "Jam-sync timecode for frame-accurate editorial alignment"),
+                FeatureItem(icon: "movieclapper", title: "Slate that follows your script", description: "Scene, shot, and take numbers update automatically as you work"),
+                FeatureItem(icon: "keyboard", title: "Remote-control recording", description: "Map hardware keys to start and stop takes without touching the Mac"),
+                FeatureItem(icon: "note.text", title: "Take notes & annotations", description: "Add notes per take — circle selects, ratings, director comments"),
+                FeatureItem(icon: "waveform", title: "Sync-tone detection", description: "Audio sync tones help align external camera files to your takes"),
             ]
         )
     }

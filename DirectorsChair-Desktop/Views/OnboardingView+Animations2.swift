@@ -304,7 +304,7 @@ struct EditingAutomationPreviewAnimation: View {
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(Color.red.opacity(0.7))
                                 .frame(width: 10, height: 10)
-                            Text("DaVinci Resolve Timeline")
+                            Text("Editing Timeline")
                                 .font(.system(size: 7, weight: .bold))
                                 .foregroundColor(.white.opacity(0.7))
                             Spacer()
