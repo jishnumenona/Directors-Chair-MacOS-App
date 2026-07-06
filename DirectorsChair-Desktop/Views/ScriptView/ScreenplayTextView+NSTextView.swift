@@ -13,6 +13,19 @@ import AppKit
 /// Custom NSTextView that can draw page break indicators and handle key shortcuts
 class ScreenplayNSTextView: NSTextView {
 
+    /// WS7.3 — badge image cache: Cmd-highlight previously re-read every
+    /// character portrait from disk for EVERY cue occurrence on each
+    /// activation. Cached per relative path for the session.
+    private static var badgeImageCache: [String: NSImage] = [:]
+
+    static func badgeImage(relativePath: String, base: URL) -> NSImage? {
+        if let cached = badgeImageCache[relativePath] { return cached }
+        guard let image = NSImage(contentsOf: base.appendingPathComponent(relativePath)) else { return nil }
+        badgeImageCache[relativePath] = image
+        return image
+    }
+
+
     // WS7.2 — model-level undo/redo hooks (built-in undo is disabled).
     var onUndoRequested: (() -> Void)?
     var onRedoRequested: (() -> Void)?
@@ -222,8 +235,7 @@ class ScreenplayNSTextView: NSTextView {
                 var loaded = false
 
                 if let relativePath = info?.imagePath, !relativePath.isEmpty, let base = basePath {
-                    let fullURL = base.appendingPathComponent(relativePath)
-                    if let image = NSImage(contentsOf: fullURL) {
+                    if let image = ScreenplayNSTextView.badgeImage(relativePath: relativePath, base: base) {
                         let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: iconSize, height: iconSize))
                         imageView.image = image
                         imageView.imageScaling = .scaleProportionallyUpOrDown
