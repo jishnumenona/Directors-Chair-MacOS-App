@@ -132,6 +132,12 @@
     <div class="expect"><b>Pass:</b> created with the entered name (auto-unique if it exists), opens immediately.</div>
     <div class="notes"><textarea id="n2-2"></textarea></div>
   </div></div>
+
+  <div class="step"><input type="checkbox" id="s2-3"><div>
+    <div class="do"><b>Right-click a project card</b> → try "Reveal in Finder", then "Delete Project…" on a throwaway project.<span class="tag bugfix">new feature</span></div>
+    <div class="expect"><b>Pass:</b> Reveal opens Finder at the folder; Delete shows a confirmation, moves the folder to the <b>Trash</b> (check it's there — recoverable), and the card disappears from the grid. Deleting the currently-open project closes it first.</div>
+    <div class="notes"><textarea id="n2-3"></textarea></div>
+  </div></div>
 </details>
 
 <!-- ============ 3 SCRIPT EDITOR ============ -->
