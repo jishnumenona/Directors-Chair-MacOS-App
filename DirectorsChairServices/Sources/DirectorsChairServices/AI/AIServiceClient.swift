@@ -434,7 +434,7 @@ public actor AIServiceClient {
     ///   - timeout: Request timeout in seconds (default: 120)
     ///   - projectName: Current project name for usage tracking
     public init(
-        baseURL: String = "https://directorschair.app/ai",
+        baseURL: String = ServiceEnvironment.aiProxyURLString,
         timeout: TimeInterval = 120,
         projectName: String = ""
     ) {
@@ -442,7 +442,7 @@ public actor AIServiceClient {
         // known-good default rather than force-unwrapping (a bad string would
         // otherwise crash the app on first AI call).
         let trimmed = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        self.baseURL = URL(string: trimmed) ?? URL(string: "https://directorschair.app/ai")!
+        self.baseURL = URL(string: trimmed) ?? ServiceEnvironment.aiProxyURL
         self.timeout = timeout
         self.projectName = projectName
 

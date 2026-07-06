@@ -20,7 +20,7 @@ public struct AuthConfiguration {
     public let localCallbackPort: Int
 
     public static let `default` = AuthConfiguration(
-        giteaBaseURL: "https://git.directorschair.app",
+        giteaBaseURL: ServiceEnvironment.giteaBaseURLString,
         clientID: "c2091ed1-1094-4089-81ed-90a59ed4d307",
         redirectURI: "directorschair://oauth/callback",
         localCallbackPort: 19274
@@ -255,7 +255,9 @@ public class AuthManager: ObservableObject {
         // 2. Build authorization URL
         let state = UUID().uuidString
         self.oauthState = state
-        var components = URLComponents(string: "\(configuration.giteaBaseURL)/login/oauth/authorize")!
+        guard var components = URLComponents(string: "\(configuration.giteaBaseURL)/login/oauth/authorize") else {
+            throw AuthError.notConfigured
+        }
         components.queryItems = [
             URLQueryItem(name: "client_id", value: configuration.clientID),
             URLQueryItem(name: "redirect_uri", value: configuration.redirectURI),
@@ -387,13 +389,22 @@ public class AuthManager: ObservableObject {
 
     // MARK: - Token Exchange
 
+    /// Build an endpoint URL from the configured base + path, throwing rather
+    /// than force-unwrapping if the configured base URL is malformed (WS3.5).
+    private func endpoint(_ path: String) throws -> URL {
+        guard let url = URL(string: "\(configuration.giteaBaseURL)\(path)") else {
+            throw AuthError.notConfigured
+        }
+        return url
+    }
+
     private func exchangeCodeForTokens(code: String) async throws {
         guard let verifier = codeVerifier else {
             authLog("[Auth] exchangeCodeForTokens: NO code verifier!")
             throw AuthError.pkceGenerationFailed
         }
 
-        let tokenURL = URL(string: "\(configuration.giteaBaseURL)/login/oauth/access_token")!
+        let tokenURL = try endpoint("/login/oauth/access_token")
         var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -447,7 +458,7 @@ public class AuthManager: ObservableObject {
             throw AuthError.noRefreshToken
         }
 
-        let tokenURL = URL(string: "\(configuration.giteaBaseURL)/login/oauth/access_token")!
+        let tokenURL = try endpoint("/login/oauth/access_token")
         var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -492,7 +503,7 @@ public class AuthManager: ObservableObject {
             throw AuthError.userInfoFailed("No access token")
         }
 
-        let url = URL(string: "\(configuration.giteaBaseURL)/api/v1/user")!
+        let url = try endpoint("/api/v1/user")
         var request = URLRequest(url: url)
         request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
 

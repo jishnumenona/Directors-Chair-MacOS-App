@@ -1115,7 +1115,7 @@ public actor GiteaClient: RemoteRepositoryProtocol {
 ///   - token: Authentication token
 /// - Returns: GiteaClient instance
 public func createGiteaClient(
-    serverURL: URL = URL(string: "https://git.directorschair.app")!,
+    serverURL: URL = ServiceEnvironment.giteaBaseURL,
     token: String? = nil
 ) -> GiteaClient {
     return GiteaClient(baseURL: serverURL, token: token)
