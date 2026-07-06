@@ -249,4 +249,51 @@ final class TimelineViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.segments.isEmpty)
         XCTAssertGreaterThanOrEqual(viewModel.segments.count, 5)
     }
+    // MARK: - Cross-scope parity (WS5.6 — one shared appendScene behind all three rebuilds)
+
+    /// The same scene must produce identical segments whether built in scene,
+    /// sequence, or global scope (modulo the time offset of preceding scenes).
+    func testSceneSegmentsIdenticalAcrossScopes() {
+        let project = makeTestProject()
+        let scene1 = project.sequences[0].scenes[0]
+
+        viewModel.setProject(project)
+        viewModel.showScene(scene1)
+        let sceneSegs = viewModel.segments
+
+        viewModel.showSequence(project.sequences[0])
+        let seqSegs = viewModel.segments
+
+        viewModel.showGlobal()
+        let globalSegs = viewModel.segments
+
+        // Scene 1 is first in both wider scopes, so its segments lead the list
+        // with the same timings.
+        XCTAssertGreaterThan(sceneSegs.count, 0)
+        for (i, seg) in sceneSegs.enumerated() {
+            XCTAssertEqual(seqSegs[i].sourceItemId, seg.sourceItemId, "seq order parity @\(i)")
+            XCTAssertEqual(seqSegs[i].start, seg.start, accuracy: 0.001, "seq start parity @\(i)")
+            XCTAssertEqual(seqSegs[i].duration, seg.duration, accuracy: 0.001, "seq duration parity @\(i)")
+            XCTAssertEqual(globalSegs[i].sourceItemId, seg.sourceItemId, "global order parity @\(i)")
+            XCTAssertEqual(globalSegs[i].start, seg.start, accuracy: 0.001, "global start parity @\(i)")
+        }
+    }
+
+    /// Sequence scope must lay scenes back to back: scene 2's first segment
+    /// starts after all of scene 1's content.
+    func testSequenceScopeAccumulatesTime() {
+        let project = makeTestProject()
+        viewModel.setProject(project)
+
+        viewModel.showScene(project.sequences[0].scenes[0])
+        let scene1End = viewModel.segments.map { $0.start + $0.duration }.max() ?? 0
+        let scene1Count = viewModel.segments.count
+
+        viewModel.showSequence(project.sequences[0])
+        XCTAssertGreaterThan(viewModel.segments.count, scene1Count, "sequence adds scene 2's segments")
+        let scene2First = viewModel.segments[scene1Count].start
+        XCTAssertGreaterThanOrEqual(scene2First, scene1End - 0.001, "scene 2 starts after scene 1 ends")
+        XCTAssertEqual(viewModel.sceneBoundaries.count, 2, "one boundary per scene")
+    }
 }
+
