@@ -1,41 +1,9 @@
-// DirectorsChairCore/Sources/DirectorsChairCore/Protocols/GitSerializerProtocol.swift
+// DirectorsChairCore — remote repository (Gitea) client surface
 //
-// Protocol interfaces for Git serialization and remote repository operations (Module 7)
-// Complements GitServiceProtocol defined in ExportServiceProtocol.swift
+// Extracted from the deleted GitSerializerProtocol.swift during WS2.1 dead-code removal:
+// these types are live (referenced by shipped code); the rest of that file was dead.
 
 import Foundation
-
-// MARK: - Git Serialization Protocol
-
-/// Protocol for serializing DirectorsChair projects to Git-friendly structure
-public protocol GitSerializerProtocol: Sendable {
-
-    /// Serialize entire project to Git-friendly modular structure
-    /// - Parameters:
-    ///   - project: Project to serialize
-    ///   - repoPath: Path to Git repository
-    /// - Returns: Serialization statistics
-    func serializeProject(
-        _ project: Project,
-        to repoPath: URL
-    ) async throws -> GitSerializationStats
-
-    /// Deserialize Git repository to DirectorsChair project
-    /// - Parameter repoPath: Path to Git repository
-    /// - Returns: Reconstructed project
-    func deserializeProject(from repoPath: URL) async throws -> Project
-
-    /// Update specific entity in Git structure
-    /// - Parameters:
-    ///   - entity: Entity to update (Character, Scene, etc.)
-    ///   - repoPath: Path to Git repository
-    func updateEntity<T: Codable & Identifiable>(
-        _ entity: T,
-        at repoPath: URL
-    ) async throws
-}
-
-// MARK: - Remote Repository Protocol
 
 /// Protocol for remote repository operations (Gitea, GitHub, etc.)
 public protocol RemoteRepositoryProtocol: Sendable {
@@ -172,49 +140,6 @@ public protocol RemoteRepositoryProtocol: Sendable {
     /// - Returns: Clone URL
     func getCloneURL(owner: String, repo: String, useSSH: Bool) async throws -> URL
 }
-
-// MARK: - Git Serialization Types
-
-/// Git serialization statistics
-public struct GitSerializationStats: Sendable, Codable {
-    public var characters: Int
-    public var scenes: Int
-    public var sequences: Int
-    public var beats: Int
-    public var locations: Int
-    public var props: Int
-    public var costumes: Int
-    public var lighting: Int
-    public var effects: Int
-
-    public init(
-        characters: Int = 0,
-        scenes: Int = 0,
-        sequences: Int = 0,
-        beats: Int = 0,
-        locations: Int = 0,
-        props: Int = 0,
-        costumes: Int = 0,
-        lighting: Int = 0,
-        effects: Int = 0
-    ) {
-        self.characters = characters
-        self.scenes = scenes
-        self.sequences = sequences
-        self.beats = beats
-        self.locations = locations
-        self.props = props
-        self.costumes = costumes
-        self.lighting = lighting
-        self.effects = effects
-    }
-
-    public var totalFiles: Int {
-        characters + scenes + sequences + beats + locations + props + costumes + lighting + effects
-    }
-}
-
-// MARK: - Remote Types
 
 /// Remote user information
 public struct RemoteUser: Sendable, Codable, Identifiable {
@@ -355,138 +280,6 @@ public struct RemotePullRequest: Sendable, Codable, Identifiable {
         self.author = author
         self.createdAt = createdAt
         self.isMergeable = isMergeable
-    }
-}
-
-// MARK: - Additional Git Types
-
-/// Git file change status
-public enum GitFileStatus: String, Sendable, Codable {
-    case added = "A"
-    case modified = "M"
-    case deleted = "D"
-    case renamed = "R"
-    case copied = "C"
-    case unmerged = "U"
-}
-
-/// Git file change information
-public struct GitFileChange: Sendable, Codable {
-    public var path: String
-    public var status: GitFileStatus
-
-    public init(path: String, status: GitFileStatus) {
-        self.path = path
-        self.status = status
-    }
-}
-
-/// Git author information
-public struct GitAuthor: Sendable, Codable {
-    public var name: String
-    public var email: String
-
-    public init(name: String, email: String) {
-        self.name = name
-        self.email = email
-    }
-}
-
-/// Git remote information
-public struct GitRemote: Sendable, Codable {
-    public var name: String
-    public var fetchURL: URL
-    public var pushURL: URL
-
-    public init(name: String, fetchURL: URL, pushURL: URL) {
-        self.name = name
-        self.fetchURL = fetchURL
-        self.pushURL = pushURL
-    }
-}
-
-/// Git branch list
-public struct GitBranchList: Sendable, Codable {
-    public var current: String
-    public var local: [String]
-    public var remote: [String]
-
-    public init(current: String = "main", local: [String] = [], remote: [String] = []) {
-        self.current = current
-        self.local = local
-        self.remote = remote
-    }
-}
-
-/// Git pull result
-public struct GitPullResult: Sendable, Codable {
-    public var success: Bool
-    public var message: String
-    public var commitsReceived: Int
-    public var conflicts: [String]
-
-    public init(success: Bool, message: String, commitsReceived: Int = 0, conflicts: [String] = []) {
-        self.success = success
-        self.message = message
-        self.commitsReceived = commitsReceived
-        self.conflicts = conflicts
-    }
-}
-
-/// Git diff information
-public struct GitDiff: Sendable, Codable {
-    public var files: [GitDiffFile]
-    public var additions: Int
-    public var deletions: Int
-
-    public init(files: [GitDiffFile] = [], additions: Int = 0, deletions: Int = 0) {
-        self.files = files
-        self.additions = additions
-        self.deletions = deletions
-    }
-}
-
-/// Git diff file
-public struct GitDiffFile: Sendable, Codable {
-    public var path: String
-    public var status: GitFileStatus
-    public var additions: Int
-    public var deletions: Int
-
-    public init(path: String, status: GitFileStatus, additions: Int = 0, deletions: Int = 0) {
-        self.path = path
-        self.status = status
-        self.additions = additions
-        self.deletions = deletions
-    }
-}
-
-// MARK: - Git Serialization Errors
-
-/// Errors specific to Git serialization operations
-public enum GitSerializationError: LocalizedError, Sendable {
-    case serializationFailed(String)
-    case deserializationFailed(String)
-    case invalidProjectStructure(String)
-    case missingManifest
-    case unsupportedSchemaVersion(String)
-    case assetCopyFailed(String)
-
-    public var errorDescription: String? {
-        switch self {
-        case .serializationFailed(let reason):
-            return "Project serialization failed: \(reason)"
-        case .deserializationFailed(let reason):
-            return "Project deserialization failed: \(reason)"
-        case .invalidProjectStructure(let reason):
-            return "Invalid project structure: \(reason)"
-        case .missingManifest:
-            return "Missing .directorschair/manifest.json"
-        case .unsupportedSchemaVersion(let version):
-            return "Unsupported schema version: \(version)"
-        case .assetCopyFailed(let asset):
-            return "Failed to copy asset: \(asset)"
-        }
     }
 }
 
