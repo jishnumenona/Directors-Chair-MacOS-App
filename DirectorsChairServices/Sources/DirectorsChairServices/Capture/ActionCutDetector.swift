@@ -140,13 +140,13 @@ public final class ActionCutDetector: @unchecked Sendable {
         inVideoAt videoURL: URL,
         statusHandler: ((DetectionStatus) -> Void)? = nil
     ) async throws -> ActionCutDetectionResult {
-        print("[ActionCutDetector] Starting detection for: \(videoURL.lastPathComponent)")
+        debugLog("[ActionCutDetector] Starting detection for: \(videoURL.lastPathComponent)")
 
         // 1. Check speech recognition authorization
         let authStatus = await requestSpeechAuthorization()
-        print("[ActionCutDetector] Auth status: \(authStatus.rawValue)")
+        debugLog("[ActionCutDetector] Auth status: \(authStatus.rawValue)")
         guard authStatus == .authorized else {
-            print("[ActionCutDetector] DENIED — speech recognition not authorized")
+            debugLog("[ActionCutDetector] DENIED — speech recognition not authorized")
             statusHandler?(.failed("Permission denied"))
             throw ActionCutDetectorError.permissionDenied
         }
@@ -160,7 +160,7 @@ public final class ActionCutDetector: @unchecked Sendable {
         } else {
             duration = asset.duration.seconds
         }
-        print("[ActionCutDetector] Video duration: \(duration)s")
+        debugLog("[ActionCutDetector] Video duration: \(duration)s")
         guard duration > 0 else {
             statusHandler?(.failed("Invalid video duration"))
             throw ActionCutDetectorError.cannotReadAudio
@@ -173,7 +173,7 @@ public final class ActionCutDetector: @unchecked Sendable {
         } else {
             audioTracks = asset.tracks(withMediaType: .audio)
         }
-        print("[ActionCutDetector] Audio tracks: \(audioTracks.count)")
+        debugLog("[ActionCutDetector] Audio tracks: \(audioTracks.count)")
         guard !audioTracks.isEmpty else {
             statusHandler?(.failed("No audio track"))
             throw ActionCutDetectorError.noAudioTrack
@@ -182,9 +182,9 @@ public final class ActionCutDetector: @unchecked Sendable {
         // 4. Run speech recognition directly on the video file
         statusHandler?(.recognizingSpeech(progress: 0.3))
         let allWords = try await recognizeSpeech(fileURL: videoURL)
-        print("[ActionCutDetector] Recognized \(allWords.count) words")
+        debugLog("[ActionCutDetector] Recognized \(allWords.count) words")
         for w in allWords {
-            print("[ActionCutDetector]   \(String(format: "%.1f", w.timestamp))s: \"\(w.word)\" (conf: \(String(format: "%.2f", w.confidence)))")
+            debugLog("[ActionCutDetector]   \(String(format: "%.1f", w.timestamp))s: \"\(w.word)\" (conf: \(String(format: "%.2f", w.confidence)))")
         }
 
         // 5. Analyze words for action/cut cues
@@ -192,7 +192,7 @@ public final class ActionCutDetector: @unchecked Sendable {
         var result = analyzeWords(allWords, videoDuration: duration)
         result.videoDuration = duration
 
-        print("[ActionCutDetector] Result — action: \(result.actionTimestamp.map { String(format: "%.1f", $0) } ?? "nil"), cut: \(result.cutTimestamp.map { String(format: "%.1f", $0) } ?? "nil")")
+        debugLog("[ActionCutDetector] Result — action: \(result.actionTimestamp.map { String(format: "%.1f", $0) } ?? "nil"), cut: \(result.cutTimestamp.map { String(format: "%.1f", $0) } ?? "nil")")
         statusHandler?(.completed)
         return result
     }
@@ -213,19 +213,19 @@ public final class ActionCutDetector: @unchecked Sendable {
     private func recognizeSpeech(fileURL: URL) async throws -> [RecognizedWord] {
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
               recognizer.isAvailable else {
-            print("[ActionCutDetector] Speech recognizer unavailable")
+            debugLog("[ActionCutDetector] Speech recognizer unavailable")
             throw ActionCutDetectorError.speechRecognizerUnavailable
         }
 
-        print("[ActionCutDetector] Starting speech recognition on: \(fileURL.lastPathComponent)")
-        print("[ActionCutDetector] Recognizer locale: \(recognizer.locale), available: \(recognizer.isAvailable), supportsOnDevice: \(recognizer.supportsOnDeviceRecognition)")
+        debugLog("[ActionCutDetector] Starting speech recognition on: \(fileURL.lastPathComponent)")
+        debugLog("[ActionCutDetector] Recognizer locale: \(recognizer.locale), available: \(recognizer.isAvailable), supportsOnDevice: \(recognizer.supportsOnDeviceRecognition)")
 
         let request = SFSpeechURLRecognitionRequest(url: fileURL)
         // Must enable partial results — on-device recognition sometimes returns empty final result
         request.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
-            print("[ActionCutDetector] Using on-device recognition")
+            debugLog("[ActionCutDetector] Using on-device recognition")
         }
 
         var hasResumed = false
@@ -237,7 +237,7 @@ public final class ActionCutDetector: @unchecked Sendable {
                 if hasResumed { return }
 
                 if let error = error {
-                    print("[ActionCutDetector] Speech recognition error: \(error.localizedDescription)")
+                    debugLog("[ActionCutDetector] Speech recognition error: \(error.localizedDescription)")
                     // Return whatever we collected from partials
                     hasResumed = true
                     continuation.resume(returning: bestWords)
@@ -248,7 +248,7 @@ public final class ActionCutDetector: @unchecked Sendable {
 
                 // Extract words from this result (partial or final)
                 let segments = result.bestTranscription.segments
-                print("[ActionCutDetector] Got result, isFinal: \(result.isFinal), segments: \(segments.count), text: \"\(result.bestTranscription.formattedString)\"")
+                debugLog("[ActionCutDetector] Got result, isFinal: \(result.isFinal), segments: \(segments.count), text: \"\(result.bestTranscription.formattedString)\"")
 
                 if !segments.isEmpty {
                     var words: [RecognizedWord] = []

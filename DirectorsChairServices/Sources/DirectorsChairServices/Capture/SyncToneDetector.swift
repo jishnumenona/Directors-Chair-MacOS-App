@@ -116,13 +116,13 @@ public final class SyncToneDetector: @unchecked Sendable {
         inFileAt fileURL: URL,
         statusHandler: ((SyncDetectionStatus) -> Void)? = nil
     ) async throws -> SyncToneDetectionResult {
-        print("[SyncToneDetector] Starting detection for: \(fileURL.lastPathComponent)")
+        debugLog("[SyncToneDetector] Starting detection for: \(fileURL.lastPathComponent)")
 
         // 1. Load audio as mono Float32
         statusHandler?(.loadingAudio)
         let (samples, sampleRate) = try loadAudioSamples(from: fileURL)
         let audioDuration = Double(samples.count) / Double(sampleRate)
-        print("[SyncToneDetector] Loaded \(samples.count) samples, \(sampleRate) Hz, \(String(format: "%.1f", audioDuration))s")
+        debugLog("[SyncToneDetector] Loaded \(samples.count) samples, \(sampleRate) Hz, \(String(format: "%.1f", audioDuration))s")
 
         guard !samples.isEmpty else {
             throw SyncToneDetectorError.noAudioData
@@ -131,7 +131,7 @@ public final class SyncToneDetector: @unchecked Sendable {
         // 2. Bandpass filter 1.5–7 kHz
         statusHandler?(.filtering)
         let filtered = bandpassFilter(samples, sampleRate: sampleRate)
-        print("[SyncToneDetector] Bandpass filter applied")
+        debugLog("[SyncToneDetector] Bandpass filter applied")
 
         // 3. Cross-correlate with chirp template
         statusHandler?(.correlating(progress: 0.0))
@@ -143,7 +143,7 @@ public final class SyncToneDetector: @unchecked Sendable {
         }
         let correlation = crossCorrelate(signal: filtered, template: template)
         statusHandler?(.correlating(progress: 1.0))
-        print("[SyncToneDetector] Cross-correlation computed (\(correlation.count) samples)")
+        debugLog("[SyncToneDetector] Cross-correlation computed (\(correlation.count) samples)")
 
         // 4. Normalize
         let signalPower = computeRMS(filtered)
@@ -152,7 +152,7 @@ public final class SyncToneDetector: @unchecked Sendable {
         // 5. Find peaks
         statusHandler?(.findingPeaks)
         var peaks = findPeaks(in: normalized, sampleRate: sampleRate, threshold: detectionThreshold)
-        print("[SyncToneDetector] Found \(peaks.count) raw peaks")
+        debugLog("[SyncToneDetector] Found \(peaks.count) raw peaks")
 
         // 6. Sub-sample refinement
         peaks = peaks.map { peak in
@@ -163,10 +163,10 @@ public final class SyncToneDetector: @unchecked Sendable {
 
         // 7. Identify triplets
         peaks = identifyTriplets(peaks)
-        print("[SyncToneDetector] After triplet identification: \(peaks.count) peaks, \(peaks.filter { $0.isTriplet }.count) in triplets")
+        debugLog("[SyncToneDetector] After triplet identification: \(peaks.count) peaks, \(peaks.filter { $0.isTriplet }.count) in triplets")
 
         for peak in peaks {
-            print("[SyncToneDetector]   \(String(format: "%.3f", peak.timestamp))s  conf=\(String(format: "%.3f", peak.confidence))  triplet=\(peak.isTriplet)")
+            debugLog("[SyncToneDetector]   \(String(format: "%.3f", peak.timestamp))s  conf=\(String(format: "%.3f", peak.confidence))  triplet=\(peak.isTriplet)")
         }
 
         statusHandler?(.completed)
@@ -196,7 +196,7 @@ public final class SyncToneDetector: @unchecked Sendable {
         do {
             audioFile = try AVAudioFile(forReading: url)
         } catch {
-            print("[SyncToneDetector] Cannot open file: \(error)")
+            debugLog("[SyncToneDetector] Cannot open file: \(error)")
             throw SyncToneDetectorError.cannotOpenFile
         }
 
@@ -233,7 +233,7 @@ public final class SyncToneDetector: @unchecked Sendable {
             }
 
             if let error {
-                print("[SyncToneDetector] Conversion error: \(error)")
+                debugLog("[SyncToneDetector] Conversion error: \(error)")
                 throw SyncToneDetectorError.conversionFailed
             }
         } else {
@@ -296,7 +296,7 @@ public final class SyncToneDetector: @unchecked Sendable {
         let log2n = vDSP_Length(log2(Float(fftLength)))
 
         guard let fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else {
-            print("[SyncToneDetector] Failed to create FFT setup")
+            debugLog("[SyncToneDetector] Failed to create FFT setup")
             return []
         }
         defer { vDSP_destroy_fftsetup(fftSetup) }

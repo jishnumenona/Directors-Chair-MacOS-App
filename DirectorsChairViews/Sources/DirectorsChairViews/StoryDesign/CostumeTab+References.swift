@@ -213,7 +213,7 @@ extension CostumeTab {
             try FileManager.default.createDirectory(at: dirPath, withIntermediateDirectories: true)
             try pngData.write(to: fullPath)
         } catch {
-            print("Failed to save reference image: \(error)")
+            debugLog("Failed to save reference image: \(error)")
             return
         }
 
@@ -365,7 +365,7 @@ extension CostumeTab {
                     isGeneratingFromReferences = false
                     referenceGenProgress = 0
                 }
-                print("Generate from references failed: \(error.localizedDescription)")
+                debugLog("Generate from references failed: \(error.localizedDescription)")
             }
         }
     }

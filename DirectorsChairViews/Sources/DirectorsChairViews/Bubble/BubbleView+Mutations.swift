@@ -494,7 +494,7 @@ extension BubbleView {
                     audioPlayer?.play()
                     playingDialogueId = dialogue.id
                 } catch {
-                    print("Error playing dialogue audio: \(error)")
+                    debugLog("Error playing dialogue audio: \(error)")
                 }
                 return
             }
@@ -583,7 +583,7 @@ extension BubbleView {
             playingDialogueId = dialogueId
 
         } catch {
-            print("Error generating dialogue audio: \(error)")
+            debugLog("Error generating dialogue audio: \(error)")
             audioErrorMessage = error.localizedDescription
         }
 
@@ -645,7 +645,7 @@ extension BubbleView {
                 updateDialogue(updated)
             }
         } catch {
-            print("Error detecting dialogue emotion: \(error)")
+            debugLog("Error detecting dialogue emotion: \(error)")
         }
 
         detectingEmotionIds.remove(dialogueId)

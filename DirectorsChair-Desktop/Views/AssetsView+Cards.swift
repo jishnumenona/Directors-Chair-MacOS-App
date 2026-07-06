@@ -307,7 +307,7 @@ struct AssetCardView: View {
                 audioPlayer?.play()
                 isPlayingAudio = true
             } catch {
-                print("Error playing audio asset: \(error)")
+                debugLog("Error playing audio asset: \(error)")
             }
         }
     }

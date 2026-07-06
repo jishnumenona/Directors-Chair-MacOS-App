@@ -22,7 +22,7 @@ extension PhysicalAppearanceTab {
             defer { basePath.stopAccessingSecurityScopedResource() }
             try FileManager.default.removeItem(at: url)
         } catch {
-            print("Failed to delete base image: \(error)")
+            debugLog("Failed to delete base image: \(error)")
             return
         }
 
@@ -111,7 +111,7 @@ extension PhysicalAppearanceTab {
                 await MainActor.run {
                     generatingProgress.removeValue(forKey: angle)
                 }
-                print("Annotation edit failed: \(error.localizedDescription)")
+                debugLog("Annotation edit failed: \(error.localizedDescription)")
             }
         }
     }
@@ -134,7 +134,7 @@ extension PhysicalAppearanceTab {
                 do {
                     try imageData.write(to: saveURL)
                 } catch {
-                    print("Failed to save image: \(error)")
+                    debugLog("Failed to save image: \(error)")
                 }
             }
         }
@@ -391,7 +391,7 @@ extension PhysicalAppearanceTab {
             try FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
             try pngData.write(to: imagePath)
         } catch {
-            print("Failed to save uploaded image: \(error)")
+            debugLog("Failed to save uploaded image: \(error)")
             return
         }
 

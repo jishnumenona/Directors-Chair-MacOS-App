@@ -41,7 +41,7 @@ public actor EventBus {
     /// - Parameter event: The event to publish
     public func publish(_ event: AppEvent) {
         if enableLogging {
-            print("📢 EventBus: Publishing \(event.category.rawValue) event")
+            debugLog("📢 EventBus: Publishing \(event.category.rawValue) event")
         }
 
         // Add to history
@@ -95,7 +95,7 @@ public actor EventBus {
         subscriptions[id] = subscription
 
         if enableLogging {
-            print("📝 EventBus: New subscription \(id) for categories: \(categories?.map { $0.rawValue } ?? ["all"])")
+            debugLog("📝 EventBus: New subscription \(id) for categories: \(categories?.map { $0.rawValue } ?? ["all"])")
         }
 
         return EventSubscriptionToken(id: id, eventBus: self)
@@ -122,7 +122,7 @@ public actor EventBus {
         subscriptions.removeValue(forKey: token.id)
 
         if enableLogging {
-            print("❌ EventBus: Unsubscribed \(token.id)")
+            debugLog("❌ EventBus: Unsubscribed \(token.id)")
         }
     }
 
@@ -131,7 +131,7 @@ public actor EventBus {
         subscriptions.removeAll()
 
         if enableLogging {
-            print("🗑️ EventBus: All subscriptions cleared")
+            debugLog("🗑️ EventBus: All subscriptions cleared")
         }
     }
 

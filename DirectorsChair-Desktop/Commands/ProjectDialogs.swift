@@ -82,7 +82,7 @@ struct NewProjectDialog: View {
                     saveLocation = url
                 }
             case .failure(let error):
-                print("File picker error: \(error)")
+                debugLog("File picker error: \(error)")
             }
         }
     }
@@ -158,13 +158,13 @@ struct OpenProjectDialog: View {
                             try await projectViewModel.load(from: url)
                             dismiss()
                         } catch {
-                            print("Failed to load project: \(error)")
+                            debugLog("Failed to load project: \(error)")
                             // TODO: Show error alert
                         }
                     }
                 }
             case .failure(let error):
-                print("File picker error: \(error)")
+                debugLog("File picker error: \(error)")
             }
         }
         .onAppear {

@@ -281,7 +281,7 @@ class ProjectViewModel: ObservableObject {
             lastSaved = Date()
         } catch {
             // Silent save failures are non-critical; log but don't show alert
-            print("[ProjectViewModel] Silent save failed: \(error.localizedDescription)")
+            debugLog("[ProjectViewModel] Silent save failed: \(error.localizedDescription)")
         }
     }
 

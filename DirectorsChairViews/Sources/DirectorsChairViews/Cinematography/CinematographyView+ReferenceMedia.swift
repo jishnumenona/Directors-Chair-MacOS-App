@@ -173,7 +173,7 @@ struct ReferenceMediaSection: View {
             onUseAsPreview(relativePath)
 
         } catch {
-            print("Error copying reference to preview: \(error)")
+            debugLog("Error copying reference to preview: \(error)")
         }
     }
 

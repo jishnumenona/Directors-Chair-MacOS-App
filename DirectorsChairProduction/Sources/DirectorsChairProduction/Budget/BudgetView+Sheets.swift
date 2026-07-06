@@ -651,7 +651,7 @@ struct ExpenseEditorSheet: View {
             receiptPath = "assets/receipts/\(destFilename)"
             loadReceiptPreview()
         } catch {
-            print("Failed to copy receipt: \(error)")
+            debugLog("Failed to copy receipt: \(error)")
             // Fallback to absolute path
             receiptPath = sourceURL.path
             loadReceiptPreview()
@@ -1009,7 +1009,7 @@ struct POEditorSheet: View {
                 try fileManager.copyItem(at: sourceURL, to: destURL)
                 attachments.append("assets/po_attachments/\(destFilename)")
             } catch {
-                print("Failed to copy attachment: \(error)")
+                debugLog("Failed to copy attachment: \(error)")
                 attachments.append(sourceURL.path)
             }
         }

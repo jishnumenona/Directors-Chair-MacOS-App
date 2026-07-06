@@ -310,7 +310,7 @@ struct TimelineContainer: View {
                         }
 
                     } catch {
-                        print("Timeline TTS generation error: \(error)")
+                        debugLog("Timeline TTS generation error: \(error)")
                     }
 
                     timelineViewModel.generatingAudioSourceIds.remove(sourceId)
@@ -342,7 +342,7 @@ struct TimelineContainer: View {
                         }
                     }
                 } catch {
-                    print("Timeline audio playback error: \(error)")
+                    debugLog("Timeline audio playback error: \(error)")
                 }
             },
             onStopAudio: {
@@ -411,7 +411,7 @@ struct TimelineContainer: View {
                 guard let url = urls.first else { return }
                 importSoundtrackFile(url: url)
             case .failure(let error):
-                print("Soundtrack import error: \(error)")
+                debugLog("Soundtrack import error: \(error)")
             }
         }
         // Refresh when project finishes loading (catches async restoreLastProject)
@@ -524,7 +524,7 @@ struct TimelineContainer: View {
                     timelineViewModel.addSoundtrack(track)
                 }
             } catch {
-                print("Failed to import soundtrack: \(error)")
+                debugLog("Failed to import soundtrack: \(error)")
             }
         }
     }

@@ -659,7 +659,7 @@ public struct VoiceTab: View {
 
             let response = try await AIServiceClient.shared.generateText(request)
             let rawText = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            print("[VoiceTab] Auto-detect raw response (\(rawText.count) chars): \(rawText)")
+            debugLog("[VoiceTab] Auto-detect raw response (\(rawText.count) chars): \(rawText)")
 
             // Try JSON parsing first, fall back to regex extraction
             let values = extractJSON(from: rawText) ?? extractValuesViaRegex(from: rawText)
@@ -789,7 +789,7 @@ public struct VoiceTab: View {
             }
         }
 
-        print("[VoiceTab] Regex extraction found \(result.count) values: \(result)")
+        debugLog("[VoiceTab] Regex extraction found \(result.count) values: \(result)")
         return result.isEmpty ? nil : result
     }
 

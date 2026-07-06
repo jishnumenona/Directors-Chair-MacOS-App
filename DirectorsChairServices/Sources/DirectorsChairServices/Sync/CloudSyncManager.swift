@@ -95,7 +95,7 @@ public class CloudSyncManager: ObservableObject {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         let entry = "[\(timestamp)] \(message)"
         debugLogs.append(entry)
-        print("CloudSync: \(entry)")
+        debugLog("CloudSync: \(entry)")
     }
 
     // MARK: - Increment Pending Changes

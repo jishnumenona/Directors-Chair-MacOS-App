@@ -59,7 +59,7 @@ extension TimelineViewModel {
             let data = try encoder.encode(userMarkers)
             try data.write(to: url, options: .atomic)
         } catch {
-            print("[TimelineViewModel] Failed to save markers: \(error.localizedDescription)")
+            debugLog("[TimelineViewModel] Failed to save markers: \(error.localizedDescription)")
         }
     }
 
@@ -75,7 +75,7 @@ extension TimelineViewModel {
             let decoder = JSONDecoder()
             userMarkers = try decoder.decode([TimelineMarker].self, from: data)
         } catch {
-            print("[TimelineViewModel] Failed to load markers: \(error.localizedDescription)")
+            debugLog("[TimelineViewModel] Failed to load markers: \(error.localizedDescription)")
             userMarkers = []
         }
     }

@@ -205,7 +205,7 @@ extension LocationDetailView {
                 do {
                     try imageData.write(to: saveURL)
                 } catch {
-                    print("Failed to save image: \(error)")
+                    debugLog("Failed to save image: \(error)")
                 }
             }
         }

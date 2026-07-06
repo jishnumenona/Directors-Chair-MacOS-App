@@ -132,21 +132,21 @@ struct CurationView: View {
 
             // Auto-detect audio cues when selecting a take with video but no cue detection
             if let take = viewModel.selectedTake {
-                print("[CurationView] onChange take: \(take.id), videoPath: \(take.capturedVideoPath ?? "nil"), hasAudioCueDetection: \(take.hasAudioCueDetection), projectDir: \(projectDir?.path ?? "nil")")
+                debugLog("[CurationView] onChange take: \(take.id), videoPath: \(take.capturedVideoPath ?? "nil"), hasAudioCueDetection: \(take.hasAudioCueDetection), projectDir: \(projectDir?.path ?? "nil")")
                 if take.capturedVideoPath != nil,
                    !take.hasAudioCueDetection,
                    let dir = projectDir {
-                    print("[CurationView] Triggering auto-detect for take \(take.takeNumber)")
+                    debugLog("[CurationView] Triggering auto-detect for take \(take.takeNumber)")
                     Task {
                         if let result = await viewModel.detectAudioCues(for: take, projectDir: dir) {
-                            print("[CurationView] Detection result: hasResults=\(result.hasResults), action=\(result.actionTimestamp ?? -1), cut=\(result.cutTimestamp ?? -1)")
+                            debugLog("[CurationView] Detection result: hasResults=\(result.hasResults), action=\(result.actionTimestamp ?? -1), cut=\(result.cutTimestamp ?? -1)")
                             if result.hasResults, let shot = viewModel.selectedShot {
                                 updateTake(take, in: shot) { t in
                                     result.apply(to: &t)
                                 }
                             }
                         } else {
-                            print("[CurationView] Detection returned nil")
+                            debugLog("[CurationView] Detection returned nil")
                         }
                     }
                 }

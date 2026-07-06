@@ -53,7 +53,7 @@ extension StoryDesignView {
             try html.write(to: url, atomically: true, encoding: .utf8)
             NSWorkspace.shared.open(url)
         } catch {
-            print("Failed to export character HTML: \(error)")
+            debugLog("Failed to export character HTML: \(error)")
         }
     }
 

@@ -195,7 +195,7 @@ class CurationViewModel: ObservableObject {
         do {
             try ProjectDirectoryManager.generateBestTakesFolder(scenes: scenes, in: projectDir)
         } catch {
-            print("Failed to generate best takes folder: \(error)")
+            debugLog("Failed to generate best takes folder: \(error)")
         }
 
         isGeneratingLinks = false
@@ -222,7 +222,7 @@ class CurationViewModel: ObservableObject {
         do {
             try ProjectDirectoryManager.createCuratedStructure(scenes: scenes, in: projectDir, cameraSourceDir: cameraDir)
         } catch {
-            print("Failed to generate curated structure: \(error)")
+            debugLog("Failed to generate curated structure: \(error)")
         }
 
         isGeneratingLinks = false
@@ -427,7 +427,7 @@ class CurationViewModel: ObservableObject {
             let metadata = try await CameraMetadataExtractor.shared.extractMetadata(fromVideoAt: videoURL)
             return metadata
         } catch {
-            print("Camera metadata extraction failed: \(error)")
+            debugLog("Camera metadata extraction failed: \(error)")
             return nil
         }
     }
@@ -694,11 +694,11 @@ class CurationViewModel: ObservableObject {
     /// Detect "Action" and "Cut" speech cues in a take's video
     func detectAudioCues(for take: Take, projectDir: URL) async -> ActionCutDetectionResult? {
         guard let videoPath = take.capturedVideoPath else {
-            print("[CurationVM] detectAudioCues: no capturedVideoPath")
+            debugLog("[CurationVM] detectAudioCues: no capturedVideoPath")
             return nil
         }
         let videoURL = projectDir.appendingPathComponent(videoPath)
-        print("[CurationVM] detectAudioCues: videoURL = \(videoURL.path), exists = \(FileManager.default.fileExists(atPath: videoURL.path))")
+        debugLog("[CurationVM] detectAudioCues: videoURL = \(videoURL.path), exists = \(FileManager.default.fileExists(atPath: videoURL.path))")
         guard FileManager.default.fileExists(atPath: videoURL.path) else { return nil }
 
         isDetectingCues = true
@@ -721,7 +721,7 @@ class CurationViewModel: ObservableObject {
             return result
         } catch {
             detectionStatus = .failed(error.localizedDescription)
-            print("Audio cue detection failed: \(error)")
+            debugLog("Audio cue detection failed: \(error)")
             return nil
         }
     }
@@ -731,11 +731,11 @@ class CurationViewModel: ObservableObject {
     /// Detect sync tone chirps in a take's video/audio file
     func detectSyncTones(for take: Take, projectDir: URL) async -> SyncToneDetectionResult? {
         guard let videoPath = take.capturedVideoPath else {
-            print("[CurationVM] detectSyncTones: no capturedVideoPath")
+            debugLog("[CurationVM] detectSyncTones: no capturedVideoPath")
             return nil
         }
         let videoURL = projectDir.appendingPathComponent(videoPath)
-        print("[CurationVM] detectSyncTones: videoURL = \(videoURL.path), exists = \(FileManager.default.fileExists(atPath: videoURL.path))")
+        debugLog("[CurationVM] detectSyncTones: videoURL = \(videoURL.path), exists = \(FileManager.default.fileExists(atPath: videoURL.path))")
         guard FileManager.default.fileExists(atPath: videoURL.path) else { return nil }
 
         isDetectingSyncTones = true
@@ -758,7 +758,7 @@ class CurationViewModel: ObservableObject {
             return result
         } catch {
             syncDetectionStatus = .failed(error.localizedDescription)
-            print("Sync tone detection failed: \(error)")
+            debugLog("Sync tone detection failed: \(error)")
             return nil
         }
     }
@@ -768,7 +768,7 @@ class CurationViewModel: ObservableObject {
         // Detect in the DC recording (capturedVideoPath)
         guard let dcResult = await detectSyncTones(for: take, projectDir: projectDir),
               dcResult.hasResults else {
-            print("[CurationVM] computeSyncOffset: no sync tones found in DC recording")
+            debugLog("[CurationVM] computeSyncOffset: no sync tones found in DC recording")
             return nil
         }
 
@@ -783,7 +783,7 @@ class CurationViewModel: ObservableObject {
                 guard cameraResult.hasResults else { return nil }
                 return SyncToneDetector.computeOffset(sourceA: dcResult, sourceB: cameraResult)
             } catch {
-                print("[CurationVM] computeSyncOffset: camera detection failed: \(error)")
+                debugLog("[CurationVM] computeSyncOffset: camera detection failed: \(error)")
                 return nil
             }
         }

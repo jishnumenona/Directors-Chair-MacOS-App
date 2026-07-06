@@ -450,12 +450,12 @@ struct SyncStatusView: View {
                             basePath: basePath
                         )
                     } catch {
-                        print("CloudSync: Failed to pull '\(repoName)': \(error)")
+                        debugLog("CloudSync: Failed to pull '\(repoName)': \(error)")
                     }
                 }
             }
         } catch {
-            print("CloudSync: Failed to list remote repos: \(error)")
+            debugLog("CloudSync: Failed to list remote repos: \(error)")
         }
     }
 }

@@ -632,7 +632,7 @@ struct OverviewHeroBanner: View {
                 do {
                     try imageData.write(to: saveURL)
                 } catch {
-                    print("Failed to save poster: \(error)")
+                    debugLog("Failed to save poster: \(error)")
                 }
             }
         }

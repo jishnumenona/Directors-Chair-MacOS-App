@@ -119,13 +119,13 @@ struct DirectorsChair_DesktopApp: App {
                 }
                 .onOpenURL { url in
                     // Handle OAuth callback URL scheme
-                    print("[App] onOpenURL: \(url)")
+                    debugLog("[App] onOpenURL: \(url)")
                     if url.scheme == "directorschair" {
                         Task {
                             do {
                                 try await authManager.handleCallback(url: url)
                             } catch {
-                                print("[App] onOpenURL callback error: \(error)")
+                                debugLog("[App] onOpenURL callback error: \(error)")
                                 authManager.errorMessage = error.localizedDescription
                             }
                         }

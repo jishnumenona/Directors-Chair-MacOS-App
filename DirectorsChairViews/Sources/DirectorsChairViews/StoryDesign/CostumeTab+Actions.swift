@@ -99,7 +99,7 @@ extension CostumeTab {
             try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
             try pngData.write(to: destPath)
         } catch {
-            print("Failed to set costume as base image: \(error)")
+            debugLog("Failed to set costume as base image: \(error)")
             return
         }
 
@@ -185,7 +185,7 @@ extension CostumeTab {
                 await MainActor.run {
                     generatingProgress.removeValue(forKey: progressKey)
                 }
-                print("Costume annotation edit failed: \(error.localizedDescription)")
+                debugLog("Costume annotation edit failed: \(error.localizedDescription)")
             }
         }
     }

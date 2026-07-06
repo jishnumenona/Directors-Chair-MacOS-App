@@ -182,7 +182,7 @@ public final class SyncToneGenerator: @unchecked Sendable {
             self.engine = engine
             self.sourceNode = sourceNode
 
-            print("[SyncToneGenerator] Playing sync tone triplet at \(Take.formatForCameraMatch(timestamp))")
+            debugLog("[SyncToneGenerator] Playing sync tone triplet at \(Take.formatForCameraMatch(timestamp))")
 
             // Post notification
             DispatchQueue.main.async {
@@ -193,7 +193,7 @@ public final class SyncToneGenerator: @unchecked Sendable {
                 )
             }
         } catch {
-            print("[SyncToneGenerator] Failed to play sync tone: \(error)")
+            debugLog("[SyncToneGenerator] Failed to play sync tone: \(error)")
             lock.lock()
             isPlaying = false
             lock.unlock()

@@ -721,7 +721,7 @@ struct CentralViewStack: View {
                                 char.costumes?[lastIndex].imageFront = relativePath
                             }
                         } catch {
-                            print("Failed to save costume image: \(error)")
+                            debugLog("Failed to save costume image: \(error)")
                         }
                     }
                 }

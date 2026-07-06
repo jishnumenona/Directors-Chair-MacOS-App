@@ -390,7 +390,7 @@ struct ShotPreviewSection: View {
                         do {
                             try data.write(to: url)
                         } catch {
-                            print("Error saving image: \(error)")
+                            debugLog("Error saving image: \(error)")
                         }
                     }
                 }
