@@ -94,7 +94,7 @@ extension StoryDesignView {
                 VStack(spacing: 0) {
                     if let locationIndex = selectedLocationIndex {
                         LocationDetailView(
-                            location: $project.locations[locationIndex],
+                            location: cascadingLocationBinding(at: locationIndex),
                             project: project,
                             projectBasePath: projectBasePath,
                             onGenerateImage: { variation, prompt, progressHandler in
@@ -128,6 +128,23 @@ extension StoryDesignView {
 
     // MARK: - Buffered Character Editing
 
+    /// Binding to the selected location that cascades a rename through every
+    /// name-based reference (scene/sequence locations, schedule rows, gantt
+    /// tasks) before committing the edit (WS2.5b).
+    func cascadingLocationBinding(at index: Int) -> Binding<Location> {
+        Binding(
+            get: { project.locations[index] },
+            set: { newValue in
+                let oldName = project.locations[index].name
+                let newName = newValue.name.trimmingCharacters(in: .whitespaces)
+                if oldName != newName, !oldName.isEmpty, !newName.isEmpty {
+                    project.cascadeLocationRename(from: oldName, to: newName)
+                }
+                project.locations[index] = newValue
+            }
+        )
+    }
+
     /// Binding to local editingCharacter buffer — mutations stay local until debounced sync
     var editingCharacterBinding: Binding<Character> {
         Binding(
@@ -160,9 +177,7 @@ extension StoryDesignView {
     func flushEditingCharacter() {
         syncTask?.cancel()
         syncTask = nil
-        guard let editingChar = editingCharacter,
-              let index = project.characters.firstIndex(where: { $0.id == editingChar.id }) else { return }
-        project.characters[index] = editingChar
+        commitEditingCharacterToProject()
     }
 
     /// Schedule a debounced sync (500ms) of the editing buffer back to the project
@@ -171,11 +186,24 @@ extension StoryDesignView {
         syncTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
-            guard let editingChar = editingCharacter,
-                  let index = project.characters.firstIndex(where: { $0.id == editingChar.id }) else { return }
-            project.characters[index] = editingChar
+            commitEditingCharacterToProject()
             syncTask = nil
         }
+    }
+
+    /// Write the editing buffer to the project. If the character was renamed,
+    /// cascade the rename through every name-based reference (dialogue cues,
+    /// action/narration participants, primaryCharacter, costumes, cast, vision
+    /// cards) so nothing is orphaned (WS2.5b).
+    private func commitEditingCharacterToProject() {
+        guard let editingChar = editingCharacter,
+              let index = project.characters.firstIndex(where: { $0.id == editingChar.id }) else { return }
+        let oldName = project.characters[index].name
+        let newName = editingChar.name.trimmingCharacters(in: .whitespaces)
+        if oldName != newName, !oldName.isEmpty, !newName.isEmpty {
+            project.cascadeCharacterRename(from: oldName, to: newName)
+        }
+        project.characters[index] = editingChar
     }
 
     func characterHeader(for character: Character) -> some View {
