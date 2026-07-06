@@ -390,4 +390,67 @@ final class ScriptViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.elements[1].text, "Modif", "Text should be flushed and split at cursor")
         XCTAssertEqual(viewModel.elements[2].text, "ied action text", "Remainder should be in new element")
     }
+    // MARK: - Range replacement (WS7.1 — paste/delete as model ops)
+
+    func testMultiLinePasteSplitsIntoElements() {
+        makeSimpleElements()
+        // Paste "one\ntwo\nthree" into the middle of "Alice enters the room."
+        // (element 1) at offset 6 ("Alice " | "enters the room.")
+        let instruction = viewModel.handleRangeReplacement(
+            startIndex: 1, startOffset: 6, endIndex: 1, endOffset: 6,
+            replacement: "one\ntwo\nthree")
+
+        if case .none = instruction { XCTFail("paste must produce a rebuild") }
+        XCTAssertEqual(viewModel.elements.count, 8, "6 elements + 2 new paragraphs")
+        XCTAssertEqual(viewModel.elements[1].text, "Alice one", "prefix + first pasted line")
+        XCTAssertEqual(viewModel.elements[2].text, "two")
+        XCTAssertEqual(viewModel.elements[3].text, "threeenters the room.", "last line + suffix")
+        XCTAssertEqual(viewModel.elements[4].text, "ALICE", "following elements shifted intact")
+    }
+
+    func testMultiParagraphDeleteMerges() {
+        makeSimpleElements()
+        // Delete from offset 5 of "Alice enters the room." (idx 1) through
+        // offset 2 of "ALICE" (idx 2) — swallows the paragraph boundary.
+        let instruction = viewModel.handleRangeReplacement(
+            startIndex: 1, startOffset: 5, endIndex: 2, endOffset: 2,
+            replacement: "")
+
+        if case .none = instruction { XCTFail("delete must produce a rebuild") }
+        XCTAssertEqual(viewModel.elements.count, 5, "one element merged away")
+        XCTAssertEqual(viewModel.elements[1].text, "AliceICE", "prefix of start + suffix of end")
+        XCTAssertEqual(viewModel.elements[2].text, "Hello everyone!", "dialogue survives")
+    }
+
+    func testRangeDeleteAcrossSceneHeadingIsBlocked() {
+        makeSimpleElements()
+        viewModel.elements.append(ScriptElement(type: .sceneHeading, text: "INT. HALL - NIGHT", sourceSequenceIndex: 0, sourceSceneIndex: 1))
+        viewModel.elements.append(ScriptElement(type: .action, text: "Later.", sourceSequenceIndex: 0, sourceSceneIndex: 1))
+        let before = viewModel.elements.map(\.text)
+
+        // Range from "She waves." (idx 5) through "Later." (idx 7) swallows
+        // the scene heading at idx 6 — must be refused.
+        let instruction = viewModel.handleRangeReplacement(
+            startIndex: 5, startOffset: 0, endIndex: 7, endOffset: 3,
+            replacement: "")
+
+        guard case .none = instruction else {
+            return XCTFail("deleting across a scene heading must be blocked")
+        }
+        XCTAssertEqual(viewModel.elements.map(\.text), before, "elements untouched")
+    }
+
+    func testSingleLineRangeReplacementKeepsSuffix() {
+        makeSimpleElements()
+        // Replace "enters" (offsets 6..12) in element 1 with "exits" — spans no
+        // boundary but exercises the single-line path.
+        let instruction = viewModel.handleRangeReplacement(
+            startIndex: 1, startOffset: 6, endIndex: 1, endOffset: 12,
+            replacement: "exits")
+
+        if case .none = instruction { XCTFail("replacement must rebuild") }
+        XCTAssertEqual(viewModel.elements[1].text, "Alice exits the room.")
+        XCTAssertEqual(viewModel.elements.count, 6, "no structural change")
+    }
 }
+

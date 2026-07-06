@@ -80,6 +80,11 @@ struct ScriptView: View {
                     onPlaceholderEdit: { index, text in
                         viewModel.handlePlaceholderEdit(elementIndex: index, newText: text)
                     },
+                    onRangeReplace: { startIndex, startOffset, endIndex, endOffset, replacement in
+                        viewModel.handleRangeReplacement(startIndex: startIndex, startOffset: startOffset,
+                                                         endIndex: endIndex, endOffset: endOffset,
+                                                         replacement: replacement)
+                    },
                     onAutocompleteFilter: { prefix in
                         viewModel.filterAutocomplete(prefix: prefix)
                     },

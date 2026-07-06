@@ -35,6 +35,9 @@ struct ScreenplayTextView: NSViewRepresentable {
     var onTabCycle: ((Int) -> RebuildInstruction)?  // (elementIndex) -> instruction
     var onAutocompleteInsert: ((String, Int) -> RebuildInstruction)?  // (text, elementIndex) -> instruction
     var onPlaceholderEdit: ((Int, String) -> RebuildInstruction)?  // (elementIndex, newText) -> instruction
+    /// WS7.1 — multi-line paste / multi-paragraph delete as one model op:
+    /// (startElement, startUTF16Offset, endElement, endUTF16Offset, replacement)
+    var onRangeReplace: ((Int, Int, Int, Int, String) -> RebuildInstruction)?
     var onAutocompleteFilter: ((String) -> Void)?  // (prefix) -> Void
 
     // Wizard mode
@@ -655,10 +658,32 @@ struct ScreenplayTextView: NSViewRepresentable {
 
             // PHASE 1: Detect structural operations and intercept them
 
-            // Detect newline insertion (Return key handled by doCommandBy, but paste could insert newlines)
-            if let replacement = replacementString, replacement.contains("\n") && replacement != "\n" {
-                // Multi-line paste — allow it, textDidChange will handle
-                return true
+            // WS7.1 — multi-line paste, or any edit whose range spans a
+            // paragraph boundary, is a STRUCTURAL operation: route it through
+            // the model so elements[] stays 1:1 with paragraphs. (Previously a
+            // multi-line paste went straight to NSTextView while the model
+            // synced only the paragraph under the cursor — silent data loss.)
+            let replacementText = replacementString ?? ""
+            let fullNSText = textView.string as NSString
+            let safeRange = NSIntersectionRange(affectedCharRange, NSRange(location: 0, length: fullNSText.length))
+            let affectedText = safeRange.length > 0 ? fullNSText.substring(with: safeRange) : ""
+            let isMultiLinePaste = replacementText.contains("\n") && replacementText != "\n"
+            let spansParagraphs = affectedText.contains("\n")
+
+            if (isMultiLinePaste || spansParagraphs) && autocompletePanel == nil {
+                let starts = paragraphStarts()
+                let startIndex = elementIndexForCursor(safeRange.location)
+                let endIndex = elementIndexForCursor(safeRange.location + safeRange.length)
+                guard startIndex >= 0, endIndex < parent.elements.count,
+                      startIndex < starts.count, endIndex < starts.count else { return true }
+                let startOffset = safeRange.location - starts[startIndex]
+                let endOffset = safeRange.location + safeRange.length - starts[endIndex]
+                if let instruction = parent.onRangeReplace?(startIndex, max(0, startOffset),
+                                                            endIndex, max(0, endOffset),
+                                                            replacementText) {
+                    applyRebuildInstruction(instruction)
+                }
+                return false // handled as a model operation
             }
 
             // Detect backspace that would delete a newline (merge two paragraphs)

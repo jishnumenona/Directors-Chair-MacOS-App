@@ -340,6 +340,90 @@ class ScriptViewModel: ObservableObject {
         }
     }
 
+    /// WS7.1 — multi-line paste and multi-paragraph deletion as ONE model
+    /// operation, preserving the paragraph==element invariant. Previously a
+    /// multi-line paste reached NSTextView directly while the model synced
+    /// only the paragraph under the cursor — silent data loss on save.
+    ///
+    /// Offsets are UTF-16 code units (NSRange coordinates from the text view).
+    /// The affected span [startIndex@startOffset ... endIndex@endOffset] is
+    /// replaced by `replacement` (possibly multi-line, empty for deletion).
+    func handleRangeReplacement(startIndex: Int, startOffset: Int,
+                                endIndex: Int, endOffset: Int,
+                                replacement: String) -> RebuildInstruction {
+        guard startIndex >= 0, startIndex <= endIndex, endIndex < elements.count else { return .none }
+
+        // Conservative guard: a deletion that swallows a scene heading has
+        // scene-structure consequences (the heading anchors a Scene). Block it;
+        // scenes are deleted via the explicit delete-scene affordance.
+        if endIndex > startIndex {
+            for i in (startIndex + 1)...endIndex where elements[i].type == .sceneHeading {
+                return .none
+            }
+        }
+
+        syncPendingTexts()
+        flushDirtyElement(at: startIndex)
+        if endIndex != startIndex { flushDirtyElement(at: endIndex) }
+
+        func utf16Slice(_ s: String, _ range: Range<Int>) -> String {
+            let u = Array(s.utf16)
+            let lo = min(max(range.lowerBound, 0), u.count)
+            let hi = min(max(range.upperBound, lo), u.count)
+            return String(decoding: u[lo..<hi], as: UTF16.self)
+        }
+
+        let prefix = utf16Slice(elements[startIndex].text, 0..<startOffset)
+        let suffix = utf16Slice(elements[endIndex].text,
+                                endOffset..<elements[endIndex].text.utf16.count)
+        let lines = replacement.components(separatedBy: "\n")
+
+        let context = ProjectToScriptConverter.findSceneContext(at: startIndex, in: elements)
+
+        // First line joins the start element's prefix.
+        elements[startIndex].text = prefix + (lines.first ?? "")
+        dirtyElements.insert(elements[startIndex].id)
+
+        // Drop the elements the range consumed.
+        if endIndex > startIndex {
+            elements.removeSubrange((startIndex + 1)...endIndex)
+        }
+
+        // Remaining lines become new elements after the start element; the
+        // final one carries the end element's suffix. New paragraphs default
+        // to .action (the standard type for free-typed screenplay text).
+        var focusId = elements[startIndex].id
+        var cursorOffset = elements[startIndex].text.count
+        if lines.count > 1 {
+            var insertAt = startIndex + 1
+            for (i, line) in lines.dropFirst().enumerated() {
+                let isLast = (i == lines.count - 2)
+                let text = isLast ? line + suffix : line
+                let newElement = ScriptElement(
+                    type: .action,
+                    text: text,
+                    sourceSequenceIndex: context?.sequenceIndex,
+                    sourceSceneIndex: context?.sceneIndex
+                )
+                elements.insert(newElement, at: insertAt)
+                if isLast {
+                    focusId = newElement.id
+                    cursorOffset = line.count
+                }
+                insertAt += 1
+            }
+        } else {
+            // Single-line replacement: suffix rejoins the start element.
+            elements[startIndex].text += suffix
+            cursorOffset = (prefix + (lines.first ?? "")).count
+        }
+        flushDirtyElement(at: startIndex)
+
+        elementsVersion += 1
+        updateOutlineAndStats()
+        return .fullRebuild(focusElementId: focusId, cursorOffset: cursorOffset)
+    }
+
     /// Handle Tab key — cycle element type.
     func handleTabCycle(atElementIndex index: Int) -> RebuildInstruction {
         guard index >= 0, index < elements.count else { return .none }
