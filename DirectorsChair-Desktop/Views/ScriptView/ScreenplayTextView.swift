@@ -38,6 +38,9 @@ struct ScreenplayTextView: NSViewRepresentable {
     /// WS7.1 — multi-line paste / multi-paragraph delete as one model op:
     /// (startElement, startUTF16Offset, endElement, endUTF16Offset, replacement)
     var onRangeReplace: ((Int, Int, Int, Int, String) -> RebuildInstruction)?
+    /// WS7.2 — model-level undo/redo (built-in NSTextView undo is disabled).
+    var onUndo: (() -> RebuildInstruction)?
+    var onRedo: (() -> RebuildInstruction)?
     var onAutocompleteFilter: ((String) -> Void)?  // (prefix) -> Void
 
     // Wizard mode
@@ -97,7 +100,18 @@ struct ScreenplayTextView: NSViewRepresentable {
         textView.isEditable = true
         textView.isSelectable = true
         textView.isRichText = true
-        textView.allowsUndo = true
+        // WS7.2: built-in undo is DISABLED — it would restore raw text without
+        // the model and break the paragraph==element invariant. Cmd+Z/Cmd+Shift+Z
+        // route to the model-level snapshot undo instead.
+        textView.allowsUndo = false
+        textView.onUndoRequested = { [weak coordinator = context.coordinator] in
+            guard let coordinator, let instruction = coordinator.parent.onUndo?() else { return }
+            coordinator.applyRebuildInstruction(instruction)
+        }
+        textView.onRedoRequested = { [weak coordinator = context.coordinator] in
+            guard let coordinator, let instruction = coordinator.parent.onRedo?() else { return }
+            coordinator.applyRebuildInstruction(instruction)
+        }
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.isAutomaticQuoteSubstitutionEnabled = false

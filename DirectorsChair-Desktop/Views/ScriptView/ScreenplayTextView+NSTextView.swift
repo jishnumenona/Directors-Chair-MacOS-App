@@ -13,6 +13,12 @@ import AppKit
 /// Custom NSTextView that can draw page break indicators and handle key shortcuts
 class ScreenplayNSTextView: NSTextView {
 
+    // WS7.2 — model-level undo/redo hooks (built-in undo is disabled).
+    var onUndoRequested: (() -> Void)?
+    var onRedoRequested: (() -> Void)?
+
+
+
     var onNewSceneShortcut: (() -> Void)?
     var onDeleteSceneHandler: ((UUID) -> Void)?
     var onCommandClickHandler: ((ScriptElement) -> Void)?
@@ -356,6 +362,17 @@ class ScreenplayNSTextView: NSTextView {
         if event.modifierFlags.contains([.command, .shift]),
            event.charactersIgnoringModifiers?.lowercased() == "n" {
             onNewSceneShortcut?()
+            return true
+        }
+        // WS7.2 — model-level undo/redo (built-in undo is disabled).
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "z",
+           onUndoRequested != nil || onRedoRequested != nil {
+            if event.modifierFlags.contains(.shift) {
+                onRedoRequested?()
+            } else {
+                onUndoRequested?()
+            }
             return true
         }
         return super.performKeyEquivalent(with: event)

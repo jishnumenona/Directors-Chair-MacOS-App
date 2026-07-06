@@ -452,5 +452,54 @@ final class ScriptViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.elements[1].text, "Alice exits the room.")
         XCTAssertEqual(viewModel.elements.count, 6, "no structural change")
     }
+    // MARK: - Model-level undo (WS7.2)
+
+    func testUndoRestoresStructuralEdit() {
+        loadTestProject()
+        let beforeCount = viewModel.elements.count
+        let beforeTexts = viewModel.elements.map(\.text)
+
+        // Structural edit: Return at end of element 1 inserts a new element.
+        _ = viewModel.handleReturn(atElementIndex: 1, cursorOffset: viewModel.elements[1].text.count)
+        XCTAssertEqual(viewModel.elements.count, beforeCount + 1)
+
+        let instruction = viewModel.performUndo()
+        if case .none = instruction { XCTFail("undo must rebuild") }
+        XCTAssertEqual(viewModel.elements.count, beforeCount, "undo restores element count")
+        XCTAssertEqual(viewModel.elements.map(\.text), beforeTexts, "undo restores texts")
+    }
+
+    func testRedoReappliesUndoneEdit() {
+        loadTestProject()
+        let beforeCount = viewModel.elements.count
+
+        _ = viewModel.handleReturn(atElementIndex: 1, cursorOffset: 0)
+        _ = viewModel.performUndo()
+        XCTAssertEqual(viewModel.elements.count, beforeCount)
+
+        let instruction = viewModel.performRedo()
+        if case .none = instruction { XCTFail("redo must rebuild") }
+        XCTAssertEqual(viewModel.elements.count, beforeCount + 1, "redo reapplies the insert")
+    }
+
+    func testNewEditClearsRedoStack() {
+        loadTestProject()
+        _ = viewModel.handleReturn(atElementIndex: 1, cursorOffset: 0)
+        _ = viewModel.performUndo()
+        // A fresh structural edit invalidates the redo history.
+        _ = viewModel.handleReturn(atElementIndex: 0, cursorOffset: 0)
+        let instruction = viewModel.performRedo()
+        guard case .none = instruction else {
+            return XCTFail("redo after a new edit must be a no-op")
+        }
+    }
+
+    func testUndoWithEmptyStackIsNoOp() {
+        loadTestProject()
+        guard case .none = viewModel.performUndo() else {
+            return XCTFail("undo with no history must be a no-op")
+        }
+    }
+
 }
 

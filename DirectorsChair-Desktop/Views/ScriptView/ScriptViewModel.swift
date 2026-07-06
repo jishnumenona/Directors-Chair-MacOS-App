@@ -48,6 +48,56 @@ class ScriptViewModel: ObservableObject {
     /// Monotonic version counter — incremented on every structural elements change.
     @Published var elementsVersion: Int = 0
 
+    // MARK: - Model-level undo (WS7.2)
+    //
+    // NSTextView's built-in undo is DISABLED: it restores raw text without the
+    // model, breaking the paragraph==element invariant. Structural edits push
+    // a snapshot of (elements, project scenes) here instead; Cmd+Z / Cmd+Shift+Z
+    // swap them back atomically.
+
+    private struct EditorSnapshot {
+        let elements: [ScriptElement]
+        let sequences: [DirectorsChairCore.Sequence]
+    }
+    private var undoStack: [EditorSnapshot] = []
+    private var redoStack: [EditorSnapshot] = []
+    private let undoLimit = 50
+
+    /// Call at the START of every structural edit (before mutation).
+    func registerUndoSnapshot() {
+        guard let projectViewModel else { return }
+        undoStack.append(EditorSnapshot(elements: elements,
+                                        sequences: projectViewModel.project.sequences))
+        if undoStack.count > undoLimit { undoStack.removeFirst() }
+        redoStack.removeAll()
+    }
+
+    func performUndo() -> RebuildInstruction {
+        guard let snapshot = undoStack.popLast(), let projectViewModel else { return .none }
+        redoStack.append(EditorSnapshot(elements: elements,
+                                        sequences: projectViewModel.project.sequences))
+        restore(snapshot)
+        return .fullRebuild(focusElementId: nil, cursorOffset: nil)
+    }
+
+    func performRedo() -> RebuildInstruction {
+        guard let snapshot = redoStack.popLast(), let projectViewModel else { return .none }
+        undoStack.append(EditorSnapshot(elements: elements,
+                                        sequences: projectViewModel.project.sequences))
+        restore(snapshot)
+        return .fullRebuild(focusElementId: nil, cursorOffset: nil)
+    }
+
+    private func restore(_ snapshot: EditorSnapshot) {
+        pendingTexts.removeAll()
+        dirtyElements.removeAll()
+        elements = snapshot.elements
+        projectViewModel?.project.sequences = snapshot.sequences
+        projectViewModel?.isDirty = true
+        elementsVersion += 1
+        updateOutlineAndStats()
+    }
+
     // Autocomplete state
     @Published var showingAutocomplete: Bool = false
     @Published var autocompleteItems: [AutocompleteItem] = []
@@ -253,6 +303,8 @@ class ScriptViewModel: ObservableObject {
     func handleReturn(atElementIndex index: Int, cursorOffset: Int) -> RebuildInstruction {
         guard index >= 0, index < elements.count else { return .none }
 
+        registerUndoSnapshot()
+
         // Merge any pending text so elements[] is current
         syncPendingTexts()
         flushDirtyElement(at: index)
@@ -300,6 +352,8 @@ class ScriptViewModel: ObservableObject {
     /// Handle Backspace at the beginning of an element — merge with previous or delete.
     func handleBackspace(atElementIndex index: Int, cursorOffset: Int) -> RebuildInstruction {
         guard index > 0, index < elements.count else { return .none }
+
+        registerUndoSnapshot()
 
         syncPendingTexts()
 
@@ -362,6 +416,7 @@ class ScriptViewModel: ObservableObject {
             }
         }
 
+        registerUndoSnapshot()
         syncPendingTexts()
         flushDirtyElement(at: startIndex)
         if endIndex != startIndex { flushDirtyElement(at: endIndex) }

@@ -85,6 +85,8 @@ struct ScriptView: View {
                                                          endIndex: endIndex, endOffset: endOffset,
                                                          replacement: replacement)
                     },
+                    onUndo: { viewModel.performUndo() },
+                    onRedo: { viewModel.performRedo() },
                     onAutocompleteFilter: { prefix in
                         viewModel.filterAutocomplete(prefix: prefix)
                     },
