@@ -10,6 +10,7 @@
 import Foundation
 import DirectorsChairProduction
 import DirectorsChairServices
+import DirectorsChairViews
 
 enum ReceiptAnalysisService {
 
@@ -93,6 +94,8 @@ enum ReceiptAnalysisService {
 
         guard await aiClient.testConnection() else {
             debugLog("Receipt analysis: AI server connection failed")
+            await ErrorPresenter.shared.present(title: "Receipt analysis failed",
+                                                message: "Could not reach the AI server. Check your connection in Settings.")
             return []
         }
 
@@ -112,6 +115,7 @@ enum ReceiptAnalysisService {
             return results
         } catch {
             debugLog("Receipt analysis error: \(error)")
+            await ErrorPresenter.shared.present(error, context: "Receipt analysis")
             return []
         }
     }

@@ -23,6 +23,7 @@ extension PhysicalAppearanceTab {
             try FileManager.default.removeItem(at: url)
         } catch {
             debugLog("Failed to delete base image: \(error)")
+            ErrorPresenter.shared.present(error, context: "Deleting base image")
             return
         }
 
@@ -112,6 +113,9 @@ extension PhysicalAppearanceTab {
                     generatingProgress.removeValue(forKey: angle)
                 }
                 debugLog("Annotation edit failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    ErrorPresenter.shared.present(error, context: "Applying image edits")
+                }
             }
         }
     }
@@ -135,6 +139,7 @@ extension PhysicalAppearanceTab {
                     try imageData.write(to: saveURL)
                 } catch {
                     debugLog("Failed to save image: \(error)")
+                    ErrorPresenter.shared.present(error, context: "Saving image")
                 }
             }
         }
@@ -264,6 +269,7 @@ extension PhysicalAppearanceTab {
             try pngData.write(to: imagePath)
         } catch {
             debugLog("Failed to save uploaded image: \(error)")
+            ErrorPresenter.shared.present(error, context: "Saving uploaded image")
             return
         }
 

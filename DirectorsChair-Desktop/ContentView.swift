@@ -20,6 +20,14 @@ extension Notification.Name {
 }
 
 struct ContentView: View {
+    /// WS6.5 — app-wide error funnel (service failures surface here).
+    @ObservedObject private var errorPresenter = ErrorPresenter.shared
+
+    private var errorPresenterBinding: Binding<PresentedError?> {
+        Binding(get: { errorPresenter.currentError },
+                set: { errorPresenter.currentError = $0 })
+    }
+
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @StateObject private var timelineViewModel = TimelineViewModel()
@@ -213,6 +221,12 @@ struct ContentView: View {
                     }
                 }
             }
+        }
+        // WS6.5 — single app-wide host for service-failure alerts.
+        .alert(item: errorPresenterBinding) { presented in
+            Alert(title: Text(presented.title),
+                  message: Text(presented.message),
+                  dismissButton: .default(Text("OK")))
         }
         .onAppear {
             DoubleShiftMonitor.shared.onDoubleShift = {
