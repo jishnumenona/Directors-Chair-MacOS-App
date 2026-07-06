@@ -1,0 +1,464 @@
+<meta charset="utf-8">
+<title>DirectorsChair · UI Test Plan</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2129; --line: #2d333b;
+    --ink: #e6edf3; --ink-2: #9da7b3; --ink-3: #6e7681;
+    --accent: #58a6ff; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    --good-bg: rgba(63,185,80,.08); --warn-bg: rgba(210,153,34,.08);
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f8fa; --panel:#ffffff; --panel2:#eef1f4; --line:#d0d7de;
+      --ink:#1f2328; --ink-2:#57606a; --ink-3:#8c959f; --accent:#0969da;
+      --good:#1a7f37; --warn:#9a6700; --bad:#cf222e;
+      --good-bg: rgba(26,127,55,.06); --warn-bg: rgba(154,103,0,.06); }
+  }
+  :root[data-theme="light"] { --bg:#f6f8fa; --panel:#ffffff; --panel2:#eef1f4; --line:#d0d7de;
+      --ink:#1f2328; --ink-2:#57606a; --ink-3:#8c959f; --accent:#0969da;
+      --good:#1a7f37; --warn:#9a6700; --bad:#cf222e;
+      --good-bg: rgba(26,127,55,.06); --warn-bg: rgba(154,103,0,.06); }
+  :root[data-theme="dark"] { --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --line:#2d333b;
+      --ink:#e6edf3; --ink-2:#9da7b3; --ink-3:#6e7681; --accent:#58a6ff;
+      --good:#3fb950; --warn:#d29922; --bad:#f85149;
+      --good-bg: rgba(63,185,80,.08); --warn-bg: rgba(210,153,34,.08); }
+
+  body { background: var(--bg); color: var(--ink);
+    font: 14px/1.55 -apple-system, "SF Pro Text", Segoe UI, sans-serif;
+    max-width: 900px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--ink-2); margin: 0 0 18px; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: .85rem;
+    color: var(--ink-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 10px 0; margin-bottom: 22px; }
+  .meta b { color: var(--ink); }
+  #progress { font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin: 14px 0 26px; }
+  .bar i { display: block; height: 100%; background: var(--good); width: 0%; transition: width .2s; }
+
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    margin-bottom: 14px; overflow: hidden; }
+  summary { cursor: pointer; padding: 12px 16px; font-weight: 600; font-size: .95rem;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px; user-select: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary .count { color: var(--ink-3); font-weight: 400; font-size: .8rem; font-variant-numeric: tabular-nums; }
+  summary .why { color: var(--ink-3); font-weight: 400; font-size: .78rem; display: block; }
+  .crit summary { border-left: 3px solid var(--bad); }
+  .high summary { border-left: 3px solid var(--warn); }
+
+  .step { display: grid; grid-template-columns: 26px 1fr; gap: 10px;
+    padding: 10px 16px; border-top: 1px solid var(--line); align-items: start; }
+  .step input[type=checkbox] { width: 16px; height: 16px; margin-top: 3px; accent-color: var(--good); cursor: pointer; }
+  .step.done .do, .step.done .expect { opacity: .45; text-decoration: line-through; }
+  .do { font-weight: 500; }
+  .expect { color: var(--ink-2); font-size: .86rem; margin-top: 2px; }
+  .expect b { color: var(--good); font-weight: 600; }
+  .tag { display: inline-block; font-size: .68rem; padding: 1px 7px; border-radius: 8px;
+    border: 1px solid var(--line); color: var(--ink-3); margin-left: 6px; vertical-align: 1px; }
+  .tag.regression { border-color: var(--warn); color: var(--warn); }
+  .tag.bugfix { border-color: var(--bad); color: var(--bad); }
+  .notes { grid-column: 2; margin-top: 6px; }
+  .notes textarea { width: 100%; box-sizing: border-box; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; color: var(--ink);
+    font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; padding: 6px 8px;
+    min-height: 30px; resize: vertical; }
+  .callout { background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 8px;
+    padding: 10px 14px; font-size: .86rem; margin-bottom: 20px; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 18px; }
+  .toolbar button { background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 12px; font-size: .8rem; cursor: pointer; }
+  .toolbar button:hover { border-color: var(--accent); }
+  .skip { color: var(--ink-3); font-size: .8rem; padding: 8px 16px; border-top: 1px dashed var(--line); }
+</style>
+
+<h1>🎬 DirectorsChair — UI Test Plan</h1>
+<p class="sub">Follow top to bottom. Every step says what to <b>do</b> and what <b>pass</b> looks like. Checkboxes and notes save automatically in this browser (localStorage) — re-open the file anytime and your progress is kept.</p>
+
+<div class="meta">
+  <span>Build under test: branch <b>TheaterFeatures</b> (post finish-run, 1,079 tests green)</span>
+  <span>Plan version: <b>2026-07-06</b></span>
+  <span id="progress"><b>0</b> / <b>0</b> steps</span>
+</div>
+<div class="bar"><i id="progressbar"></i></div>
+
+<div class="toolbar">
+  <button onclick="expandAll(true)">Expand all</button>
+  <button onclick="expandAll(false)">Collapse all</button>
+  <button onclick="if(confirm('Clear all checkboxes and notes?')) resetAll()">Reset progress</button>
+</div>
+
+<div class="callout"><b>Skips that are expected:</b> anything needing the AI server (image/video generation, receipt analysis network path, transliteration) fails with the current backend deprecated — for those steps only verify the <em>error is shown to you</em>, not silently swallowed. Sections tagged <span class="tag bugfix">bug fixed</span> re-test a bug fixed this session; <span class="tag regression">regression</span> guards a refactored area.</div>
+
+<!-- ============ 1 LAUNCH ============ -->
+<details class="crit" open>
+  <summary>1 · Launch, session &amp; project safety <span class="why">Guards the two data-loss bugs you found: session-restore wipe + Enter-key project spawn</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s1-1"><div>
+    <div class="do">Quit the app fully (⌘Q), relaunch, and immediately open your real project (e.g. <code>chaayamukhi</code>) — then keep working for 30+ seconds.<span class="tag bugfix">bug fixed</span></div>
+    <div class="expect"><b>Pass:</b> the open project is never replaced by a sample/new project when sign-in completes in the background. Project name in the title bar stays yours.</div>
+    <div class="notes"><textarea id="n1-1" placeholder="notes / anomalies…"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s1-2"><div>
+    <div class="do">With your project open, press <b>Enter/Return</b> in several places: a dialogue bubble, a text field, the script editor.<span class="tag bugfix">bug fixed</span></div>
+    <div class="expect"><b>Pass:</b> no "My First Film N" project ever appears. (Was: a leaked onboarding key monitor spawned one on Enter.)</div>
+    <div class="notes"><textarea id="n1-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s1-3"><div>
+    <div class="do">Make a few edits, quit (⌘Q), relaunch, reopen the project.</div>
+    <div class="expect"><b>Pass:</b> everything persists exactly — scenes, shots, dialogue, statuses. Nothing duplicated or missing.</div>
+    <div class="notes"><textarea id="n1-3"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s1-4"><div>
+    <div class="do">Log out from the account menu, then log back in.</div>
+    <div class="expect"><b>Pass:</b> logout cleanly returns to the projects list; logging back in works; no stuck states.</div>
+    <div class="notes"><textarea id="n1-4"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 2 PROJECTS ============ -->
+<details>
+  <summary>2 · Projects explorer <span class="why">Decomposed into 4 files this session</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s2-1"><div>
+    <div class="do">Open the Projects view. Hover cards, check poster/stats render.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> grid renders, hover effects work, project stats (scenes/characters) show real numbers.</div>
+    <div class="notes"><textarea id="n2-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s2-2"><div>
+    <div class="do">Create a new project; then delete or ignore it after checking it opens.</div>
+    <div class="expect"><b>Pass:</b> created with the entered name (auto-unique if it exists), opens immediately.</div>
+    <div class="notes"><textarea id="n2-2"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 3 SCRIPT EDITOR ============ -->
+<details class="crit">
+  <summary>3 · Screenplay editor <span class="why">Biggest change surface: paste/delete model ops + new undo (7.1/7.2)</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s3-1"><div>
+    <div class="do">Type continuously in a dialogue/action line for ~20 seconds.</div>
+    <div class="expect"><b>Pass:</b> letters appear instantly, no lag, no cursor jumps.</div>
+    <div class="notes"><textarea id="n3-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s3-2"><div>
+    <div class="do">Copy 3–4 lines of text from anywhere (Notes, browser) and <b>paste into the middle of an action line</b>.<span class="tag bugfix">bug fixed</span></div>
+    <div class="expect"><b>Pass:</b> the text splits into separate paragraphs at the paste point; the text before/after the cursor is preserved; nothing vanishes. Save + reopen: pasted lines persist.</div>
+    <div class="notes"><textarea id="n3-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s3-3"><div>
+    <div class="do"><b>Select across 2–3 paragraphs</b> (drag from mid-line to mid-line of a later paragraph) and press Delete.<span class="tag bugfix">bug fixed</span></div>
+    <div class="expect"><b>Pass:</b> the selection is removed and the remaining halves merge into one paragraph. Save + reopen: the merge persisted.</div>
+    <div class="notes"><textarea id="n3-3"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s3-4"><div>
+    <div class="do">Try to select-and-delete a range that <b>includes a scene heading</b>.</div>
+    <div class="expect"><b>Pass:</b> the edit is refused (nothing changes) — scene deletion stays an explicit action. No corruption.</div>
+    <div class="notes"><textarea id="n3-4"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s3-5"><div>
+    <div class="do">Press Return mid-line (splits), then <b>⌘Z</b>. Then ⌘⇧Z.<span class="tag bugfix">new undo</span></div>
+    <div class="expect"><b>Pass:</b> ⌘Z restores the un-split line (text AND structure); ⌘⇧Z re-applies the split. No view/model mismatch (text matches the outline).</div>
+    <div class="notes"><textarea id="n3-5"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s3-6"><div>
+    <div class="do">Exercise the basics: Return at end of dialogue → new CHARACTER cue; Tab cycles element type; Backspace at line start merges; autocomplete on character cues; Cmd+Shift+N new scene.</div>
+    <div class="expect"><b>Pass:</b> each behaves as before; typing attributes (fonts/indents) follow element type.</div>
+    <div class="notes"><textarea id="n3-6"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s3-7"><div>
+    <div class="do">If you use Malayalam: type/paste Malayalam text mid-line, then do steps 3-2/3-3 with it.</div>
+    <div class="expect"><b>Pass:</b> no split characters/garbled glyphs at edit boundaries (UTF-16-safe range ops).</div>
+    <div class="notes"><textarea id="n3-7"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s3-8"><div>
+    <div class="do">Hold <b>⌘</b> in the script to highlight characters — repeat a few times in a scene with many cues.</div>
+    <div class="expect"><b>Pass:</b> badges appear promptly (portraits now cached — no repeated disk reads); no beachball.</div>
+    <div class="notes"><textarea id="n3-8"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 4 BUBBLE ============ -->
+<details class="high">
+  <summary>4 · Bubble view <span class="why">CRUD unified into generic path (5.5); decomposed (9.1)</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s4-1"><div>
+    <div class="do">Add one of each: dialogue (pick a character), action, narration, note, sound note.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> each appears at the end, auto-scrolls to it, and the timeline updates.</div>
+    <div class="notes"><textarea id="n4-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s4-2"><div>
+    <div class="do">Add a <b>connected</b> action/narration/note to an existing dialogue (its context menu).<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> appears nested under the parent dialogue.</div>
+    <div class="notes"><textarea id="n4-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s4-3"><div>
+    <div class="do">Edit one item of each kind; delete one of each kind; save + reopen.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> edits persist; deletions stay deleted; deleting a selected dialogue clears its selection without a crash.</div>
+    <div class="notes"><textarea id="n4-3"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s4-4"><div>
+    <div class="do">Drag-reorder items; use the filter chips (Dialogue/Actions/Narration/Notes/Sound).</div>
+    <div class="expect"><b>Pass:</b> order persists; filters show/hide correctly.</div>
+    <div class="notes"><textarea id="n4-4"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 5 TIMELINE ============ -->
+<details class="high">
+  <summary>5 · Timeline <span class="why">Rebuilds unified (5.6); draw-path I/O removed (9.2); typed events (5.2)</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s5-1"><div>
+    <div class="do">Open the timeline on a scene; switch scope: scene → sequence → global.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> identical segment content for the same scene in all three scopes; scenes lay back-to-back in sequence/global; boundaries labeled.</div>
+    <div class="notes"><textarea id="n5-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s5-2"><div>
+    <div class="do">Scroll and zoom a timeline whose shots have preview images; watch the shot lane.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> smooth scrolling; previews appear shortly after (async load) rather than stuttering the first paint.</div>
+    <div class="notes"><textarea id="n5-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s5-3"><div>
+    <div class="do">Edit a dialogue in the bubble view / script — check the timeline updates. Drag a segment; add a marker; add a light/SFX cue and drag it.</div>
+    <div class="expect"><b>Pass:</b> edits reflect promptly; drags stick; markers/cues persist after save+reopen.</div>
+    <div class="notes"><textarea id="n5-3"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 6 SHOTS ============ -->
+<details class="high">
+  <summary>6 · Cinematography — shots &amp; takes <span class="why">Largest decomposition (3 files); coordinator-owned video jobs</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s6-1"><div>
+    <div class="do">Open the Shots view; select several shots; scroll each detail pane fully (incl. Video Generation section).<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> every section renders, no crash, no blank panes.</div>
+    <div class="notes"><textarea id="n6-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s6-2"><div>
+    <div class="do">Type a long shot description; adjust camera settings (angle/type/lens/aperture/movement/duration).<span class="tag bugfix">typing-lag fixed</span></div>
+    <div class="expect"><b>Pass:</b> typing is instant (commit debounced); chip selections stick and persist.</div>
+    <div class="notes"><textarea id="n6-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s6-3"><div>
+    <div class="do">Add a shot from the Navigator outline; delete a shot from the Shots view; save + reopen.<span class="tag bugfix">zombie shots fixed</span></div>
+    <div class="expect"><b>Pass:</b> the added shot shows up in the Shots view without a refresh; the deleted one STAYS deleted after reopen.</div>
+    <div class="notes"><textarea id="n6-3"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s6-4"><div>
+    <div class="do">Takes: start monitoring with a camera (or use blind timestamp logging without one); record/log 2 takes; rate them; add a note.</div>
+    <div class="expect"><b>Pass:</b> takes appear in the filmstrip, ratings and notes persist.</div>
+    <div class="notes"><textarea id="n6-4"></textarea></div>
+  </div></div>
+
+  <div class="skip">AI image/video generation buttons: with the server deprecated, the only pass criterion is a <b>visible error</b> (alert or inline message) — never a silent no-op.</div>
+</details>
+
+<!-- ============ 7 CURATION ============ -->
+<details>
+  <summary>7 · Curation <span class="why">Decomposed into 7 extension files (9.1)</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s7-1"><div>
+    <div class="do">Open Curation; navigate takes in the sidebar; open the review pane; try Compare mode with two takes; check the Mapping tab.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> all panes render; selecting takes updates the detail; compare shows two players; mapping lists camera files.</div>
+    <div class="notes"><textarea id="n7-1"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 8 PRODUCTION ============ -->
+<details class="high">
+  <summary>8 · Production — Schedule / Budget / Cast / Gantt <span class="why">3 data bugs fixed + exports rebuilt + live reload (5.3)</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s8-1"><div>
+    <div class="do">Schedule: create an item with status <b>Planned</b>; switch tabs and come back; save + reopen.<span class="tag bugfix">bug fixed</span></div>
+    <div class="expect"><b>Pass:</b> it STAYS "Planned" — never silently promoted to Scheduled/Shooting.</div>
+    <div class="notes"><textarea id="n8-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s8-2"><div>
+    <div class="do">Budget: rename a category that has expenses under it.<span class="tag bugfix">bug fixed</span></div>
+    <div class="expect"><b>Pass:</b> the rename sticks and all its expenses remain attached (totals unchanged).</div>
+    <div class="notes"><textarea id="n8-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s8-3"><div>
+    <div class="do">Budget → Export tab: export CSV, Xero CSV, and Tally XML. Open the CSV in Numbers/Excel. Add an expense whose description starts with <code>=SUM(A1)</code> first.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> files save and open; all 5 CSV sections present; the <code>=SUM…</code> cell shows as text with a leading apostrophe — <b>not</b> executed as a formula.</div>
+    <div class="notes"><textarea id="n8-3"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s8-4"><div>
+    <div class="do">Gantt: link a task to a schedule item, then change the schedule item's date.<span class="tag bugfix">bug fixed</span></div>
+    <div class="expect"><b>Pass:</b> the Gantt bar follows the schedule change (no divergent second schedule).</div>
+    <div class="notes"><textarea id="n8-4"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s8-5"><div>
+    <div class="do">Cast &amp; Crew: add a cast member with a character assignment, a crew member, a team; edit and delete one.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> rows render (decomposed view), edits persist, photos/avatars display.</div>
+    <div class="notes"><textarea id="n8-5"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s8-6"><div>
+    <div class="do">Set a non-USD currency in Settings → Accounting, then check budget rows / PO amounts / Gantt cost fields.<span class="tag bugfix">hardcoded USD fixed</span></div>
+    <div class="expect"><b>Pass:</b> amounts format in the chosen currency.</div>
+    <div class="notes"><textarea id="n8-6"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 9 STORY DESIGN ============ -->
+<details class="crit">
+  <summary>9 · Story Design — characters &amp; locations <span class="why">Rename cascades are new (2.5b); tabs decomposed</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s9-1"><div>
+    <div class="do"><b>Rename a character</b> who has dialogue, a cast assignment, and appears in scenes. Then check: bubble view cues, script cues, Cast &amp; Crew, vision cards.<span class="tag bugfix">new cascade</span></div>
+    <div class="expect"><b>Pass:</b> every reference shows the NEW name — nothing orphaned under the old name.</div>
+    <div class="notes"><textarea id="n9-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s9-2"><div>
+    <div class="do"><b>Rename a location</b> used by scenes and schedule items. Check scene headings, schedule rows, Gantt locations.<span class="tag bugfix">new cascade</span></div>
+    <div class="expect"><b>Pass:</b> all references follow the rename.</div>
+    <div class="notes"><textarea id="n9-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s9-3"><div>
+    <div class="do">Walk the character tabs (Physical Appearance, Costume, Voice) and the location detail — edit a few fields in each.<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> everything renders (heavily decomposed), edits persist after tab switches and reopen.</div>
+    <div class="notes"><textarea id="n9-3"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 10 EXPORTS ============ -->
+<details class="high">
+  <summary>10 · Exports <span class="why">Vector PDF (8.6), real scene headings (8.5), Fountain fixes (8.4)</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s10-1"><div>
+    <div class="do">Export the screenplay to <b>PDF</b>; open in Preview; ⌘F for a character name and drag-select a dialogue line.<span class="tag bugfix">vector text</span></div>
+    <div class="expect"><b>Pass:</b> text is findable and selectable (not a flat image); crisp when zoomed.</div>
+    <div class="notes"><textarea id="n10-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s10-2"><div>
+    <div class="do">Give one scene the location "EXT. ROOFTOP - NIGHT"; export Fountain, FDX, HTML, PDF.<span class="tag bugfix">headings fixed</span></div>
+    <div class="expect"><b>Pass:</b> all four show <code>EXT. ROOFTOP - NIGHT</code> verbatim — no forced "INT." or "- DAY".</div>
+    <div class="notes"><textarea id="n10-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s10-3"><div>
+    <div class="do">Export a character sheet (PDF and HTML) and the project overview HTML.</div>
+    <div class="expect"><b>Pass:</b> documents generate with real data; PDF text selectable.</div>
+    <div class="notes"><textarea id="n10-3"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 11 SHELL ============ -->
+<details>
+  <summary>11 · App shell, assets, settings, errors <span class="why">ContentView decomposed; ErrorPresenter new (6.5)</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s11-1"><div>
+    <div class="do">Toolbar: click through every view icon; toggle Navigator (⌘⌥1), Timeline (⌘⌥2), Right Panel (⌘⌥3).<span class="tag regression"></span></div>
+    <div class="expect"><b>Pass:</b> all views open; toggles show/hide panes; selected view is highlighted.</div>
+    <div class="notes"><textarea id="n11-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s11-2"><div>
+    <div class="do">Assets view: scan a project with media; filter by type; open the detail sheet; Save to Downloads.</div>
+    <div class="expect"><b>Pass:</b> assets list with thumbnails; actions work.</div>
+    <div class="notes"><textarea id="n11-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s11-3"><div>
+    <div class="do">Project Settings: walk every tab, change a value in each (title, genre, schedule dates, accounting defaults, cinematography presets), Save.</div>
+    <div class="expect"><b>Pass:</b> all tabs render (decomposed); the save bar detects changes; values persist.</div>
+    <div class="notes"><textarea id="n11-3"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s11-4"><div>
+    <div class="do">Trigger a failure on purpose: try receipt analysis (server down) or delete an image file in Finder and delete its base image in-app.<span class="tag regression">new</span></div>
+    <div class="expect"><b>Pass:</b> a clear <b>alert appears explaining the failure</b> — no silent nothing-happened.</div>
+    <div class="notes"><textarea id="n11-4"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s11-5"><div>
+    <div class="do">Onboarding (optional: reset via defaults or a fresh account): read pages 7–8.<span class="tag bugfix">copy fixed</span></div>
+    <div class="expect"><b>Pass:</b> no DaVinci/EDL/iPad-clapboard promises; features described actually exist. Finishing onboarding then pressing Enter elsewhere spawns nothing.</div>
+    <div class="notes"><textarea id="n11-5"></textarea></div>
+  </div></div>
+</details>
+
+<!-- ============ 12 A11Y ============ -->
+<details>
+  <summary>12 · Accessibility spot-check (VoiceOver) <span class="why">New labels on toolbar + timelines (9.6) — needs your ears</span><span class="count"></span></summary>
+
+  <div class="step"><input type="checkbox" id="s12-1"><div>
+    <div class="do">Enable VoiceOver (⌘F5). Tab/VO-navigate the main toolbar.</div>
+    <div class="expect"><b>Pass:</b> the three right-side toggles announce "Navigator/Timeline/Right Panel" with shown/hidden state; nav buttons announce their view names and selection.</div>
+    <div class="notes"><textarea id="n12-1"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s12-2"><div>
+    <div class="do">VO-navigate into the timeline area of a scene with dialogue and shots.</div>
+    <div class="expect"><b>Pass:</b> the canvases are not silent: a summary is announced and individual segments ("ALEX: …") / shots ("Shot 3, scene …") are reachable as elements.</div>
+    <div class="notes"><textarea id="n12-2"></textarea></div>
+  </div></div>
+
+  <div class="step"><input type="checkbox" id="s12-3"><div>
+    <div class="do">Note the 3 worst unlabeled controls you encounter anywhere else.</div>
+    <div class="expect">Feeds the remaining 9.6 sweep — write them in the notes box.</div>
+    <div class="notes"><textarea id="n12-3" placeholder="e.g. 'bubble filter chips unlabeled', …"></textarea></div>
+  </div></div>
+</details>
+
+<script>
+  // Persistence via localStorage, keyed per input id.
+  const KEY = "dc-ui-test-plan-v1:";
+  document.querySelectorAll("input[type=checkbox]").forEach(cb => {
+    cb.checked = localStorage.getItem(KEY + cb.id) === "1";
+    cb.closest(".step").classList.toggle("done", cb.checked);
+    cb.addEventListener("change", () => {
+      localStorage.setItem(KEY + cb.id, cb.checked ? "1" : "0");
+      cb.closest(".step").classList.toggle("done", cb.checked);
+      refresh();
+    });
+  });
+  document.querySelectorAll("textarea").forEach(t => {
+    t.value = localStorage.getItem(KEY + t.id) || "";
+    t.addEventListener("input", () => localStorage.setItem(KEY + t.id, t.value));
+  });
+  function refresh() {
+    const boxes = [...document.querySelectorAll("input[type=checkbox]")];
+    const done = boxes.filter(b => b.checked).length;
+    document.getElementById("progress").innerHTML = `<b>${done}</b> / <b>${boxes.length}</b> steps`;
+    document.getElementById("progressbar").style.width = (100 * done / boxes.length) + "%";
+    document.querySelectorAll("details").forEach(d => {
+      const bs = [...d.querySelectorAll("input[type=checkbox]")];
+      const dn = bs.filter(b => b.checked).length;
+      const c = d.querySelector("summary .count");
+      if (c) c.textContent = `${dn}/${bs.length}`;
+    });
+  }
+  function expandAll(open) { document.querySelectorAll("details").forEach(d => d.open = open); }
+  function resetAll() {
+    document.querySelectorAll("input[type=checkbox]").forEach(cb => { cb.checked = false; localStorage.removeItem(KEY + cb.id); cb.closest(".step").classList.remove("done"); });
+    document.querySelectorAll("textarea").forEach(t => { t.value = ""; localStorage.removeItem(KEY + t.id); });
+    refresh();
+  }
+  refresh();
+</script>
