@@ -724,73 +724,18 @@ extension BudgetView {
         }
     }
 
-    func escapeCSV(_ value: String) -> String {
-        if value.contains(",") || value.contains("\"") || value.contains("\n") {
-            return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
-        }
-        return value
-    }
-
-    func xmlEscape(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&apos;")
-    }
-
-    // MARK: - Export: CSV/Excel
+    // MARK: - Exports (format building lives in BudgetExportService — WS8.7)
 
     func exportCSV() {
-        var lines: [String] = []
-
-        // Section 1: Budget Summary
-        lines.append("=== BUDGET SUMMARY ===")
-        lines.append("AccountCode,Category,Group,Allocated,Spent,Remaining,Variance%")
-        for cat in filteredCategories {
-            let variancePct = cat.allocated > 0 ? String(format: "%.1f", ((cat.spent - cat.allocated) / cat.allocated) * 100) : "0.0"
-            lines.append("\(escapeCSV(cat.accountCode)),\(escapeCSV(cat.name)),\(escapeCSV(cat.categoryGroup)),\(String(format: "%.2f", cat.allocated)),\(String(format: "%.2f", cat.spent)),\(String(format: "%.2f", cat.remaining)),\(variancePct)")
-        }
-        lines.append("")
-
-        // Section 2: Expenses
-        lines.append("=== EXPENSES ===")
-        lines.append("Date,Description,Category,Amount,Vendor,Department,AccountCode,PaymentMethod,Status")
-        for exp in exportFilteredExpenses {
-            lines.append("\(escapeCSV(exp.date)),\(escapeCSV(exp.description)),\(escapeCSV(exp.category)),\(String(format: "%.2f", exp.amount)),\(escapeCSV(exp.vendor)),\(escapeCSV(exp.department)),\(escapeCSV(exp.accountCode)),\(escapeCSV(exp.paymentMethod)),\(escapeCSV(exp.status))")
-        }
-        lines.append("")
-
-        // Section 3: Purchase Orders
-        lines.append("=== PURCHASE ORDERS ===")
-        lines.append("PONumber,Vendor,Department,AccountCode,Description,Amount,Status,DateCreated,ApprovedBy")
-        for po in filteredPurchaseOrders {
-            lines.append("\(escapeCSV(po.poNumber)),\(escapeCSV(po.vendor)),\(escapeCSV(po.department)),\(escapeCSV(po.accountCode)),\(escapeCSV(po.description)),\(String(format: "%.2f", po.amount)),\(escapeCSV(po.status)),\(escapeCSV(po.dateCreated)),\(escapeCSV(po.approvedBy))")
-        }
-        lines.append("")
-
-        // Section 4: Payroll
-        lines.append("=== PAYROLL ===")
-        lines.append("Name,Role,Type,DailyRate,PaymentType,ProjectedTotal")
-        for cast in viewModel.castMembers {
-            let projected = cast.paymentType == "One Time" ? cast.oneTimePayment : cast.dailyRate * Double(max(viewModel.totalShootDays, 1))
-            lines.append("\(escapeCSV(cast.actorName)),\(escapeCSV(cast.characterName)),Cast,\(String(format: "%.2f", cast.dailyRate)),\(escapeCSV(cast.paymentType)),\(String(format: "%.2f", projected))")
-        }
-        for crew in viewModel.crewMembers {
-            let projected = crew.paymentType == "One Time" ? crew.oneTimePayment : (crew.dailyRate + crew.kitFee) * Double(max(viewModel.totalShootDays, 1))
-            lines.append("\(escapeCSV(crew.name)),\(escapeCSV(crew.role)),Crew,\(String(format: "%.2f", crew.dailyRate)),\(escapeCSV(crew.paymentType)),\(String(format: "%.2f", projected))")
-        }
-        lines.append("")
-
-        // Section 5: Cost Report
-        lines.append("=== COST REPORT ===")
-        lines.append("AccountCode,Description,ThisWeek,ToDate,Committed,Total,ETC,EFC,Budget,Variance")
-        for row in filteredCostReport {
-            lines.append("\(escapeCSV(row.accountCode)),\(escapeCSV(row.description)),\(String(format: "%.2f", row.thisWeek)),\(String(format: "%.2f", row.toDate)),\(String(format: "%.2f", row.committed)),\(String(format: "%.2f", row.total)),\(String(format: "%.2f", row.etc)),\(String(format: "%.2f", row.efc)),\(String(format: "%.2f", row.budget)),\(String(format: "%.2f", row.variance))")
-        }
-
-        let content = lines.joined(separator: "\n")
+        let content = BudgetExportService.csv(
+            categories: filteredCategories,
+            expenses: exportFilteredExpenses,
+            purchaseOrders: filteredPurchaseOrders,
+            costReport: filteredCostReport,
+            castMembers: viewModel.castMembers,
+            crewMembers: viewModel.crewMembers,
+            totalShootDays: viewModel.totalShootDays
+        )
         saveToFile(
             content: content,
             defaultName: "production_accounting_export.csv",
@@ -799,84 +744,18 @@ extension BudgetView {
         )
     }
 
-    // MARK: - Export: Xero CSV
-
     func exportXeroCSV() {
-        var lines: [String] = []
-
-        lines.append("ContactName,InvoiceNumber,InvoiceDate,DueDate,Description,Quantity,UnitAmount,AccountCode,TaxType")
-
-        for (index, exp) in exportFilteredExpenses.enumerated() {
-            let invoiceNumber = String(format: "DC-EXP-%04d", index + 1)
-            let contactName = exp.vendor.isEmpty ? "Production" : exp.vendor
-            let acctCode = exp.accountCode.isEmpty ? "400" : exp.accountCode
-            lines.append("\(escapeCSV(contactName)),\(escapeCSV(invoiceNumber)),\(escapeCSV(exp.date)),\(escapeCSV(exp.date)),\(escapeCSV(exp.description)),1,\(String(format: "%.2f", exp.amount)),\(escapeCSV(acctCode)),Tax Exempt")
-        }
-
-        let content = lines.joined(separator: "\n")
         saveToFile(
-            content: content,
+            content: BudgetExportService.xeroCSV(expenses: exportFilteredExpenses),
             defaultName: "production_xero_import.csv",
             title: "Export Xero CSV",
             contentType: UTType.commaSeparatedText
         )
     }
 
-    // MARK: - Export: Tally XML
-
     func exportTallyXML() {
-        var xml = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <ENVELOPE>
-            <HEADER>
-                <TALLYREQUEST>Import Data</TALLYREQUEST>
-            </HEADER>
-            <BODY>
-                <IMPORTDATA>
-                    <REQUESTDESC>
-                        <REPORTNAME>Vouchers</REPORTNAME>
-                    </REQUESTDESC>
-                    <REQUESTDATA>
-
-        """
-
-        for (index, exp) in exportFilteredExpenses.enumerated() {
-            let tallyDate = exp.date.replacingOccurrences(of: "-", with: "")
-            let category = exp.category.isEmpty ? "Production Expenses" : exp.category
-            let voucherNum = String(format: "DC-PAY-%04d", index + 1)
-
-            xml += """
-                        <TALLYMESSAGE xmlns:UDF="TallyUDF">
-                            <VOUCHER VCHTYPE="Payment" ACTION="Create">
-                                <DATE>\(tallyDate)</DATE>
-                                <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
-                                <VOUCHERNUMBER>\(voucherNum)</VOUCHERNUMBER>
-                                <NARRATION>\(xmlEscape(exp.description))</NARRATION>
-                                <ALLLEDGERENTRIES.LIST>
-                                    <LEDGERNAME>\(xmlEscape(category))</LEDGERNAME>
-                                    <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-                                    <AMOUNT>-\(String(format: "%.2f", exp.amount))</AMOUNT>
-                                </ALLLEDGERENTRIES.LIST>
-                                <ALLLEDGERENTRIES.LIST>
-                                    <LEDGERNAME>Cash</LEDGERNAME>
-                                    <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                                    <AMOUNT>\(String(format: "%.2f", exp.amount))</AMOUNT>
-                                </ALLLEDGERENTRIES.LIST>
-                            </VOUCHER>
-                        </TALLYMESSAGE>
-
-            """
-        }
-
-        xml += """
-                    </REQUESTDATA>
-                </IMPORTDATA>
-            </BODY>
-        </ENVELOPE>
-        """
-
         saveToFile(
-            content: xml,
+            content: BudgetExportService.tallyXML(expenses: exportFilteredExpenses),
             defaultName: "production_tally_import.xml",
             title: "Export Tally XML",
             contentType: UTType.xml
