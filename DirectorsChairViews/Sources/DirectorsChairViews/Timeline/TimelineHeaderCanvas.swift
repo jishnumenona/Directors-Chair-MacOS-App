@@ -266,8 +266,13 @@ public struct TimelineHeaderCanvas: View {
     /// Whether the Command key is currently held down (for showing shot previews)
     @State var isCommandKeyDown: Bool = false
 
-    /// Cache for loaded preview images (keyed by relative path)
-    @State var previewImageCache: [String: NSImage] = [:]
+    /// Async preview-image cache (keyed by relative path). Draw-path lookups
+    /// never touch disk: a miss schedules a background load, and
+    /// `previewCacheVersion` bumps to trigger a redraw when it lands (WS9.2).
+    @State var previewImageCache = CanvasImageCache()
+
+    /// Incremented when a background image load completes, to invalidate Canvas.
+    @State var previewCacheVersion: Int = 0
 
     /// Light cue targeted by context menu
     @State var contextMenuLightCue: LightCue?
@@ -619,6 +624,9 @@ public struct TimelineHeaderCanvas: View {
 
     public var body: some View {
         Canvas { context, size in
+            // Read the cache version so the Canvas redraws when a background
+            // preview-image load completes (WS9.2).
+            _ = previewCacheVersion
             drawBackground(context: context, size: size)
             drawTimeRuler(context: context, size: size)
 
@@ -1347,7 +1355,11 @@ public struct TimelineHeaderCanvas: View {
             }
         }
         .overlay(CommandKeyMonitor(isCommandKeyDown: $isCommandKeyDown))
-        .onAppear { recomputeCachedSubLanes() }
+        .onAppear {
+            recomputeCachedSubLanes()
+            // Redraw when a background preview-image load completes (WS9.2).
+            previewImageCache.onImageLoaded = { previewCacheVersion += 1 }
+        }
         .onChange(of: lightCues) { _ in recomputeCachedSubLanes() }
         .onChange(of: sfxCues) { _ in recomputeCachedSubLanes() }
         .onChange(of: supportCues) { _ in recomputeCachedSubLanes() }

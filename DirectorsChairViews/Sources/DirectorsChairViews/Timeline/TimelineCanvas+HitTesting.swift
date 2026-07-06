@@ -104,34 +104,35 @@ extension TimelineCanvas {
         return nil
     }
 
-    /// Load character images into cache for efficient canvas rendering
+    /// Load character images into cache for efficient canvas rendering.
+    /// The path list is gathered on the main actor; the disk reads happen on a
+    /// background queue so avatar loading never blocks the UI (WS9.2), and the
+    /// cache is published back on main.
     func loadCharacterImages() {
         guard let basePath = projectBasePath else { return }
 
-        var newCache: [String: NSImage] = [:]
-
+        var wanted: [(key: String, url: URL)] = []
         for segment in segments {
-            guard let avatarPath = segment.avatarPath,
-                  !avatarPath.isEmpty else { continue }
-
-            let cacheKey = segment.character
-            if newCache[cacheKey] == nil {
-                let fullPath = basePath.appendingPathComponent(avatarPath)
-                if let image = NSImage(contentsOf: fullPath) {
-                    newCache[cacheKey] = image
-                }
-            }
-
-            if let parentName = segment.parentCharacterName, newCache[parentName] == nil {
-                let fullPath = basePath.appendingPathComponent(avatarPath)
-                if let image = NSImage(contentsOf: fullPath) {
-                    newCache[parentName] = image
-                }
+            guard let avatarPath = segment.avatarPath, !avatarPath.isEmpty else { continue }
+            let fullPath = basePath.appendingPathComponent(avatarPath)
+            wanted.append((segment.character, fullPath))
+            if let parentName = segment.parentCharacterName {
+                wanted.append((parentName, fullPath))
             }
         }
 
-        if newCache != imageCache {
-            imageCache = newCache
+        DispatchQueue.global(qos: .userInitiated).async { [wanted] in
+            var newCache: [String: NSImage] = [:]
+            for (key, url) in wanted where newCache[key] == nil {
+                if let image = NSImage(contentsOf: url) {
+                    newCache[key] = image
+                }
+            }
+            DispatchQueue.main.async {
+                if newCache != imageCache {
+                    imageCache = newCache
+                }
+            }
         }
     }
 }

@@ -239,17 +239,10 @@ extension TimelineHeaderCanvas {
             var previewNSImage: NSImage? = nil
 
             if let imgPath = shotLabel.previewImagePath, let basePath = projectBasePath {
-                if let cached = previewImageCache[imgPath] {
-                    previewNSImage = cached
-                } else {
-                    let fullPath = basePath.appendingPathComponent(imgPath)
-                    if let img = NSImage(contentsOf: fullPath) {
-                        DispatchQueue.main.async {
-                            previewImageCache[imgPath] = img
-                        }
-                        previewNSImage = img
-                    }
-                }
+                // Never reads disk on the draw path: returns the cached image,
+                // or nil while a background load runs (placeholder drawn now;
+                // previewCacheVersion bumps to redraw when it lands). (WS9.2)
+                previewNSImage = previewImageCache.image(forRelativePath: imgPath, base: basePath)
             }
 
             if isCommandKeyDown {
