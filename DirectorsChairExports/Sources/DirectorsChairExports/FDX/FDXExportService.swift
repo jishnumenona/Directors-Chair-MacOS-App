@@ -93,8 +93,7 @@ private struct FDXGenerator {
         var sceneXML = ""
         
         // Scene heading
-        let location = scene.location ?? sequenceLocation ?? scene.name
-        let heading = "INT. \(location.uppercased()) - DAY"
+        let heading = SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequenceLocation)
         sceneXML += buildParagraph(type: "Scene Heading", text: heading)
         
         // Scene description as action

@@ -97,7 +97,7 @@ public struct FountainExportService: Sendable {
         var output = ""
         
         // Scene heading (slug line)
-        let heading = buildSceneHeading(scene, sequenceLocation: sequenceLocation)
+        let heading = SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequenceLocation)
         output += heading + "\n\n"
         
         // Scene description
@@ -113,30 +113,6 @@ public struct FountainExportService: Sendable {
         }
         
         return output
-    }
-    
-    private static func buildSceneHeading(_ scene: Scene, sequenceLocation: String?) -> String {
-        // Format: INT./EXT. LOCATION - TIME OF DAY
-        var heading = ""
-        
-        // Determine INT/EXT from location or scene name
-        let location = scene.location ?? sequenceLocation ?? scene.name
-        let locationUpper = location.uppercased()
-        
-        if locationUpper.hasPrefix("INT") || locationUpper.hasPrefix("EXT") {
-            heading = locationUpper
-        } else {
-            // Default to INT if not specified
-            heading = "INT. \(locationUpper)"
-        }
-        
-        // Add time of day if we can extract it
-        // Common patterns: "- DAY", "- NIGHT", "- DAWN", etc.
-        if !heading.contains(" - ") {
-            heading += " - DAY"
-        }
-        
-        return heading
     }
     
     // MARK: - Scene Elements

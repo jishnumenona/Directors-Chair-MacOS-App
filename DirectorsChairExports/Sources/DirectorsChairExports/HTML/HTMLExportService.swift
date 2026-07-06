@@ -477,7 +477,7 @@ private struct ScreenplayHTMLGenerator {
         let location = scene.location ?? sequenceLocation ?? scene.name
         var sceneHTML = """
         <div class="scene">
-            <p class="scene-heading">INT. \(escapeHTML(location.uppercased())) - DAY</p>
+            <p class="scene-heading">\(escapeHTML(SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequenceLocation)))</p>
         """
         
         if !scene.description.isEmpty {

@@ -228,8 +228,7 @@ private final class ScreenplayPDFGenerator {
                 }
 
                 // Scene heading
-                let location = scene.location ?? sequence.location ?? scene.name
-                let heading = "INT. \(location.uppercased()) - DAY"
+                let heading = SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequence.location)
                 drawLeft(heading, font: headingFont)
                 currentY -= 24
 
