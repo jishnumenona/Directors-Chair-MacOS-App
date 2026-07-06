@@ -1354,6 +1354,14 @@ public struct TimelineHeaderCanvas: View {
                 )
             }
         }
+        // WS9.6 — expose the header (ruler + shot lane) to VoiceOver.
+        .accessibilityLabel("Timeline ruler and shot lane")
+        .accessibilityValue("\(shotLabels.count) shots, duration \(Int(totalSeconds)) seconds")
+        .accessibilityChildren {
+            ForEach(shotLabels) { label in
+                Text("\(label.shotName), scene \(label.sceneName), at \(Int(label.time)) seconds")
+            }
+        }
         .overlay(CommandKeyMonitor(isCommandKeyDown: $isCommandKeyDown))
         .onAppear {
             recomputeCachedSubLanes()

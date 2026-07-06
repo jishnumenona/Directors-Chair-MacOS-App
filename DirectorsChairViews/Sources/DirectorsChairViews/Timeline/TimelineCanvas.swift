@@ -291,6 +291,15 @@ public struct TimelineCanvas: View {
 
         }
         .frame(width: totalWidth, height: min(availableHeight > 0 ? availableHeight : totalHeight, maxRenderHeight))
+        // WS9.6 — expose the drawn timeline to VoiceOver: a summary on the
+        // canvas plus one child element per segment (its speaker and text).
+        .accessibilityLabel("Timeline content")
+        .accessibilityValue("\(segments.count) segments")
+        .accessibilityChildren {
+            ForEach(segments) { segment in
+                Text("\(segment.character): \(segment.text)")
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { location in
             if let segment = findSegment(at: location) {

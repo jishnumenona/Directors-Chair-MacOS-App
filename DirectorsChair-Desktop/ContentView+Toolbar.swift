@@ -40,6 +40,7 @@ struct AppToolbar: View {
                     }
                     .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == view, tooltipText: view.rawValue))
                     .accessibilityIdentifier("nav-\(view.rawValue.lowercased().replacingOccurrences(of: " ", with: "-"))")
+                    .accessibilityAddTraits(coordinator.selectedView == view ? [.isSelected] : [])
                     .spotlightTarget(id: "toolbar-\(view.rawValue)")
 
                     // Add hint dots on specific toolbar buttons
@@ -97,6 +98,9 @@ struct AppToolbar: View {
                 }
                 .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingNavigator, tooltipText: "Navigator (⌘⌥1)"))
                 .spotlightTarget(id: "toggle-navigator")
+                .accessibilityLabel("Navigator")
+                .accessibilityValue(coordinator.showingNavigator ? "shown" : "hidden")
+                .accessibilityIdentifier("toggle-navigator")
 
                 Button(action: {
                     coordinator.toggleTimeline()
@@ -106,6 +110,9 @@ struct AppToolbar: View {
                 }
                 .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingTimeline, tooltipText: "Timeline (⌘⌥2)"))
                 .hintDot(id: "hint-ai-chat", title: "AI Chat Assistant", description: "Press Shift twice to open the AI Chat assistant")
+                .accessibilityLabel("Timeline")
+                .accessibilityValue(coordinator.showingTimeline ? "shown" : "hidden")
+                .accessibilityIdentifier("toggle-timeline")
 
                 Button(action: {
                     coordinator.toggleRightPanel()
@@ -114,6 +121,9 @@ struct AppToolbar: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(ToggleButtonStyle(isActive: coordinator.showingRightPanel, tooltipText: "Right Panel (⌘⌥3)"))
+                .accessibilityLabel("Right Panel")
+                .accessibilityValue(coordinator.showingRightPanel ? "shown" : "hidden")
+                .accessibilityIdentifier("toggle-right-panel")
             }
             .padding(.trailing, 12)
         }
