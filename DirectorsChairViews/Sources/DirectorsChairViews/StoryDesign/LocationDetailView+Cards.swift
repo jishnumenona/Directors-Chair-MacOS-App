@@ -35,6 +35,18 @@ extension LocationDetailView {
 
     // MARK: - Location Identity Header
 
+    /// Commit the rename popover. Assigning through the (cascading) binding
+    /// rewrites every reference before the new value lands (WS2.5b).
+    func commitLocationRename() {
+        let newName = renameDraft.trimmingCharacters(in: .whitespaces)
+        guard !newName.isEmpty else {
+            showingRenamePopover = false
+            return
+        }
+        location.name = newName
+        showingRenamePopover = false
+    }
+
     var locationIdentityHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
             // Type selector
@@ -428,9 +440,47 @@ extension LocationDetailView {
                     Spacer()
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(location.name)
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
+                            HStack(spacing: 6) {
+                                Text(location.name)
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.white)
+                                // Rename: assigning through the binding runs the
+                                // WS2.5b cascade (scene/sequence locations,
+                                // schedule rows, gantt tasks follow).
+                                Button {
+                                    renameDraft = location.name
+                                    showingRenamePopover = true
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.8))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Rename location — all scene and schedule references follow automatically")
+                                .accessibilityLabel("Rename location")
+                                .popover(isPresented: $showingRenamePopover) {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("Rename Location")
+                                            .font(.headline)
+                                        TextField("Location name", text: $renameDraft)
+                                            .textFieldStyle(.roundedBorder)
+                                            .frame(width: 240)
+                                            .onSubmit { commitLocationRename() }
+                                        Text("All scenes, schedule items, and gantt tasks using this location will follow the new name.")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .frame(width: 240, alignment: .leading)
+                                        HStack {
+                                            Spacer()
+                                            Button("Cancel") { showingRenamePopover = false }
+                                            Button("Rename") { commitLocationRename() }
+                                                .keyboardShortcut(.defaultAction)
+                                                .disabled(renameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                                        }
+                                    }
+                                    .padding(14)
+                                }
+                            }
                             HStack(spacing: 6) {
                                 Text(location.locationType.capitalized)
                                     .font(.system(size: 11, weight: .medium))

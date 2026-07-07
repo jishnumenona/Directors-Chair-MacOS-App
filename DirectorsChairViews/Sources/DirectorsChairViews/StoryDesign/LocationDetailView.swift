@@ -44,6 +44,10 @@ public struct LocationDetailView: View {
     // Hover state for hero image overlay
     @State var isHoveringHeroImage = false
 
+    // Rename popover (WS2.5b UI — commits through the cascading binding)
+    @State var showingRenamePopover = false
+    @State var renameDraft = ""
+
     @State var showingAnnotationEditor = false
     @State var annotationEditorImage: NSImage?
     @State var annotationEditorVariation: String = ""
