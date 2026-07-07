@@ -31,6 +31,9 @@ class ScreenplayNSTextView: NSTextView {
     var onRedoRequested: (() -> Void)?
     /// Editor v2 — ⌃1–6 direct element switching (FD's ⌘1–6; ⌘ digits are view nav here).
     var onSetElementTypeRequested: ((Int) -> Void)?
+    /// ⌘[ / ⌘] — app-level navigation history.
+    var onNavigateBackRequested: (() -> Void)?
+    var onNavigateForwardRequested: (() -> Void)?
 
 
 
@@ -395,6 +398,33 @@ class ScreenplayNSTextView: NSTextView {
                 onRedoRequested?()
             } else {
                 onUndoRequested?()
+            }
+            return true
+        }
+        // ⌘F / ⌥⌘F — find / find-and-replace bar. Wired explicitly because the
+        // app menu has no Find item, so the standard responder path never fires.
+        if event.modifierFlags.contains(.command),
+           !event.modifierFlags.contains(.shift),
+           !event.modifierFlags.contains(.control),
+           event.charactersIgnoringModifiers?.lowercased() == "f" {
+            let action: NSTextFinder.Action = event.modifierFlags.contains(.option)
+                ? .showReplaceInterface : .showFindInterface
+            let sender = NSMenuItem()
+            sender.tag = action.rawValue
+            performTextFinderAction(sender)
+            return true
+        }
+        // ⌘[ / ⌘] — app-level navigation history (back / forward).
+        if event.modifierFlags.contains(.command),
+           !event.modifierFlags.contains(.shift),
+           !event.modifierFlags.contains(.option),
+           !event.modifierFlags.contains(.control),
+           let chars = event.charactersIgnoringModifiers,
+           chars == "[" || chars == "]" {
+            if chars == "[" {
+                onNavigateBackRequested?()
+            } else {
+                onNavigateForwardRequested?()
             }
             return true
         }

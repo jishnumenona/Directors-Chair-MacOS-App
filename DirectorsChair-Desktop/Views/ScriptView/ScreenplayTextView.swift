@@ -33,7 +33,7 @@ struct ScreenplayTextView: NSViewRepresentable {
     var onReturn: ((Int, Int) -> RebuildInstruction)?  // (elementIndex, cursorOffset) -> instruction
     var onBackspace: ((Int, Int) -> RebuildInstruction)?  // (elementIndex, cursorOffset) -> instruction
     var onTabCycle: ((Int) -> RebuildInstruction)?  // (elementIndex) -> instruction
-    var onAutocompleteInsert: ((String, Int) -> RebuildInstruction)?  // (text, elementIndex) -> instruction
+    var onAutocompleteInsert: ((String, Int, Int) -> RebuildInstruction)?  // (text, elementIndex, cursorOffsetInElement) -> instruction
     var onPlaceholderEdit: ((Int, String) -> RebuildInstruction)?  // (elementIndex, newText) -> instruction
     /// WS7.1 — multi-line paste / multi-paragraph delete as one model op:
     /// (startElement, startUTF16Offset, endElement, endUTF16Offset, replacement)
@@ -43,6 +43,9 @@ struct ScreenplayTextView: NSViewRepresentable {
     var onRedo: (() -> RebuildInstruction)?
     /// Editor v2 — direct element switching (⌃1–6): (elementIndex, digit)
     var onSetElementType: ((Int, Int) -> RebuildInstruction)?
+    /// ⌘[ / ⌘] — app-level navigation history (back / forward)
+    var onNavigateBack: (() -> Void)?
+    var onNavigateForward: (() -> Void)?
     var onAutocompleteFilter: ((String) -> Void)?  // (prefix) -> Void
 
     // Wizard mode
@@ -120,6 +123,12 @@ struct ScreenplayTextView: NSViewRepresentable {
             if let instruction = coordinator.parent.onSetElementType?(index, digit) {
                 coordinator.applyRebuildInstruction(instruction)
             }
+        }
+        textView.onNavigateBackRequested = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onNavigateBack?()
+        }
+        textView.onNavigateForwardRequested = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onNavigateForward?()
         }
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
@@ -1004,9 +1013,11 @@ struct ScreenplayTextView: NSViewRepresentable {
 
             let cursorLocation = textView.selectedRange().location
             let elementIndex = elementIndexForCursor(cursorLocation)
+            let paragraphRange = rangeForParagraph(elementIndex)
+            let offsetInElement = max(0, cursorLocation - paragraphRange.location)
 
             // Use the model-authoritative callback
-            if let instruction = parent.onAutocompleteInsert?(text, elementIndex) {
+            if let instruction = parent.onAutocompleteInsert?(text, elementIndex, offsetInElement) {
                 // Dismiss autocomplete
                 parent.onAutocompleteSelected?(text)
                 hideAutocompletePanel()
