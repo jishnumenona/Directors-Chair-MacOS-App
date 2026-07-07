@@ -528,10 +528,28 @@ class ScriptViewModel: ObservableObject {
         return .fullRebuild(focusElementId: elements[index].id, cursorOffset: elements[index].text.count)
     }
 
-    /// Handle autocomplete selection — insert the selected text as a character element.
-    func handleAutocompleteSelection(item: String, atElementIndex index: Int) -> RebuildInstruction {
+    /// Accept an autocomplete suggestion. What "accept" means depends on the
+    /// trigger that opened the popover: "@" runs the character-cue flow,
+    /// "#" converts the element to a transition, and the inline triggers
+    /// (% location, $ time, ~ sound, ^ prop, parentheticals) insert plain
+    /// text at the cursor without changing the element's type.
+    func handleAutocompleteSelection(item: String, atElementIndex index: Int, cursorOffset: Int = 0) -> RebuildInstruction {
         guard index >= 0, index < elements.count else { return .none }
 
+        switch autocompleteTrigger {
+        case "character":
+            return acceptCharacterCue(item, atElementIndex: index)
+        case "transition":
+            return acceptTransition(item, atElementIndex: index)
+        default:
+            return acceptInlineInsert(item, atElementIndex: index, cursorOffset: cursorOffset)
+        }
+    }
+
+    /// "@" — the selected name becomes a character cue, followed by an empty
+    /// dialogue element (the FD cue → dialogue flow).
+    private func acceptCharacterCue(_ item: String, atElementIndex index: Int) -> RebuildInstruction {
+        registerUndoSnapshot()
         syncPendingTexts()
 
         elements[index].type = .character
@@ -559,13 +577,65 @@ class ScriptViewModel: ObservableObject {
         elements.insert(dialogueElement, at: index + 1)
         elementsVersion += 1
 
+        dismissAutocompleteState()
+        updateOutlineAndStats()
+
+        return .fullRebuild(focusElementId: dialogueElement.id, cursorOffset: 0)
+    }
+
+    /// "#" — the selected transition replaces the current element's type and text.
+    private func acceptTransition(_ item: String, atElementIndex index: Int) -> RebuildInstruction {
+        registerUndoSnapshot()
+        syncPendingTexts()
+
+        elements[index].type = .transition
+        elements[index].text = item.uppercased()
+        elements[index].isPlaceholder = false
+        elementsVersion += 1
+
+        dismissAutocompleteState()
+        updateOutlineAndStats()
+
+        return .fullRebuild(
+            focusElementId: elements[index].id,
+            cursorOffset: elements[index].text.utf16.count
+        )
+    }
+
+    /// "%", "$", "~", "^", "(" — the selection is plain text inserted at the
+    /// cursor; the element keeps its type and backing model object.
+    private func acceptInlineInsert(_ item: String, atElementIndex index: Int, cursorOffset: Int) -> RebuildInstruction {
+        registerUndoSnapshot()
+        syncPendingTexts()
+
+        var text = elements[index].text
+        let insertAt = min(max(cursorOffset, 0), text.utf16.count)
+        if let range = Range(NSRange(location: insertAt, length: 0), in: text) {
+            text.replaceSubrange(range, with: item)
+        } else {
+            text += item
+        }
+
+        elements[index].text = text
+        elements[index].isPlaceholder = false
+        dirtyElements.insert(elements[index].id)
+        flushDirtyElement(at: index)
+        elementsVersion += 1
+
+        dismissAutocompleteState()
+        updateOutlineAndStats()
+
+        return .fullRebuild(
+            focusElementId: elements[index].id,
+            cursorOffset: insertAt + item.utf16.count
+        )
+    }
+
+    private func dismissAutocompleteState() {
         showingAutocomplete = false
         autocompleteItems = []
         allAutocompleteItems = []
         autocompleteElementId = nil
-        updateOutlineAndStats()
-
-        return .fullRebuild(focusElementId: dialogueElement.id, cursorOffset: 0)
     }
 
     // MARK: - Dirty Element Flushing
@@ -618,7 +688,7 @@ class ScriptViewModel: ObservableObject {
             if let newId = createdId,
                let idx = elements.firstIndex(where: { $0.id == elementId }) {
                 elements[idx].sourceItemId = newId
-                elements[idx].sourceItemType = "dialogue"
+                elements[idx].sourceItemType = elements[idx].type == .scriptNote ? "note" : "dialogue"
             }
             anyChanged = true
         }
@@ -652,7 +722,7 @@ class ScriptViewModel: ObservableObject {
 
         if let newId = createdId {
             elements[index].sourceItemId = newId
-            elements[index].sourceItemType = "dialogue"
+            elements[index].sourceItemType = elements[index].type == .scriptNote ? "note" : "dialogue"
         }
 
         dirtyElements.remove(element.id)
@@ -756,12 +826,24 @@ class ScriptViewModel: ObservableObject {
     // MARK: - Insert Helpers
 
     private func insertScriptNote() {
-        let noteElement = ScriptElement(
+        registerUndoSnapshot()
+        syncPendingTexts()
+
+        var noteElement = ScriptElement(
             type: .scriptNote,
             text: "[[Note: ]]"
         )
         let insertIndex = min(currentElementIndex + 1, elements.count)
+        // Anchor the note to the enclosing scene so it persists as a
+        // scene Note (visible in the bubble view) instead of evaporating
+        // on the next model refresh.
+        if let context = ProjectToScriptConverter.findSceneContext(at: max(insertIndex - 1, 0), in: elements) {
+            noteElement.sourceSequenceIndex = context.sequenceIndex
+            noteElement.sourceSceneIndex = context.sceneIndex
+        }
         elements.insert(noteElement, at: insertIndex)
+        dirtyElements.insert(noteElement.id)
+        flushDirtyElement(at: insertIndex)
         elementsVersion += 1
     }
 

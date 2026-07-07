@@ -327,18 +327,94 @@ final class ScriptViewModelTests: XCTestCase {
     func testAutocompleteUpdatesModel() {
         makeSimpleElements()
 
-        // Simulate autocomplete selection on element 2 (character)
+        // "@" trigger: the selection becomes a character cue + empty dialogue
+        viewModel.autocompleteTrigger = "character"
         let instruction = viewModel.handleAutocompleteSelection(item: "BOB", atElementIndex: 2)
 
         XCTAssertEqual(viewModel.elements[2].text, "BOB")
         XCTAssertEqual(viewModel.elements[2].type, .character)
         XCTAssertFalse(viewModel.elements[2].isPlaceholder)
+        XCTAssertEqual(viewModel.elements[3].type, .dialogue, "Cue accept creates an empty dialogue after")
 
         if case .fullRebuild(_, _) = instruction {
             // Expected — a new dialogue element is inserted after
         } else {
             XCTFail("Expected .fullRebuild instruction")
         }
+    }
+
+    func testLocationAutocompleteInsertsInline() {
+        makeSimpleElements()
+
+        // "%" trigger: the selection is plain text at the cursor — the element
+        // must NOT be converted into a character cue (the old bug).
+        viewModel.autocompleteTrigger = "location"
+        let instruction = viewModel.handleAutocompleteSelection(
+            item: "ROOFTOP", atElementIndex: 1, cursorOffset: 6)
+
+        XCTAssertEqual(viewModel.elements[1].type, .action, "Inline insert keeps the element type")
+        XCTAssertEqual(viewModel.elements[1].text, "Alice ROOFTOPenters the room.")
+
+        if case .fullRebuild(let focusId, let cursorOffset) = instruction {
+            XCTAssertEqual(focusId, viewModel.elements[1].id)
+            XCTAssertEqual(cursorOffset, 6 + "ROOFTOP".utf16.count, "Cursor lands after the inserted text")
+        } else {
+            XCTFail("Expected .fullRebuild instruction")
+        }
+    }
+
+    func testTransitionAutocompleteConvertsElement() {
+        makeSimpleElements()
+
+        // "#" trigger: the selection replaces the element as an uppercase transition
+        viewModel.autocompleteTrigger = "transition"
+        _ = viewModel.handleAutocompleteSelection(item: "cut to:", atElementIndex: 5)
+
+        XCTAssertEqual(viewModel.elements[5].type, .transition)
+        XCTAssertEqual(viewModel.elements[5].text, "CUT TO:")
+    }
+
+    func testSlashTriggerInsertsScriptNoteElement() {
+        makeSimpleElements()
+        let countBefore = viewModel.elements.count
+
+        viewModel.currentElementIndex = 1
+        viewModel.handleAutocompleteTrigger("/")
+
+        XCTAssertEqual(viewModel.elements.count, countBefore + 1)
+        XCTAssertEqual(viewModel.elements[2].type, .scriptNote)
+        XCTAssertEqual(viewModel.elements[2].sourceSequenceIndex, 0,
+                       "Note is anchored to the enclosing scene so it can persist")
+    }
+
+    func testApplyEditCreatesSceneNote() {
+        var project = Project(name: "Note Test")
+        let scene = Scene(name: "Scene 1", dialogues: [Dialogue(character: "Alice", text: "Hi", chronologyNumber: 1)])
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+
+        let element = ScriptElement(type: .scriptNote, text: "[[Note: check continuity]]",
+                                    sourceSequenceIndex: 0, sourceSceneIndex: 0)
+        let createdId = ProjectToScriptConverter.applyEdit(element: element, newText: element.text, to: &project)
+
+        XCTAssertNotNil(createdId, "A scene Note is created for a new script note")
+        XCTAssertEqual(project.sequences[0].scenes[0].sceneNotes.count, 1)
+        XCTAssertEqual(project.sequences[0].scenes[0].sceneNotes[0].content, "check continuity")
+        XCTAssertEqual(project.sequences[0].scenes[0].sceneNotes[0].uuid, createdId)
+    }
+
+    func testApplyEditUpdatesSceneNote() {
+        var project = Project(name: "Note Test")
+        let note = Note(content: "old text", chronologyNumber: 2)
+        let scene = Scene(name: "Scene 1", sceneNotes: [note])
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+
+        var element = ScriptElement(type: .scriptNote, text: "[[revised text]]",
+                                    sourceSequenceIndex: 0, sourceSceneIndex: 0)
+        element.sourceItemId = note.uuid
+        element.sourceItemType = "note"
+        _ = ProjectToScriptConverter.applyEdit(element: element, newText: element.text, to: &project)
+
+        XCTAssertEqual(project.sequences[0].scenes[0].sceneNotes[0].content, "revised text")
     }
 
     func testPlaceholderReplacement() {

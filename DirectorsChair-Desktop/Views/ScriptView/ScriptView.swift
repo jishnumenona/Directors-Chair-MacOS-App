@@ -74,8 +74,9 @@ struct ScriptView: View {
                     onTabCycle: { elementIndex in
                         viewModel.handleTabCycle(atElementIndex: elementIndex)
                     },
-                    onAutocompleteInsert: { text, elementIndex in
-                        viewModel.handleAutocompleteSelection(item: text, atElementIndex: elementIndex)
+                    onAutocompleteInsert: { text, elementIndex, cursorOffset in
+                        viewModel.handleAutocompleteSelection(item: text, atElementIndex: elementIndex,
+                                                              cursorOffset: cursorOffset)
                     },
                     onPlaceholderEdit: { index, text in
                         viewModel.handlePlaceholderEdit(elementIndex: index, newText: text)
@@ -90,6 +91,8 @@ struct ScriptView: View {
                     onSetElementType: { index, digit in
                         viewModel.handleSetElementType(atElementIndex: index, digit: digit)
                     },
+                    onNavigateBack: { coordinator.navigateBack() },
+                    onNavigateForward: { coordinator.navigateForward() },
                     onAutocompleteFilter: { prefix in
                         viewModel.filterAutocomplete(prefix: prefix)
                     },

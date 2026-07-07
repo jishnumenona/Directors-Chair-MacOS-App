@@ -230,6 +230,21 @@ struct ProjectToScriptConverter {
                 )
                 project.sequences[seqIdx].scenes[sceneIdx].dialogues.append(newDialogue)
                 return newDialogue.uuid
+            } else if element.type == .scriptNote {
+                // Script note with no backing object — persist as a scene Note
+                // so it survives refreshes and shows in the bubble view.
+                let content = stripNoteBrackets(newText)
+                guard !content.isEmpty else { return nil }
+
+                let scene = project.sequences[seqIdx].scenes[sceneIdx]
+                var chronologies: [Int] = scene.dialogues.map { $0.chronologyNumber }
+                chronologies.append(contentsOf: scene.actions.map { $0.chronologyNumber })
+                chronologies.append(contentsOf: scene.narrations.map { $0.chronologyNumber })
+                chronologies.append(contentsOf: scene.sceneNotes.map { $0.chronologyNumber })
+                let nextChronology = (chronologies.max() ?? 0) + 1
+                let newNote = Note(content: content, chronologyNumber: nextChronology)
+                project.sequences[seqIdx].scenes[sceneIdx].sceneNotes.append(newNote)
+                return newNote.uuid
             }
             return nil
         }
@@ -267,10 +282,28 @@ struct ProjectToScriptConverter {
             // Editing scene heading — update location
             project.sequences[seqIdx].scenes[sceneIdx].location = parseSceneHeading(newText)
 
+        case "note":
+            if let nIdx = project.sequences[seqIdx].scenes[sceneIdx].sceneNotes.firstIndex(where: { $0.uuid == itemId }) {
+                project.sequences[seqIdx].scenes[sceneIdx].sceneNotes[nIdx].content = stripNoteBrackets(newText)
+            }
+
         default:
             break
         }
         return nil
+    }
+
+    /// Script notes render as "[[content]]" in the editor; strip the brackets
+    /// (and the "Note:" placeholder prefix) before storing the content.
+    private static func stripNoteBrackets(_ text: String) -> String {
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.hasPrefix("[[") { t.removeFirst(2) }
+        if t.hasSuffix("]]") { t.removeLast(2) }
+        t = t.trimmingCharacters(in: .whitespaces)
+        if t.lowercased().hasPrefix("note:") {
+            t = String(t.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+        }
+        return t
     }
 
     // MARK: - Scene Management Helpers
