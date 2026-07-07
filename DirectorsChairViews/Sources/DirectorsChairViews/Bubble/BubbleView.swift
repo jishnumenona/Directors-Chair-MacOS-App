@@ -42,6 +42,8 @@ public struct BubbleView: View {
     @State var sortRefreshTrigger = UUID()
     @State var newlyAddedItemId: String? = nil  // Track newly added items for auto-edit
     @State var dropTargetDialogueId: String? = nil  // Track which dialogue is being targeted for drop
+    /// Chronology position currently targeted by a reorder drag (insertion line)
+    @State var reorderDropTarget: Int? = nil
     @AppStorage("bubbleView.leftAlignedOverrides") private var leftAlignedOverridesData: Data = Data()
 
     /// Character names whose alignment has been flipped by the user (persisted)

@@ -517,6 +517,50 @@ extension BubbleView {
     }
 
     /// Disconnects an item from its parent dialogue
+    // MARK: - Drag reorder (drop zones between rows)
+
+    /// Locate an item's current chronology + parent linkage in the selected scene.
+    func lookupItem(itemId: String, itemType: String) -> (chronology: Int, parentDialogueId: String?)? {
+        guard let scene = selectedScene else { return nil }
+        switch itemType {
+        case "dialogue":
+            return scene.dialogues.first { $0.id == itemId }.map { ($0.chronologyNumber, nil) }
+        case "action":
+            return scene.actions.first { $0.id == itemId }.map { ($0.chronologyNumber, $0.parentDialogueId) }
+        case "narration":
+            return scene.narrations.first { $0.id == itemId }.map { ($0.chronologyNumber, $0.parentDialogueId) }
+        case "note":
+            return scene.sceneNotes.first { $0.id == itemId }.map { ($0.chronologyNumber, $0.parentDialogueId) }
+        case "soundNote":
+            return scene.soundNotes.first { $0.id == itemId }.map { ($0.chronologyNumber, $0.parentDialogueId) }
+        default:
+            return nil
+        }
+    }
+
+    /// Drop-zone handler: move the dragged item so it sits BEFORE the given
+    /// chronology position (nil = move to the end). A connected item dropped
+    /// into a zone is disconnected first — dragging it out of its dialogue is
+    /// the natural "detach" gesture.
+    func handleReorderDrop(itemId: String, itemType: String, insertBefore targetChronology: Int?) {
+        guard let info = lookupItem(itemId: itemId, itemType: itemType) else { return }
+        if info.parentDialogueId != nil {
+            disconnectItem(itemId: itemId, itemType: itemType)
+        }
+        guard let current = lookupItem(itemId: itemId, itemType: itemType) else { return }
+        let oldIndex = current.chronology
+
+        let newIndex: Int
+        if let target = targetChronology {
+            // Insert-before semantics with the classic shift adjustment.
+            newIndex = oldIndex < target ? target - 1 : target
+        } else {
+            newIndex = globalMaxChronology()
+        }
+        guard newIndex != oldIndex else { return }
+        reorderItems(movingItemId: itemId, oldIndex: oldIndex, newIndex: newIndex)
+    }
+
     func disconnectItem(itemId: String, itemType: String) {
         guard let scene = selectedScene,
               let seqIndex = project.sequences.firstIndex(where: { seq in

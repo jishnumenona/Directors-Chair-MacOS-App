@@ -60,11 +60,15 @@ extension BubbleView {
             if let scene = selectedScene {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 12) {
+                        LazyVStack(spacing: 4) {
                             ForEach(cachedChronologicalItems, id: \.id) { item in
+                                reorderDropZone(insertBefore: item.chronologyNumber)
                                 itemView(for: item, in: scene)
                                     .id(item.id)  // ID for ScrollViewReader
+                                    .padding(.vertical, 4)
                             }
+                            // Trailing zone: drop here to move an item to the end
+                            reorderDropZone(insertBefore: nil)
 
                             // Inline character picker (Cmd+D)
                             if showInlineCharacterPicker {
@@ -292,6 +296,7 @@ extension BubbleView {
                     }
                 )
                 .modifier(HighlightModifier(isHighlighted: isHighlighted))
+                .draggable(BubbleItemDragData(itemId: dialogue.id, itemType: "dialogue"))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(isDropTarget ? Color.green : Color.clear, lineWidth: 3)
@@ -611,4 +616,35 @@ extension BubbleView {
             Spacer()
         }
     }
+    // MARK: - Drag reorder / disconnect (WS: bubble drag UX)
+
+    /// Thin insertion zone between rows. Invisible until a drag hovers it,
+    /// then shows a blue insertion line. Dropping moves the dragged item to
+    /// this position (a connected item is detached first).
+    @ViewBuilder
+    func reorderDropZone(insertBefore chronology: Int?) -> some View {
+        let zoneId = chronology ?? Int.max
+        RoundedRectangle(cornerRadius: 2)
+            .fill(reorderDropTarget == zoneId ? Color.accentColor : Color.clear)
+            .frame(height: reorderDropTarget == zoneId ? 4 : 8)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .onDrop(of: [UTType.json], isTargeted: Binding(
+                get: { reorderDropTarget == zoneId },
+                set: { targeted in reorderDropTarget = targeted ? zoneId : nil }
+            )) { providers in
+                guard let provider = providers.first else { return false }
+                _ = provider.loadDataRepresentation(for: UTType.json) { data, _ in
+                    guard let data = data,
+                          let dragData = try? JSONDecoder().decode(BubbleItemDragData.self, from: data) else { return }
+                    DispatchQueue.main.async {
+                        handleReorderDrop(itemId: dragData.itemId, itemType: dragData.itemType,
+                                          insertBefore: chronology)
+                    }
+                }
+                return true
+            }
+            .accessibilityHidden(true)
+    }
+
 }
