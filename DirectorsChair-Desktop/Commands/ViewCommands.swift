@@ -10,8 +10,20 @@ import SwiftUI
 import AppKit
 
 struct ViewCommands: Commands {
-    @FocusedValue(\.appCoordinator) var coordinator: AppCoordinator?
-    @FocusedValue(\.projectViewModel) var projectViewModel: ProjectViewModel?
+    // Injected app-scoped references (WS-fix: @FocusedValue returns nil when
+    // focus is in an AppKit view or nothing has focus, which silently disabled
+    // EVERY menu shortcut). Focused values remain as a fallback only.
+    var coordinatorRef: AppCoordinator?
+    var projectViewModelRef: ProjectViewModel?
+    @FocusedValue(\.appCoordinator) var focusedCoordinator: AppCoordinator?
+    @FocusedValue(\.projectViewModel) var focusedProjectViewModel: ProjectViewModel?
+    var coordinator: AppCoordinator? { coordinatorRef ?? focusedCoordinator }
+    var projectViewModel: ProjectViewModel? { projectViewModelRef ?? focusedProjectViewModel }
+
+    init(coordinatorRef: AppCoordinator? = nil, projectViewModelRef: ProjectViewModel? = nil) {
+        self.coordinatorRef = coordinatorRef
+        self.projectViewModelRef = projectViewModelRef
+    }
 
     var body: some Commands {
         CommandMenu("View") {

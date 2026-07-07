@@ -11,8 +11,18 @@ import AppKit
 import DirectorsChairServices
 
 struct FileCommands: Commands {
-    @FocusedValue(\.projectViewModel) var projectViewModel: ProjectViewModel?
-    @FocusedValue(\.appCoordinator) var coordinator: AppCoordinator?
+    // Injected app-scoped references (see ViewCommands note re: @FocusedValue).
+    var coordinatorRef: AppCoordinator?
+    var projectViewModelRef: ProjectViewModel?
+    @FocusedValue(\.projectViewModel) var focusedProjectViewModel: ProjectViewModel?
+    @FocusedValue(\.appCoordinator) var focusedCoordinator: AppCoordinator?
+    var coordinator: AppCoordinator? { coordinatorRef ?? focusedCoordinator }
+    var projectViewModel: ProjectViewModel? { projectViewModelRef ?? focusedProjectViewModel }
+
+    init(coordinatorRef: AppCoordinator? = nil, projectViewModelRef: ProjectViewModel? = nil) {
+        self.coordinatorRef = coordinatorRef
+        self.projectViewModelRef = projectViewModelRef
+    }
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {

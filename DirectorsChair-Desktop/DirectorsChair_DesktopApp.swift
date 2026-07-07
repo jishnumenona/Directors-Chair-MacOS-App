@@ -133,9 +133,9 @@ struct DirectorsChair_DesktopApp: App {
                 }
         }
         .commands {
-            FileCommands()
-            ViewCommands()
-            ExportCommands()
+            FileCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
+            ViewCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
+            ExportCommands(projectViewModelRef: projectViewModel)
         }
 
         #if os(macOS)

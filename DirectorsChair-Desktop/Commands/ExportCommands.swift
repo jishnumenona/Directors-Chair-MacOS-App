@@ -12,7 +12,14 @@ import UniformTypeIdentifiers
 import DirectorsChairCore
 
 struct ExportCommands: Commands {
-    @FocusedValue(\.projectViewModel) var projectViewModel: ProjectViewModel?
+    // Injected app-scoped reference (see ViewCommands note re: @FocusedValue).
+    var projectViewModelRef: ProjectViewModel?
+    @FocusedValue(\.projectViewModel) var focusedProjectViewModel: ProjectViewModel?
+    var projectViewModel: ProjectViewModel? { projectViewModelRef ?? focusedProjectViewModel }
+
+    init(projectViewModelRef: ProjectViewModel? = nil) {
+        self.projectViewModelRef = projectViewModelRef
+    }
 
     var body: some Commands {
         CommandMenu("Export") {
