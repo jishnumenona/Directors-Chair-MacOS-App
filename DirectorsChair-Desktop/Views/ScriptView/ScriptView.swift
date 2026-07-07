@@ -87,6 +87,9 @@ struct ScriptView: View {
                     },
                     onUndo: { viewModel.performUndo() },
                     onRedo: { viewModel.performRedo() },
+                    onSetElementType: { index, digit in
+                        viewModel.handleSetElementType(atElementIndex: index, digit: digit)
+                    },
                     onAutocompleteFilter: { prefix in
                         viewModel.filterAutocomplete(prefix: prefix)
                     },

@@ -41,6 +41,8 @@ struct ScreenplayTextView: NSViewRepresentable {
     /// WS7.2 — model-level undo/redo (built-in NSTextView undo is disabled).
     var onUndo: (() -> RebuildInstruction)?
     var onRedo: (() -> RebuildInstruction)?
+    /// Editor v2 — direct element switching (⌃1–6): (elementIndex, digit)
+    var onSetElementType: ((Int, Int) -> RebuildInstruction)?
     var onAutocompleteFilter: ((String) -> Void)?  // (prefix) -> Void
 
     // Wizard mode
@@ -111,6 +113,13 @@ struct ScreenplayTextView: NSViewRepresentable {
         textView.onRedoRequested = { [weak coordinator = context.coordinator] in
             guard let coordinator, let instruction = coordinator.parent.onRedo?() else { return }
             coordinator.applyRebuildInstruction(instruction)
+        }
+        textView.onSetElementTypeRequested = { [weak coordinator = context.coordinator] digit in
+            guard let coordinator, let textView = coordinator.textView else { return }
+            let index = coordinator.elementIndexForCursor(textView.selectedRange().location)
+            if let instruction = coordinator.parent.onSetElementType?(index, digit) {
+                coordinator.applyRebuildInstruction(instruction)
+            }
         }
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true

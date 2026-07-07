@@ -198,22 +198,54 @@ final class ScriptViewModelTests: XCTestCase {
 
     // MARK: - Tab Key Tests
 
-    func testHandleTabCyclesType() {
+    func testTabConvertsEmptyElementPerFDTable() {
         makeSimpleElements()
+        // Empty blankLine (idx 4): FD Tab converts in place → character.
+        let instruction = viewModel.handleTabCycle(atElementIndex: 4)
+        if case .none = instruction { XCTFail("tab must rebuild") }
+        XCTAssertEqual(viewModel.elements[4].type, .character, "empty element converts to the Tab target")
+        XCTAssertEqual(viewModel.elements.count, 6, "no new element for empty convert")
+    }
 
-        // Tab on an action element should cycle to character
-        let actionIndex = 1
-        XCTAssertEqual(viewModel.elements[actionIndex].type, .action)
+    func testTabOnNonEmptyCreatesNextElement() {
+        makeSimpleElements()
+        // Non-empty action (idx 1): FD Tab creates a NEW character element after it.
+        let instruction = viewModel.handleTabCycle(atElementIndex: 1)
+        if case .none = instruction { XCTFail("tab must rebuild") }
+        XCTAssertEqual(viewModel.elements[1].type, .action, "original element unchanged")
+        XCTAssertEqual(viewModel.elements[2].type, .character, "Tab target created next")
+        XCTAssertEqual(viewModel.elements[2].text, "", "new element is empty for typing")
+        XCTAssertEqual(viewModel.elements.count, 7)
+    }
 
-        let instruction = viewModel.handleTabCycle(atElementIndex: actionIndex)
+    func testReturnAfterDialogueFollowsFDDefault() {
+        makeSimpleElements()
+        UserDefaults.standard.removeObject(forKey: FDElementFlow.returnAfterDialogueKey)
+        // Dialogue at idx 3: FD default Next Element is Action.
+        _ = viewModel.handleReturn(atElementIndex: 3, cursorOffset: viewModel.elements[3].text.count)
+        XCTAssertEqual(viewModel.elements[4].type, .action, "FD default: dialogue → action")
 
-        XCTAssertEqual(viewModel.elements[actionIndex].type, .character, "Tab should cycle action -> character")
+        // Flip the FD preference to Character and try again.
+        UserDefaults.standard.set("character", forKey: FDElementFlow.returnAfterDialogueKey)
+        _ = viewModel.handleReturn(atElementIndex: 3, cursorOffset: viewModel.elements[3].text.count)
+        XCTAssertEqual(viewModel.elements[4].type, .character, "preference: dialogue → character")
+        UserDefaults.standard.removeObject(forKey: FDElementFlow.returnAfterDialogueKey)
+    }
 
-        if case .fullRebuild(_, _) = instruction {
-            // Expected
-        } else {
-            XCTFail("Expected .fullRebuild instruction")
-        }
+    func testControlDigitSetsElementType() {
+        makeSimpleElements()
+        // ⌃6 on the action (idx 1) → transition, uppercased.
+        let instruction = viewModel.handleSetElementType(atElementIndex: 1, digit: 6)
+        if case .none = instruction { XCTFail("set-type must rebuild") }
+        XCTAssertEqual(viewModel.elements[1].type, .transition)
+        XCTAssertEqual(viewModel.elements[1].text, "ALICE ENTERS THE ROOM.", "transitions store UPPERCASE")
+    }
+
+    func testTransitionReturnCreatesSceneHeading() {
+        makeSimpleElements()
+        _ = viewModel.handleSetElementType(atElementIndex: 5, digit: 6) // "She waves." → transition
+        _ = viewModel.handleReturn(atElementIndex: 5, cursorOffset: viewModel.elements[5].text.count)
+        XCTAssertEqual(viewModel.elements[6].type, .sceneHeading, "FD: transition → scene heading")
     }
 
     // MARK: - Text Edit Tests
