@@ -29,6 +29,8 @@ class ScreenplayNSTextView: NSTextView {
     // WS7.2 — model-level undo/redo hooks (built-in undo is disabled).
     var onUndoRequested: (() -> Void)?
     var onRedoRequested: (() -> Void)?
+    /// Editor v2 — ⌃1–6 direct element switching (FD's ⌘1–6; ⌘ digits are view nav here).
+    var onSetElementTypeRequested: ((Int) -> Void)?
 
 
 
@@ -374,6 +376,15 @@ class ScreenplayNSTextView: NSTextView {
         if event.modifierFlags.contains([.command, .shift]),
            event.charactersIgnoringModifiers?.lowercased() == "n" {
             onNewSceneShortcut?()
+            return true
+        }
+        // Editor v2 — ⌃1–6 sets the current element's type (FD parity).
+        if event.modifierFlags.contains(.control),
+           !event.modifierFlags.contains(.command),
+           let chars = event.charactersIgnoringModifiers,
+           let digit = Int(chars), (1...6).contains(digit),
+           let handler = onSetElementTypeRequested {
+            handler(digit)
             return true
         }
         // WS7.2 — model-level undo/redo (built-in undo is disabled).

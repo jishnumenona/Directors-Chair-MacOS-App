@@ -211,8 +211,14 @@ struct ProjectToScriptConverter {
                 return newDialogue.uuid
             } else if element.type == .character {
                 // Character element with no backing object — create a new Dialogue
-                let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let typed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
                     .replacingOccurrences(of: " (CONT'D)", with: "")
+                // Editor v2: cues are typed/rendered UPPERCASE, but the stored
+                // speaker must be the CANONICAL Character name so bubble-view
+                // identity, avatars, and rename cascades keep matching.
+                let trimmed = project.characters
+                    .first { $0.name.compare(typed, options: .caseInsensitive) == .orderedSame }?
+                    .name ?? typed
                 guard !trimmed.isEmpty else { return nil }
 
                 let nextChronology = (project.sequences[seqIdx].scenes[sceneIdx].dialogues.map(\.chronologyNumber).max() ?? 0) + 1
@@ -235,7 +241,13 @@ struct ProjectToScriptConverter {
                     project.sequences[seqIdx].scenes[sceneIdx].dialogues[dIdx].text = newText
                 }
             } else if element.type == .character {
-                let cleanName = newText.replacingOccurrences(of: " (CONT'D)", with: "")
+                let typed = newText.replacingOccurrences(of: " (CONT'D)", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                // Canonicalize to the existing Character's name (Editor v2) so
+                // bubble-view matching and rename cascades keep working.
+                let cleanName = project.characters
+                    .first { $0.name.compare(typed, options: .caseInsensitive) == .orderedSame }?
+                    .name ?? typed
                 if let dIdx = project.sequences[seqIdx].scenes[sceneIdx].dialogues.firstIndex(where: { $0.uuid == itemId }) {
                     project.sequences[seqIdx].scenes[sceneIdx].dialogues[dIdx].character = cleanName
                 }

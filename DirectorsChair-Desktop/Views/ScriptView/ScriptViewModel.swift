@@ -311,16 +311,8 @@ class ScriptViewModel: ObservableObject {
 
         let currentElement = elements[index]
 
-        let nextType: ScriptElementType
-        switch currentElement.type {
-        case .sceneHeading: nextType = .action
-        case .action: nextType = .action
-        case .character: nextType = .dialogue
-        case .dialogue: nextType = .character
-        case .parenthetical: nextType = .dialogue
-        case .blankLine: nextType = .action
-        default: nextType = .action
-        }
+        // Editor v2: Final Draft "Next Element" flow (FDElementFlow §1.2).
+        let nextType = FDElementFlow.nextOnReturn(after: currentElement.type)
 
         let context = ProjectToScriptConverter.findSceneContext(at: index, in: elements)
 
@@ -479,29 +471,60 @@ class ScriptViewModel: ObservableObject {
         return .fullRebuild(focusElementId: focusId, cursorOffset: cursorOffset)
     }
 
-    /// Handle Tab key — cycle element type.
+    /// Handle Tab — Final Draft semantics (Editor v2): on an EMPTY element the
+    /// element converts in place to the Tab target; on a non-empty element a
+    /// NEW element of the target type is created after it (cursor there).
     func handleTabCycle(atElementIndex index: Int) -> RebuildInstruction {
         guard index >= 0, index < elements.count else { return .none }
 
         syncPendingTexts()
         flushDirtyElement(at: index)
 
-        let nextType: ScriptElementType
-        switch elements[index].type {
-        case .action: nextType = .character
-        case .character: nextType = .dialogue
-        case .dialogue: nextType = .parenthetical
-        case .parenthetical: nextType = .action
-        case .blankLine: nextType = .action
-        default: return .none
+        let target = FDElementFlow.nextOnTab(from: elements[index].type)
+
+        if elements[index].text.trimmingCharacters(in: .whitespaces).isEmpty {
+            // Convert in place
+            registerUndoSnapshot()
+            elements[index].type = target
+            elementsVersion += 1
+            dirtyElements.insert(elements[index].id)
+            flushDirtyElement(at: index)
+            return .fullRebuild(focusElementId: elements[index].id, cursorOffset: 0)
+        } else {
+            // Create the target as the next element
+            registerUndoSnapshot()
+            let context = ProjectToScriptConverter.findSceneContext(at: index, in: elements)
+            let newElement = ScriptElement(
+                type: target,
+                text: "",
+                sourceSequenceIndex: context?.sequenceIndex,
+                sourceSceneIndex: context?.sceneIndex
+            )
+            elements.insert(newElement, at: index + 1)
+            elementsVersion += 1
+            updateOutlineAndStats()
+            return .fullRebuild(focusElementId: newElement.id, cursorOffset: 0)
         }
+    }
 
-        elements[index].type = nextType
+    /// Direct element switching (FD's ⌘1–6, bound to ⌃1–6 here): convert the
+    /// current element's type in place.
+    func handleSetElementType(atElementIndex index: Int, digit: Int) -> RebuildInstruction {
+        guard index >= 0, index < elements.count,
+              let target = FDElementFlow.elementType(forDigit: digit),
+              elements[index].type != target else { return .none }
+
+        syncPendingTexts()
+        flushDirtyElement(at: index)
+        registerUndoSnapshot()
+
+        elements[index].type = target
+        if FDElementFlow.autoUppercases(target) {
+            elements[index].text = elements[index].text.uppercased()
+        }
         elementsVersion += 1
-
         dirtyElements.insert(elements[index].id)
         flushDirtyElement(at: index)
-
         return .fullRebuild(focusElementId: elements[index].id, cursorOffset: elements[index].text.count)
     }
 
@@ -614,6 +637,12 @@ class ScriptViewModel: ObservableObject {
     /// Flush a specific dirty element by index
     private func flushDirtyElement(at index: Int) {
         guard index >= 0, index < elements.count else { return }
+        // Editor v2: industry format stores scene headings and transitions in
+        // UPPERCASE — normalize at the single write-back point.
+        if FDElementFlow.autoUppercases(elements[index].type),
+           elements[index].text != elements[index].text.uppercased() {
+            elements[index].text = elements[index].text.uppercased()
+        }
         let element = elements[index]
         guard dirtyElements.contains(element.id) else { return }
 
