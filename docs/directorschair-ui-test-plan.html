@@ -84,6 +84,12 @@
   <button onclick="expandAll(true)">Expand all</button>
   <button onclick="expandAll(false)">Collapse all</button>
   <button onclick="if(confirm('Clear all checkboxes and notes?')) resetAll()">Reset progress</button>
+  <button onclick="exportResults()" style="border-color: var(--good); color: var(--good)">📋 Export results</button>
+</div>
+
+<div id="exportbox" style="display:none; margin-bottom:20px">
+  <p style="font-size:.85rem; color:var(--ink-2); margin:0 0 6px">Copied to clipboard — paste this into the chat with Claude. (Or copy manually below.)</p>
+  <textarea id="exportarea" readonly style="width:100%; box-sizing:border-box; min-height:220px; background:var(--panel); border:1px solid var(--line); border-radius:8px; color:var(--ink); font:12px/1.5 ui-monospace, Menlo, monospace; padding:10px"></textarea>
 </div>
 
 <div class="callout"><b>Skips that are expected:</b> anything needing the AI server (image/video generation, receipt analysis network path, transliteration) fails with the current backend deprecated — for those steps only verify the <em>error is shown to you</em>, not silently swallowed. Sections tagged <span class="tag bugfix">bug fixed</span> re-test a bug fixed this session; <span class="tag regression">regression</span> guards a refactored area.</div>
@@ -461,6 +467,39 @@
     });
   }
   function expandAll(open) { document.querySelectorAll("details").forEach(d => d.open = open); }
+  function exportResults() {
+    let out = ["# DirectorsChair UI Test Results", ""];
+    const boxes = [...document.querySelectorAll("input[type=checkbox]")];
+    const done = boxes.filter(b => b.checked).length;
+    out.push(`Progress: ${done}/${boxes.length} steps checked`, "");
+    document.querySelectorAll("details").forEach(d => {
+      const title = d.querySelector("summary").childNodes[0].textContent.trim();
+      const steps = [...d.querySelectorAll(".step")];
+      const lines = [];
+      steps.forEach(st => {
+        const cb = st.querySelector("input[type=checkbox]");
+        const doText = st.querySelector(".do")?.childNodes[0]?.textContent?.trim().slice(0, 90) || cb.id;
+        const note = st.querySelector("textarea")?.value?.trim();
+        const mark = cb.checked ? "[x]" : "[ ]";
+        if (cb.checked || note) {
+          lines.push(`- ${mark} ${cb.id}: ${doText}`);
+          if (note) lines.push(`      NOTE: ${note.replace(/\n/g, "\n            ")}`);
+        }
+      });
+      const unchecked = steps.filter(st => !st.querySelector("input").checked).length;
+      if (lines.length || unchecked) {
+        out.push(`## ${title}  (${steps.length - unchecked}/${steps.length} done)`);
+        out.push(...(lines.length ? lines : ["- (no steps done, no notes)"]));
+        out.push("");
+      }
+    });
+    const text = out.join("\n");
+    const area = document.getElementById("exportarea");
+    area.value = text;
+    document.getElementById("exportbox").style.display = "block";
+    area.select();
+    try { navigator.clipboard.writeText(text); } catch (e) { document.execCommand("copy"); }
+  }
   function resetAll() {
     document.querySelectorAll("input[type=checkbox]").forEach(cb => { cb.checked = false; localStorage.removeItem(KEY + cb.id); cb.closest(".step").classList.remove("done"); });
     document.querySelectorAll("textarea").forEach(t => { t.value = ""; localStorage.removeItem(KEY + t.id); });
