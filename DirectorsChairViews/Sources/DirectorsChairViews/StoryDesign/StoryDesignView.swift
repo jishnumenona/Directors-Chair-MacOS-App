@@ -53,6 +53,10 @@ public struct StoryDesignView: View {
     @State var editingCharacter: Character?
     @State var syncTask: Task<Void, Never>?
 
+    // Character rename popover (WS2.5b UI)
+    @State var showingRenamePopover = false
+    @State var renameDraft = ""
+
     let projectBasePath: URL?
 
     // External selection (set by coordinator via Cmd+Click navigation)

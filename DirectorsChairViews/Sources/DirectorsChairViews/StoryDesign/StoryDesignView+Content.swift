@@ -173,6 +173,21 @@ extension StoryDesignView {
         }
     }
 
+    /// Commit the rename popover: update the editing buffer's name and flush
+    /// immediately so the cascade (WS2.5b) runs now, not after the debounce.
+    func commitRename() {
+        let newName = renameDraft.trimmingCharacters(in: .whitespaces)
+        guard !newName.isEmpty, var edited = editingCharacter else {
+            showingRenamePopover = false
+            return
+        }
+        edited.name = newName
+        editingCharacter = edited
+        flushEditingCharacter()
+        selectedCharacter = editingCharacter
+        showingRenamePopover = false
+    }
+
     /// Immediately write the local editing buffer back to the project
     func flushEditingCharacter() {
         syncTask?.cancel()
@@ -216,9 +231,49 @@ extension StoryDesignView {
             )
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(character.name)
-                    .font(.title2)
-                    .fontWeight(.bold)
+                HStack(spacing: 6) {
+                    Text(character.name)
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    // Rename: commits through the editing buffer, whose flush
+                    // CASCADES the rename to every reference — dialogue cues,
+                    // action/narration participants, cast assignments,
+                    // costumes, vision cards (WS2.5b).
+                    Button {
+                        renameDraft = character.name
+                        showingRenamePopover = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Rename character — all dialogue, cast, and scene references follow automatically")
+                    .accessibilityLabel("Rename character")
+                    .popover(isPresented: $showingRenamePopover) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Rename Character")
+                                .font(.headline)
+                            TextField("Character name", text: $renameDraft)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 240)
+                                .onSubmit { commitRename() }
+                            Text("All dialogue, cast, and scene references will follow the new name.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 240, alignment: .leading)
+                            HStack {
+                                Spacer()
+                                Button("Cancel") { showingRenamePopover = false }
+                                Button("Rename") { commitRename() }
+                                    .keyboardShortcut(.defaultAction)
+                                    .disabled(renameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+                        }
+                        .padding(14)
+                    }
+                }
 
                 Text(character.role)
                     .font(.subheadline)
