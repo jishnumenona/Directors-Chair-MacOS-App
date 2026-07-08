@@ -399,6 +399,38 @@ final class ScriptViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.hasSuggestions(for: "location"))
     }
 
+    func testLocationNameParsedFromHeadings() {
+        XCTAssertEqual(ScriptViewModel.locationName(fromHeading: "INT. OFFICE - DAY"), "OFFICE")
+        XCTAssertEqual(ScriptViewModel.locationName(fromHeading: "EXT. BEACH HOUSE - NIGHT"), "BEACH HOUSE")
+        XCTAssertEqual(ScriptViewModel.locationName(fromHeading: "I/E. CAR - DUSK"), "CAR")
+        XCTAssertEqual(ScriptViewModel.locationName(fromHeading: "ROOFTOP"), "ROOFTOP")
+        XCTAssertNil(ScriptViewModel.locationName(fromHeading: "INT. "), "Unfinished wizard intro is not a location")
+        XCTAssertNil(ScriptViewModel.locationName(fromHeading: "INT. LOCATION - TIME OF DAY"),
+                     "The old placeholder text is not a location")
+        XCTAssertNil(ScriptViewModel.locationName(fromHeading: ""))
+    }
+
+    func testSigilSuggestionsIncludeUsedLocationsAndSceneProps() {
+        // A project with NO defined Location/Prop entities, but a scene that
+        // uses both — the sigils must still suggest (SmartType behavior).
+        var project = Project(name: "Fresh Project")
+        var scene = Scene(name: "Scene 1")
+        scene.location = "INT. LIGHTHOUSE - NIGHT"
+        scene.props = ["Brass Telescope"]
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        project.characters = [Character(name: "Alice")]
+        projectViewModel.project = project
+        viewModel.loadFromProject(project, projectViewModel: projectViewModel)
+
+        XCTAssertTrue(viewModel.hasSuggestions(for: "location"))
+        viewModel.handleAutocompleteTrigger("%")
+        XCTAssertEqual(viewModel.autocompleteItems.map(\.text), ["LIGHTHOUSE"])
+
+        XCTAssertTrue(viewModel.hasSuggestions(for: "prop"))
+        viewModel.handleAutocompleteTrigger("^")
+        XCTAssertEqual(viewModel.autocompleteItems.map(\.text), ["Brass Telescope"])
+    }
+
     func testPlaceholderClearedForSigilSession() {
         // The NSView layer clears a placeholder with an empty edit before
         // opening a sigil popover — the model must produce a clean, empty,
