@@ -74,9 +74,12 @@ struct ScriptView: View {
                     onTabCycle: { elementIndex in
                         viewModel.handleTabCycle(atElementIndex: elementIndex)
                     },
-                    onAutocompleteInsert: { text, elementIndex, cursorOffset in
+                    onAutocompleteInsert: { text, elementIndex, replaceStart, replaceEnd in
                         viewModel.handleAutocompleteSelection(item: text, atElementIndex: elementIndex,
-                                                              cursorOffset: cursorOffset)
+                                                              replaceStart: replaceStart, replaceEnd: replaceEnd)
+                    },
+                    canTriggerAutocomplete: { trigger in
+                        viewModel.hasSuggestions(for: trigger)
                     },
                     onPlaceholderEdit: { index, text in
                         viewModel.handlePlaceholderEdit(elementIndex: index, newText: text)

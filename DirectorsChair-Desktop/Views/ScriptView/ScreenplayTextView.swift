@@ -33,7 +33,10 @@ struct ScreenplayTextView: NSViewRepresentable {
     var onReturn: ((Int, Int) -> RebuildInstruction)?  // (elementIndex, cursorOffset) -> instruction
     var onBackspace: ((Int, Int) -> RebuildInstruction)?  // (elementIndex, cursorOffset) -> instruction
     var onTabCycle: ((Int) -> RebuildInstruction)?  // (elementIndex) -> instruction
-    var onAutocompleteInsert: ((String, Int, Int) -> RebuildInstruction)?  // (text, elementIndex, cursorOffsetInElement) -> instruction
+    var onAutocompleteInsert: ((String, Int, Int, Int) -> RebuildInstruction)?  // (text, elementIndex, replaceStart, replaceEnd) -> instruction
+    /// Whether a sigil has anything to suggest — a sigil with an empty list
+    /// types literally instead of being consumed into nothing.
+    var canTriggerAutocomplete: ((String) -> Bool)?
     var onPlaceholderEdit: ((Int, String) -> RebuildInstruction)?  // (elementIndex, newText) -> instruction
     /// WS7.1 — multi-line paste / multi-paragraph delete as one model op:
     /// (startElement, startUTF16Offset, endElement, endUTF16Offset, replacement)
@@ -375,6 +378,10 @@ struct ScreenplayTextView: NSViewRepresentable {
         var parent: ScreenplayTextView
         /// Focus-request dedup stamp (see updateNSView) — a focus is applied once.
         var lastAppliedFocusStamp: String?
+        /// Where the current sigil popover session began: (elementIndex,
+        /// UTF-16 offset in the element). Text after it is the filter;
+        /// accepting replaces [anchor, cursor). Cleared when the panel hides.
+        var sigilAnchor: (elementIndex: Int, offset: Int)?
         weak var textView: ScreenplayNSTextView?
         weak var scrollView: NSScrollView?
 
@@ -743,7 +750,60 @@ struct ScreenplayTextView: NSViewRepresentable {
                 }
             }
 
-            // PHASE 2: Handle placeholder elements — typing replaces placeholder
+            // PHASE 2: Smart sigil triggers (@ % $ # ~ ^ /) — checked BEFORE
+            // placeholder handling so "%" typed on the description placeholder
+            // opens the locations list instead of inserting a literal '%'.
+            // Skipped when a popover is already open (characters filter it)
+            // and when the project has nothing to suggest for the sigil — the
+            // character then types literally instead of dying silently.
+            let triggers: [String: String] = [
+                "@": "character",
+                "%": "location",
+                "$": "time",
+                "#": "transition",
+                "~": "sound",
+                "^": "prop",
+                "/": "note"
+            ]
+
+            if autocompletePanel == nil,
+               let replacement = replacementString, replacement.count == 1,
+               let triggerType = triggers[replacement],
+               parent.canTriggerAutocomplete?(triggerType) ?? true {
+
+                var elementIndex = elementIndexForCursor(affectedCharRange.location)
+
+                // A placeholder is display-only text — clear it first so the
+                // sigil works on an empty element and filtering starts clean.
+                if triggerType != "note",
+                   elementIndex >= 0, elementIndex < parent.elements.count,
+                   parent.elements[elementIndex].isPlaceholder {
+                    if let instruction = parent.onPlaceholderEdit?(elementIndex, "") {
+                        applyRebuildInstruction(instruction)
+                    }
+                    elementIndex = elementIndexForCursor(textView.selectedRange().location)
+                }
+
+                // Anchor the popover session at the cursor: text typed after
+                // this point is the filter, and accepting a suggestion
+                // replaces [anchor, cursor) so typed filter characters are
+                // never duplicated into the result.
+                sigilAnchor = nil
+                if triggerType != "note", elementIndex >= 0 {
+                    let starts = paragraphStarts()
+                    if elementIndex < starts.count {
+                        let cursor = textView.selectedRange().location
+                        sigilAnchor = (elementIndex, max(0, cursor - starts[elementIndex]))
+                    }
+                }
+
+                DispatchQueue.main.async {
+                    self.parent.onAutocompleteSelected?(replacement)
+                }
+                return false // consume the trigger character
+            }
+
+            // PHASE 3: Handle placeholder elements — typing replaces placeholder
             // Skip when autocomplete is active (wizard mode) so chars go through for filtering
             if autocompletePanel == nil {
                 if let replacement = replacementString, !replacement.isEmpty, replacement != "\n" {
@@ -756,32 +816,6 @@ struct ScreenplayTextView: NSViewRepresentable {
                         return false // we handled it
                     }
                 }
-            }
-
-            // PHASE 3: Check for smart shortcut triggers (skip if autocomplete already active)
-            guard let replacement = replacementString, replacement.count == 1 else { return true }
-
-            if autocompletePanel != nil {
-                // Autocomplete is active — let characters through for inline filtering
-                return true
-            }
-
-            let triggers: [String: String] = [
-                "@": "character",
-                "%": "location",
-                "$": "time",
-                "#": "transition",
-                "~": "sound",
-                "^": "prop",
-                "/": "note"
-            ]
-
-            if let triggerType = triggers[replacement] {
-                parent.autocompleteTrigger = triggerType
-                DispatchQueue.main.async {
-                    self.parent.onAutocompleteSelected?(replacement)
-                }
-                return false // consume the trigger character
             }
 
             return true
@@ -811,9 +845,17 @@ struct ScreenplayTextView: NSViewRepresentable {
 
             // Autocomplete inline filtering. Also fires while the wizard is
             // active with the panel hidden (filter emptied it) so continued
-            // typing can bring the suggestion list back.
+            // typing can bring the suggestion list back. For sigil sessions
+            // only the text typed AFTER the anchor is the filter — existing
+            // text on the line must not poison the match.
             if autocompletePanel != nil || parent.isWizardActive {
-                parent.onAutocompleteFilter?(newText)
+                var filterPrefix = newText
+                if !parent.isWizardActive,
+                   let anchor = sigilAnchor, anchor.elementIndex == elementIndex {
+                    let ns = newText as NSString
+                    filterPrefix = anchor.offset < ns.length ? ns.substring(from: anchor.offset) : ""
+                }
+                parent.onAutocompleteFilter?(filterPrefix)
             }
 
             // Transliteration: extract current word and query API
@@ -1011,8 +1053,16 @@ struct ScreenplayTextView: NSViewRepresentable {
             let paragraphRange = rangeForParagraph(elementIndex)
             let offsetInElement = max(0, cursorLocation - paragraphRange.location)
 
+            // The accept replaces [anchor, cursor) — the filter characters the
+            // user typed are consumed by the suggestion, never duplicated.
+            var replaceStart = offsetInElement
+            if let anchor = sigilAnchor, anchor.elementIndex == elementIndex,
+               anchor.offset <= offsetInElement {
+                replaceStart = anchor.offset
+            }
+
             // Use the model-authoritative callback
-            if let instruction = parent.onAutocompleteInsert?(text, elementIndex, offsetInElement) {
+            if let instruction = parent.onAutocompleteInsert?(text, elementIndex, replaceStart, offsetInElement) {
                 // Dismiss autocomplete
                 parent.onAutocompleteSelected?(text)
                 hideAutocompletePanel()
@@ -1193,6 +1243,7 @@ struct ScreenplayTextView: NSViewRepresentable {
             }
             autocompletePanel = nil
             autocompleteVC = nil
+            sigilAnchor = nil
         }
 
         // MARK: - Transliteration
