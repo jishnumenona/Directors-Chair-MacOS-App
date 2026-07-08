@@ -375,6 +375,61 @@ class ScreenplayNSTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
+    // MARK: - Scene Number Margin Decorations
+
+    /// Scene numbers are DRAWN in the page margins (industry format), never
+    /// inserted into the editable text stream. This preserves the invariant
+    /// paragraph text == element text, which is what makes typing on a scene
+    /// heading safe (the old inject-and-strip approach interleaved keystrokes
+    /// with the injected numbers).
+    func drawSceneNumberMargins(in dirtyRect: NSRect) {
+        guard let coordinator = coordinatorRef,
+              coordinator.parent.showSceneNumbers,
+              let layoutManager = layoutManager,
+              let textContainer = textContainer else { return }
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: ScreenplayFormatting.font,
+            .foregroundColor: ScreenplayFormatting.sceneNumberColor
+        ]
+        let leftInset = textContainerInset.width
+        let gutter: CGFloat = 12  // breathing room between number and text
+
+        for (index, element) in coordinator.parent.elements.enumerated() {
+            guard element.type == .sceneHeading, let num = element.sceneNumber, !num.isEmpty else { continue }
+
+            let paraRange = coordinator.rangeForParagraph(index)
+            guard paraRange.location != NSNotFound, paraRange.length > 0 else { continue }
+
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: paraRange.location, length: 1),
+                actualCharacterRange: nil
+            )
+            var lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            lineRect.origin.x += textContainerOrigin.x
+            lineRect.origin.y += textContainerOrigin.y
+
+            // Only paint rows that intersect the dirty area (margins included)
+            let rowBand = NSRect(x: 0, y: lineRect.minY, width: bounds.width, height: lineRect.height)
+            guard rowBand.intersects(dirtyRect) else { continue }
+
+            let str = num as NSString
+            let size = str.size(withAttributes: attrs)
+            let y = lineRect.minY + (lineRect.height - size.height) / 2
+
+            // Left margin: right-aligned against the text block
+            let leftX = max(4, leftInset - gutter - size.width)
+            str.draw(at: NSPoint(x: leftX, y: y), withAttributes: attrs)
+
+            // Right margin: just past the content width
+            let rightX = min(bounds.width - size.width - 4,
+                             leftInset + ScreenplayFormatting.contentWidth + gutter)
+            if rightX > leftX + size.width {
+                str.draw(at: NSPoint(x: rightX, y: y), withAttributes: attrs)
+            }
+        }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains([.command, .shift]),
            event.charactersIgnoringModifiers?.lowercased() == "n" {
@@ -594,6 +649,10 @@ class ScreenplayNSTextView: NSTextView {
                 y += pageHeight
             }
         }
+
+        // Scene numbers are margin decorations, never part of the editable
+        // text stream (see drawSceneNumberMargins).
+        drawSceneNumberMargins(in: dirtyRect)
     }
 
     // MARK: - Title Page Drawing

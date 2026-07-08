@@ -32,7 +32,7 @@ enum RebuildInstruction {
 enum NewSceneWizardStep: Equatable {
     case idle
     case selectingLocation(headingId: UUID, descId: UUID)
-    case selectingTime(headingId: UUID, descId: UUID, location: String)
+    case selectingTime(headingId: UUID, descId: UUID)
 }
 
 @MainActor
@@ -73,6 +73,9 @@ class ScriptViewModel: ObservableObject {
     }
 
     func performUndo() -> RebuildInstruction {
+        // Undo may remove the wizard's elements — never leave a wizard
+        // pointing at them.
+        if isWizardActive { newSceneWizardStep = .idle; wizardScenePlacement = nil }
         guard let snapshot = undoStack.popLast(), let projectViewModel else { return .none }
         redoStack.append(EditorSnapshot(elements: elements,
                                         sequences: projectViewModel.project.sequences))
@@ -81,6 +84,7 @@ class ScriptViewModel: ObservableObject {
     }
 
     func performRedo() -> RebuildInstruction {
+        if isWizardActive { newSceneWizardStep = .idle; wizardScenePlacement = nil }
         guard let snapshot = redoStack.popLast(), let projectViewModel else { return .none }
         undoStack.append(EditorSnapshot(elements: elements,
                                         sequences: projectViewModel.project.sequences))
@@ -780,12 +784,21 @@ class ScriptViewModel: ObservableObject {
     }
 
     func filterAutocomplete(prefix: String) {
-        guard !prefix.isEmpty else {
+        // During the wizard the filter arrives as the WHOLE heading text;
+        // only what the user typed after the anchor ("INT. ", "… - ") counts.
+        var effective = prefix
+        if isWizardActive, autocompleteAnchorOffset > 0 {
+            effective = effective.count >= autocompleteAnchorOffset
+                ? String(effective.dropFirst(autocompleteAnchorOffset))
+                : ""
+        }
+
+        guard !effective.isEmpty else {
             autocompleteItems = allAutocompleteItems
             showingAutocomplete = !autocompleteItems.isEmpty
             return
         }
-        let lowered = prefix.lowercased()
+        let lowered = effective.lowercased()
         autocompleteItems = allAutocompleteItems
             .filter { $0.text.lowercased().hasPrefix(lowered) || $0.text.lowercased().contains(lowered) }
             .sorted { a, b in
@@ -813,14 +826,24 @@ class ScriptViewModel: ObservableObject {
         autocompleteTrigger = ""
         autocompleteElementId = nil
 
-        if isWizardActive {
-            removeWizardScene()
-            newSceneWizardStep = .idle
+        guard isWizardActive else { return }
 
-            if let projectViewModel = projectViewModel {
-                refresh(from: projectViewModel.project)
+        // Esc during the wizard. If nothing was typed yet (the heading is
+        // still a bare intro on the location step) the scene is clearly
+        // unwanted — remove it. Otherwise keep the scene and the typed text
+        // and return to free editing.
+        syncPendingTexts()
+        if case .selectingLocation(let hid, _) = newSceneWizardStep,
+           let idx = elements.firstIndex(where: { $0.id == hid }) {
+            let bare = elements[idx].text
+                .trimmingCharacters(in: .whitespaces)
+                .uppercased()
+            if bare.isEmpty || ["INT.", "INT", "EXT.", "EXT", "I/E.", "I/E"].contains(bare) {
+                cancelWizard(keepScene: false)
+                return
             }
         }
+        cancelWizard(keepScene: true)
     }
 
     // MARK: - Insert Helpers
@@ -850,9 +873,14 @@ class ScriptViewModel: ObservableObject {
     // MARK: - New Scene Wizard (Cmd+Shift+N)
 
     func insertNewScene(afterElementIndex: Int) {
-        guard !isWizardActive else { return }
         guard let projectViewModel = projectViewModel else { return }
 
+        // ⌘⇧N while a wizard is already running: finish it with whatever was
+        // typed, then start the next scene cleanly.
+        if isWizardActive { commitWizardTypedText() }
+        if isWizardActive { cancelWizard(keepScene: true) }
+
+        registerUndoSnapshot()
         syncPendingTexts()
 
         var project = projectViewModel.project
@@ -871,13 +899,15 @@ class ScriptViewModel: ObservableObject {
 
         let blankLine = ScriptElement(type: .blankLine, text: "")
 
+        // The heading holds REAL text from the first frame ("INT. ") — no
+        // placeholder string for keystrokes to interleave with. Each wizard
+        // step only ever appends to it.
         let heading = ScriptElement(
             type: .sceneHeading,
-            text: "INT. LOCATION - TIME OF DAY",
+            text: "INT. ",
             sourceSequenceIndex: placement.sequenceIndex,
             sourceSceneIndex: placement.sceneIndex,
-            sceneNumber: nextSceneNum,
-            isPlaceholder: true
+            sceneNumber: nextSceneNum
         )
 
         let descPlaceholder = ScriptElement(
@@ -893,106 +923,188 @@ class ScriptViewModel: ObservableObject {
         elementsVersion += 1
         updateOutlineAndStats()
 
-        // Focus cursor on the heading at the LOCATION part (after scene number + "INT. ")
-        let sceneNumPrefixLen = showSceneNumbers ? (nextSceneNum.count + 4) : 0  // "8    " = num + 4 spaces
-        focusCursorOffset = sceneNumPrefixLen + 5  // + "INT. "
+        // Cursor at the end of "INT. " — a pure element-text offset. Scene
+        // numbers are margin decorations now, so no prefix math exists.
+        focusCursorOffset = heading.text.utf16.count
         focusElementId = heading.id
         scrollToElementId = heading.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.scrollToElementId = nil
             self?.focusElementId = nil
         }
 
         newSceneWizardStep = .selectingLocation(headingId: heading.id, descId: descPlaceholder.id)
+        openWizardSuggestions(anchoredAt: heading.text,
+                              items: locationNames.map { AutocompleteItem(text: $0) },
+                              trigger: "location")
+    }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self else { return }
-            let items = self.locationNames.map { AutocompleteItem(text: $0) }
-            self.autocompleteItems = items
-            self.allAutocompleteItems = items
-            self.autocompleteAnchorOffset = 0
-            self.autocompleteTrigger = "location"
-            self.showingAutocomplete = true
-        }
+    /// Open a wizard suggestion popover synchronously. The anchor is the
+    /// current heading length — typed characters after it become the filter.
+    private func openWizardSuggestions(anchoredAt headingText: String,
+                                       items: [AutocompleteItem],
+                                       trigger: String) {
+        autocompleteAnchorOffset = headingText.count
+        autocompleteItems = items
+        allAutocompleteItems = items
+        autocompleteTrigger = trigger
+        showingAutocomplete = !items.isEmpty
+    }
+
+    /// "EXT. " / "I/E. " typed by the user is preserved; anything else is "INT. ".
+    private static func headingIntro(from text: String) -> String {
+        let upper = text.uppercased()
+        if upper.hasPrefix("EXT") { return "EXT. " }
+        if upper.hasPrefix("I/E") { return "I/E. " }
+        return "INT. "
     }
 
     func advanceWizard(selectedText: String) {
         switch newSceneWizardStep {
         case .selectingLocation(let headingId, let descId):
-            let locationStr = selectedText.uppercased()
-            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
-                elements[idx].text = "INT. \(locationStr) - TIME OF DAY"
+            guard let idx = elements.firstIndex(where: { $0.id == headingId }) else {
+                cancelWizard(keepScene: true)
+                return
             }
+            syncPendingTexts()
 
-            showingAutocomplete = false
-            autocompleteItems = []
-
-            // Bump version to trigger immediate visual update showing the selected location
+            // Only the location segment is replaced — a user-typed intro
+            // (EXT. / I/E.) survives.
+            let intro = Self.headingIntro(from: elements[idx].text)
+            let newText = "\(intro)\(selectedText.uppercased()) - "
+            elements[idx].text = newText
+            pendingTexts.removeValue(forKey: headingId)
+            dirtyElements.insert(headingId)
             elementsVersion += 1
 
-            // Position cursor at "TIME OF DAY" part: after scene number + "INT. " + location + " - "
-            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
-                let sceneNum = elements[idx].sceneNumber ?? ""
-                let sceneNumPrefixLen = showSceneNumbers ? (sceneNum.count + 4) : 0
-                focusCursorOffset = sceneNumPrefixLen + 5 + locationStr.count + 3  // "INT. " + LOCATION + " - "
-            }
+            focusCursorOffset = newText.utf16.count
             focusElementId = headingId
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.focusElementId = nil
             }
 
-            newSceneWizardStep = .selectingTime(headingId: headingId, descId: descId, location: locationStr)
+            newSceneWizardStep = .selectingTime(headingId: headingId, descId: descId)
+            openWizardSuggestions(anchoredAt: newText,
+                                  items: timeOfDayOptions.map { AutocompleteItem(text: $0) },
+                                  trigger: "time")
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self = self else { return }
-                let items = self.timeOfDayOptions.map { AutocompleteItem(text: $0) }
-                self.autocompleteItems = items
-                self.allAutocompleteItems = items
-                self.autocompleteAnchorOffset = 0
-                self.autocompleteTrigger = "time"
-                self.showingAutocomplete = true
+        case .selectingTime(let headingId, let descId):
+            guard let idx = elements.firstIndex(where: { $0.id == headingId }) else {
+                cancelWizard(keepScene: true)
+                return
             }
+            syncPendingTexts()
 
-        case .selectingTime(let headingId, let descId, let location):
-            let finalLocation = "INT. \(location) - \(selectedText.uppercased())"
-
-            if let idx = elements.firstIndex(where: { $0.id == headingId }) {
-                elements[idx].text = finalLocation
-                elements[idx].isPlaceholder = false
+            var text = elements[idx].text
+            if !text.hasSuffix(" - ") {
+                text = text.trimmingCharacters(in: .whitespaces)
+                if text.hasSuffix(" -") { text.removeLast(2) }
+                text += " - "
             }
+            text += selectedText.uppercased()
+            elements[idx].text = text
+            pendingTexts.removeValue(forKey: headingId)
+            finishWizard(headingIndex: idx, descId: descId)
 
-            if let placement = wizardScenePlacement,
-               let projectViewModel = projectViewModel {
-                let seqIdx = placement.sequenceIndex
-                let sceneIdx = placement.sceneIndex
-                if seqIdx < projectViewModel.project.sequences.count,
-                   sceneIdx < projectViewModel.project.sequences[seqIdx].scenes.count {
-                    projectViewModel.project.sequences[seqIdx].scenes[sceneIdx].location = finalLocation
-                    projectViewModel.isDirty = true
-                }
+        case .idle:
+            break
+        }
+    }
+
+    /// Common wizard completion: persist the heading through the normal
+    /// write-back path (applyEdit parses it into the scene's location) and
+    /// hand the cursor to the description line.
+    private func finishWizard(headingIndex idx: Int, descId: UUID) {
+        dirtyElements.insert(elements[idx].id)
+        flushDirtyElement(at: idx)
+        wizardScenePlacement = nil
+        newSceneWizardStep = .idle
+
+        dismissAutocompleteState()
+        autocompleteTrigger = ""
+        elementsVersion += 1
+        updateOutlineAndStats()
+
+        // Skip the refresh triggered by this notification — our elements
+        // already have the correct state, including the description placeholder
+        skipNextRefresh = true
+        coordinator?.notifyProjectChanged(.script)
+
+        focusCursorOffset = 0
+        focusElementId = descId
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.focusElementId = nil
+        }
+    }
+
+    /// Return/Tab during the wizard with no popover selection: accept what
+    /// the user typed after the anchor as the current step's value.
+    func commitWizardTypedText() {
+        let headingId: UUID
+        switch newSceneWizardStep {
+        case .idle:
+            return
+        case .selectingLocation(let hid, _), .selectingTime(let hid, _):
+            headingId = hid
+        }
+        guard let idx = elements.firstIndex(where: { $0.id == headingId }) else {
+            cancelWizard(keepScene: true)
+            return
+        }
+        syncPendingTexts()
+
+        let text = elements[idx].text
+        let anchor = min(autocompleteAnchorOffset, text.count)
+        let typed = String(text.dropFirst(anchor)).trimmingCharacters(in: .whitespaces)
+
+        if typed.isEmpty {
+            // Nothing typed. On the time step a heading without a time is
+            // legal — finish with what we have (minus the dangling " - ").
+            // On the location step there is no heading yet — exit the wizard
+            // and leave the text freely editable.
+            if case .selectingTime(_, let did) = newSceneWizardStep {
+                var t = text.trimmingCharacters(in: .whitespaces)
+                if t.hasSuffix(" -") { t.removeLast(2) }
+                elements[idx].text = t.trimmingCharacters(in: .whitespaces)
+                pendingTexts.removeValue(forKey: headingId)
+                finishWizard(headingIndex: idx, descId: did)
+            } else {
+                cancelWizard(keepScene: true)
             }
-            wizardScenePlacement = nil
+            return
+        }
 
-            // Keep the description placeholder — it will be cleared when the user starts typing
-            // (handled by handlePlaceholderEdit)
+        // Rewind the element to the anchor; advanceWizard rebuilds the
+        // segment from the typed value (uppercased, delimited).
+        elements[idx].text = String(text.prefix(anchor))
+        pendingTexts.removeValue(forKey: headingId)
+        advanceWizard(selectedText: typed)
+    }
 
-            showingAutocomplete = false
-            autocompleteItems = []
+    /// Exit the wizard. The scene and any typed heading text stay (and are
+    /// flushed) unless `keepScene` is false, which removes the created scene.
+    private func cancelWizard(keepScene: Bool) {
+        let step = newSceneWizardStep
+        newSceneWizardStep = .idle
+        dismissAutocompleteState()
+        autocompleteTrigger = ""
 
-            newSceneWizardStep = .idle
-            elementsVersion += 1
-
-            // Skip the refresh triggered by this notification — our elements already have
-            // the correct state including the description placeholder
-            skipNextRefresh = true
-            coordinator?.notifyProjectChanged(.script)
-
-            focusCursorOffset = 0
-            focusElementId = descId
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.focusElementId = nil
+        if !keepScene {
+            removeWizardScene()
+            if let projectViewModel = projectViewModel {
+                refresh(from: projectViewModel.project)
             }
+            return
+        }
+        wizardScenePlacement = nil
 
+        // Persist whatever heading text exists so a partial heading is not lost.
+        switch step {
+        case .selectingLocation(let hid, _), .selectingTime(let hid, _):
+            if let idx = elements.firstIndex(where: { $0.id == hid }) {
+                dirtyElements.insert(hid)
+                flushDirtyElement(at: idx)
+            }
         case .idle:
             break
         }

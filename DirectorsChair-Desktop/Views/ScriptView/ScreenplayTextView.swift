@@ -50,6 +50,9 @@ struct ScreenplayTextView: NSViewRepresentable {
 
     // Wizard mode
     var isWizardActive: Bool = false
+    /// Return/Tab during the wizard with no popover selection — accept the
+    /// text the user typed as the current wizard step's value.
+    var onWizardCommitTyped: (() -> Void)?
     var focusElementId: UUID?
     var focusCursorOffset: Int = 0
 
@@ -336,19 +339,31 @@ struct ScreenplayTextView: NSViewRepresentable {
             context.coordinator.hideAutocompletePanel()
         }
 
-        // Handle focus element (wizard steps / wizard completion)
+        // Handle focus element (wizard steps / wizard completion).
+        // Deduplicated by a stamp so a focus request is applied exactly once —
+        // re-applying on every SwiftUI update would fight the user's cursor.
         if let focusId = focusElementId {
-            context.coordinator.rebuildAttributedString()
-            if let idx = parent.elements.firstIndex(where: { $0.id == focusId }) {
-                let range = context.coordinator.rangeForParagraph(idx)
-                let offset = focusCursorOffset
-                let cursorPos = min(range.location + offset, range.location + range.length)
-                textView.setSelectedRange(NSRange(location: cursorPos, length: 0))
-                textView.scrollRangeToVisible(NSRange(location: cursorPos, length: 0))
-                let elementType = parent.elements[idx].type
-                textView.typingAttributes = ScreenplayFormatting.attributes(for: elementType == .sceneHeading ? .sceneHeading : .action)
+            let stamp = "\(focusId.uuidString):\(focusCursorOffset)"
+            if context.coordinator.lastAppliedFocusStamp != stamp {
+                context.coordinator.lastAppliedFocusStamp = stamp
+                context.coordinator.rebuildAttributedString()
+                if let idx = parent.elements.firstIndex(where: { $0.id == focusId }) {
+                    let range = context.coordinator.rangeForParagraph(idx)
+                    let offset = focusCursorOffset
+                    let cursorPos = min(range.location + offset, range.location + range.length)
+                    textView.setSelectedRange(NSRange(location: cursorPos, length: 0))
+                    textView.scrollRangeToVisible(NSRange(location: cursorPos, length: 0))
+                    let elementType = parent.elements[idx].type
+                    textView.typingAttributes = ScreenplayFormatting.attributes(for: elementType == .sceneHeading ? .sceneHeading : .action)
+                }
             }
+        } else {
+            context.coordinator.lastAppliedFocusStamp = nil
         }
+
+        // Scene numbers are margin decorations — repaint so toggling
+        // visibility or renumbering shows up without a text rebuild.
+        textView.needsDisplay = true
     }
 
     // Helper to access parent elements from updateNSView
@@ -358,6 +373,8 @@ struct ScreenplayTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ScreenplayTextView
+        /// Focus-request dedup stamp (see updateNSView) — a focus is applied once.
+        var lastAppliedFocusStamp: String?
         weak var textView: ScreenplayNSTextView?
         weak var scrollView: NSScrollView?
 
@@ -549,12 +566,13 @@ struct ScreenplayTextView: NSViewRepresentable {
             let fullString = NSMutableAttributedString()
 
             for (index, element) in parent.elements.enumerated() {
+                // INVARIANT: the paragraph text in the NSTextView is EXACTLY
+                // element.text (modulo display uppercasing, which is
+                // length-preserving). Scene numbers are NOT part of the text
+                // stream — they are drawn as margin decorations by the text
+                // view (drawSceneNumberMargins), so typing can never
+                // interleave with them.
                 var displayText = element.text
-                if element.type == .sceneHeading && parent.showSceneNumbers {
-                    if let num = element.sceneNumber {
-                        displayText = "\(num)    \(element.text)    \(num)"
-                    }
-                }
 
                 if element.type == .blankLine {
                     displayText = ""
@@ -577,25 +595,7 @@ struct ScreenplayTextView: NSViewRepresentable {
                     attrs = ScreenplayFormatting.attributes(for: element.type)
                 }
 
-                // Scene number styling
-                if element.type == .sceneHeading && parent.showSceneNumbers, let num = element.sceneNumber {
-                    let sceneNumAttrs: [NSAttributedString.Key: Any] = [
-                        .font: ScreenplayFormatting.font,
-                        .foregroundColor: ScreenplayFormatting.sceneNumberColor,
-                        .paragraphStyle: ScreenplayFormatting.paragraphStyle(for: .sceneHeading)
-                    ]
-                    let attributed = NSMutableAttributedString(string: displayText, attributes: sceneNumAttrs)
-                    let prefix = "\(num)    "
-                    let suffix = "    \(num)"
-                    let headingRange = NSRange(
-                        location: prefix.count,
-                        length: max(0, displayText.count - prefix.count - suffix.count)
-                    )
-                    if headingRange.location + headingRange.length <= displayText.count {
-                        attributed.setAttributes(attrs, range: headingRange)
-                    }
-                    fullString.append(attributed)
-                } else if element.type != .blankLine {
+                if element.type != .blankLine {
                     let attributed = NSAttributedString(string: displayText, attributes: attrs)
                     fullString.append(attributed)
                 } else {
@@ -803,29 +803,17 @@ struct ScreenplayTextView: NSViewRepresentable {
             }
 
             // Extract the current text for this paragraph (uses same cached starts)
-            var newText = textForParagraph(elementIndex)
-
-            // Strip scene numbers if this is a scene heading with numbers displayed
-            let element = parent.elements[elementIndex]
-            if element.type == .sceneHeading, parent.showSceneNumbers, let num = element.sceneNumber {
-                let prefix = "\(num)    "
-                let suffix = "    \(num)"
-                if newText.hasPrefix(prefix) && newText.hasSuffix(suffix) {
-                    let startIdx = newText.index(newText.startIndex, offsetBy: prefix.count)
-                    let endIdx = newText.index(newText.endIndex, offsetBy: -suffix.count)
-                    if startIdx <= endIdx {
-                        newText = String(newText[startIdx..<endIdx])
-                    }
-                }
-            }
+            // Paragraph text == element text (scene numbers live in the margins).
+            let newText = textForParagraph(elementIndex)
 
             // Notify the ViewModel (no @Published mutation — just shadow buffer)
             parent.onTextChanged?(elementIndex, newText)
 
-            // Autocomplete inline filtering
-            if autocompletePanel != nil {
-                let prefix = newText
-                parent.onAutocompleteFilter?(prefix)
+            // Autocomplete inline filtering. Also fires while the wizard is
+            // active with the panel hidden (filter emptied it) so continued
+            // typing can bring the suggestion list back.
+            if autocompletePanel != nil || parent.isWizardActive {
+                parent.onAutocompleteFilter?(newText)
             }
 
             // Transliteration: extract current word and query API
@@ -971,14 +959,21 @@ struct ScreenplayTextView: NSViewRepresentable {
                 }
             }
 
-            // During wizard mode, block structural keys (Return/Tab/Escape) when
-            // autocomplete is hidden (e.g. filter returned no matches)
+            // Wizard mode with the popover hidden (filter emptied it, or the
+            // project has no suggestions): Esc exits the wizard, Return/Tab
+            // accept whatever the user typed, and EVERYTHING ELSE is normal
+            // editing — Backspace and arrows must keep working.
             if parent.isWizardActive {
                 if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
                     parent.onAutocompleteDismissed?()
                     return true
                 }
-                return true // consume all other commands during wizard
+                if commandSelector == #selector(NSResponder.insertNewline(_:)) ||
+                   commandSelector == #selector(NSResponder.insertTab(_:)) {
+                    parent.onWizardCommitTyped?()
+                    return true
+                }
+                return false
             }
 
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
@@ -1288,23 +1283,9 @@ struct ScreenplayTextView: NSViewRepresentable {
             hideTransliterationPopup()
 
             // Notify model of the text change
+            // Paragraph text == element text (scene numbers live in the margins).
             let elementIndex = elementIndexForCursor(newPos)
-            var newText = textForParagraph(elementIndex)
-
-            // Strip scene numbers if needed
-            let element = parent.elements[elementIndex]
-            if element.type == .sceneHeading, parent.showSceneNumbers, let num = element.sceneNumber {
-                let prefix = "\(num)    "
-                let suffix = "    \(num)"
-                if newText.hasPrefix(prefix) && newText.hasSuffix(suffix) {
-                    let startIdx = newText.index(newText.startIndex, offsetBy: prefix.count)
-                    let endIdx = newText.index(newText.endIndex, offsetBy: -suffix.count)
-                    if startIdx <= endIdx {
-                        newText = String(newText[startIdx..<endIdx])
-                    }
-                }
-            }
-
+            let newText = textForParagraph(elementIndex)
             parent.onTextChanged?(elementIndex, newText)
         }
 

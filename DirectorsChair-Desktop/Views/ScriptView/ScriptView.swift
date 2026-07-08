@@ -97,6 +97,7 @@ struct ScriptView: View {
                         viewModel.filterAutocomplete(prefix: prefix)
                     },
                     isWizardActive: viewModel.isWizardActive,
+                    onWizardCommitTyped: { viewModel.commitWizardTypedText() },
                     focusElementId: viewModel.focusElementId,
                     focusCursorOffset: viewModel.focusCursorOffset,
                     showPagesMode: viewModel.showPagesMode,
