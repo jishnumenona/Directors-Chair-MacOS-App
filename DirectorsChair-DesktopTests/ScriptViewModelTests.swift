@@ -402,6 +402,116 @@ final class ScriptViewModelTests: XCTestCase {
         XCTAssertEqual(project.sequences[0].scenes[0].sceneNotes[0].uuid, createdId)
     }
 
+    // MARK: - New Scene Wizard (Editor v2 — race-free, no text-stream scene numbers)
+
+    private func startWizard() -> UUID? {
+        loadTestProject()
+        viewModel.insertNewScene(afterElementIndex: viewModel.elements.count - 1)
+        guard case .selectingLocation(let headingId, _) = viewModel.newSceneWizardStep else { return nil }
+        return headingId
+    }
+
+    func testInsertNewSceneStartsCleanWizard() {
+        let sceneCountBefore = 1
+        guard let headingId = startWizard() else { return XCTFail("Wizard should be selecting a location") }
+
+        let heading = viewModel.elements.first { $0.id == headingId }!
+        XCTAssertEqual(heading.text, "INT. ", "Heading starts as real minimal text — nothing to jumble")
+        XCTAssertFalse(heading.isPlaceholder, "Heading is normal editable text, not a placeholder")
+        XCTAssertFalse(heading.text.contains(where: { $0.isNumber }), "No scene number in the text stream")
+        XCTAssertEqual(viewModel.autocompleteTrigger, "location")
+        XCTAssertEqual(viewModel.focusCursorOffset, 5, "Cursor is a pure element-text offset")
+        XCTAssertEqual(projectViewModel.project.sequences[0].scenes.count, sceneCountBefore + 1)
+    }
+
+    func testWizardLocationThenTimeCompletesHeading() {
+        guard let headingId = startWizard() else { return XCTFail() }
+
+        viewModel.advanceWizard(selectedText: "Rooftop")
+        XCTAssertEqual(viewModel.elements.first { $0.id == headingId }!.text, "INT. ROOFTOP - ")
+        guard case .selectingTime = viewModel.newSceneWizardStep else { return XCTFail("Should be selecting time") }
+        XCTAssertEqual(viewModel.autocompleteTrigger, "time")
+
+        viewModel.advanceWizard(selectedText: "Night")
+        XCTAssertEqual(viewModel.elements.first { $0.id == headingId }!.text, "INT. ROOFTOP - NIGHT")
+        XCTAssertEqual(viewModel.newSceneWizardStep, .idle)
+        let newScene = projectViewModel.project.sequences[0].scenes.last!
+        XCTAssertTrue((newScene.location ?? "").contains("ROOFTOP"),
+                      "Completed heading persists into the scene's location")
+    }
+
+    func testWizardTypedCommitAcceptsTypedLocation() {
+        guard let headingId = startWizard() else { return XCTFail() }
+        let idx = viewModel.elements.firstIndex { $0.id == headingId }!
+
+        // User typed a location instead of picking from the list, then hit Return
+        viewModel.handleTextEdit(elementIndex: idx, newText: "INT. BARN")
+        viewModel.commitWizardTypedText()
+
+        XCTAssertEqual(viewModel.elements[idx].text, "INT. BARN - ")
+        guard case .selectingTime = viewModel.newSceneWizardStep else { return XCTFail("Typed commit advances to time") }
+    }
+
+    func testWizardPreservesTypedExteriorIntro() {
+        guard let headingId = startWizard() else { return XCTFail() }
+        let idx = viewModel.elements.firstIndex { $0.id == headingId }!
+
+        viewModel.handleTextEdit(elementIndex: idx, newText: "EXT. ")
+        viewModel.advanceWizard(selectedText: "Beach")
+        XCTAssertEqual(viewModel.elements[idx].text, "EXT. BEACH - ", "User's EXT. intro survives the location step")
+    }
+
+    func testWizardEscWithNothingTypedRemovesScene() {
+        guard startWizard() != nil else { return XCTFail() }
+
+        viewModel.dismissAutocomplete()
+
+        XCTAssertEqual(viewModel.newSceneWizardStep, .idle)
+        XCTAssertEqual(projectViewModel.project.sequences[0].scenes.count, 1,
+                       "Esc before typing anything removes the unwanted scene")
+    }
+
+    func testWizardEscAfterTypingKeepsScene() {
+        guard let headingId = startWizard() else { return XCTFail() }
+        let idx = viewModel.elements.firstIndex { $0.id == headingId }!
+
+        viewModel.handleTextEdit(elementIndex: idx, newText: "INT. BARN")
+        viewModel.dismissAutocomplete()
+
+        XCTAssertEqual(viewModel.newSceneWizardStep, .idle)
+        XCTAssertEqual(projectViewModel.project.sequences[0].scenes.count, 2,
+                       "Esc after typing keeps the scene and the typed text")
+        XCTAssertEqual(viewModel.elements[idx].text, "INT. BARN")
+    }
+
+    func testWizardFilterUsesTextAfterAnchor() {
+        loadTestProject()
+        var project = projectViewModel.project
+        project.locations = [Location(name: "OFFICE"), Location(name: "ROOFTOP")]
+        projectViewModel.project = project
+        viewModel.loadFromProject(project, projectViewModel: projectViewModel)
+
+        viewModel.insertNewScene(afterElementIndex: viewModel.elements.count - 1)
+        // The filter arrives as the WHOLE heading text; only "OFF" (after the
+        // "INT. " anchor) should filter the list — matching by the typed
+        // suffix, not by the "INT. " intro.
+        viewModel.filterAutocomplete(prefix: "INT. OFF")
+        XCTAssertEqual(viewModel.autocompleteItems.map(\.text), ["OFFICE"])
+    }
+
+    func testUndoAfterInsertNewSceneRemovesItCleanly() {
+        loadTestProject()
+        let sceneCountBefore = projectViewModel.project.sequences[0].scenes.count
+        let elementCountBefore = viewModel.elements.count
+
+        viewModel.insertNewScene(afterElementIndex: viewModel.elements.count - 1)
+        _ = viewModel.performUndo()
+
+        XCTAssertEqual(viewModel.newSceneWizardStep, .idle, "Undo never leaves a wizard pointing at removed elements")
+        XCTAssertEqual(projectViewModel.project.sequences[0].scenes.count, sceneCountBefore)
+        XCTAssertEqual(viewModel.elements.count, elementCountBefore)
+    }
+
     func testApplyEditUpdatesSceneNote() {
         var project = Project(name: "Note Test")
         let note = Note(content: "old text", chronologyNumber: 2)

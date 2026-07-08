@@ -344,10 +344,11 @@ struct ProjectToScriptConverter {
             sceneName = "Scene \(counter)"
         }
 
-        // Create the scene with placeholder location
+        // The wizard's heading write-back fills in the real location; until
+        // then the scene carries the bare intro (matching the editor text).
         let newScene = DirectorsChairCore.Scene(
             name: sceneName,
-            location: "INT. LOCATION - TIME OF DAY"
+            location: "INT. "
         )
 
         // Insert at the correct position
