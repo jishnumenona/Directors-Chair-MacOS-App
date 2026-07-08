@@ -350,7 +350,7 @@ final class ScriptViewModelTests: XCTestCase {
         // must NOT be converted into a character cue (the old bug).
         viewModel.autocompleteTrigger = "location"
         let instruction = viewModel.handleAutocompleteSelection(
-            item: "ROOFTOP", atElementIndex: 1, cursorOffset: 6)
+            item: "ROOFTOP", atElementIndex: 1, replaceStart: 6, replaceEnd: 6)
 
         XCTAssertEqual(viewModel.elements[1].type, .action, "Inline insert keeps the element type")
         XCTAssertEqual(viewModel.elements[1].text, "Alice ROOFTOPenters the room.")
@@ -361,6 +361,57 @@ final class ScriptViewModelTests: XCTestCase {
         } else {
             XCTFail("Expected .fullRebuild instruction")
         }
+    }
+
+    func testInlineAcceptConsumesTypedFilterCharacters() {
+        makeSimpleElements()
+
+        // The user typed "%" then "OFF" to filter; the element holds the typed
+        // chars. Accepting OFFICE must REPLACE them, not duplicate ("OFFOFFICE").
+        viewModel.elements[5].text = "She waves. OFF"
+        viewModel.autocompleteTrigger = "location"
+        let instruction = viewModel.handleAutocompleteSelection(
+            item: "OFFICE", atElementIndex: 5, replaceStart: 11, replaceEnd: 14)
+
+        XCTAssertEqual(viewModel.elements[5].text, "She waves. OFFICE")
+        if case .fullRebuild(_, let cursorOffset) = instruction {
+            XCTAssertEqual(cursorOffset, 11 + "OFFICE".utf16.count)
+        } else {
+            XCTFail("Expected .fullRebuild instruction")
+        }
+    }
+
+    func testSigilSuppressedWhenNothingToSuggest() {
+        loadTestProject()  // fixture has characters but no locations/props
+
+        XCTAssertTrue(viewModel.hasSuggestions(for: "character"))
+        XCTAssertFalse(viewModel.hasSuggestions(for: "location"),
+                       "No locations: '%' should type literally instead of dying silently")
+        XCTAssertFalse(viewModel.hasSuggestions(for: "prop"))
+        XCTAssertTrue(viewModel.hasSuggestions(for: "time"), "Static lists always suggest")
+        XCTAssertTrue(viewModel.hasSuggestions(for: "transition"))
+        XCTAssertTrue(viewModel.hasSuggestions(for: "note"))
+
+        var project = projectViewModel.project
+        project.locations = [Location(name: "OFFICE")]
+        projectViewModel.project = project
+        viewModel.loadFromProject(project, projectViewModel: projectViewModel)
+        XCTAssertTrue(viewModel.hasSuggestions(for: "location"))
+    }
+
+    func testPlaceholderClearedForSigilSession() {
+        // The NSView layer clears a placeholder with an empty edit before
+        // opening a sigil popover — the model must produce a clean, empty,
+        // real element for the session to type into.
+        viewModel.elements = [
+            ScriptElement(type: .action, text: "Scene description...", isPlaceholder: true),
+        ]
+        viewModel.elementsVersion += 1
+
+        _ = viewModel.handlePlaceholderEdit(elementIndex: 0, newText: "")
+
+        XCTAssertEqual(viewModel.elements[0].text, "")
+        XCTAssertFalse(viewModel.elements[0].isPlaceholder)
     }
 
     func testTransitionAutocompleteConvertsElement() {

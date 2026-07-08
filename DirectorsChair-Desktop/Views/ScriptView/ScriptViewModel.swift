@@ -532,12 +532,26 @@ class ScriptViewModel: ObservableObject {
         return .fullRebuild(focusElementId: elements[index].id, cursorOffset: elements[index].text.count)
     }
 
+    /// Whether a sigil trigger has anything to suggest. A sigil whose list
+    /// would be empty is not consumed — it types literally, so the key never
+    /// dies silently in a project without locations/props/characters.
+    func hasSuggestions(for trigger: String) -> Bool {
+        switch trigger {
+        case "character": return !characters.isEmpty
+        case "location": return !locationNames.isEmpty
+        case "prop": return !propNames.isEmpty
+        default: return true  // time/transition/sound are static lists; "/" always works
+        }
+    }
+
     /// Accept an autocomplete suggestion. What "accept" means depends on the
     /// trigger that opened the popover: "@" runs the character-cue flow,
     /// "#" converts the element to a transition, and the inline triggers
-    /// (% location, $ time, ~ sound, ^ prop, parentheticals) insert plain
-    /// text at the cursor without changing the element's type.
-    func handleAutocompleteSelection(item: String, atElementIndex index: Int, cursorOffset: Int = 0) -> RebuildInstruction {
+    /// (% location, $ time, ~ sound, ^ prop, parentheticals) replace the
+    /// [replaceStart, replaceEnd) range — the sigil anchor through the cursor
+    /// — without changing the element's type.
+    func handleAutocompleteSelection(item: String, atElementIndex index: Int,
+                                     replaceStart: Int = 0, replaceEnd: Int = 0) -> RebuildInstruction {
         guard index >= 0, index < elements.count else { return .none }
 
         switch autocompleteTrigger {
@@ -546,7 +560,8 @@ class ScriptViewModel: ObservableObject {
         case "transition":
             return acceptTransition(item, atElementIndex: index)
         default:
-            return acceptInlineInsert(item, atElementIndex: index, cursorOffset: cursorOffset)
+            return acceptInlineInsert(item, atElementIndex: index,
+                                      replaceStart: replaceStart, replaceEnd: replaceEnd)
         }
     }
 
@@ -606,22 +621,22 @@ class ScriptViewModel: ObservableObject {
         )
     }
 
-    /// "%", "$", "~", "^", "(" — the selection is plain text inserted at the
-    /// cursor; the element keeps its type and backing model object.
-    private func acceptInlineInsert(_ item: String, atElementIndex index: Int, cursorOffset: Int) -> RebuildInstruction {
+    /// "%", "$", "~", "^", "(" — the selection replaces [replaceStart,
+    /// replaceEnd) (the sigil anchor through the cursor, i.e. the typed
+    /// filter characters); the element keeps its type and backing object.
+    private func acceptInlineInsert(_ item: String, atElementIndex index: Int,
+                                    replaceStart: Int, replaceEnd: Int) -> RebuildInstruction {
         registerUndoSnapshot()
         syncPendingTexts()
 
-        var text = elements[index].text
-        let insertAt = min(max(cursorOffset, 0), text.utf16.count)
-        if let range = Range(NSRange(location: insertAt, length: 0), in: text) {
-            text.replaceSubrange(range, with: item)
-        } else {
-            text += item
-        }
+        let ns = elements[index].text as NSString
+        let start = min(max(replaceStart, 0), ns.length)
+        let end = min(max(replaceEnd, start), ns.length)
+        let text = ns.replacingCharacters(in: NSRange(location: start, length: end - start), with: item)
 
         elements[index].text = text
         elements[index].isPlaceholder = false
+        pendingTexts.removeValue(forKey: elements[index].id)
         dirtyElements.insert(elements[index].id)
         flushDirtyElement(at: index)
         elementsVersion += 1
@@ -631,7 +646,7 @@ class ScriptViewModel: ObservableObject {
 
         return .fullRebuild(
             focusElementId: elements[index].id,
-            cursorOffset: insertAt + item.utf16.count
+            cursorOffset: start + (item as NSString).length
         )
     }
 
