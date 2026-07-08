@@ -203,9 +203,7 @@ class ScriptViewModel: ObservableObject {
         self.coordinator = coordinator
         self.projectBasePath = projectViewModel.projectPath?.deletingLastPathComponent()
 
-        characters = project.characters
-        locationNames = project.locations.map { $0.name }
-        propNames = project.props.map { $0.name }
+        rebuildSuggestionSources(from: project)
 
         elements = ProjectToScriptConverter.convert(from: project)
         elementsVersion += 1
@@ -236,9 +234,63 @@ class ScriptViewModel: ObservableObject {
         wordCount = ScreenplayFormatting.wordCount(from: elements)
         scriptStats = ScreenplayFormatting.computeStats(from: elements)
 
+        rebuildSuggestionSources(from: project)
+    }
+
+    // MARK: - Suggestion Sources (SmartType)
+
+    /// Build the sigil suggestion lists the way FD's SmartType does: from the
+    /// project's DEFINED entities plus everything already USED in the script —
+    /// locations appearing in scene headings and props assigned to scenes. A
+    /// fresh project with scenes therefore always has real suggestions.
+    private func rebuildSuggestionSources(from project: Project) {
         characters = project.characters
-        locationNames = project.locations.map { $0.name }
-        propNames = project.props.map { $0.name }
+
+        let scenes = project.sequences.flatMap { $0.scenes }
+
+        let definedLocations = project.locations.map { $0.name }
+        let usedLocations = scenes.compactMap { scene in
+            Self.locationName(fromHeading: scene.location ?? "")
+        }
+        locationNames = Self.orderedUnique(definedLocations + usedLocations)
+
+        let definedProps = project.props.map { $0.name }
+        let usedProps = scenes.flatMap { $0.props }
+        propNames = Self.orderedUnique(definedProps + usedProps)
+    }
+
+    /// "INT. OFFICE - DAY" → "OFFICE". Returns nil for empty headings and
+    /// the wizard's unfinished intros/placeholders.
+    static func locationName(fromHeading heading: String) -> String? {
+        var text = heading.trimmingCharacters(in: .whitespaces)
+
+        for intro in ["INT./EXT.", "INT/EXT", "I/E.", "I/E", "INT.", "INT", "EXT.", "EXT"] {
+            if text.uppercased().hasPrefix(intro) {
+                text = String(text.dropFirst(intro.count))
+                break
+            }
+        }
+        text = text.trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+
+        // Drop the time segment (" - DAY")
+        if let dashRange = text.range(of: " - ", options: .backwards) {
+            text = String(text[..<dashRange.lowerBound])
+        }
+        text = text.trimmingCharacters(in: CharacterSet(charactersIn: " -"))
+
+        guard !text.isEmpty, text.uppercased() != "LOCATION" else { return nil }
+        return text
+    }
+
+    /// Case-insensitive de-duplication preserving first appearance and casing.
+    private static func orderedUnique(_ names: [String]) -> [String] {
+        var seen = Set<String>()
+        return names.filter { name in
+            let key = name.uppercased().trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty, !seen.contains(key) else { return false }
+            seen.insert(key)
+            return true
+        }
     }
 
     // MARK: - Navigate to Scene
