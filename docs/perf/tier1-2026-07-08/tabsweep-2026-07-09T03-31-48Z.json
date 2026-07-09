@@ -1,0 +1,40 @@
+{
+  "appVersion" : "3.3",
+  "counters" : {
+    "body.CentralViewStack" : {
+      "count" : 61,
+      "maxNs" : 0,
+      "totalNs" : 0
+    },
+    "editor.incrementalSync" : {
+      "count" : 4,
+      "maxNs" : 36746750,
+      "totalNs" : 73083917
+    },
+    "editor.rebuildAttributedString" : {
+      "count" : 6,
+      "maxNs" : 36736500,
+      "totalNs" : 82219084
+    },
+    "project.load" : {
+      "count" : 1,
+      "maxNs" : 84534583,
+      "totalNs" : 84534583
+    },
+    "timeline.rebuild" : {
+      "count" : 2,
+      "maxNs" : 23200375,
+      "totalNs" : 45541625
+    }
+  },
+  "date" : "2026-07-09T03:31:48Z",
+  "scenario" : "tabsweep",
+  "scenarioDurationMs" : 21550.241458,
+  "watchdog" : {
+    "hangs100ms" : 250,
+    "hitches16ms" : 299,
+    "samples" : 431,
+    "totalStallMs" : 97240.6649259999,
+    "worstMs" : 886.494583
+  }
+}

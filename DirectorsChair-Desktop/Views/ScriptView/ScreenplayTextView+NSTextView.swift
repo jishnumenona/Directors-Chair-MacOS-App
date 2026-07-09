@@ -388,6 +388,19 @@ class ScreenplayNSTextView: NSTextView {
               let layoutManager = layoutManager,
               let textContainer = textContainer else { return }
 
+        // Cull BEFORE any layout queries (perf audit B4): resolve the dirty
+        // rect to a character range once, then skip off-screen headings with
+        // pure cache math — O(visible headings) layout work, not O(scenes).
+        // Cull vertically only — the dirty rect may cover just the margin
+        // gutter (outside the container's x-extent), which must still match
+        // the heading rows in that band.
+        var containerRect = dirtyRect
+        containerRect.origin.y -= textContainerOrigin.y
+        containerRect.origin.x = 0
+        containerRect.size.width = textContainer.size.width
+        let visibleGlyphs = layoutManager.glyphRange(forBoundingRect: containerRect, in: textContainer)
+        let visibleChars = layoutManager.characterRange(forGlyphRange: visibleGlyphs, actualGlyphRange: nil)
+
         let attrs: [NSAttributedString.Key: Any] = [
             .font: ScreenplayFormatting.font,
             .foregroundColor: ScreenplayFormatting.sceneNumberColor
@@ -399,7 +412,8 @@ class ScreenplayNSTextView: NSTextView {
             guard element.type == .sceneHeading, let num = element.sceneNumber, !num.isEmpty else { continue }
 
             let paraRange = coordinator.rangeForParagraph(index)
-            guard paraRange.location != NSNotFound, paraRange.length > 0 else { continue }
+            guard paraRange.location != NSNotFound, paraRange.length > 0,
+                  NSIntersectionRange(paraRange, visibleChars).length > 0 else { continue }
 
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: NSRange(location: paraRange.location, length: 1),

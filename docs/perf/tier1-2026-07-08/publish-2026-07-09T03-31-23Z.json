@@ -1,0 +1,25 @@
+{
+  "appVersion" : "3.3",
+  "counters" : {
+    "body.CentralViewStack" : {
+      "count" : 43,
+      "maxNs" : 0,
+      "totalNs" : 0
+    },
+    "project.load" : {
+      "count" : 1,
+      "maxNs" : 86461583,
+      "totalNs" : 86461583
+    }
+  },
+  "date" : "2026-07-09T03:31:23Z",
+  "scenario" : "publish",
+  "scenarioDurationMs" : 12349.190042,
+  "watchdog" : {
+    "hangs100ms" : 8,
+    "hitches16ms" : 68,
+    "samples" : 246,
+    "totalStallMs" : 3960.2748379999994,
+    "worstMs" : 121.69275
+  }
+}

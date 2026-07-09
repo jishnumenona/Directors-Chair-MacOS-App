@@ -99,7 +99,7 @@ class ScriptViewModel: ObservableObject {
         projectViewModel?.project.sequences = snapshot.sequences
         projectViewModel?.isDirty = true
         elementsVersion += 1
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
     }
 
     // Autocomplete state
@@ -165,6 +165,8 @@ class ScriptViewModel: ObservableObject {
     private var flushTask: Task<Void, Never>?
     /// Stats debounce timer (separate from dirty flush)
     private var statsTask: Task<Void, Never>?
+    /// Outline+stats debounce timer (structural edits — perf audit B3)
+    private var outlineTask: Task<Void, Never>?
 
     /// When true, the next `refresh(from:)` call is skipped.
     private var skipNextRefresh = false
@@ -176,6 +178,8 @@ class ScriptViewModel: ObservableObject {
     private(set) var characters: [DirectorsChairCore.Character] = []
     private var locationNames: [String] = []
     private var propNames: [String] = []
+    /// [UPPERCASED name → avatar/color] for ⌘-highlight badges (cached; B8)
+    private(set) var characterImageMap: [String: (imagePath: String?, color: String?)] = [:]
 
     // Time of day options
     private let timeOfDayOptions = [
@@ -245,6 +249,13 @@ class ScriptViewModel: ObservableObject {
     /// fresh project with scenes therefore always has real suggestions.
     private func rebuildSuggestionSources(from project: Project) {
         characters = project.characters
+
+        // Cached for the ⌘-highlight badges — was rebuilt inside ScriptView's
+        // body on every render pass (perf audit B8).
+        characterImageMap = Dictionary(uniqueKeysWithValues: project.characters.map { char in
+            (char.name.uppercased(), (imagePath: char.avatar ?? char.baseImage ?? char.imageFront,
+                                      color: char.color))
+        })
 
         let scenes = project.sequences.flatMap { $0.scenes }
 
@@ -392,7 +403,7 @@ class ScriptViewModel: ObservableObject {
 
         elements.insert(newElement, at: index + 1)
         elementsVersion += 1
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
 
         return .fullRebuild(focusElementId: newElement.id, cursorOffset: 0)
     }
@@ -423,7 +434,7 @@ class ScriptViewModel: ObservableObject {
             cursorInMerged = 0
             let focusId = elements[max(0, index - 1)].id
             elementsVersion += 1
-            updateOutlineAndStats()
+            scheduleOutlineAndStats()
             return .fullRebuild(focusElementId: focusId, cursorOffset: cursorInMerged)
         } else {
             cursorInMerged = previousElement.text.count
@@ -437,7 +448,7 @@ class ScriptViewModel: ObservableObject {
 
             let focusId = elements[index - 1].id
             elementsVersion += 1
-            updateOutlineAndStats()
+            scheduleOutlineAndStats()
             return .fullRebuild(focusElementId: focusId, cursorOffset: cursorInMerged)
         }
     }
@@ -523,7 +534,7 @@ class ScriptViewModel: ObservableObject {
         flushDirtyElement(at: startIndex)
 
         elementsVersion += 1
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
         return .fullRebuild(focusElementId: focusId, cursorOffset: cursorOffset)
     }
 
@@ -558,7 +569,7 @@ class ScriptViewModel: ObservableObject {
             )
             elements.insert(newElement, at: index + 1)
             elementsVersion += 1
-            updateOutlineAndStats()
+            scheduleOutlineAndStats()
             return .fullRebuild(focusElementId: newElement.id, cursorOffset: 0)
         }
     }
@@ -649,7 +660,7 @@ class ScriptViewModel: ObservableObject {
         elementsVersion += 1
 
         dismissAutocompleteState()
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
 
         return .fullRebuild(focusElementId: dialogueElement.id, cursorOffset: 0)
     }
@@ -665,7 +676,7 @@ class ScriptViewModel: ObservableObject {
         elementsVersion += 1
 
         dismissAutocompleteState()
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
 
         return .fullRebuild(
             focusElementId: elements[index].id,
@@ -694,7 +705,7 @@ class ScriptViewModel: ObservableObject {
         elementsVersion += 1
 
         dismissAutocompleteState()
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
 
         return .fullRebuild(
             focusElementId: elements[index].id,
@@ -992,7 +1003,7 @@ class ScriptViewModel: ObservableObject {
         let insertIndex = min(afterElementIndex + 1, elements.count)
         elements.insert(contentsOf: [blankLine, heading, descPlaceholder], at: insertIndex)
         elementsVersion += 1
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
 
         // Cursor at the end of "INT. " — a pure element-text offset. Scene
         // numbers are margin decorations now, so no prefix math exists.
@@ -1094,7 +1105,7 @@ class ScriptViewModel: ObservableObject {
         dismissAutocompleteState()
         autocompleteTrigger = ""
         elementsVersion += 1
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
 
         // Skip the refresh triggered by this notification — our elements
         // already have the correct state, including the description placeholder
@@ -1322,7 +1333,7 @@ class ScriptViewModel: ObservableObject {
         elements = ProjectToScriptConverter.convert(from: freshProject)
         pendingTexts.removeAll()
         elementsVersion += 1
-        updateOutlineAndStats()
+        scheduleOutlineAndStats()
 
         coordinator.notifyProjectChanged(.script)
     }
@@ -1331,6 +1342,19 @@ class ScriptViewModel: ObservableObject {
 
     private func updateOutlineAndStats() {
         PerfSignpost.measure("editor.updateOutlineAndStats") { updateOutlineAndStatsBody() }
+    }
+
+    /// Perf Tier 1.2 (audit B3): the outline + page/word/stat passes are
+    /// 4× O(document) (~26ms on the 2,000-element stress script) and used to
+    /// run SYNCHRONOUSLY inside every structural keystroke. Structural
+    /// handlers now debounce them here; the toolbar/navigator lag ≤300ms.
+    private func scheduleOutlineAndStats() {
+        outlineTask?.cancel()
+        outlineTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.updateOutlineAndStats()
+        }
     }
 
     private func updateOutlineAndStatsBody() {
