@@ -30,9 +30,14 @@ struct CentralViewStack: View {
     /// Incremented on each projectChanged event to trigger BubbleView cache refresh
     @State private var bubbleRefreshTrigger = 0
 
-    /// Track which views have been visited so we only create them lazily,
-    /// but keep them alive (preserving scroll position and all @State) once created.
-    @State private var visitedViews: Set<AppView> = []
+    /// Perf Tier 1.4 (audit A2): only the CURRENT and PREVIOUS tab stay
+    /// mounted. Keeping every visited tab alive behind .opacity(0) meant a
+    /// script keystroke-flush re-evaluated 5+ heavy hidden bodies every
+    /// 500ms (measured: main thread stalled in 89% of samples with all tabs
+    /// mounted). Heavy state survives remounts anyway — the production/video
+    /// view-models are @StateObjects on THIS view, and the script view's
+    /// scroll position restores via coordinator.scriptScrollY.
+    @State private var aliveViews: [AppView] = []
 
     /// AI operation progress — survives navigation between tabs
     @StateObject private var aiProgress = AIProgressTracker()
@@ -54,7 +59,7 @@ struct CentralViewStack: View {
 
         ZStack {
             ForEach(AppView.allCases) { view in
-                if visitedViews.contains(view) || view == currentView {
+                if aliveViews.contains(view) || view == currentView {
                     viewContent(for: view)
                         .opacity(view == currentView ? 1 : 0)
                         .allowsHitTesting(view == currentView)
@@ -62,11 +67,11 @@ struct CentralViewStack: View {
                 }
             }
         }
-        .onChange(of: currentView) { _, newView in
-            visitedViews.insert(newView)
+        .onChange(of: currentView) { oldView, newView in
+            aliveViews = oldView == newView ? [newView] : [oldView, newView]
         }
         .onAppear {
-            visitedViews.insert(currentView)
+            aliveViews = [currentView]
             // Persist video-job results into the project (app-scoped, so a job
             // completes even after the generation view is gone).
             videoJobCoordinator.onEvent = { event in

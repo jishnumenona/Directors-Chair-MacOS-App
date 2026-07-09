@@ -50,6 +50,10 @@ struct ScreenplayTextView: NSViewRepresentable {
     /// ⌘[ / ⌘] — app-level navigation history (back / forward)
     var onNavigateBack: (() -> Void)?
     var onNavigateForward: (() -> Void)?
+    /// Live read of the model's elementsVersion (the struct copy goes stale
+    /// between updates) — lets applyRebuildInstruction stamp what it applied
+    /// so updateNSView skips the redundant second rebuild (audit B2).
+    var currentElementsVersion: (() -> Int)?
     var onAutocompleteFilter: ((String) -> Void)?  // (prefix) -> Void
 
     // Wizard mode
@@ -302,10 +306,18 @@ struct ScreenplayTextView: NSViewRepresentable {
             }
         }
 
-        // Rebuild content if elements changed
+        // Sync content if elements changed. A version that
+        // applyRebuildInstruction already applied synchronously is skipped —
+        // that redundant second full rebuild was audit finding B2. External
+        // changes go through the minimal splice (full rebuild only when the
+        // diff can't be trusted or layout inputs changed via needsRebuild).
         if context.coordinator.lastElementsVersion != elementsVersion ||
            context.coordinator.needsRebuild {
-            context.coordinator.rebuildAttributedString()
+            if context.coordinator.needsRebuild {
+                context.coordinator.rebuildAttributedString()
+            } else if elementsVersion != context.coordinator.lastSelfAppliedVersion {
+                context.coordinator.incrementalSync()
+            }
             context.coordinator.lastElementsVersion = elementsVersion
             context.coordinator.needsRebuild = false
         }
@@ -350,7 +362,9 @@ struct ScreenplayTextView: NSViewRepresentable {
             let stamp = "\(focusId.uuidString):\(focusCursorOffset)"
             if context.coordinator.lastAppliedFocusStamp != stamp {
                 context.coordinator.lastAppliedFocusStamp = stamp
-                context.coordinator.rebuildAttributedString()
+                // Ensure content is current before computing ranges — a no-op
+                // splice when already in sync (was an unconditional rebuild).
+                context.coordinator.incrementalSync()
                 if let idx = parent.elements.firstIndex(where: { $0.id == focusId }) {
                     let range = context.coordinator.rangeForParagraph(idx)
                     let offset = focusCursorOffset
@@ -365,9 +379,14 @@ struct ScreenplayTextView: NSViewRepresentable {
             context.coordinator.lastAppliedFocusStamp = nil
         }
 
-        // Scene numbers are margin decorations — repaint so toggling
-        // visibility or renumbering shows up without a text rebuild.
-        textView.needsDisplay = true
+        // Scene numbers are margin decorations — repaint only when their
+        // visibility toggles. Content changes rebuild (and redraw) anyway;
+        // an unconditional repaint here forced a full visible redraw on
+        // every SwiftUI update pass (perf audit B4).
+        if context.coordinator.lastShowSceneNumbers != showSceneNumbers {
+            context.coordinator.lastShowSceneNumbers = showSceneNumbers
+            textView.needsDisplay = true
+        }
     }
 
     // Helper to access parent elements from updateNSView
@@ -379,6 +398,16 @@ struct ScreenplayTextView: NSViewRepresentable {
         var parent: ScreenplayTextView
         /// Focus-request dedup stamp (see updateNSView) — a focus is applied once.
         var lastAppliedFocusStamp: String?
+        /// Tracks the last-drawn scene-number visibility so toggles repaint
+        /// without an unconditional needsDisplay per update pass.
+        var lastShowSceneNumbers: Bool?
+        /// Style keys of the paragraphs currently applied to the text view —
+        /// the diff baseline for incrementalSync (perf Tier 1.3).
+        var lastAppliedStyles: [Int] = []
+        /// elementsVersion already applied synchronously by
+        /// applyRebuildInstruction — updateNSView must not rebuild again for
+        /// it (this was the "double rebuild", audit B2).
+        var lastSelfAppliedVersion: Int = -1
         /// Where the current sigil popover session began: (elementIndex,
         /// UTF-16 offset in the element). Text after it is the filter;
         /// accepting replaces [anchor, cursor). Cleared when the panel hides.
@@ -577,48 +606,14 @@ struct ScreenplayTextView: NSViewRepresentable {
 
             let fullString = NSMutableAttributedString()
 
+            // INVARIANT: the paragraph text in the NSTextView is EXACTLY
+            // element.text (modulo display uppercasing, which is
+            // length-preserving). Scene numbers are NOT part of the text
+            // stream — they are drawn as margin decorations by the text
+            // view (drawSceneNumberMargins), so typing can never
+            // interleave with them.
             for (index, element) in parent.elements.enumerated() {
-                // INVARIANT: the paragraph text in the NSTextView is EXACTLY
-                // element.text (modulo display uppercasing, which is
-                // length-preserving). Scene numbers are NOT part of the text
-                // stream — they are drawn as margin decorations by the text
-                // view (drawSceneNumberMargins), so typing can never
-                // interleave with them.
-                var displayText = element.text
-
-                if element.type == .blankLine {
-                    displayText = ""
-                }
-
-                // Auto-capitalize
-                if element.type == .sceneHeading || element.type == .character || element.type == .transition {
-                    displayText = displayText.uppercased()
-                }
-
-                // Placeholder styling
-                let attrs: [NSAttributedString.Key: Any]
-                if element.isPlaceholder {
-                    attrs = [
-                        .font: ScreenplayFormatting.italicFont,
-                        .foregroundColor: ScreenplayFormatting.placeholderColor,
-                        .paragraphStyle: ScreenplayFormatting.paragraphStyle(for: element.type)
-                    ]
-                } else {
-                    attrs = ScreenplayFormatting.attributes(for: element.type)
-                }
-
-                if element.type != .blankLine {
-                    let attributed = NSAttributedString(string: displayText, attributes: attrs)
-                    fullString.append(attributed)
-                } else {
-                    // Blank line: empty string with blank line paragraph style
-                    let attributed = NSAttributedString(string: "", attributes: [
-                        .font: ScreenplayFormatting.font,
-                        .paragraphStyle: ScreenplayFormatting.paragraphStyle(for: .blankLine)
-                    ])
-                    fullString.append(attributed)
-                }
-
+                fullString.append(paragraphAttributedString(for: element))
                 // Add newline between elements (maintaining paragraph invariant)
                 if index < parent.elements.count - 1 {
                     fullString.append(NSAttributedString(string: "\n"))
@@ -626,25 +621,118 @@ struct ScreenplayTextView: NSViewRepresentable {
             }
 
             textView.textStorage?.setAttributedString(fullString)
+            lastAppliedStyles = parent.elements.map { paragraphStyleKey(for: $0) }
+        }
+
+        // MARK: - Per-paragraph rendering (shared by full rebuild + splice)
+
+        /// Display text for one element (uppercase transform is length-preserving).
+        func paragraphDisplayText(for element: ScriptElement) -> String {
+            if element.type == .blankLine { return "" }
+            if element.type == .sceneHeading || element.type == .character || element.type == .transition {
+                return element.text.uppercased()
+            }
+            return element.text
+        }
+
+        /// Styling identity for diffing: type-only changes (⌃1–6) alter
+        /// attributes while the text stays identical.
+        func paragraphStyleKey(for element: ScriptElement) -> Int {
+            element.type.hashValue &* 31 &+ (element.isPlaceholder ? 1 : 0)
+        }
+
+        func paragraphAttributedString(for element: ScriptElement) -> NSAttributedString {
+            if element.type == .blankLine {
+                return NSAttributedString(string: "", attributes: [
+                    .font: ScreenplayFormatting.font,
+                    .paragraphStyle: ScreenplayFormatting.paragraphStyle(for: .blankLine)
+                ])
+            }
+            let attrs: [NSAttributedString.Key: Any]
+            if element.isPlaceholder {
+                attrs = [
+                    .font: ScreenplayFormatting.italicFont,
+                    .foregroundColor: ScreenplayFormatting.placeholderColor,
+                    .paragraphStyle: ScreenplayFormatting.paragraphStyle(for: element.type)
+                ]
+            } else {
+                attrs = ScreenplayFormatting.attributes(for: element.type)
+            }
+            return NSAttributedString(string: paragraphDisplayText(for: element), attributes: attrs)
+        }
+
+        // MARK: - Incremental sync (perf Tier 1.3, audit B1)
+
+        /// Bring the text view in line with the model by splicing only the
+        /// changed paragraph window instead of rebuilding the whole document.
+        /// Falls back to a full rebuild when the diff cannot be trusted.
+        func incrementalSync() {
+            PerfSignpost.measure("editor.incrementalSync") { incrementalSyncBody() }
+        }
+
+        private func incrementalSyncBody() {
+            guard let textView = textView, let storage = textView.textStorage else { return }
+
+            let newElements = parent.elements
+            guard !newElements.isEmpty else {
+                rebuildAttributedString()
+                return
+            }
+
+            let oldTexts = textView.string.components(separatedBy: "\n")
+            // The style cache must mirror the current document exactly;
+            // anything else means we lost track — rebuild from scratch.
+            guard lastAppliedStyles.count == oldTexts.count else {
+                rebuildAttributedString()
+                return
+            }
+
+            let oldParas = zip(oldTexts, lastAppliedStyles).map {
+                ParagraphDiff.Paragraph(text: $0, style: $1)
+            }
+            let newParas = newElements.map {
+                ParagraphDiff.Paragraph(text: paragraphDisplayText(for: $0),
+                                        style: paragraphStyleKey(for: $0))
+            }
+
+            guard let splice = ParagraphDiff.splice(old: oldParas, new: newParas) else {
+                return  // already in sync
+            }
+
+            let replacement = NSMutableAttributedString()
+            if splice.leadingSeparator { replacement.append(NSAttributedString(string: "\n")) }
+            for (i, idx) in splice.newParagraphs.enumerated() {
+                if i > 0 { replacement.append(NSAttributedString(string: "\n")) }
+                replacement.append(paragraphAttributedString(for: newElements[idx]))
+            }
+            if splice.trailingSeparator { replacement.append(NSAttributedString(string: "\n")) }
+
+            isUpdating = true
+            storage.replaceCharacters(in: splice.range, with: replacement)
+            isUpdating = false
+            invalidateCache()
+            lastAppliedStyles = newParas.map(\.style)
         }
 
         // MARK: - Apply Rebuild Instruction
 
         func applyRebuildInstruction(_ instruction: RebuildInstruction) {
+            // Perf Tier 1.3 (audit B1/B2): every case syncs via the minimal
+            // paragraph splice — no more full-document rebuild per keystroke.
+            // The instruction kind only decides where the cursor lands.
             switch instruction {
             case .none:
-                break
+                return
 
             case .updateParagraph(let index):
-                // Re-style a single paragraph without full rebuild
-                rebuildAttributedString()
+                incrementalSync()
                 if let textView = textView, index < parent.elements.count {
                     let range = rangeForParagraph(index)
                     textView.setSelectedRange(NSRange(location: range.location + range.length, length: 0))
                 }
 
             case .insertParagraph(_, let focusId):
-                rebuildAttributedString()
+                incrementalSync()
                 if let textView = textView,
                    let idx = parent.elements.firstIndex(where: { $0.id == focusId }) {
                     let range = rangeForParagraph(idx)
@@ -653,10 +741,10 @@ struct ScreenplayTextView: NSViewRepresentable {
                 }
 
             case .removeParagraph(_):
-                rebuildAttributedString()
+                incrementalSync()
 
             case .fullRebuild(let focusId, let cursorOffset):
-                rebuildAttributedString()
+                incrementalSync()
                 if let textView = textView, let focusId = focusId,
                    let idx = parent.elements.firstIndex(where: { $0.id == focusId }) {
                     let range = rangeForParagraph(idx)
@@ -670,6 +758,10 @@ struct ScreenplayTextView: NSViewRepresentable {
                     textView.typingAttributes = ScreenplayFormatting.attributes(for: element.type)
                 }
             }
+
+            // Stamp the version we just applied so updateNSView doesn't
+            // rebuild a second time for the same change (audit B2).
+            lastSelfAppliedVersion = parent.currentElementsVersion?() ?? -1
         }
 
         // MARK: - NSTextViewDelegate

@@ -96,6 +96,7 @@ struct ScriptView: View {
                     },
                     onNavigateBack: { coordinator.navigateBack() },
                     onNavigateForward: { coordinator.navigateForward() },
+                    currentElementsVersion: { viewModel.elementsVersion },
                     onAutocompleteFilter: { prefix in
                         viewModel.filterAutocomplete(prefix: prefix)
                     },
@@ -112,9 +113,7 @@ struct ScriptView: View {
                     typewriterMode: viewModel.typewriterMode,
                     transliterationEnabled: viewModel.transliterationEnabled,
                     transliterationService: viewModel.transliterationService,
-                    characterImageMap: Dictionary(uniqueKeysWithValues: viewModel.characters.map { char in
-                        (char.name.uppercased(), (imagePath: char.avatar ?? char.baseImage ?? char.imageFront, color: char.color))
-                    }),
+                    characterImageMap: viewModel.characterImageMap,
                     magnification: $viewModel.currentZoom,
                     onScrollYChanged: { y in
                         coordinator.scriptScrollY = y
