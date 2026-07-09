@@ -1655,3 +1655,33 @@ private class MarkerTooltip {
         currentText = nil
     }
 }
+
+// MARK: - Equatable (render-input pruning — see TimelineCanvas for rationale)
+extension TimelineHeaderCanvas: Equatable {
+    public static func == (l: TimelineHeaderCanvas, r: TimelineHeaderCanvas) -> Bool {
+        l.segments == r.segments &&
+        l.sceneBoundaries == r.sceneBoundaries &&
+        l.sequenceBoundaries == r.sequenceBoundaries &&
+        l.shotLabels == r.shotLabels &&
+        l.showShotLabels == r.showShotLabels &&
+        l.pxPerSec == r.pxPerSec &&
+        l.mode == r.mode &&
+        l.viewportSize == r.viewportSize &&
+        l.shotSubLaneAssignments == r.shotSubLaneAssignments &&
+        l.shotLaneSubLaneCount == r.shotLaneSubLaneCount &&
+        l.shotDialogueConnections == r.shotDialogueConnections &&
+        l.showShotConnections == r.showShotConnections &&
+        l.playheadTime == r.playheadTime &&
+        l.playheadActive == r.playheadActive &&
+        l.userMarkers == r.userMarkers &&
+        l.projectBasePath == r.projectBasePath &&
+        l.soundtrackTracks == r.soundtrackTracks &&
+        l.showSoundtracks == r.showSoundtracks &&
+        l.lightCues == r.lightCues &&
+        l.showLightingLane == r.showLightingLane &&
+        l.sfxCues == r.sfxCues &&
+        l.showSFXLane == r.showSFXLane &&
+        l.supportCues == r.supportCues &&
+        l.showSupportLane == r.showSupportLane
+    }
+}

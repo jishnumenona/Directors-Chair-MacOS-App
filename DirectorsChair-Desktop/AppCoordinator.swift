@@ -40,13 +40,6 @@ class AppCoordinator: ObservableObject {
     /// Currently selected view in the central area
     @Published var selectedView: AppView = .projects
 
-    /// Navigation debounce - prevents rapid switching (250ms to allow view to settle)
-    private var lastNavigationTime: Date = .distantPast
-    private let navigationDebounceInterval: TimeInterval = 0.25  // 250ms debounce
-
-    /// Navigation lock - prevents concurrent navigation
-    private var isNavigating: Bool = false
-
     // MARK: - Navigation History (Back/Forward)
 
     /// Snapshot of navigation state for history
@@ -57,11 +50,13 @@ class AppCoordinator: ObservableObject {
         let productionTab: String?  // Production sub-tab, if on production view
     }
 
-    /// Stack of previously visited states (for navigate back)
-    @Published private var navigationBackStack: [NavigationSnapshot] = []
+    /// Stack of previously visited states (for navigate back).
+    /// Plain vars: publishing them re-rendered every coordinator observer on
+    /// each navigation; selectedView's publish already refreshes button state.
+    private var navigationBackStack: [NavigationSnapshot] = []
 
     /// Stack of states navigated back from (for navigate forward)
-    @Published private var navigationForwardStack: [NavigationSnapshot] = []
+    private var navigationForwardStack: [NavigationSnapshot] = []
 
     /// Whether navigating via history (to avoid pushing to stack during back/forward)
     private var isHistoryNavigation: Bool = false
@@ -239,23 +234,11 @@ class AppCoordinator: ObservableObject {
             return
         }
 
-        // Block if navigation is in progress (skip for explicit history navigation)
-        guard !isNavigating || isHistoryNavigation else {
-            debugLog("🔒 Navigation locked, skipping \(view.rawValue)")
-            return
-        }
-
-        // Debounce rapid navigation requests (skip for explicit history navigation)
-        let now = Date()
-        let timeSinceLastNav = now.timeIntervalSince(lastNavigationTime)
-        if !isHistoryNavigation && timeSinceLastNav < navigationDebounceInterval {
-            debugLog("⏳ Debounce: Skipping navigation to \(view.rawValue) (too fast: \(String(format: "%.3f", timeSinceLastNav))s)")
-            return
-        }
-
-        // Lock navigation
-        isNavigating = true
-        lastNavigationTime = now
+        // Navigator responsiveness fix: navigation used to DROP clicks — a
+        // 150ms lock plus a 250ms debounce silently ignored fast clicks,
+        // which read as "the sidebar is sluggish". Those guards protected
+        // animated transitions that no longer exist (navigation is a plain
+        // assignment and hidden tabs unmount via LRU-2) — every click lands.
         debugLog("🧭 Navigating: \(selectedView.rawValue) -> \(view.rawValue)")
 
         // Push current state to back stack (unless this is a history navigation)
@@ -274,12 +257,6 @@ class AppCoordinator: ObservableObject {
         // Direct assignment without animation to prevent stacking during rapid switches
         selectedView = view
         debugLog("🧭 Navigation complete to \(view.rawValue)")
-
-        // Unlock after a brief settling period to allow view to render
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.isNavigating = false
-            debugLog("🔓 Navigation unlocked")
-        }
     }
 
     /// Navigate back to the previous view in history

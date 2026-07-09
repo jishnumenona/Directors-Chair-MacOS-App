@@ -347,7 +347,7 @@ public class TimelineViewModel: ObservableObject {
 // MARK: - TimelineShotLabel
 
 /// Represents a shot label for the shot lane
-public struct TimelineShotLabel: Identifiable {
+public struct TimelineShotLabel: Identifiable, Equatable {
     public let id: UUID
     public var time: CGFloat              // Position in seconds (start)
     public var duration: CGFloat          // Span width in seconds (from linked dialogues)

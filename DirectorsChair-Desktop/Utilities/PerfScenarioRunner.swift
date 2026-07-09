@@ -84,6 +84,32 @@ enum PerfScenarioRunner {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
 
+        case "navigator":
+            // Navigator responsiveness: outline mounted + typing fan-out,
+            // then a rapid-click probe (how many navigation clicks actually
+            // land at a fast-but-human 150ms cadence).
+            coordinator.showingNavigator = true
+            coordinator.navigateTo(.script)
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+            for i in 0..<20 {
+                projectViewModel.project.projectNotes = "nav tick \(i)"
+                coordinator.notifyProjectChanged(.script)
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+
+            let clickSequence: [AppView] = [.overview, .script, .bubble, .scenes, .script,
+                                            .overview, .bubble, .script, .scenes, .overview]
+            for target in clickSequence {
+                PerfCounters.shared.increment("nav.clicksAttempted")
+                let before = coordinator.selectedView
+                coordinator.navigateTo(target)
+                if coordinator.selectedView != before {
+                    PerfCounters.shared.increment("nav.clicksApplied")
+                }
+                try? await Task.sleep(nanoseconds: 80_000_000)  // fast-clicking user
+            }
+
         case "idle":
             // Background churn with a project open (audit D2).
             try? await Task.sleep(nanoseconds: 30_000_000_000)

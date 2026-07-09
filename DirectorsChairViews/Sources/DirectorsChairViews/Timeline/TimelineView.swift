@@ -290,6 +290,7 @@ public struct TimelineView: View {
                         VStack(spacing: 0) {
                             // Fixed header: time ruler, shot labels, scope marker labels
                             makeHeaderCanvas(geometry: geometry)
+                                .equatable()
                                 .frame(height: effectiveHeaderHeight)
                                 .clipped()
 

@@ -86,6 +86,12 @@ struct TimelineContainer: View {
     /// Track sequence count to detect actual changes (not just any array mutation)
     @State private var lastSequenceCount: Int = 0
 
+    /// Perf (audit A3, measured 65% of publish-tick main-thread time in the
+    /// timeline canvases): fingerprint of everything the timeline renders.
+    /// Project publishes that don't change this skip the setProject/refresh
+    /// cycle entirely — no view-model churn, no full canvas repaint.
+    @State private var lastTimelineFingerprint: Int?
+
     /// Audio player for timeline TTS playback
     @State private var timelineAudioPlayer: AVAudioPlayer?
 
@@ -471,6 +477,19 @@ struct TimelineContainer: View {
             // Timeline renders script + shots + structure; schedule/budget
             // edits don't require a rebuild.
             guard event != .production else { return }
+            // Skip when nothing the timeline renders actually changed —
+            // rebuilding published VM state invalidates the Canvas display
+            // lists and forces a full repaint of every segment.
+            var hasher = Hasher()
+            hasher.combine(projectViewModel.project.sequences)
+            hasher.combine(projectViewModel.project.lightCues)
+            hasher.combine(projectViewModel.project.sfxCues)
+            hasher.combine(projectViewModel.project.supportCues)
+            hasher.combine(projectViewModel.project.characters)
+            let fingerprint = hasher.finalize()
+            guard fingerprint != lastTimelineFingerprint else { return }
+            lastTimelineFingerprint = fingerprint
+
             debugLog("🎬 TimelineContainer: projectChanged received, refreshing timeline")
             PerfCounters.shared.increment("event.TimelineContainer.refresh")
             timelineViewModel.setProject(projectViewModel.project)
