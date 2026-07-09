@@ -14,14 +14,17 @@ struct OutlineTab: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var timelineViewModel: TimelineViewModel
-    @State private var refreshToken = UUID()
 
-    /// Expansion state lives here so it survives .id(refreshToken) recreation.
     /// Sequences default to expanded, so we track which are collapsed.
     @State private var collapsedSequenceIds: Set<String> = []
     /// Scenes default to collapsed, so we track which are expanded.
     @State private var expandedSceneIds: Set<String> = []
 
+    // Perf/navigator fix (audit A4): the outline previously re-created its
+    // ENTIRE subtree via .id(UUID()) on every project event — every editor
+    // flush tore down all rows (and killed in-progress inline rename/add
+    // fields). The rows diff by stable ids and read fresh data on every
+    // publish, so no manual invalidation is needed at all.
     var body: some View {
         ScrollView {
             if projectViewModel.hasProject {
@@ -34,19 +37,12 @@ struct OutlineTab: View {
                             expandedSceneIds: $expandedSceneIds
                         )
                     }
-                    .id(refreshToken)
                 }
             } else {
                 NoProjectView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onReceive(coordinator.projectEvents) { event in
-            guard event != .production else { return }
-            debugLog("📋 OutlineTab: projectChanged received, sequences=\(projectViewModel.project.sequences.count), scenes=\(projectViewModel.project.sequences.flatMap(\.scenes).count)")
-            PerfCounters.shared.increment("event.OutlineTab.teardown")
-            refreshToken = UUID()
-        }
         .onChange(of: coordinator.selectedShot?.id) { _, _ in
             // Auto-expand the scene containing the selected shot
             guard let selectedShot = coordinator.selectedShot else { return }
@@ -516,6 +512,11 @@ struct SceneRow: View {
                 .contentShape(Rectangle())
                 .help(sceneTooltip)
                 .accessibilityIdentifier("scene-row-\(scene.id)")
+                // Instant selection: a plain .onTapGesture(count: 1) next to a
+                // count-2 recognizer makes SwiftUI hold every single click for
+                // the double-click window (~250ms) — the sidebar felt laggy.
+                // The simultaneous single-tap fires immediately; a double
+                // click selects (twice, harmlessly) and then navigates.
                 .onTapGesture(count: 2) {
                     coordinator.selectScene(scene)
                     if NSEvent.modifierFlags.contains(.command) {
@@ -524,9 +525,9 @@ struct SceneRow: View {
                         coordinator.navigateTo(.scenes)
                     }
                 }
-                .onTapGesture(count: 1) {
+                .simultaneousGesture(TapGesture(count: 1).onEnded {
                     coordinator.selectScene(scene)
-                }
+                })
                 .contextMenu {
                     Button {
                         renameText = scene.name

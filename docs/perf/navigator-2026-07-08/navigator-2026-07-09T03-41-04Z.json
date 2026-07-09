@@ -1,0 +1,65 @@
+{
+  "appVersion" : "3.3",
+  "counters" : {
+    "body.CentralViewStack" : {
+      "count" : 65,
+      "maxNs" : 0,
+      "totalNs" : 0
+    },
+    "editor.flushDirtyElements" : {
+      "count" : 20,
+      "maxNs" : 24959,
+      "totalNs" : 61167
+    },
+    "editor.incrementalSync" : {
+      "count" : 26,
+      "maxNs" : 36734333,
+      "totalNs" : 231647083
+    },
+    "editor.rebuildAttributedString" : {
+      "count" : 9,
+      "maxNs" : 36725542,
+      "totalNs" : 117492375
+    },
+    "event.OutlineTab.teardown" : {
+      "count" : 20,
+      "maxNs" : 0,
+      "totalNs" : 0
+    },
+    "event.TimelineContainer.refresh" : {
+      "count" : 20,
+      "maxNs" : 0,
+      "totalNs" : 0
+    },
+    "nav.clicksApplied" : {
+      "count" : 10,
+      "maxNs" : 0,
+      "totalNs" : 0
+    },
+    "nav.clicksAttempted" : {
+      "count" : 10,
+      "maxNs" : 0,
+      "totalNs" : 0
+    },
+    "project.load" : {
+      "count" : 1,
+      "maxNs" : 85837417,
+      "totalNs" : 85837417
+    },
+    "timeline.rebuild" : {
+      "count" : 21,
+      "maxNs" : 63843417,
+      "totalNs" : 512982543
+    }
+  },
+  "date" : "2026-07-09T03:41:04Z",
+  "scenario" : "navigator",
+  "scenarioDurationMs" : 23605.775291,
+  "watchdog" : {
+    "hangs100ms" : 333,
+    "hitches16ms" : 408,
+    "samples" : 472,
+    "totalStallMs" : 91616.65825100003,
+    "worstMs" : 782.55675
+  }
+}

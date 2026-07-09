@@ -383,7 +383,10 @@ extension TimelineView {
             )) ?? NSEvent.mouseLocation
             menu.popUp(positioning: nil, at: screenPoint, in: nil)
         }
-        return canvas
+        // Render-input pruning: skip the full-canvas repaint when nothing
+        // the draw closures read has changed (closure props otherwise defeat
+        // SwiftUI's automatic dependency pruning).
+        return canvas.equatable()
     }
 
     // MARK: - Gestures

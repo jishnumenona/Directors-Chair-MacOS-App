@@ -134,24 +134,16 @@ final class AppCoordinatorTests: XCTestCase {
     // MARK: - View Switching
 
     func testViewSwitching() {
-        // navigateTo(_:) updates selectedView synchronously, so navigation is
-        // asserted immediately after each call rather than racing timers (the
-        // previous version used staggered DispatchQueue timers and was flaky).
-        //
-        // KNOWN ISSUE (tracked as WS9.3): navigateTo guards on a 150ms
-        // `isNavigating` lock plus a 250ms debounce, so only the first of a
-        // rapid back-to-back sequence lands and the rest are silently dropped —
-        // a real defect that also drops fast user navigation. Wrapped as an
-        // expected failure until WS9.3 removes the debounce machinery; when it
-        // does, every view will be reached, this block will stop failing, and
-        // XCTExpectFailure will flag the test to be un-wrapped.
-        XCTExpectFailure("navigateTo debounce drops rapid navigation — removed in WS9.3") {
-            let views: [AppView] = [.script, .scenes, .production, .storyDesign, .settings]
-            for view in views {
-                coordinator.navigateTo(view)
-                XCTAssertEqual(coordinator.selectedView, view,
-                               "Should reach \(view.rawValue) view after navigating to it")
-            }
+        // Rapid back-to-back navigation must land EVERY click. The old
+        // navigateTo silently dropped requests behind a 150ms lock + 250ms
+        // debounce (this test documented that defect via XCTExpectFailure);
+        // the navigator-responsiveness fix removed the click-dropping, so
+        // this now asserts the correct behavior directly.
+        let views: [AppView] = [.script, .scenes, .production, .storyDesign, .settings]
+        for view in views {
+            coordinator.navigateTo(view)
+            XCTAssertEqual(coordinator.selectedView, view,
+                           "Should reach \(view.rawValue) view after navigating to it")
         }
     }
 

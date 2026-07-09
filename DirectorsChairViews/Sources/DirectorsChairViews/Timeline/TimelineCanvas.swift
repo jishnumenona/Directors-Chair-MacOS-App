@@ -396,3 +396,39 @@ public struct TimelineCanvas: View {
         )
     }
 }
+
+// MARK: - Equatable (render-input pruning)
+//
+// Perf: the canvas repainted its ENTIRE display list whenever the container
+// body re-evaluated (every whole-project publish, ~2x/sec while typing),
+// because the closure props defeat SwiftUI's automatic dependency pruning.
+// Equality covers every input the draw closures read; closures are wiring,
+// not render inputs. Applied via .equatable() at the use site.
+extension TimelineCanvas: Equatable {
+    public static func == (l: TimelineCanvas, r: TimelineCanvas) -> Bool {
+        l.segments == r.segments &&
+        l.markers == r.markers &&
+        l.sceneBoundaries == r.sceneBoundaries &&
+        l.sequenceBoundaries == r.sequenceBoundaries &&
+        l.playheadTime == r.playheadTime &&
+        l.pxPerSec == r.pxPerSec &&
+        l.showThumbs == r.showThumbs &&
+        l.mode == r.mode &&
+        l.projectBasePath == r.projectBasePath &&
+        l.viewportSize == r.viewportSize &&
+        l.hiddenTracks == r.hiddenTracks &&
+        l.subLaneAssignments == r.subLaneAssignments &&
+        l.laneSubLaneCounts == r.laneSubLaneCounts &&
+        l.shotDialogueConnections == r.shotDialogueConnections &&
+        l.showShotConnections == r.showShotConnections &&
+        l.selectedShotLabelId == r.selectedShotLabelId &&
+        l.allCharacterNames == r.allCharacterNames &&
+        l.verticalOffset == r.verticalOffset &&
+        l.availableHeight == r.availableHeight &&
+        l.effectiveDuration == r.effectiveDuration &&
+        l.selectedSegmentIds == r.selectedSegmentIds &&
+        l.viewportOffset == r.viewportOffset &&
+        l.generatingAudioSourceIds == r.generatingAudioSourceIds &&
+        l.playingAudioSourceId == r.playingAudioSourceId
+    }
+}
