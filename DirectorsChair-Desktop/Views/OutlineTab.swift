@@ -44,6 +44,7 @@ struct OutlineTab: View {
         .onReceive(coordinator.projectEvents) { event in
             guard event != .production else { return }
             debugLog("📋 OutlineTab: projectChanged received, sequences=\(projectViewModel.project.sequences.count), scenes=\(projectViewModel.project.sequences.flatMap(\.scenes).count)")
+            PerfCounters.shared.increment("event.OutlineTab.teardown")
             refreshToken = UUID()
         }
         .onChange(of: coordinator.selectedShot?.id) { _, _ in

@@ -472,6 +472,7 @@ struct TimelineContainer: View {
             // edits don't require a rebuild.
             guard event != .production else { return }
             debugLog("🎬 TimelineContainer: projectChanged received, refreshing timeline")
+            PerfCounters.shared.increment("event.TimelineContainer.refresh")
             timelineViewModel.setProject(projectViewModel.project)
             timelineViewModel.refresh()
         }

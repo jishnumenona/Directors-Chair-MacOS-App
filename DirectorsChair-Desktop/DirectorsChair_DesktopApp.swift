@@ -37,8 +37,9 @@ struct DirectorsChair_DesktopApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
-        // UI testing bypass: skip onboarding and auth gate
-        if ProcessInfo.processInfo.arguments.contains("--uitesting") {
+        // UI testing / perf benchmark bypass: skip onboarding and auth gate
+        if ProcessInfo.processInfo.arguments.contains("--uitesting") ||
+           ProcessInfo.processInfo.arguments.contains("--perf-scenario") {
             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
         }
         _projectViewModel = StateObject(wrappedValue: ProjectViewModel())
@@ -205,6 +206,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let projectViewModel = projectViewModel,
               let coordinator = coordinator,
               let onboardingState = onboardingState else { return }
+
+        // Performance benchmark mode: run the scenario instead of the normal
+        // restore path, write a JSON report, terminate.
+        if let scenario = PerfScenarioRunner.requestedScenario {
+            Task { @MainActor in
+                await PerfScenarioRunner.run(scenario: scenario,
+                                             projectViewModel: projectViewModel,
+                                             coordinator: coordinator)
+            }
+            return
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             // First-time users see onboarding; returning users restore their project
