@@ -196,7 +196,12 @@ class ProjectViewModel: ObservableObject {
     /// Load project from file path
     func load(from path: URL) async throws {
         isLoading = true
-        defer { isLoading = false }
+        let loadStart = DispatchTime.now().uptimeNanoseconds
+        defer {
+            isLoading = false
+            PerfCounters.shared.record(name: "project.load",
+                                       nanoseconds: DispatchTime.now().uptimeNanoseconds - loadStart)
+        }
 
         do {
             var loadedProject = try await persistence.load(from: path)

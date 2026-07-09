@@ -744,6 +744,10 @@ class ScriptViewModel: ObservableObject {
 
     /// Flush all dirty elements to the project model
     func flushDirtyElements() {
+        PerfSignpost.measure("editor.flushDirtyElements") { flushDirtyElementsBody() }
+    }
+
+    private func flushDirtyElementsBody() {
         // Merge pending texts into elements first
         syncPendingTexts()
 
@@ -1326,6 +1330,10 @@ class ScriptViewModel: ObservableObject {
     // MARK: - Private Helpers
 
     private func updateOutlineAndStats() {
+        PerfSignpost.measure("editor.updateOutlineAndStats") { updateOutlineAndStatsBody() }
+    }
+
+    private func updateOutlineAndStatsBody() {
         sceneOutline = ProjectToScriptConverter.extractSceneOutline(from: elements)
         estimatedPageCount = ScreenplayFormatting.estimatePageCount(from: elements)
         wordCount = ScreenplayFormatting.wordCount(from: elements)

@@ -15,6 +15,10 @@ extension TimelineViewModel {
 
     /// Rebuild segments from current scene/sequence/project data
     func rebuild() {
+        PerfSignpost.measure("timeline.rebuild") { rebuildBody() }
+    }
+
+    private func rebuildBody() {
         // Clear per-track hiding when content changes
         hiddenTracks.removeAll()
 

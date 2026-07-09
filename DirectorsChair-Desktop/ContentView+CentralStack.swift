@@ -50,6 +50,7 @@ struct CentralViewStack: View {
     var body: some View {
         let currentView = coordinator.selectedView
         let _ = debugLog("🔄 CentralViewStack body - current: \(currentView.rawValue)")
+        let _ = PerfCounters.shared.increment("body.CentralViewStack")
 
         ZStack {
             ForEach(AppView.allCases) { view in

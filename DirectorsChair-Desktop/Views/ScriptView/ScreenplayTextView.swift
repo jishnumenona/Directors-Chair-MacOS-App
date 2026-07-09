@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import DirectorsChairCore
 
 /// NSViewRepresentable wrapping NSTextView for professional screenplay rendering
 struct ScreenplayTextView: NSViewRepresentable {
@@ -555,6 +556,10 @@ struct ScreenplayTextView: NSViewRepresentable {
         // MARK: - Build Attributed String
 
         func rebuildAttributedString() {
+            PerfSignpost.measure("editor.rebuildAttributedString") { rebuildAttributedStringBody() }
+        }
+
+        private func rebuildAttributedStringBody() {
             guard let textView = textView else { return }
 
             isUpdating = true
@@ -1264,8 +1269,8 @@ struct ScreenplayTextView: NSViewRepresentable {
                 if scalar == " " || scalar == "\n" || !scalar.isASCII {
                     break
                 }
-                // Stop at punctuation
-                let ch = Character(scalar)
+                // Stop at punctuation (Swift.Character — Core's Character model shadows it)
+                let ch = Swift.Character(scalar)
                 if ".!?,;:@#$%^~/\"'()[]{}".contains(ch) {
                     break
                 }
