@@ -221,12 +221,17 @@ class ScriptViewModel: ObservableObject {
     // MARK: - Refresh (after external project changes)
 
     func refresh(from project: Project) {
-        guard !isWizardActive else { return }
-
+        // Perf Tier 2 (audit A6): consume the self-originated-change skip
+        // BEFORE the wizard guard. Previously the wizard guard returned first,
+        // so a self-send that arrived mid-wizard left skipNextRefresh set and
+        // the NEXT (external) event was wrongly skipped — a briefly stale
+        // editor. The skip must always be paired with the event that set it.
         if skipNextRefresh {
             skipNextRefresh = false
             return
         }
+
+        guard !isWizardActive else { return }
 
         flushDirtyElements()
 
