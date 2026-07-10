@@ -65,25 +65,21 @@ struct CastMemberRow: View {
 
     @ViewBuilder
     func castRowPhoto(_ cast: CastMember, size: CGFloat) -> some View {
-        if !cast.photoPath.isEmpty, let image = loadCastImage(path: cast.photoPath) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: size, height: size)
-                .clipShape(Circle())
-        } else {
+        // Perf Tier 3 (audit D1): async downsampled thumbnail instead of a
+        // synchronous full-resolution decode in the row body on every scroll.
+        AsyncThumbnail(url: photoURL(cast.photoPath), displaySize: size, contentMode: .fill) {
             InitialsAvatar(name: cast.actorName, size: size)
         }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
     }
 
-    func loadCastImage(path: String) -> NSImage? {
-        let fullURL: URL
+    func photoURL(_ path: String) -> URL? {
+        guard !path.isEmpty else { return nil }
         if let basePath = projectBasePath {
-            fullURL = basePath.appendingPathComponent(path)
-        } else {
-            fullURL = URL(fileURLWithPath: path)
+            return basePath.appendingPathComponent(path)
         }
-        return NSImage(contentsOf: fullURL)
+        return URL(fileURLWithPath: path)
     }
 
     var roleTypeColor: Color {
@@ -152,25 +148,20 @@ struct CrewMemberRow: View {
 
     @ViewBuilder
     func crewRowPhoto(_ crew: CrewMember, size: CGFloat) -> some View {
-        if !crew.photoPath.isEmpty, let image = loadCrewImage(path: crew.photoPath) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: size, height: size)
-                .clipShape(Circle())
-        } else {
+        // Perf Tier 3 (audit D1): async downsampled thumbnail (see castRowPhoto).
+        AsyncThumbnail(url: photoURL(crew.photoPath), displaySize: size, contentMode: .fill) {
             InitialsAvatar(name: crew.name, size: size, color: .purple)
         }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
     }
 
-    func loadCrewImage(path: String) -> NSImage? {
-        let fullURL: URL
+    func photoURL(_ path: String) -> URL? {
+        guard !path.isEmpty else { return nil }
         if let basePath = projectBasePath {
-            fullURL = basePath.appendingPathComponent(path)
-        } else {
-            fullURL = URL(fileURLWithPath: path)
+            return basePath.appendingPathComponent(path)
         }
-        return NSImage(contentsOf: fullURL)
+        return URL(fileURLWithPath: path)
     }
 }
 
