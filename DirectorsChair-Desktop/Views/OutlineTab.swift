@@ -210,6 +210,10 @@ struct SequenceRow: View {
                     Color.accentColor.opacity(0.15) : Color.clear
                 )
                 .cornerRadius(6)
+                // The full highlighted region is clickable, not just the
+                // opaque text/icons — transparent padding and Spacer areas
+                // ignore clicks without an explicit content shape.
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("sequence-row-\(sequence.id)")
@@ -740,6 +744,9 @@ struct ShotRow: View {
                 Color.accentColor.opacity(0.15) : Color.clear
             )
             .cornerRadius(6)
+            // Full-row hit area (see SequenceRow) — clicks between the text
+            // and the trailing badge must select the shot too.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("shot-row-\(shot.id)")
