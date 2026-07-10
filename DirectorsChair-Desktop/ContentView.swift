@@ -229,6 +229,11 @@ struct ContentView: View {
                   dismissButton: .default(Text("OK")))
         }
         .onAppear {
+            // UI-test mode: don't install global key monitors. The
+            // double-shift monitor watches Shift-key events, so typing
+            // capitals (which the editor tests do constantly) triggered the
+            // AI-assistant hotkey mid-typing and interrupted the test flow.
+            guard !TestMode.skipGlobalKeyMonitors else { return }
             DoubleShiftMonitor.shared.onDoubleShift = {
                 coordinator.toggleAIChat()
             }

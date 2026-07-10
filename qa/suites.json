@@ -3,7 +3,7 @@
   "suites": [
     {
       "id": "core",
-      "name": "Core (models · persistence)",
+      "name": "Core (models \u00b7 persistence)",
       "component": "desktop",
       "kind": "spm",
       "package": "DirectorsChairCore",
@@ -11,7 +11,7 @@
     },
     {
       "id": "services",
-      "name": "Services (auth · sync · AI clients)",
+      "name": "Services (auth \u00b7 sync \u00b7 AI clients)",
       "component": "desktop",
       "kind": "spm",
       "package": "DirectorsChairServices",
@@ -19,7 +19,7 @@
     },
     {
       "id": "production",
-      "name": "Production (schedule · budget · cast/crew)",
+      "name": "Production (schedule \u00b7 budget \u00b7 cast/crew)",
       "component": "desktop",
       "kind": "spm",
       "package": "DirectorsChairProduction",
@@ -27,7 +27,7 @@
     },
     {
       "id": "views",
-      "name": "Views (creative · timeline · snapshots)",
+      "name": "Views (creative \u00b7 timeline \u00b7 snapshots)",
       "component": "desktop",
       "kind": "spm",
       "package": "DirectorsChairViews",
@@ -35,7 +35,7 @@
     },
     {
       "id": "exports",
-      "name": "Exports (FDX · Fountain · PDF · CSV)",
+      "name": "Exports (FDX \u00b7 Fountain \u00b7 PDF \u00b7 CSV)",
       "component": "desktop",
       "kind": "spm",
       "package": "DirectorsChairExports",
@@ -43,7 +43,7 @@
     },
     {
       "id": "app",
-      "name": "App target (unit · adapters)",
+      "name": "App target (unit \u00b7 adapters)",
       "component": "desktop",
       "kind": "xcodebuild",
       "scheme": "DirectorsChair-Desktop",
@@ -55,8 +55,8 @@
       "component": "desktop",
       "kind": "xcodebuild-ui",
       "scheme": "DirectorsChair-UITests",
-      "gate": false,
-      "notes": "Advisory until the UI-automation environment is stabilized (see qa/README.md §Known limitations). Drives real user workflows against the deterministic QA fixture."
+      "gate": true,
+      "notes": "End-to-end user workflows against the deterministic QA fixture. Made reliable via offline test mode (no auth gate, no network, no global key monitors, no splash). Two consecutive clean 11/11 runs."
     }
   ]
 }

@@ -146,6 +146,9 @@ extension ProjectsExplorerView {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        // Same identifier as the empty-state button so the
+                        // New Project affordance is findable in either state.
+                        .accessibilityIdentifier("new-project-button")
 
                         Button(action: { showingImportPicker = true }) {
                             Label("Import", systemImage: "doc.text")

@@ -17,18 +17,24 @@ enum QAFixture {
     static let projectName = "QA Fixture"
 
     nonisolated static var isRequested: Bool {
-        ProcessInfo.processInfo.arguments.contains("--qa-fixture")
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--qa-fixture") || args.contains("--qa-fixture-keep")
+    }
+
+    /// `--qa-fixture-keep` opens the EXISTING fixture without regenerating —
+    /// used by the persistence test to reopen the project (with its edit)
+    /// after a relaunch, deterministically and without depending on the
+    /// last-project restore path.
+    nonisolated static var isKeepRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains("--qa-fixture-keep")
     }
 
     /// Regenerate the fixture on disk (small: 3 scenes × ~30 items, 2 shots
     /// each — big enough to exercise flows, small enough to stay fast) and
-    /// open it. Deterministic: same seed, same content, every run.
+    /// open it. Deterministic: same seed, same content, every run. In
+    /// keep-mode the on-disk project is opened as-is (no regeneration).
     static func prepareAndOpen(projectViewModel: ProjectViewModel,
                                coordinator: AppCoordinator) async {
-        var project = StressProjectGenerator.makeProject(
-            scenes: 3, shotsPerScene: 2, seed: 0x0AF1_57AB)
-        project.name = projectName
-
         let root = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Directors Chair")
             .appendingPathComponent("local")
@@ -36,12 +42,19 @@ enum QAFixture {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("project.json")
 
-        let persistence = ProjectPersistence(enableBackups: false)
-        do {
-            try await persistence.save(project, to: url)
-            NSLog("[QAFixture] fixture saved to %@", url.path)
-        } catch {
-            NSLog("[QAFixture] SAVE FAILED: %@", String(describing: error))
+        if !isKeepRequested {
+            var project = StressProjectGenerator.makeProject(
+                scenes: 3, shotsPerScene: 2, seed: 0x0AF1_57AB)
+            project.name = projectName
+            let persistence = ProjectPersistence(enableBackups: false)
+            do {
+                try await persistence.save(project, to: url)
+                NSLog("[QAFixture] fixture saved to %@", url.path)
+            } catch {
+                NSLog("[QAFixture] SAVE FAILED: %@", String(describing: error))
+            }
+        } else {
+            NSLog("[QAFixture] keep-mode: opening existing fixture at %@", url.path)
         }
         do {
             try await projectViewModel.load(from: url)

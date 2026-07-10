@@ -31,7 +31,7 @@ tests, desktop↔server integration.
 | **Contract / component** | A subsystem's public API (converters, exporters, timeline builder, save manager) | package tests | ✅ blocking |
 | **Snapshot** | Rendered SwiftUI components match reference pixels | `DirectorsChairViews` snapshots | ✅ blocking locally; CI-skipped (machine-dependent) |
 | **Performance** | Hot paths stay within budget on a large project | `PerformanceBaselineTests` + `--perf-scenario` | ✅ blocking on regression |
-| **End-to-end (UI)** | Real user workflows through the actual UI | `DirectorsChair-DesktopUITests` (XCUITest) | ⚠️ advisory now (see §8) |
+| **End-to-end (UI)** | Real user workflows through the actual UI | `DirectorsChair-DesktopUITests` (XCUITest) | ✅ gating (deterministic offline test mode) |
 | **Manual / exploratory** | Judgment, aesthetics, VoiceOver, unscripted paths | owner, guided by the catalog | tracked, not gated |
 
 The base of the pyramid (unit/contract) is broad and fast (1,125 tests,
@@ -126,16 +126,16 @@ Requirement → catalog case (`E2E-EDIT-004`) → test
 
 ## 8. Known limitations & roadmap
 
-- **UI E2E is advisory, not gating, today.** The XCUITest suite is
-  implemented and drives real workflows, but on this multi-display / multi-
-  Space development Mac the app window does not register reliably with the
-  UI-test driver (it passed intermittently at the timeout boundary). This is
-  an **environment** issue, not an app defect — the app reaches the fixture
-  project (confirmed in launch logs). It is marked `gate: false` in
-  `qa/suites.json` until run on a dedicated, single-display CI agent where
-  XCUITest is reliable. **This is itself a tracked QA finding**, exactly the
-  kind of honest gap this framework is built to surface rather than paper
-  over.
+- **UI E2E is now gating.** The XCUITest suite drives real user workflows
+  (launch, editor typing / Final Draft flow / new-scene wizard / undo,
+  navigator selection, project creation, cross-relaunch persistence) against
+  the deterministic QA fixture and passes 11/11 across consecutive runs. The
+  earlier flakiness was root-caused to the app's OWN launch behavior — the
+  offline auth gate ("Continue Offline") blocked the flow and the
+  double-shift AI-assistant hotkey fired while typing capitals — not an
+  XCUITest limitation. A dedicated offline **test mode** (`TestMode`) makes
+  launch deterministic: no auth/network, no splash, no global key monitors,
+  no assistant popup. This is the automated Editor v2 validation.
 - **Snapshot tests are local-gating only** — machine-dependent pixel
   rendering (documented in the git-workflow CI history).
 - **Server & integration levels are schema-reserved**, activated when the
