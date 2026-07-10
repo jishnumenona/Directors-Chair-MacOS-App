@@ -1,0 +1,25 @@
+{
+  "$schema": "../lib/catalog.schema.json",
+  "component": "server",
+  "title": "DirectorsChair Server — E2E Test Catalog (PLACEHOLDER)",
+  "description": "Reserved for the future server. Same schema as desktop.json so the orchestrator, bug registry, and report absorb server suites with zero framework changes. `status: planned` cases are excluded from coverage math until the server exists and their `automation` is wired to a real suite (contract tests, API integration, auth, sync).",
+  "status": "planned",
+  "features": [
+    {
+      "id": "SRV-AUTH",
+      "name": "Authentication & sessions",
+      "cases": [
+        {"id": "E2E-SRV-AUTH-001", "title": "Sign in issues a valid token; refresh coalesces", "priority": "P0", "automation": null, "status": "planned"},
+        {"id": "E2E-SRV-AUTH-002", "title": "Session restore survives transient 5xx", "priority": "P1", "automation": null, "status": "planned"}
+      ]
+    },
+    {
+      "id": "SRV-SYNC",
+      "name": "Project sync",
+      "cases": [
+        {"id": "E2E-SRV-SYNC-001", "title": "Push/pull round-trips a project without data loss", "priority": "P0", "automation": null, "status": "planned"},
+        {"id": "E2E-SRV-SYNC-002", "title": "Blob change-detection uploads only modified assets", "priority": "P1", "automation": null, "status": "planned"}
+      ]
+    }
+  ]
+}

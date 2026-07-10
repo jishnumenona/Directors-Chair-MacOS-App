@@ -1,0 +1,62 @@
+{
+  "description": "Pluggable suite registry consumed by run-qa.sh. Each suite maps to a build/test invocation. `component` ties results back to a catalog. `gate` suites must pass for the run to be releasable; `advisory` suites report without blocking. Adding a server later = one new entry, no orchestrator change.",
+  "suites": [
+    {
+      "id": "core",
+      "name": "Core (models \u00b7 persistence)",
+      "component": "desktop",
+      "kind": "spm",
+      "package": "DirectorsChairCore",
+      "gate": true
+    },
+    {
+      "id": "services",
+      "name": "Services (auth \u00b7 sync \u00b7 AI clients)",
+      "component": "desktop",
+      "kind": "spm",
+      "package": "DirectorsChairServices",
+      "gate": true
+    },
+    {
+      "id": "production",
+      "name": "Production (schedule \u00b7 budget \u00b7 cast/crew)",
+      "component": "desktop",
+      "kind": "spm",
+      "package": "DirectorsChairProduction",
+      "gate": true
+    },
+    {
+      "id": "views",
+      "name": "Views (creative \u00b7 timeline \u00b7 snapshots)",
+      "component": "desktop",
+      "kind": "spm",
+      "package": "DirectorsChairViews",
+      "gate": true
+    },
+    {
+      "id": "exports",
+      "name": "Exports (FDX \u00b7 Fountain \u00b7 PDF \u00b7 CSV)",
+      "component": "desktop",
+      "kind": "spm",
+      "package": "DirectorsChairExports",
+      "gate": true
+    },
+    {
+      "id": "app",
+      "name": "App target (unit \u00b7 adapters)",
+      "component": "desktop",
+      "kind": "xcodebuild",
+      "scheme": "DirectorsChair-Desktop",
+      "gate": true
+    },
+    {
+      "id": "ui-e2e",
+      "name": "UI end-to-end (XCUITest)",
+      "component": "desktop",
+      "kind": "xcodebuild-ui",
+      "scheme": "DirectorsChair-UITests",
+      "gate": true,
+      "notes": "End-to-end user workflows against the deterministic QA fixture. Made reliable via offline test mode (no auth gate, no network, no global key monitors, no splash). Two consecutive clean 11/11 runs."
+    }
+  ]
+}

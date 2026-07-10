@@ -190,6 +190,10 @@ public struct CinematographyView: View {
             shotList
         }
         .background(Color(hex: "#252525"))
+        // Expose the container to the UI-test driver (a SwiftUI container's
+        // identifier isn't queryable unless it's an accessibility element).
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("shot-list-sidebar")
     }
 
     // MARK: - Sidebar Header

@@ -113,6 +113,10 @@ struct ScreenplayTextView: NSViewRepresentable {
         scrollView.magnification = 1.0
 
         let textView = ScreenplayNSTextView()
+        // Expose to the UI-test driver: identifier + explicit AX element flag
+        // so the NSViewRepresentable-wrapped NSTextView is reliably queryable.
+        textView.setAccessibilityIdentifier("screenplay-editor")
+        textView.setAccessibilityElement(true)
         textView.isEditable = true
         textView.isSelectable = true
         textView.isRichText = true

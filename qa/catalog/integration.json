@@ -1,0 +1,17 @@
+{
+  "$schema": "../lib/catalog.schema.json",
+  "component": "integration",
+  "title": "DirectorsChair Desktop ↔ Server Integration — E2E Catalog (PLACEHOLDER)",
+  "description": "Reserved for desktop↔server integration once the server exists. Cross-component workflows: edit on desktop → sync → verify server state → pull on a second client. Same schema; wired later.",
+  "status": "planned",
+  "features": [
+    {
+      "id": "INT-ROUNDTRIP",
+      "name": "Edit-sync-verify round trip",
+      "cases": [
+        {"id": "E2E-INT-001", "title": "Desktop edit appears on server after sync", "priority": "P0", "automation": null, "status": "planned"},
+        {"id": "E2E-INT-002", "title": "Concurrent edits from two clients reconcile deterministically", "priority": "P1", "automation": null, "status": "planned"}
+      ]
+    }
+  ]
+}

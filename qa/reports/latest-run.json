@@ -1,0 +1,1256 @@
+{
+  "run_id": "2026-07-09_21-19-25",
+  "summary": {
+    "gate_pass": true,
+    "releasable": true,
+    "total_passed": 175,
+    "total_failed": 0,
+    "total_skipped": 0,
+    "suite_count": 1,
+    "gate_suite_count": 1,
+    "finding_count": 0
+  },
+  "suites": [
+    {
+      "id": "core",
+      "name": "Core (models \u00b7 persistence)",
+      "component": "desktop",
+      "gate": true,
+      "status": "pass",
+      "passed": 175,
+      "failed": 0,
+      "skipped": 0,
+      "executed": 175,
+      "build_failed": false,
+      "compile_errors": [],
+      "tests": [
+        {
+          "class": "DebouncedSaveManagerTests",
+          "method": "testNewerSnapshotQueuedDuringSaveIsNotLost",
+          "status": "passed",
+          "duration": 0.102,
+          "failures": []
+        },
+        {
+          "class": "DebouncedSaveManagerTests",
+          "method": "testSaveImmediatelyPersistsWhileSaveInFlight",
+          "status": "passed",
+          "duration": 0.132,
+          "failures": []
+        },
+        {
+          "class": "DebouncedSaveManagerTests",
+          "method": "testSuccessfulSaveClearsUnsavedFlag",
+          "status": "passed",
+          "duration": 0.002,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testActionBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testActionRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testBudgetCategoryRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCastMemberRoundTrip",
+          "status": "passed",
+          "duration": 0.005,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCharacterBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCharacterCostumeRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCharacterRoundTripBiographyAndRelationships",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCharacterRoundTripCoreFields",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCharacterSnakeCaseCodingKeys",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCharacterTraitsRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCostumeBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCostumeRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testCrewMemberRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testDialogueBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testDialogueRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testDialogueRoundTripNilOptionals",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testDialogueSnakeCaseCodingKeys",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testEffectDefBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testEffectDefRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testEmptyCollectionsSurviveRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testEquipmentAllocationModeRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testEquipmentAllocationRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testEquipmentItemRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testExpenseRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testFilmStyleRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testLightingBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testLightingRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testLocationBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testLocationRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testMultipleRoundTripsPreserveAllData",
+          "status": "passed",
+          "duration": 0.006,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testNarrationBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testNarrationRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testNoteBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testNoteRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testProjectBackwardCompatibilityMinimalJSON",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testProjectBudgetRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testProjectFullyPopulatedRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testProjectMinimalRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testProjectSnakeCaseCodingKeys",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testProjectUserManagerBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testProjectUserManagerRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testPropBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testPropContinuityStateRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testPropFabricationRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testPropRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testPurchaseOrderRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testReferenceMediaRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSceneBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSceneLocationImageRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSceneRoundTripFullyPopulated",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSceneSnakeCaseCodingKeys",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testScheduleItemRoundTrip",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSequenceBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSequenceRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testShotRoundTripFullyPopulated",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testShotSnakeCaseCodingKeys",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSoundNoteBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSoundNoteRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testSpecialCharactersInStringSurviveRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testTakeBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testTakeRatingRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testTakeRoundTripFullyPopulated",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testTakeSnakeCaseCodingKeys",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testTeamRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testUnicodeCharactersSurviveRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testVideoKeyframeRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testVisionCardBackwardCompatibility",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ModelRoundTripTests",
+          "method": "testVisionCardRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testJSONIsPrettyPrinted",
+          "status": "passed",
+          "duration": 0.002,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testJSONKeysUseSnakeCase",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testLoadInvalidJSON",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testLoadNonexistentFile",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testSaveAndLoadComplexProject",
+          "status": "passed",
+          "duration": 0.002,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testSaveAndLoadEmptyProject",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testSaveAndLoadProjectWithCharacters",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testValidateInvalidFile",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "PersistenceTests",
+          "method": "testValidateValidFile",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "RenameCascadeTests",
+          "method": "testCharacterRenameCascadesEverywhere",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "RenameCascadeTests",
+          "method": "testLocationRenameCascadesEverywhere",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "RenameCascadeTests",
+          "method": "testRenameNoOpsAreSafe",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "SchemaVersionTests",
+          "method": "testCurrentVersionRoundTripsThroughPersistence",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "SchemaVersionTests",
+          "method": "testEncodedJSONContainsSchemaVersionKey",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "SchemaVersionTests",
+          "method": "testLegacyFileWithoutVersionDecodesAsV1",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "SchemaVersionTests",
+          "method": "testLoadPopulatesBasePathFromFileLocation",
+          "status": "passed",
+          "duration": 0.001,
+          "failures": []
+        },
+        {
+          "class": "SchemaVersionTests",
+          "method": "testLoadRefusesNewerSchemaVersion",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "SchemaVersionTests",
+          "method": "testNewProjectCarriesCurrentSchemaVersion",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testAllNGSetsNotGood",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testCircledAmongMixedSetsApproved",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testCircledTakeOverridesEvenIfSomeNG",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testCircleHasHighestPriority",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testDeleteAllTakesNoChange",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testDeleteCircledTakeReverts",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testMixedAltAndUnratedSetsReview",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testMultipleCircledTakesSetsApproved",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testMultipleUnratedTakesSetsReview",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testNGAndAltDoesNotSetNotGood",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testNGAndUnratedDoesNotSetNotGood",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testNoTakesDoesNotChangeStatus",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testNoTakesPreservesShootingStatus",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testOneCircledTakeSetsApproved",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testOneTakeUnratedSetsReview",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testSingleNGSetsNotGood",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testTransitionFromApprovedBackToReview",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testTransitionFromNotGoodToApproved",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testTransitionFromNotGoodToReview",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testTransitionFromPlanningToReview",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "ShotAutoStatusTests",
+          "method": "testTransitionFromReviewToApproved",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testCostumeIdentity",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testEffectDefIdentity",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testLightingIdentity",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testLocationIdentity",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testProjectIdReturnsUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testProjectIdStableAcrossNameChange",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testProjectUUIDSurvivesRoundTripAndLegacyGetsFreshUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityExtendedTests",
+          "method": "testTwoProjectsWithSameNameHaveDifferentIds",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testDictionaryKeyedByShotIdNoDuplicateLoss",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testEmptySequenceDecodes",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testFindSceneContainingShotById",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testFindShotByIdAcrossScenes",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testForEachWouldNotDeduplicateScenes",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testForEachWouldNotDeduplicateShots",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testFullProjectDecodesWithUUIDs",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testFullProjectRoundTripPreservesAllUUIDs",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testManyDuplicateSceneNamesAllGetUniqueUUIDs",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testManyDuplicateShotIdsAllGetUniqueUUIDs",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testMultipleRoundTripsPreserveUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testNextShotDisplayNumberAfterDeletion",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testNextShotDisplayNumberEmptyProject",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testNextShotDisplayNumberMultipleScenes",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testNextShotDisplayNumberMultipleSequences",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testNextShotDisplayNumberNonContiguous",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testNextShotDisplayNumberSingleScene",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testNextShotDisplayNumberWithNoShots",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testOldShotJSONMigratedUUIDIsStableAfterReencode",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSaveAndReloadProjectPreservesUUIDs",
+          "status": "passed",
+          "duration": 0.004,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneDecodesWithoutUUIDField",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneDefaultUUIDIsValid",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneDictionaryKeyingNoCollision",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneExplicitUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneHashableUsesUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneIdReturnsUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneIdStableAcrossNameMutation",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneJSONContainsUUIDField",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSceneUUIDPersistsThroughEncodeDecode",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceDecodesWithoutUUIDField",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceDefaultUUIDIsValid",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceExplicitUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceHashableUsesUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceIdReturnsUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceIdStableAcrossNameMutation",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceJSONContainsUUIDField",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceUUIDPersistsThroughEncodeDecode",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSequenceWithNilDescription",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testSetOfShotIdsPreservesAllShots",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotAlternativeCodingKeysStillWork",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotDecodesWithoutUUIDField",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotDefaultUUIDIsValid",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotExplicitUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotHashableUsesUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotIdReturnsUUID",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotIdStableAcrossMutation",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotJSONContainsUUIDField",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotShotIdRemainsAccessible",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotUUIDPersistsThroughEncodeDecode",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testShotWithZeroShotId",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testTwoDecodesOfSameOldJSONGetDifferentUUIDs",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testTwoScenesWithSameNameHaveDifferentIds",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testTwoSequencesWithSameNameHaveDifferentIds",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "UUIDIdentityTests",
+          "method": "testTwoShotsWithSameShotIdHaveDifferentIds",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "WireContractTests",
+          "method": "testByteStableRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "WireContractTests",
+          "method": "testIdentityAndVersionSurviveRoundTrip",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        },
+        {
+          "class": "WireContractTests",
+          "method": "testWireFormatKeysAndIdentity",
+          "status": "passed",
+          "duration": 0.0,
+          "failures": []
+        }
+      ]
+    }
+  ],
+  "findings": []
+}

@@ -39,7 +39,9 @@ struct DirectorsChair_DesktopApp: App {
     init() {
         // UI testing / perf benchmark bypass: skip onboarding and auth gate
         if ProcessInfo.processInfo.arguments.contains("--uitesting") ||
-           ProcessInfo.processInfo.arguments.contains("--perf-scenario") {
+           ProcessInfo.processInfo.arguments.contains("--perf-scenario") ||
+           ProcessInfo.processInfo.arguments.contains("--qa-fixture") ||
+           ProcessInfo.processInfo.arguments.contains("--qa-fixture-keep") {
             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
         }
         _projectViewModel = StateObject(wrappedValue: ProjectViewModel())
@@ -64,12 +66,31 @@ struct DirectorsChair_DesktopApp: App {
                     appDelegate.onboardingState = onboardingState
                     appDelegate.authManager = authManager
 
+                    // UI-test mode skips the splash, so postLaunchSetup runs in
+                    // applicationDidFinishLaunching BEFORE these refs are set —
+                    // it early-returns there. Run it here now that the refs
+                    // exist (idempotent: normal launches ignore this branch).
+                    if TestMode.isUITesting {
+                        appDelegate.runPostLaunchSetupForTesting()
+                    }
+
                     // AppDelegate fires fresh every launch — check onboarding there
                     if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
                         onboardingState.showOnboarding = true
                     }
                 }
                 .task {
+                    // UI-test mode: launch fully offline and deterministically.
+                    // Restoring the session hits the network (dead server on a
+                    // machine with a cached token); its variable timing raced
+                    // with fixture setup and made the UI suite flaky. Mark the
+                    // session authenticated-offline so the LoginView gate
+                    // ("Continue Offline") never blocks the test flow.
+                    if TestMode.skipAuthAndNetwork {
+                        authManager.isAuthenticated = true
+                        return
+                    }
+
                     // Restore auth session from Keychain on launch
                     await authManager.restoreSession()
                     // Sync auth token to AI service client
@@ -157,6 +178,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var authManager: AuthManager?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // UI-test mode: don't hide the window or run the splash at all. Let
+        // SwiftUI's WindowGroup present the main window naturally (hiding it
+        // and re-showing after a manual delay is exactly what raced the test
+        // driver). Setup runs from ContentView.onAppear once the delegate
+        // refs are wired (see runPostLaunchSetupForTesting).
+        if TestMode.skipSplash {
+            return
+        }
+
         // Hide main window initially
         hideMainWindow()
 
@@ -202,10 +232,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// UI-test entry point: run postLaunchSetup exactly once, after the
+    /// delegate refs are wired from ContentView.onAppear (the splash path is
+    /// skipped in test mode, so the normal deferred call finds nil refs).
+    private var didRunTestSetup = false
+    func runPostLaunchSetupForTesting() {
+        guard !didRunTestSetup else { return }
+        didRunTestSetup = true
+        postLaunchSetup()
+    }
+
     private func postLaunchSetup() {
         guard let projectViewModel = projectViewModel,
               let coordinator = coordinator,
               let onboardingState = onboardingState else { return }
+
+        // QA fixture mode: regenerate + open the deterministic E2E fixture
+        // instead of restoring the last project (see qa/README.md).
+        if QAFixture.isRequested {
+            Task { @MainActor in
+                await QAFixture.prepareAndOpen(projectViewModel: projectViewModel,
+                                               coordinator: coordinator)
+            }
+            return
+        }
 
         // Performance benchmark mode: run the scenario instead of the normal
         // restore path, write a JSON report, terminate.
@@ -231,7 +281,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
 
                     // Show AI assistant on launch if preference is enabled
-                    if PreferencesManager.shared.showAssistantOnLaunch {
+                    // (never in UI-test mode — it steals focus from the tests).
+                    if PreferencesManager.shared.showAssistantOnLaunch && !TestMode.isUITesting {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             coordinator.showingAIChat = true
                         }

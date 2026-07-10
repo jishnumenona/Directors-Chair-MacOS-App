@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8">
+<title>QA Report — 2026-07-09_21-19-25</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2129;--line:#2d333b;--ink:#e6edf3;--ink2:#9da7b3;--ink3:#6e7681;--acc:#58a6ff;--ok:#3fb950;--warn:#d29922;--bad:#f85149;}
+@media(prefers-color-scheme:light){:root{--bg:#f6f8fa;--panel:#fff;--panel2:#eef1f4;--line:#d0d7de;--ink:#1f2328;--ink2:#57606a;--ink3:#8c959f;--acc:#0969da;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;}}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,"SF Pro Text",Segoe UI,sans-serif;max-width:1000px;margin:0 auto;padding:32px 20px 80px;}
+h1{font-size:1.5rem;margin:0 0 2px}.sub{color:var(--ink2);margin:0 0 18px}
+.verdict{display:flex;align-items:center;gap:16px;border-radius:12px;padding:18px 22px;margin-bottom:22px;border:1.5px solid}
+.verdict.ok{background:rgba(63,185,80,.08);border-color:var(--ok)}.verdict.bad{background:rgba(248,81,73,.07);border-color:var(--bad)}
+.verdict .big{font-size:1.5rem;font-weight:800;letter-spacing:.02em}.verdict.ok .big{color:var(--ok)}.verdict.bad .big{color:var(--bad)}
+.stats{display:flex;gap:26px;margin-left:auto;text-align:right}.stats div b{display:block;font-size:1.35rem;font-variant-numeric:tabular-nums}.stats div span{font-size:.72rem;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em}
+.seclabel{font-size:.73rem;letter-spacing:.12em;color:var(--ink3);text-transform:uppercase;margin:30px 0 10px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}.tw{overflow-x:auto}
+th{text-align:left;color:var(--ink3);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}.num{text-align:right;font-variant-numeric:tabular-nums}.dim{color:var(--ink3)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:0}.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}.dot.warn{background:var(--warn)}
+.tag{font-size:.68rem;padding:1px 7px;border-radius:7px;border:1px solid var(--line);color:var(--ink3)}.tag.gate{border-color:var(--acc);color:var(--acc)}
+.bar{height:7px;background:var(--panel2);border-radius:4px;overflow:hidden;min-width:90px}.fill{height:100%;background:var(--acc)}.barcell{width:120px}
+.bug{border:1px solid var(--line);border-left-width:3px;border-radius:9px;padding:12px 14px;margin-bottom:10px;background:var(--panel)}
+.bug.bad{border-left-color:var(--bad)}.bug.warn{border-left-color:var(--warn)}.bug.ok{border-left-color:var(--ok)}.bug.acc{border-left-color:var(--acc)}.bug.dim{border-left-color:var(--ink3)}
+.bughdr{display:flex;align-items:center;gap:10px;font-size:.8rem;margin-bottom:4px}.bugid{font:12px ui-monospace,Menlo,monospace;color:var(--ink2)}
+.bugtitle{font-weight:600;margin-bottom:6px}.loc{font:11px ui-monospace,Menlo,monospace;color:var(--ink3);margin-bottom:6px}
+.pill{font-size:.68rem;padding:1px 8px;border-radius:8px;font-weight:600}.pill.bad{background:rgba(248,81,73,.15);color:var(--bad)}.pill.warn{background:rgba(210,153,34,.15);color:var(--warn)}.pill.ok{background:rgba(63,185,80,.15);color:var(--ok)}.pill.acc{background:rgba(88,166,255,.13);color:var(--acc)}.pill.dim{background:var(--panel2);color:var(--ink3)}
+.blk{font-size:.86rem;margin-top:6px;padding:8px 10px;background:var(--panel2);border-radius:6px}.blk.fix{border-left:2px solid var(--ok)}
+.empty{color:var(--ink3);padding:14px;text-align:center;border:1px dashed var(--line);border-radius:9px}
+.cov{display:flex;align-items:baseline;gap:10px}.cov .pct{font-size:1.1rem;font-weight:700;color:var(--acc)}
+.foot{margin-top:34px;color:var(--ink3);font-size:.8rem;border-top:1px solid var(--line);padding-top:12px}
+</style>
+<h1>🧪 QA Report</h1>
+<p class="sub">DirectorsChair Desktop · run <b>2026-07-09_21-19-25</b></p>
+
+<div class="verdict ok">
+  <div><div class="big">RELEASABLE</div><div class="dim">All gate suites passed</div></div>
+  <div class="stats">
+    <div><b>175</b><span>passed</span></div>
+    <div><b>0</b><span>failed</span></div>
+    <div><b>0</b><span>skipped</span></div>
+    <div><b>0</b><span>open bugs</span></div>
+  </div>
+</div>
+
+<div class="seclabel">Suites</div>
+<div class="tw"><table>
+<thead><tr><th>Suite</th><th>Component</th><th>Type</th><th>Pass</th><th>Fail</th><th>Total</th></tr></thead>
+<tbody><tr>
+          <td><span class="dot ok"></span>Core (models · persistence)</td>
+          <td class="dim">desktop</td>
+          <td><span class="tag gate">gate</span></td>
+          <td class="num">175</td>
+          <td class="num">0</td>
+          <td class="num dim">175</td>
+        </tr></tbody></table></div>
+
+<div class="seclabel">Catalog coverage <span class="dim">— automated E2E cases per feature</span></div>
+<div class="cov"><span class="pct">35%</span><span class="dim">13 of 37 catalogued cases have wired automation (the rest are the documented manual/roadmap backlog).</span></div>
+<div class="tw"><table>
+<thead><tr><th>Component</th><th>Feature</th><th>Automated</th><th></th></tr></thead>
+<tbody><tr><td>desktop</td><td>Application shell &amp; lifecycle</td><td class='num'>2/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:67%'></div></div></td></tr>
+<tr><td>desktop</td><td>Project lifecycle &amp; persistence</td><td class='num'>2/4</td><td class='barcell'><div class='bar'><div class='fill' style='width:50%'></div></div></td></tr>
+<tr><td>desktop</td><td>Screenplay editor (Final Draft parity)</td><td class='num'>5/8</td><td class='barcell'><div class='bar'><div class='fill' style='width:62%'></div></div></td></tr>
+<tr><td>desktop</td><td>Navigator panel</td><td class='num'>2/4</td><td class='barcell'><div class='bar'><div class='fill' style='width:50%'></div></div></td></tr>
+<tr><td>desktop</td><td>Bubble view</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
+<tr><td>desktop</td><td>Story Design (characters, locations, cues)</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
+<tr><td>desktop</td><td>Production (shots, schedule, budget, cast/crew)</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
+<tr><td>desktop</td><td>Timeline</td><td class='num'>0/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
+<tr><td>desktop</td><td>Exports</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
+<tr><td>desktop</td><td>Performance &amp; responsiveness (benchmark gates)</td><td class='num'>2/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Accessibility</td><td class='num'>0/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr></tbody></table></div>
+
+<div class="seclabel">Open bugs <span class="dim">— identified → diagnosed → fixed → verified</span></div>
+<div class='empty'>No open bugs. 🎉</div>
+
+<div class="seclabel">Resolved &amp; flagged</div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-4E1C880C</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · core</span></div>
+          <div class="bugtitle">QALoopDemoTests/testIntentionalFailureForDemo: XCTAssertEqual failed: (&quot;4&quot;) is not equal to (&quot;5&quot;) - Deliberate demo failure</div>
+          <div class='loc'>QALoopDemoTests.swift:8</div><div class='blk'><b>Diagnosis.</b> Demo test asserted 2+2==5. Root cause: intentional demonstration defect, not a product bug.</div><div class='blk fix'><b>Fix.</b> Removed the demo test (QALoopDemoTests). In a real defect this field records the code change and the verify.sh result.</div>
+        </div>
+
+<div class="foot">
+Generated by <code>qa/run-qa.sh</code> → <code>qa/lib/generate_report.py</code>.
+Machine-readable source of this report: <code>run.json</code>. Bug lifecycle ledger: <code>qa/bugs/bugs.json</code>.
+A Claude Code instance consumes those two files to triage, fix code defects, and re-verify (protocol: <code>qa/CLAUDE-QA.md</code>).
+</div>
