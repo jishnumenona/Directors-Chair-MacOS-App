@@ -65,6 +65,7 @@ extension BubbleView {
                                 reorderDropZone(insertBefore: item.chronologyNumber)
                                 itemView(for: item, in: scene)
                                     .id(item.id)  // ID for ScrollViewReader
+                                    .accessibilityIdentifier("bubble-item-\(item.id)")
                                     .padding(.vertical, 4)
                             }
                             // Trailing zone: drop here to move an item to the end

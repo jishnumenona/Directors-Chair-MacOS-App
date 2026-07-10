@@ -194,6 +194,7 @@ private struct CharacterListRow: View {
             }
         }
         .padding(.vertical, 4)
+        .accessibilityIdentifier("character-row-\(character.name)")
     }
 }
 
