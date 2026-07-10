@@ -82,7 +82,11 @@ extension BubbleView {
                                 .frame(height: 80)
                                 .id("bottomSpacer")
                         }
-                        .id(sortRefreshTrigger) // Force re-render when chronology changes
+                        // Perf Tier 2 (audit C4/M1): no .id(sortRefreshTrigger)
+                        // teardown here. The ForEach already diffs by stable
+                        // item.id, and sortRefreshTrigger's onChange rebuilds
+                        // cachedChronologicalItems — so reorders re-diff the
+                        // rows in place instead of discarding the whole list.
                         .padding()
                     }
                     .background(backgroundView)
