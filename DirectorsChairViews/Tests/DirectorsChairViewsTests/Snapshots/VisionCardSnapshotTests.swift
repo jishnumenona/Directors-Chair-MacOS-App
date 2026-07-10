@@ -7,7 +7,7 @@ import SnapshotTesting
 @testable import DirectorsChairCore
 
 @available(macOS 14.0, *)
-final class VisionCardSnapshotTests: XCTestCase {
+final class VisionCardSnapshotTests: LocalOnlySnapshotTestCase {
 
     func testTextCard() {
         let card = TestFixtures.textVisionCard()

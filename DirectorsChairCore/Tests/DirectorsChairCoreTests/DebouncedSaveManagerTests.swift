@@ -48,6 +48,21 @@ final class DebouncedSaveManagerTests: XCTestCase {
             .appendingPathComponent("dcm-\(UUID().uuidString).json")
     }
 
+    /// Poll until `condition` holds. Fixed sleeps flaked on loaded CI
+    /// runners (debounce timers fire late under contention); a generous
+    /// deadline with tight polling is deterministic on any machine while
+    /// staying fast on a quiet one.
+    @discardableResult
+    private func waitUntil(timeout: TimeInterval = 5,
+                           _ condition: () async -> Bool) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await condition() { return true }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return false
+    }
+
     // (2) The newest snapshot must reach disk even if it is queued while an
     //     older snapshot is mid-write. Previously the post-await `pendingSave = nil`
     //     discarded it and cleared hasUnsavedChanges.
@@ -60,19 +75,20 @@ final class DebouncedSaveManagerTests: XCTestCase {
         manager.requestSave(project: Project(name: "v1"), to: url)
 
         // Wait until the first save is actually in flight (gate suspended it).
-        try await Task.sleep(nanoseconds: 120_000_000)
-        XCTAssertTrue(manager.isSaving, "First save should be in flight")
+        let inFlight = try await waitUntil { manager.isSaving }
+        XCTAssertTrue(inFlight, "First save should be in flight")
 
         // Queue a newer snapshot while v1 is blocked mid-write.
         manager.requestSave(project: Project(name: "v2"), to: url)
 
         await spy.releaseGate()                              // let v1 finish
-        // Give the drain loop time to pick up v2.
-        try await Task.sleep(nanoseconds: 250_000_000)
-
+        // Wait for the drain loop to flush v2.
+        let drained = try await waitUntil {
+            await spy.savedNames == ["v1", "v2"] && !manager.hasUnsavedChanges
+        }
         let names = await spy.savedNames
         XCTAssertEqual(names, ["v1", "v2"], "Both snapshots must be written, newest last")
-        XCTAssertFalse(manager.hasUnsavedChanges, "No unsaved changes once v2 is flushed")
+        XCTAssertTrue(drained, "No unsaved changes once v2 is flushed")
     }
 
     // (1) saveImmediately must actually persist even when it coincides with an
@@ -84,8 +100,8 @@ final class DebouncedSaveManagerTests: XCTestCase {
 
         await spy.armGate()
         manager.requestSave(project: Project(name: "a"), to: url)
-        try await Task.sleep(nanoseconds: 120_000_000)
-        XCTAssertTrue(manager.isSaving)
+        let inFlight = try await waitUntil { manager.isSaving }
+        XCTAssertTrue(inFlight, "Debounced save should be in flight")
 
         // Kick off an immediate save of a newer snapshot; it should await the
         // in-flight save rather than silently returning.

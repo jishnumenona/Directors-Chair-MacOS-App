@@ -7,7 +7,7 @@ import SnapshotTesting
 @testable import DirectorsChairCore
 
 @available(macOS 14.0, *)
-final class BubbleCardSnapshotTests: XCTestCase {
+final class BubbleCardSnapshotTests: LocalOnlySnapshotTestCase {
 
     // MARK: - DialogueBubbleCard
 

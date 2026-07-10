@@ -7,7 +7,7 @@ import SnapshotTesting
 @testable import DirectorsChairCore
 
 @available(macOS 14.0, *)
-final class StoryDesignSnapshotTests: XCTestCase {
+final class StoryDesignSnapshotTests: LocalOnlySnapshotTestCase {
 
     func testModePickerCharacters() {
         // Test mode picker in isolation via the StoryDesignMode enum display

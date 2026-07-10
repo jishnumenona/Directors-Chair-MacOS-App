@@ -7,7 +7,7 @@ import SnapshotTesting
 @testable import DirectorsChairCore
 
 @available(macOS 14.0, *)
-final class VisionBoardFilterSnapshotTests: XCTestCase {
+final class VisionBoardFilterSnapshotTests: LocalOnlySnapshotTestCase {
 
     func testTypeChips() {
         let types = VisionCardType.allCases

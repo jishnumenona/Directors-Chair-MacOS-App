@@ -6,7 +6,7 @@ import SnapshotTesting
 @testable import DirectorsChairViews
 
 @available(macOS 14.0, *)
-final class AIGenerateButtonSnapshotTests: XCTestCase {
+final class AIGenerateButtonSnapshotTests: LocalOnlySnapshotTestCase {
 
     func testIdle() {
         let view = AIGenerateButton(
