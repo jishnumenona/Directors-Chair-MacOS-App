@@ -607,13 +607,19 @@ public struct VisionCardItem: View {
             return
         }
 
-        // Load image asynchronously
-        DispatchQueue.global(qos: .userInitiated).async {
-            if let image = NSImage(contentsOfFile: imagePath) {
-                DispatchQueue.main.async {
-                    self.loadedImage = image
-                }
-            }
+        // Perf Tier 3 (audit C3): downsample to ~2.5× the card's point size
+        // instead of holding each mood-board card's full-resolution source in
+        // memory (many high-res references × per-card full bitmaps was the
+        // resident-memory + GPU-rescale-on-zoom cost).
+        let url = URL(fileURLWithPath: imagePath)
+        let maxPixel = Int(max(cardWidth, cardHeight) * 2.5)
+        if let cached = ThumbnailImageCache.shared.cached(url, maxPixel: maxPixel) {
+            loadedImage = cached
+            return
+        }
+        Task {
+            let image = await ThumbnailImageCache.shared.thumbnail(url, maxPixel: maxPixel)
+            await MainActor.run { self.loadedImage = image }
         }
     }
 
