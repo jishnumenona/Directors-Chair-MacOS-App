@@ -68,6 +68,7 @@ struct ShotListRow: View {
         .padding(.horizontal, 12)
         .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         .cornerRadius(8)
+        .accessibilityIdentifier("shotlist-row-\(shot.shotId)")
         .contextMenu {
             Button {
                 onEdit?()

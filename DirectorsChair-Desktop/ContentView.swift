@@ -162,8 +162,14 @@ struct ContentView: View {
                 .zIndex(150)
             }
 
-            // Login gate — shown when not authenticated (hidden during onboarding)
-            if !authManager.isAuthenticated && !authManager.isLoading && !onboardingState.showOnboarding {
+            // Login gate — shown when not authenticated (hidden during onboarding).
+            // NEVER shown in UI-test mode: even though the session is marked
+            // authenticated-offline in .task, that runs after the first render,
+            // so the gate flashed briefly and a test click could land on its
+            // "Sign In" button and launch the OAuth browser flow. Gating here
+            // guarantees it never appears during automation.
+            if !authManager.isAuthenticated && !authManager.isLoading
+                && !onboardingState.showOnboarding && !TestMode.isUITesting {
                 LoginView()
                     .transition(.opacity)
                     .zIndex(200)
@@ -229,6 +235,11 @@ struct ContentView: View {
                   dismissButton: .default(Text("OK")))
         }
         .onAppear {
+            // UI-test mode: don't install global key monitors. The
+            // double-shift monitor watches Shift-key events, so typing
+            // capitals (which the editor tests do constantly) triggered the
+            // AI-assistant hotkey mid-typing and interrupted the test flow.
+            guard !TestMode.skipGlobalKeyMonitors else { return }
             DoubleShiftMonitor.shared.onDoubleShift = {
                 coordinator.toggleAIChat()
             }

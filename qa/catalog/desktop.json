@@ -1,0 +1,478 @@
+{
+  "$schema": "../lib/catalog.schema.json",
+  "component": "desktop",
+  "title": "DirectorsChair Desktop \u2014 E2E Test Catalog",
+  "description": "Every user-facing feature as end-to-end workflows. `automation` links each case to its executing test; `manual` cases are owner-run until automated. This catalog is the single source of truth the orchestrator reports coverage against.",
+  "features": [
+    {
+      "id": "APP",
+      "name": "Application shell & lifecycle",
+      "cases": [
+        {
+          "id": "E2E-APP-001",
+          "title": "App launches to a usable window with a project open",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testLaunchReachesFixtureProject",
+          "steps": [
+            "Launch app with QA fixture",
+            "Wait for main window",
+            "Wait for nav rail"
+          ],
+          "expected": "Main window and navigation rail appear; a project is open."
+        },
+        {
+          "id": "E2E-APP-002",
+          "title": "Every primary view opens without crash or hang",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testAllPrimaryViewsOpen",
+          "steps": [
+            "Navigate to each primary view in turn"
+          ],
+          "expected": "Window survives every navigation; no crash."
+        },
+        {
+          "id": "E2E-APP-003",
+          "title": "Onboarding shown once, skipped thereafter",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Fresh install launch",
+            "Complete onboarding",
+            "Relaunch"
+          ],
+          "expected": "Onboarding appears only on first launch."
+        }
+      ]
+    },
+    {
+      "id": "PROJ",
+      "name": "Project lifecycle & persistence",
+      "cases": [
+        {
+          "id": "E2E-PROJ-001",
+          "title": "Create a new project via the UI",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testCreateNewProject",
+          "steps": [
+            "Open Projects",
+            "New Project",
+            "Enter name",
+            "Create"
+          ],
+          "expected": "New project is created and becomes the open project."
+        },
+        {
+          "id": "E2E-PROJ-002",
+          "title": "Edits persist across app relaunch",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testEditPersistsAcrossRelaunch",
+          "steps": [
+            "Edit script",
+            "Wait for autosave",
+            "Relaunch",
+            "Reopen script"
+          ],
+          "expected": "The edit is present after relaunch."
+        },
+        {
+          "id": "E2E-PROJ-003",
+          "title": "Delete a project moves it to Trash",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Projects list context menu",
+            "Delete",
+            "Confirm"
+          ],
+          "expected": "Project removed from list and moved to Finder Trash."
+        },
+        {
+          "id": "E2E-PROJ-004",
+          "title": "Switching accounts scopes projects per user",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Note projects for user A",
+            "Switch user",
+            "Compare"
+          ],
+          "expected": "Each user sees only their own projects; open project not wiped on transient token refresh."
+        }
+      ]
+    },
+    {
+      "id": "EDIT",
+      "name": "Screenplay editor (Final Draft parity)",
+      "cases": [
+        {
+          "id": "E2E-EDIT-001",
+          "title": "Fixture script renders in the editor",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testEditorShowsFixtureScript",
+          "steps": [
+            "Open Script",
+            "Read editor text"
+          ],
+          "expected": "Scene headings and content render."
+        },
+        {
+          "id": "E2E-EDIT-002",
+          "title": "Typing appends text verbatim (no jumbling)",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testTypingInEditor",
+          "steps": [
+            "Place cursor at end",
+            "Type a marker string"
+          ],
+          "expected": "Marker appears exactly as typed."
+        },
+        {
+          "id": "E2E-EDIT-003",
+          "title": "Return creates a new element and grows the document",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testReturnCreatesNewElement",
+          "steps": [
+            "Cursor at end",
+            "Return",
+            "Type"
+          ],
+          "expected": "Document grows; text lands on a new line."
+        },
+        {
+          "id": "E2E-EDIT-004",
+          "title": "New Scene wizard assembles heading from typed location + time",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow",
+          "steps": [
+            "Cmd+Shift+N",
+            "Type location",
+            "Return",
+            "Type time",
+            "Return"
+          ],
+          "expected": "'INT. <LOCATION> - <TIME>' heading appears."
+        },
+        {
+          "id": "E2E-EDIT-005",
+          "title": "Undo reverses the last structural edit",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testUndoReversesEdit",
+          "steps": [
+            "Make an edit",
+            "Cmd+Z"
+          ],
+          "expected": "Edit removed."
+        },
+        {
+          "id": "E2E-EDIT-006",
+          "title": "Sigil autocomplete (@ % $ # ~ ^ /) opens the right list and inserts",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Type each sigil",
+            "Accept a suggestion"
+          ],
+          "expected": "Correct list opens; accept replaces the typed filter, not duplicates."
+        },
+        {
+          "id": "E2E-EDIT-007",
+          "title": "Tab element flow follows Final Draft table",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Tab on empty and non-empty elements"
+          ],
+          "expected": "Empty converts in place; non-empty creates next element."
+        },
+        {
+          "id": "E2E-EDIT-008",
+          "title": "Find & Replace (Cmd+F / Opt+Cmd+F)",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Cmd+F",
+            "Search",
+            "Replace"
+          ],
+          "expected": "Matches highlighted; replace works."
+        }
+      ]
+    },
+    {
+      "id": "NAV",
+      "name": "Navigator panel",
+      "cases": [
+        {
+          "id": "E2E-NAV-001",
+          "title": "Clicking anywhere on a scene row selects it",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testSceneRowSelection",
+          "steps": [
+            "Click a scene row (any region)"
+          ],
+          "expected": "Scene selected; window survives."
+        },
+        {
+          "id": "E2E-NAV-002",
+          "title": "Rapid navigation clicks all land",
+          "priority": "P0",
+          "automation": "DirectorsChair_DesktopUITests/testRapidNavigationClicksLand",
+          "steps": [
+            "Click several nav buttons quickly"
+          ],
+          "expected": "Every click lands (no debounce drop)."
+        },
+        {
+          "id": "E2E-NAV-003",
+          "title": "Expand/collapse sequences and scenes",
+          "priority": "P1",
+          "automation": "DirectorsChair_DesktopUITests/testOutlineExpandCollapse",
+          "steps": [
+            "Toggle sequence and scene disclosure"
+          ],
+          "expected": "Children show/hide; state persists across events."
+        },
+        {
+          "id": "E2E-NAV-004",
+          "title": "Outline stays live during editing (no teardown of inline fields)",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Start inline rename",
+            "Trigger a project event"
+          ],
+          "expected": "Inline field survives; rows update in place."
+        }
+      ]
+    },
+    {
+      "id": "BUBBLE",
+      "name": "Bubble view",
+      "cases": [
+        {
+          "id": "E2E-BUBBLE-001",
+          "title": "Bubbles render for the selected scene",
+          "priority": "P1",
+          "automation": "DirectorsChair_DesktopUITests/testBubbleViewRendersSceneItems",
+          "steps": [
+            "Open Bubble",
+            "Select scene"
+          ],
+          "expected": "Dialogue/action/narration bubbles appear."
+        },
+        {
+          "id": "E2E-BUBBLE-002",
+          "title": "Drag-reorder changes chronology",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Drag a bubble to a new position"
+          ],
+          "expected": "Order and chronology numbers update and persist."
+        },
+        {
+          "id": "E2E-BUBBLE-003",
+          "title": "Drag-out disconnects a connected bubble",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Drag a sub-bubble away from its parent"
+          ],
+          "expected": "Connection removed."
+        }
+      ]
+    },
+    {
+      "id": "STORY",
+      "name": "Story Design (characters, locations, cues)",
+      "cases": [
+        {
+          "id": "E2E-STORY-001",
+          "title": "Character list displays and detail opens",
+          "priority": "P1",
+          "automation": "DirectorsChair_DesktopUITests/testStoryDesignCharacterListAndDetail",
+          "steps": [
+            "Open Story Design",
+            "Select a character"
+          ],
+          "expected": "Detail loads without crash."
+        },
+        {
+          "id": "E2E-STORY-002",
+          "title": "Rename a character cascades everywhere",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Rename via pencil",
+            "Check dialogues/timeline"
+          ],
+          "expected": "New name propagates across the project."
+        },
+        {
+          "id": "E2E-STORY-003",
+          "title": "Add a lighting / SFX cue",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Open cue editor",
+            "Add cue"
+          ],
+          "expected": "Cue appears on the timeline lane."
+        }
+      ]
+    },
+    {
+      "id": "PROD",
+      "name": "Production (shots, schedule, budget, cast/crew)",
+      "cases": [
+        {
+          "id": "E2E-PROD-001",
+          "title": "Shot list displays and shot detail opens",
+          "priority": "P1",
+          "automation": "DirectorsChair_DesktopUITests/testShotListViewOpens",
+          "steps": [
+            "Open Shot List",
+            "Select a shot"
+          ],
+          "expected": "Detail loads; edits are responsive."
+        },
+        {
+          "id": "E2E-PROD-002",
+          "title": "Budget rename does not orphan line items",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Rename a budget category"
+          ],
+          "expected": "Line items follow the rename."
+        },
+        {
+          "id": "E2E-PROD-003",
+          "title": "Gantt reflects schedule changes",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Change a schedule item",
+            "Check Gantt"
+          ],
+          "expected": "Gantt stays in sync."
+        }
+      ]
+    },
+    {
+      "id": "TIMELINE",
+      "name": "Timeline",
+      "cases": [
+        {
+          "id": "E2E-TIMELINE-001",
+          "title": "Timeline renders segments for the project",
+          "priority": "P1",
+          "automation": "DirectorsChair_DesktopUITests/testTimelineRenders",
+          "steps": [
+            "Open a view with the timeline"
+          ],
+          "expected": "Character lanes and segments render."
+        },
+        {
+          "id": "E2E-TIMELINE-002",
+          "title": "Playhead seek from a scene context menu",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Scene row \u2192 Move Playhead Here"
+          ],
+          "expected": "Playhead moves to the scene boundary."
+        }
+      ]
+    },
+    {
+      "id": "EXPORT",
+      "name": "Exports",
+      "cases": [
+        {
+          "id": "E2E-EXPORT-001",
+          "title": "Export to PDF produces selectable, vector text",
+          "priority": "P1",
+          "automation": null,
+          "steps": [
+            "Export \u2192 PDF",
+            "Open, select text"
+          ],
+          "expected": "Text is selectable and searchable."
+        },
+        {
+          "id": "E2E-EXPORT-002",
+          "title": "Export to Final Draft (FDX) / Fountain",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Export each format"
+          ],
+          "expected": "Valid file with correct INT/EXT + time headings."
+        },
+        {
+          "id": "E2E-EXPORT-003",
+          "title": "CSV export guards against formula injection",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Export a CSV with a cell beginning '='"
+          ],
+          "expected": "Leading formula characters are neutralized."
+        }
+      ]
+    },
+    {
+      "id": "PERF",
+      "name": "Performance & responsiveness (benchmark gates)",
+      "cases": [
+        {
+          "id": "E2E-PERF-001",
+          "title": "Editor structural keystroke stays under budget on a large script",
+          "priority": "P1",
+          "automation": "PerformanceBaselineTests/testPerf_ReturnKeyBurst",
+          "steps": [
+            "Run Return-key burst on the stress project"
+          ],
+          "expected": "Well under the pre-Tier-1 529ms/20 baseline (target < 60ms/20)."
+        },
+        {
+          "id": "E2E-PERF-002",
+          "title": "Project\u2192script conversion stays fast",
+          "priority": "P2",
+          "automation": "PerformanceBaselineTests/testPerf_ConvertProjectToScript",
+          "steps": [
+            "Convert the stress project"
+          ],
+          "expected": "Under ~15ms."
+        }
+      ]
+    },
+    {
+      "id": "A11Y",
+      "name": "Accessibility",
+      "cases": [
+        {
+          "id": "E2E-A11Y-001",
+          "title": "Primary controls expose accessibility identifiers",
+          "priority": "P2",
+          "automation": null,
+          "steps": [
+            "Inspect nav rail, editor, rows"
+          ],
+          "expected": "Stable identifiers present (nav-*, screenplay-editor, scene-row-*, shot-row-*)."
+        },
+        {
+          "id": "E2E-A11Y-002",
+          "title": "VoiceOver can traverse the timeline and toolbar",
+          "priority": "P3",
+          "automation": null,
+          "steps": [
+            "VoiceOver over timeline + toolbar"
+          ],
+          "expected": "Elements announced meaningfully."
+        }
+      ]
+    }
+  ]
+}
