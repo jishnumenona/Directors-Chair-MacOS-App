@@ -113,6 +113,7 @@ struct ScreenplayTextView: NSViewRepresentable {
         scrollView.magnification = 1.0
 
         let textView = ScreenplayNSTextView()
+        textView.setAccessibilityIdentifier("screenplay-editor")
         textView.isEditable = true
         textView.isSelectable = true
         textView.isRichText = true
