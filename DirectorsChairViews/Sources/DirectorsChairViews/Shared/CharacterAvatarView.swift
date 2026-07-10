@@ -5,15 +5,9 @@
 import SwiftUI
 import DirectorsChairCore
 
-/// Shared cache for character avatar images to avoid redundant disk reads
-final class AvatarImageCache {
-    static let shared = AvatarImageCache()
-    private let cache = NSCache<NSString, NSImage>()
-    private init() { cache.countLimit = 50 }
-
-    func image(forKey key: String) -> NSImage? { cache.object(forKey: key as NSString) }
-    func setImage(_ image: NSImage, forKey key: String) { cache.setObject(image, forKey: key as NSString) }
-}
+// Avatar images now use the shared, downsampling ThumbnailImageCache in
+// DirectorsChairCore (perf Tier 3) — the old full-resolution AvatarImageCache
+// was removed.
 
 /// Displays a character's avatar as a circular image or initials fallback
 public struct CharacterAvatarView: View {
@@ -106,21 +100,17 @@ public struct CharacterAvatarView: View {
         }
 
         let fullPath = basePath.appendingPathComponent(path)
-        let cacheKey = fullPath.path
 
-        // Check shared cache first (instant)
-        if let cached = AvatarImageCache.shared.image(forKey: cacheKey) {
+        // Perf Tier 3 (audit C5/L1): the shared downsampling cache decodes a
+        // thumbnail at ~3× the avatar's point size instead of holding the
+        // full-resolution source (was full-res in memory, drawn at 40–60pt).
+        let maxPixel = Int(size * 3)
+        if let cached = ThumbnailImageCache.shared.cached(fullPath, maxPixel: maxPixel) {
             avatarImage = cached
             return
         }
-
-        // Load from disk asynchronously
-        Task.detached(priority: .utility) {
-            guard let image = NSImage(contentsOf: fullPath) else {
-                await MainActor.run { avatarImage = nil }
-                return
-            }
-            AvatarImageCache.shared.setImage(image, forKey: cacheKey)
+        Task {
+            let image = await ThumbnailImageCache.shared.thumbnail(fullPath, maxPixel: maxPixel)
             await MainActor.run { avatarImage = image }
         }
     }
