@@ -7,7 +7,7 @@ import SnapshotTesting
 @testable import DirectorsChairCore
 
 @available(macOS 14.0, *)
-final class SceneConnectionCardSnapshotTests: XCTestCase {
+final class SceneConnectionCardSnapshotTests: LocalOnlySnapshotTestCase {
 
     // MARK: - ScriptItemCard
 

@@ -7,7 +7,7 @@ import SnapshotTesting
 @testable import DirectorsChairCore
 
 @available(macOS 14.0, *)
-final class CharacterAvatarViewSnapshotTests: XCTestCase {
+final class CharacterAvatarViewSnapshotTests: LocalOnlySnapshotTestCase {
 
     func testFullNameInitials() {
         let view = CharacterAvatarView(

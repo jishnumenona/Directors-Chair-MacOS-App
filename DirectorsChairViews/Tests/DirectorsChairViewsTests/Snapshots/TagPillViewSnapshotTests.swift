@@ -6,7 +6,7 @@ import SnapshotTesting
 @testable import DirectorsChairViews
 
 @available(macOS 14.0, *)
-final class TagPillViewSnapshotTests: XCTestCase {
+final class TagPillViewSnapshotTests: LocalOnlySnapshotTestCase {
 
     override func setUp() {
         super.setUp()

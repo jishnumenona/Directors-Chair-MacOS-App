@@ -6,6 +6,23 @@ import SwiftUI
 import AppKit
 import SnapshotTesting
 
+/// Base class for all pixel-snapshot suites.
+///
+/// References are recorded on the developer machine. GitHub's macOS runner
+/// images differ in text/control rendering — and differ BETWEEN runner
+/// pools (the first two cloud runs failed different suites on different
+/// runners) — so pixel comparisons can never be stable in CI without
+/// runner-recorded references. Policy: snapshots verify locally on every
+/// test run; under CI they skip (visibly, as skips — never silent passes)
+/// and the logic/unit suites gate the pipeline.
+class LocalOnlySnapshotTestCase: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try XCTSkipIf(ProcessInfo.processInfo.environment["CI"] != nil,
+                      "Pixel snapshots are machine-dependent; verified locally")
+    }
+}
+
 extension XCTestCase {
 
     /// Asserts a snapshot of the given SwiftUI view rendered in an NSHostingView.
