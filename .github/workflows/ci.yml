@@ -71,3 +71,36 @@ jobs:
           name: app-test-results
           path: TestResults.xcresult
           retention-days: 7
+
+  ui-e2e:
+    name: UI end-to-end (XCUITest)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app || true
+      - name: Install xcbeautify
+        run: brew install xcbeautify
+      - name: Run P0+P1 UI end-to-end suite
+        # Drives real user workflows (editor typing / Final Draft flow /
+        # new-scene wizard / undo, navigation, story design, timeline,
+        # project lifecycle, persistence) against the deterministic QA
+        # fixture. The offline TestMode (no auth gate, no network, no global
+        # key monitors, no splash) makes launch deterministic on a headless
+        # runner. Excludes the auto-generated launch-screenshot tests.
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme DirectorsChair-UITests \
+            -destination 'platform=macOS' \
+            -only-testing:DirectorsChair-DesktopUITests/DirectorsChair_DesktopUITests \
+            -resultBundlePath UITestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+      - name: Upload UI test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-e2e-results
+          path: UITestResults.xcresult
+          retention-days: 7
