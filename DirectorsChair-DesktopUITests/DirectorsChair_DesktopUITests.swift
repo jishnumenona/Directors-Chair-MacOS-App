@@ -143,11 +143,10 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
         launchToFixture()
         openScriptEditor()
 
-        let anyRow = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'scene-row-'")).firstMatch
-        XCTAssertTrue(anyRow.waitForExistence(timeout: 10),
-                      "Navigator should list fixture scene rows")
-        anyRow.click()
+        guard let row = firstHittable(prefix: "scene-row-") else {
+            return XCTFail("Navigator should list a clickable scene row")
+        }
+        forceClick(row)
         XCTAssertGreaterThan(app.windows.count, 0)
     }
 
@@ -254,6 +253,26 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
     }
 
+    /// The first HITTABLE element whose identifier starts with `prefix`.
+    /// A SwiftUI `.accessibilityIdentifier` propagates to child elements, so a
+    /// query can match a clipped/off-screen sub-element (e.g. a row's chevron
+    /// at a negative x); `.firstMatch` might return that one. Pick the first
+    /// on-screen, clickable match instead — its window layout can differ
+    /// between the local machine and a CI runner.
+    @MainActor
+    private func firstHittable(prefix: String, timeout: TimeInterval = 12) -> XCUIElement? {
+        let query = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            for el in query.allElementsBoundByIndex where el.isHittable {
+                return el
+            }
+            usleep(300_000)
+        }
+        return nil
+    }
+
     /// E2E-PROJ-001 — Create a new project end-to-end via the UI.
     @MainActor
     func testCreateNewProject() throws {
@@ -339,10 +358,10 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
         launchToFixture()
         // Select a scene in the outline first (bubbles show the selected scene).
         openScriptEditor()
-        let sceneRow = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'scene-row-'")).firstMatch
-        XCTAssertTrue(sceneRow.waitForExistence(timeout: 10))
-        sceneRow.click()
+        guard let sceneRow = firstHittable(prefix: "scene-row-") else {
+            return XCTFail("Navigator should list a clickable scene row")
+        }
+        forceClick(sceneRow)
 
         navigate(to: "nav-bubble")
         let bubble = app.descendants(matching: .any).matching(
