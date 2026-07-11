@@ -45,24 +45,38 @@ jobs:
       - name: Test ${{ matrix.package }}
         working-directory: ${{ matrix.package }}
         run: swift test --parallel --enable-code-coverage
-      - name: Code coverage summary
+      - name: Code coverage report + logic-layer floor
         if: always()
         working-directory: ${{ matrix.package }}
-        # Reporting only (no threshold gate yet — see testing-status doc §7,
-        # Phase 3). Prints per-package line coverage into the CI log and the
-        # job summary so the trend is visible on every run.
+        # Reports per-package line coverage into the CI log + job summary, and
+        # enforces a regression FLOOR on the logic layer (testing-status §7
+        # Phase 3). View-heavy packages are not gated here — their rendering
+        # is verified by the snapshot + UI E2E layers.
         run: |
           PROF=$(find .build -name default.profdata | head -1)
-          TESTBIN=$(find .build -name '*.xctest' | head -1)
-          EXE=$(find "$TESTBIN" -type f -perm +111 2>/dev/null | head -1)
-          if [ -n "$PROF" ] && [ -n "$EXE" ]; then
-            TOTAL=$(xcrun llvm-cov report "$EXE" -instr-profile="$PROF" \
-              -ignore-filename-regex='.build|Tests' 2>/dev/null | grep TOTAL || true)
-            echo "coverage TOTAL: $TOTAL"
-            echo "### ${{ matrix.package }} coverage" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo "$TOTAL" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          TESTBIN=$(find .build -name '*.xctest' -type d | head -1)
+          EXE=$(find "$TESTBIN/Contents/MacOS" -type f -perm +111 2>/dev/null | head -1)
+          [ -z "$EXE" ] && EXE=$(find "$TESTBIN" -type f -perm +111 2>/dev/null | head -1)
+          if [ -z "$PROF" ] || [ -z "$EXE" ]; then
+            echo "coverage: profdata/executable not found — skipping"; exit 0
+          fi
+          TOTAL=$(xcrun llvm-cov report "$EXE" -instr-profile="$PROF" \
+            -ignore-filename-regex='.build|Tests' 2>/dev/null | grep TOTAL)
+          echo "coverage TOTAL: $TOTAL"
+          PCT=$(echo "$TOTAL" | awk '{gsub("%","",$10); print $10}')
+          {
+            echo "### ${{ matrix.package }} — line coverage: ${PCT}%"
+            echo '```'; echo "$TOTAL"; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Logic-layer regression floor (Core is at ~74%; floor 70%).
+          if [ "${{ matrix.package }}" = "DirectorsChairCore" ]; then
+            FLOOR=70
+            AWKPASS=$(awk -v p="$PCT" -v f="$FLOOR" 'BEGIN{print (p+0 >= f) ? "1" : "0"}')
+            if [ "$AWKPASS" != "1" ]; then
+              echo "::error::DirectorsChairCore line coverage ${PCT}% is below the ${FLOOR}% floor"
+              exit 1
+            fi
+            echo "DirectorsChairCore coverage ${PCT}% ≥ ${FLOOR}% floor ✓"
           fi
 
   app-tests:
