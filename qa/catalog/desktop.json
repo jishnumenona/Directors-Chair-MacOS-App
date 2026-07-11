@@ -1,7 +1,7 @@
 {
   "$schema": "../lib/catalog.schema.json",
   "component": "desktop",
-  "title": "DirectorsChair Desktop \u2014 E2E Test Catalog",
+  "title": "DirectorsChair Desktop — E2E Test Catalog",
   "description": "Every user-facing feature as end-to-end workflows. `automation` links each case to its executing test; `manual` cases are owner-run until automated. This catalog is the single source of truth the orchestrator reports coverage against.",
   "features": [
     {
@@ -34,7 +34,7 @@
           "id": "E2E-APP-003",
           "title": "Onboarding shown once, skipped thereafter",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChair-DesktopTests/OnboardingFlowTests/testSubsequentLaunchSkipsOnboarding",
           "steps": [
             "Fresh install launch",
             "Complete onboarding",
@@ -78,7 +78,7 @@
           "id": "E2E-PROJ-003",
           "title": "Delete a project moves it to Trash",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChair-DesktopTests/ProjectScopingAndDeletionTests/testTrashItemRemovesProjectFromItsLocation",
           "steps": [
             "Projects list context menu",
             "Delete",
@@ -90,7 +90,7 @@
           "id": "E2E-PROJ-004",
           "title": "Switching accounts scopes projects per user",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChair-DesktopTests/ProjectScopingAndDeletionTests/testEachUserResolvesToItsOwnRoot",
           "steps": [
             "Note projects for user A",
             "Switch user",
@@ -167,7 +167,7 @@
           "id": "E2E-EDIT-006",
           "title": "Sigil autocomplete (@ % $ # ~ ^ /) opens the right list and inserts",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChair-DesktopTests/ScriptViewModelTests/testEachSigilOpensItsOwnList",
           "steps": [
             "Type each sigil",
             "Accept a suggestion"
@@ -178,7 +178,7 @@
           "id": "E2E-EDIT-007",
           "title": "Tab element flow follows Final Draft table",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChair-DesktopTests/ScriptViewModelTests/testTabConvertsEmptyElementPerFDTable",
           "steps": [
             "Tab on empty and non-empty elements"
           ],
@@ -188,7 +188,7 @@
           "id": "E2E-EDIT-008",
           "title": "Find & Replace (Cmd+F / Opt+Cmd+F)",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChair_DesktopUITests/testFindBarOpensInEditor",
           "steps": [
             "Cmd+F",
             "Search",
@@ -236,7 +236,7 @@
           "id": "E2E-NAV-004",
           "title": "Outline stays live during editing (no teardown of inline fields)",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents",
           "steps": [
             "Start inline rename",
             "Trigger a project event"
@@ -264,7 +264,7 @@
           "id": "E2E-BUBBLE-002",
           "title": "Drag-reorder changes chronology",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChairViewsTests/BubbleChronologyTests/testReorderMovingLastItemToFrontRenumbersContiguously",
           "steps": [
             "Drag a bubble to a new position"
           ],
@@ -274,7 +274,7 @@
           "id": "E2E-BUBBLE-003",
           "title": "Drag-out disconnects a connected bubble",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChairViewsTests/BubbleChronologyTests/testDisconnectClearsParentLink",
           "steps": [
             "Drag a sub-bubble away from its parent"
           ],
@@ -301,7 +301,7 @@
           "id": "E2E-STORY-002",
           "title": "Rename a character cascades everywhere",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChairCoreTests/RenameCascadeTests/testCharacterRenameCascadesEverywhere",
           "steps": [
             "Rename via pencil",
             "Check dialogues/timeline"
@@ -312,7 +312,7 @@
           "id": "E2E-STORY-003",
           "title": "Add a lighting / SFX cue",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChairViewsTests/TimelineCueAndPlayheadTests/testAddLightCueAppendsToLaneWithAutoNumber",
           "steps": [
             "Open cue editor",
             "Add cue"
@@ -340,7 +340,7 @@
           "id": "E2E-PROD-002",
           "title": "Budget rename does not orphan line items",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChairProductionTests/BudgetModelTests/testRenameCategoryPersistsAndCascadesToExpenses",
           "steps": [
             "Rename a budget category"
           ],
@@ -350,7 +350,7 @@
           "id": "E2E-PROD-003",
           "title": "Gantt reflects schedule changes",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChairProductionTests/GanttSyncTests/testEditingScheduleItemUpdatesLinkedTaskInPlace",
           "steps": [
             "Change a schedule item",
             "Check Gantt"
@@ -377,9 +377,9 @@
           "id": "E2E-TIMELINE-002",
           "title": "Playhead seek from a scene context menu",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChairViewsTests/TimelineCueAndPlayheadTests/testSeekingToLaterSceneMovesPlayheadForward",
           "steps": [
-            "Scene row \u2192 Move Playhead Here"
+            "Scene row → Move Playhead Here"
           ],
           "expected": "Playhead moves to the scene boundary."
         }
@@ -395,7 +395,7 @@
           "priority": "P1",
           "automation": "DirectorsChairExportsTests/VectorPDFTests (logic; UI trigger manual)",
           "steps": [
-            "Export \u2192 PDF",
+            "Export → PDF",
             "Open, select text"
           ],
           "expected": "Text is selectable and searchable."
@@ -438,7 +438,7 @@
         },
         {
           "id": "E2E-PERF-002",
-          "title": "Project\u2192script conversion stays fast",
+          "title": "Project→script conversion stays fast",
           "priority": "P2",
           "automation": "PerformanceBaselineTests/testPerf_ConvertProjectToScript",
           "steps": [
@@ -456,7 +456,7 @@
           "id": "E2E-A11Y-001",
           "title": "Primary controls expose accessibility identifiers",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers",
           "steps": [
             "Inspect nav rail, editor, rows"
           ],
@@ -466,7 +466,7 @@
           "id": "E2E-A11Y-002",
           "title": "VoiceOver can traverse the timeline and toolbar",
           "priority": "P3",
-          "automation": null,
+          "automation": "DirectorsChair_DesktopUITests/testToolbarAndTimelineAreVoiceOverTraversable",
           "steps": [
             "VoiceOver over timeline + toolbar"
           ],
