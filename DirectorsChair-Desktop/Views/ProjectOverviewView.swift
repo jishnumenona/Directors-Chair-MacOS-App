@@ -52,17 +52,26 @@ struct ProjectOverviewView: View {
         project.sequences.flatMap(\.scenes)
     }
 
-    private var allShotsWithImages: [(shot: Shot, sceneName: String)] {
-        allScenes.flatMap { scene in
+    /// Shots with a non-empty preview image, given an already-computed scene
+    /// list. Takes `scenes` as a parameter so a single `body` pass walks the
+    /// project once instead of recomputing `allScenes` inside this getter.
+    private func shotsWithImages(in scenes: [DirectorsChairCore.Scene]) -> [(shot: Shot, sceneName: String)] {
+        scenes.flatMap { scene in
             scene.shots.compactMap { shot in
-                guard let _ = shot.previewImage, !shot.previewImage!.isEmpty else { return nil }
+                guard let preview = shot.previewImage, !preview.isEmpty else { return nil }
                 return (shot: shot, sceneName: scene.name)
             }
         }
     }
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        // Walk the project once per body pass. Previously `allScenes` (O(scenes))
+        // was recomputed ~4× and the shot list (O(scenes×shots)) twice per body,
+        // and every whole-project publish re-ran all of it (audit A8).
+        let scenes = allScenes
+        let shotsWithImages = shotsWithImages(in: scenes)
+        let totalShotCount = scenes.reduce(0) { $0 + $1.shots.count }
+        return ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 0) {
                 // 1. Hero Banner
                 OverviewHeroBanner(
@@ -83,16 +92,16 @@ struct ProjectOverviewView: View {
                     // 3. Stats Bar
                     OverviewStatsBar(
                         sequenceCount: project.sequences.count,
-                        sceneCount: allScenes.count,
+                        sceneCount: scenes.count,
                         characterCount: project.characters.count,
-                        shotCount: allScenes.flatMap(\.shots).count,
+                        shotCount: totalShotCount,
                         locationCount: project.locations.count
                     )
 
                     // 4. Scene Gallery
-                    if !allScenes.isEmpty {
+                    if !scenes.isEmpty {
                         OverviewSceneGallery(
-                            scenes: allScenes,
+                            scenes: scenes,
                             sequences: project.sequences,
                             projectDir: projectDir,
                             onSceneSelected: { scene in
@@ -114,9 +123,9 @@ struct ProjectOverviewView: View {
                     }
 
                     // 6. Shot Board
-                    if !allShotsWithImages.isEmpty {
+                    if !shotsWithImages.isEmpty {
                         OverviewShotBoard(
-                            shots: allShotsWithImages,
+                            shots: shotsWithImages,
                             projectDir: projectDir,
                             onShotSelected: { shot in
                                 coordinator.selectedShot = shot

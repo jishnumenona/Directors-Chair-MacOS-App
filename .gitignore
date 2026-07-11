@@ -43,3 +43,6 @@ Signing.xcconfig
 
 # QA transient run artifacts (reports/latest.html + run.json are published)
 qa/runs/
+
+# Perf-measurement derived data (scripts/perf runs)
+.perfbuild/
