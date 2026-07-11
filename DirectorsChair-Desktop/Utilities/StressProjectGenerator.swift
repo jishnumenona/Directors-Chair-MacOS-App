@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import AppKit
 import DirectorsChairCore
 
 /// Seeded RNG (SplitMix64) — SystemRandomNumberGenerator is not seedable.
@@ -192,15 +193,90 @@ enum StressProjectGenerator {
     /// Returns the project directory URL.
     @discardableResult
     static func generateOnDisk() async throws -> URL {
-        let project = makeProject()
+        var project = makeProject()
         let root = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Directors Chair")
             .appendingPathComponent("local")
             .appendingPathComponent(projectName)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // Write real image files and wire them into the project so the on-disk
+        // benchmark exercises actual image-decode on view mount — the base
+        // in-memory fixture (used by makeProject / QA fixture / regression
+        // guards) is deliberately image-less and could not measure it.
+        let imagePaths = try writeStressImages(into: root, count: 24)
+        injectImagePaths(imagePaths, into: &project)
+
         let url = root.appendingPathComponent("project.json")
         let persistence = ProjectPersistence(enableBackups: false)
         try await persistence.save(project, to: url)
         return root
+    }
+
+    /// Writes `count` distinct, high-entropy PNGs into `<root>/images/` (skipping
+    /// any already present) and returns their project-relative paths. High
+    /// entropy keeps the decode cost realistic — a flat-colour PNG would inflate
+    /// almost instantly and under-represent a real photo/poster.
+    private static func writeStressImages(into root: URL, count: Int) throws -> [String] {
+        let dir = root.appendingPathComponent("images")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var paths: [String] = []
+        for i in 0..<count {
+            let rel = "images/stress-\(i).png"
+            let fileURL = root.appendingPathComponent(rel)
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                try makeNoisyPNG(width: 1600, height: 1000, seed: UInt64(i) &* 0x1234567)
+                    .write(to: fileURL)
+            }
+            paths.append(rel)
+        }
+        return paths
+    }
+
+    /// A 1600×1000 PNG filled with ~1,800 random rectangles so it carries real
+    /// entropy (non-trivial decode), rendered via Core Graphics (fast to make).
+    private static func makeNoisyPNG(width: Int, height: Int, seed: UInt64) -> Data {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return Data() }
+        var rng = SeededRandom(seed: seed)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        for _ in 0..<1800 {
+            let x = CGFloat(rng.next() % UInt64(width))
+            let y = CGFloat(rng.next() % UInt64(height))
+            let w = CGFloat(20 + rng.next() % 120)
+            let h = CGFloat(20 + rng.next() % 120)
+            NSColor(hue: CGFloat(rng.next() % 360) / 360.0,
+                    saturation: 0.5 + CGFloat(rng.next() % 50) / 100.0,
+                    brightness: 0.4 + CGFloat(rng.next() % 60) / 100.0,
+                    alpha: 1).setFill()
+            NSRect(x: x, y: y, width: w, height: h).fill()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:]) ?? Data()
+    }
+
+    /// Assigns image paths round-robin across scenes, shots, characters,
+    /// locations and the project poster/icon so a wide range of views decode
+    /// images on mount.
+    private static func injectImagePaths(_ paths: [String], into project: inout Project) {
+        guard !paths.isEmpty else { return }
+        func pick(_ i: Int) -> String { paths[i % paths.count] }
+        var k = 0
+        for si in project.sequences.indices {
+            for sci in project.sequences[si].scenes.indices {
+                project.sequences[si].scenes[sci].sceneOverviewImage = pick(k); k += 1
+                for shi in project.sequences[si].scenes[sci].shots.indices {
+                    project.sequences[si].scenes[sci].shots[shi].previewImage = pick(k); k += 1
+                }
+            }
+        }
+        for ci in project.characters.indices { project.characters[ci].baseImage = pick(ci) }
+        for li in project.locations.indices { project.locations[li].primaryImage = pick(li) }
+        project.overviewPosterPaths = [pick(0), pick(1)]
+        project.projectIcon = pick(2)
     }
 }

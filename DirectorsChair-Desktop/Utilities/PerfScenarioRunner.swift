@@ -66,11 +66,18 @@ enum PerfScenarioRunner {
 
         case "tabsweep":
             // Visit every tab twice: first pass mounts them, second pass
-            // measures switching with all tabs alive (audit A2).
+            // measures switching with all tabs alive (audit A2). Each visit is
+            // bracketed by a watchdog snapshot so the per-tab stall is attributed
+            // to a "tabstall.<view>" counter (maxMs = worst single mount).
             for _ in 0..<2 {
                 for view in AppView.allCases {
+                    let before = watchdog.snapshot()
                     coordinator.navigateTo(view)
                     try? await Task.sleep(nanoseconds: 700_000_000)
+                    let after = watchdog.snapshot()
+                    let stallDeltaMs = max(0, after.totalStallMs - before.totalStallMs)
+                    PerfCounters.shared.record(name: "tabstall.\(view.rawValue)",
+                                               nanoseconds: UInt64(stallDeltaMs * 1_000_000))
                 }
             }
 

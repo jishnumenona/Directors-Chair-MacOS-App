@@ -110,17 +110,8 @@ struct ShotCard: View {
     }
 
     private func loadImage() {
-        guard let projectDir = projectDir,
-              let previewPath = shot.previewImage, !previewPath.isEmpty else { return }
-        let fullPath = projectDir.appendingPathComponent(previewPath)
-        if let cached = OverviewImageCache.shared.image(forKey: fullPath.path) {
-            shotImage = cached
-            return
-        }
-        if let image = NSImage(contentsOf: fullPath) {
-            OverviewImageCache.shared.setImage(image, forKey: fullPath.path)
-            shotImage = image
-        }
+        OverviewImageCache.shared.loadAsync(
+            paths: [shot.previewImage].compactMap { $0 }, base: projectDir) { shotImage = $0 }
     }
 }
 
@@ -223,29 +214,9 @@ struct LocationCard: View {
     }
 
     private func loadImage() {
-        guard let projectDir = projectDir else { return }
-
-        // Try primaryImage first, then first from images array
-        var paths: [String] = []
-        if let primary = location.primaryImage, !primary.isEmpty {
-            paths.append(primary)
-        }
-        if let first = location.images.first, !first.isEmpty {
-            paths.append(first)
-        }
-
-        for path in paths {
-            let fullPath = projectDir.appendingPathComponent(path)
-            if let cached = OverviewImageCache.shared.image(forKey: fullPath.path) {
-                locationImage = cached
-                return
-            }
-            if let image = NSImage(contentsOf: fullPath) {
-                OverviewImageCache.shared.setImage(image, forKey: fullPath.path)
-                locationImage = image
-                return
-            }
-        }
+        // Try primaryImage first, then first from images array.
+        let paths = [location.primaryImage, location.images.first].compactMap { $0 }
+        OverviewImageCache.shared.loadAsync(paths: paths, base: projectDir) { locationImage = $0 }
     }
 }
 
