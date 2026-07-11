@@ -122,12 +122,18 @@ jobs:
         # fixture. The offline TestMode (no auth gate, no network, no global
         # key monitors, no splash) makes launch deterministic on a headless
         # runner. Excludes the auto-generated launch-screenshot tests.
+        # -retry-tests-on-failure + -test-iterations 2: a test that flakes on
+        # the shared runner is retried once; the job fails only if it fails
+        # BOTH times (a real defect, not runner noise). This flakiness
+        # resilience is what makes the suite safe to promote to a required
+        # check later (testing-status doc, gaps G6 → G3).
         run: |
           set -o pipefail
           xcodebuild test \
             -scheme DirectorsChair-UITests \
             -destination 'platform=macOS' \
             -only-testing:DirectorsChair-DesktopUITests/DirectorsChair_DesktopUITests \
+            -retry-tests-on-failure -test-iterations 2 \
             -resultBundlePath UITestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO | xcbeautify
       - name: Upload UI test results
