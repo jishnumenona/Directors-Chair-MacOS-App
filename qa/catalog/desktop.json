@@ -393,7 +393,7 @@
           "id": "E2E-EXPORT-001",
           "title": "Export to PDF produces selectable, vector text",
           "priority": "P1",
-          "automation": null,
+          "automation": "DirectorsChairExportsTests/VectorPDFTests (logic; UI trigger manual)",
           "steps": [
             "Export \u2192 PDF",
             "Open, select text"
@@ -404,7 +404,7 @@
           "id": "E2E-EXPORT-002",
           "title": "Export to Final Draft (FDX) / Fountain",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChairExportsTests/FDXValidationTests + FountainSpecComplianceTests (logic; UI trigger manual)",
           "steps": [
             "Export each format"
           ],
@@ -414,7 +414,7 @@
           "id": "E2E-EXPORT-003",
           "title": "CSV export guards against formula injection",
           "priority": "P2",
-          "automation": null,
+          "automation": "DirectorsChairProductionTests/BudgetExportServiceTests.testEscapeCSVNeutralisesFormulaInjection",
           "steps": [
             "Export a CSV with a cell beginning '='"
           ],
