@@ -569,26 +569,8 @@ extension BubbleView {
               let sceneIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id })
         else { return }
 
-        switch itemType {
-        case "action":
-            if let idx = project.sequences[seqIndex].scenes[sceneIndex].actions.firstIndex(where: { $0.id == itemId }) {
-                project.sequences[seqIndex].scenes[sceneIndex].actions[idx].parentDialogueId = nil
-            }
-        case "narration":
-            if let idx = project.sequences[seqIndex].scenes[sceneIndex].narrations.firstIndex(where: { $0.id == itemId }) {
-                project.sequences[seqIndex].scenes[sceneIndex].narrations[idx].parentDialogueId = nil
-            }
-        case "note":
-            if let idx = project.sequences[seqIndex].scenes[sceneIndex].sceneNotes.firstIndex(where: { $0.id == itemId }) {
-                project.sequences[seqIndex].scenes[sceneIndex].sceneNotes[idx].parentDialogueId = nil
-            }
-        case "soundNote":
-            if let idx = project.sequences[seqIndex].scenes[sceneIndex].soundNotes.firstIndex(where: { $0.id == itemId }) {
-                project.sequences[seqIndex].scenes[sceneIndex].soundNotes[idx].parentDialogueId = nil
-            }
-        default:
-            break
-        }
+        BubbleChronology.disconnect(&project.sequences[seqIndex].scenes[sceneIndex],
+                                    itemId: itemId, itemType: itemType)
 
         selectedScene = project.sequences[seqIndex].scenes[sceneIndex]
         rebuildBubbleCache(for: project.sequences[seqIndex].scenes[sceneIndex])

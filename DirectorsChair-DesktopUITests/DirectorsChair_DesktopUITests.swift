@@ -417,4 +417,89 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
         XCTAssertTrue(timeline.waitForExistence(timeout: 10),
                       "Timeline panel should render")
     }
+
+    // MARK: - E2E-EDIT-008: Find & Replace (P2)
+
+    /// E2E-EDIT-008 — Cmd+F reveals the editor's native find bar so the user
+    /// can search (and, via the replace interface, replace) within the script.
+    @MainActor
+    func testFindBarOpensInEditor() throws {
+        launchToFixture()
+        openScriptEditor()
+        focusEditor()
+
+        // Cmd+F opens the NSTextView find bar, which surfaces a search field.
+        app.typeKey("f", modifierFlags: .command)
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 8),
+                      "Cmd+F should reveal the find bar's search field")
+    }
+
+    // MARK: - E2E-NAV-004: outline stays live during editing (P1)
+
+    /// E2E-NAV-004 — The outline stays live across a project event: a scene row
+    /// keeps its stable identity (rows update in place instead of tearing down
+    /// and remounting with new identifiers — the UUID-teardown regression).
+    @MainActor
+    func testOutlineRowsStayStableAcrossEvents() throws {
+        launchToFixture()
+        openScriptEditor()
+
+        guard let row = firstHittable(prefix: "scene-row-") else {
+            return XCTFail("Navigator should list a scene row")
+        }
+        let rowID = row.identifier
+        forceClick(row)  // a selection event
+
+        // A full navigate-away-and-back rebuild cycle.
+        navigate(to: "nav-overview")
+        navigate(to: "nav-script")
+
+        let sameRow = app.descendants(matching: .any).matching(identifier: rowID).firstMatch
+        XCTAssertTrue(sameRow.waitForExistence(timeout: 8),
+                      "Outline row \(rowID) must survive the event and keep its identity")
+    }
+
+    // MARK: - E2E-A11Y: accessibility (P2 / P3)
+
+    /// E2E-A11Y-001 — Primary controls expose stable accessibility identifiers
+    /// (nav-*, screenplay-editor, scene-row-*).
+    @MainActor
+    func testPrimaryControlsExposeAccessibilityIdentifiers() throws {
+        launchToFixture()
+
+        for id in ["nav-script", "nav-overview", "nav-bubble"] {
+            XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 10),
+                          "Nav control '\(id)' must expose its identifier")
+        }
+
+        openScriptEditor()
+        XCTAssertTrue(editor.exists, "screenplay-editor identifier must resolve")
+
+        XCTAssertNotNil(firstHittable(prefix: "scene-row-"),
+                        "scene rows must expose scene-row-* identifiers")
+    }
+
+    /// E2E-A11Y-002 — The toolbar and timeline are reachable by assistive tech:
+    /// their elements exist in the accessibility tree and are traversable. (The
+    /// subjective quality of VoiceOver announcements remains a manual check.)
+    @MainActor
+    func testToolbarAndTimelineAreVoiceOverTraversable() throws {
+        launchToFixture()
+        openScriptEditor()
+
+        // Toolbar nav controls are enabled, traversable accessibility elements.
+        let navButton = app.buttons["nav-script"]
+        XCTAssertTrue(navButton.waitForExistence(timeout: 10))
+        XCTAssertTrue(navButton.isEnabled, "toolbar controls must be reachable/actionable by VoiceOver")
+
+        // The editor exposes a value VoiceOver would read aloud.
+        XCTAssertFalse(editorText.isEmpty, "editor must expose readable content to assistive tech")
+
+        // The timeline panel is present in the accessibility tree.
+        let timeline = app.descendants(matching: .any).matching(
+            identifier: "timeline-panel").firstMatch
+        XCTAssertTrue(timeline.waitForExistence(timeout: 10),
+                      "timeline must be reachable by assistive tech")
+    }
 }

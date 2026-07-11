@@ -399,6 +399,47 @@ final class ScriptViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.hasSuggestions(for: "location"))
     }
 
+    // E2E-EDIT-006: every sigil opens the correct autocomplete list.
+    func testEachSigilOpensItsOwnList() {
+        loadTestProject()
+        // Populate location + prop sources so those lists are non-empty too.
+        var project = projectViewModel.project
+        project.locations = [Location(name: "OFFICE"), Location(name: "ROOFTOP")]
+        projectViewModel.project = project
+        viewModel.loadFromProject(project, projectViewModel: projectViewModel)
+
+        // sigil → the entity type its list should resolve to.
+        let expected: [(sigil: String, type: String)] = [
+            ("@", "character"), ("%", "location"), ("$", "time"),
+            ("#", "transition"), ("~", "sound"), ("^", "prop")
+        ]
+        for pair in expected {
+            viewModel.handleAutocompleteTrigger(pair.sigil)
+            XCTAssertEqual(viewModel.autocompleteTrigger, pair.type,
+                           "sigil '\(pair.sigil)' must open the \(pair.type) list")
+        }
+
+        // Static-list sigils always have something to show.
+        for sigil in ["$", "#", "~"] {
+            viewModel.handleAutocompleteTrigger(sigil)
+            XCTAssertTrue(viewModel.showingAutocomplete,
+                          "sigil '\(sigil)' opens a non-empty static list")
+        }
+    }
+
+    // E2E-EDIT-006: accepting a suggestion replaces the typed filter rather
+    // than duplicating it (complements testInlineAcceptConsumesTypedFilterCharacters
+    // for the character-cue path).
+    func testSigilAcceptDoesNotDuplicateTypedFilter() {
+        makeSimpleElements()
+        viewModel.elements[1].text = "Meet at the ROOF"   // user typed "%" then "ROOF"
+        viewModel.autocompleteTrigger = "location"
+        _ = viewModel.handleAutocompleteSelection(
+            item: "ROOFTOP", atElementIndex: 1, replaceStart: 12, replaceEnd: 16)
+        XCTAssertEqual(viewModel.elements[1].text, "Meet at the ROOFTOP",
+                       "the typed 'ROOF' filter is replaced, not left as 'ROOFROOFTOP'")
+    }
+
     func testLocationNameParsedFromHeadings() {
         XCTAssertEqual(ScriptViewModel.locationName(fromHeading: "INT. OFFICE - DAY"), "OFFICE")
         XCTAssertEqual(ScriptViewModel.locationName(fromHeading: "EXT. BEACH HOUSE - NIGHT"), "BEACH HOUSE")
