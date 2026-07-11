@@ -44,7 +44,26 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.app || true
       - name: Test ${{ matrix.package }}
         working-directory: ${{ matrix.package }}
-        run: swift test --parallel
+        run: swift test --parallel --enable-code-coverage
+      - name: Code coverage summary
+        if: always()
+        working-directory: ${{ matrix.package }}
+        # Reporting only (no threshold gate yet — see testing-status doc §7,
+        # Phase 3). Prints per-package line coverage into the CI log and the
+        # job summary so the trend is visible on every run.
+        run: |
+          PROF=$(find .build -name default.profdata | head -1)
+          TESTBIN=$(find .build -name '*.xctest' | head -1)
+          EXE=$(find "$TESTBIN" -type f -perm +111 2>/dev/null | head -1)
+          if [ -n "$PROF" ] && [ -n "$EXE" ]; then
+            TOTAL=$(xcrun llvm-cov report "$EXE" -instr-profile="$PROF" \
+              -ignore-filename-regex='.build|Tests' 2>/dev/null | grep TOTAL || true)
+            echo "coverage TOTAL: $TOTAL"
+            echo "### ${{ matrix.package }} coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$TOTAL" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   app-tests:
     name: App target tests
