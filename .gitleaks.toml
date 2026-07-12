@@ -1,0 +1,37 @@
+# gitleaks configuration for DirectorsChair-Desktop
+#
+# Secret scanning runs in CI (secret-scan job) and, optionally, locally via
+# scripts/verify.sh. The repo was verified clean of the historic leaked
+# credentials (GitHub PAT / Google API key / Gitea token / admin password) on
+# 2026-07-11; this config keeps regressions out.
+
+title = "DirectorsChair gitleaks config"
+
+# Start from gitleaks' maintained built-in rule set.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Values that look secret-ish but are not credentials"
+# The retired droplet's IP is an address, not a secret — it is being scrubbed,
+# not hidden; listed so a generic rule can never trip on it.
+#
+# The OAuth2 client ID is a PUBLIC identifier, not a secret: AuthManager uses
+# PKCE (AuthenticationServices), so the native/public client has no client
+# secret and the ID is sent in every authorization-request URL. gitleaks'
+# generic-api-key rule flags it on entropy alone. (Gitea-era; slated to move to
+# ServiceEnvironment config with the replacement server — see
+# docs/security/secrets-and-auth-design.md.)
+regexes = [
+  '''165\.22\.172\.244''',
+  # Public OAuth PKCE client IDs — current + one earlier value that lives in
+  # history (the ID was rotated). Both are public identifiers, not secrets.
+  '''c2091ed1-1094-4089-81ed-90a59ed4d307''',
+  '''da2d2a24-930d-4781-bcb2-73075e1a0152''',
+]
+# Build artefacts and dependency checkouts are not our source of truth.
+paths = [
+  '''\.build/''',
+  '''\.perfbuild/''',
+  '''.*\.xcodeproj/.*''',
+]

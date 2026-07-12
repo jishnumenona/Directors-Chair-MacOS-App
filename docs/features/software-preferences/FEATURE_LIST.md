@@ -116,7 +116,7 @@ Comprehensive list of all configurable preferences for Director's Chair, organiz
 ## 5. AI SERVICES
 
 ### 5.1 Connection
-- [ ] **Proxy Server URL**: Text field (default http://165.22.172.244:8002)
+- [ ] **Proxy Server URL**: Text field (default from `AI_PROXY_URL` config / env; no hard-coded server address)
 - [ ] **Connection Timeout**: Slider (30-300s, default 120s)
 - [ ] **Health Check**: Button with status indicator
 

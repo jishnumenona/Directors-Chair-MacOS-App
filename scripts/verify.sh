@@ -20,6 +20,21 @@ PACKAGES="DirectorsChairCore DirectorsChairServices DirectorsChairProduction Dir
 FAIL=0
 SUMMARY=""
 
+# Secret scan (fast) — mirrors the CI `secret-scan` job so a committed secret is
+# caught before it ever reaches a PR. Skips with a warning if gitleaks isn't
+# installed locally; CI remains the authoritative gate. Install: brew install gitleaks
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "==> Secret scan (gitleaks)..."
+  if gitleaks detect --source . --redact --config .gitleaks.toml >/tmp/dc-gitleaks.log 2>&1; then
+    SUMMARY="$SUMMARY\nok    secret-scan  (gitleaks: no leaks)"
+  else
+    FAIL=1
+    SUMMARY="$SUMMARY\nFAIL  secret-scan  (gitleaks flagged a potential secret -- see /tmp/dc-gitleaks.log)"
+  fi
+else
+  echo "==> Secret scan skipped (gitleaks not installed; CI still enforces it)"
+fi
+
 if [ "$CLEAN" = "1" ]; then
   echo "==> Clearing build caches (clean mode)..."
   for p in $PACKAGES; do rm -rf "$p/.build"; done
