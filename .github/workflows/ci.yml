@@ -143,3 +143,25 @@ jobs:
           name: ui-e2e-results
           path: UITestResults.xcresult
           retention-days: 7
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so a secret can't hide in an old commit
+      - name: Install gitleaks
+        run: |
+          VERSION=8.18.4
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          gitleaks version
+      - name: Scan working tree + full git history
+        # Fails the job if any committed secret is detected. The repo was
+        # verified clean of the historic leaked credentials (GitHub PAT,
+        # Google key, Gitea token, admin password) on 2026-07-11; this keeps
+        # it that way. Promote to a REQUIRED status check after a couple of
+        # green runs (branch protection, owner action).
+        run: gitleaks detect --source . --redact --verbose --config .gitleaks.toml

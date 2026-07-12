@@ -1,0 +1,26 @@
+# gitleaks configuration for DirectorsChair-Desktop
+#
+# Secret scanning runs in CI (secret-scan job) and, optionally, locally via
+# scripts/verify.sh. The repo was verified clean of the historic leaked
+# credentials (GitHub PAT / Google API key / Gitea token / admin password) on
+# 2026-07-11; this config keeps regressions out.
+
+title = "DirectorsChair gitleaks config"
+
+# Start from gitleaks' maintained built-in rule set.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Values that look secret-ish but are not credentials"
+# The retired droplet's IP is an address, not a secret — it is being scrubbed,
+# not hidden; listed so a generic rule can never trip on it.
+regexes = [
+  '''165\.22\.172\.244''',
+]
+# Build artefacts and dependency checkouts are not our source of truth.
+paths = [
+  '''\.build/''',
+  '''\.perfbuild/''',
+  '''.*\.xcodeproj/.*''',
+]
