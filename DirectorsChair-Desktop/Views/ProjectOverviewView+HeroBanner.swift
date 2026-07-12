@@ -295,25 +295,9 @@ struct OverviewHeroBanner: View {
     // MARK: - Load Hero Image
 
     private func loadHeroImage() {
-        // Prioritize poster paths over icon
+        // Prioritize poster paths over icon.
         let imagePaths = project.overviewPosterPaths + [project.projectIcon]
-        guard let projectDir = projectDir else { return }
-
-        for path in imagePaths {
-            guard !path.isEmpty else { continue }
-            let fullPath = projectDir.appendingPathComponent(path)
-
-            if let cached = OverviewImageCache.shared.image(forKey: fullPath.path) {
-                heroImage = cached
-                return
-            }
-
-            if let image = NSImage(contentsOf: fullPath) {
-                OverviewImageCache.shared.setImage(image, forKey: fullPath.path)
-                heroImage = image
-                return
-            }
-        }
+        OverviewImageCache.shared.loadAsync(paths: imagePaths, base: projectDir) { heroImage = $0 }
     }
 
     private func currentPosterURL() -> URL? {

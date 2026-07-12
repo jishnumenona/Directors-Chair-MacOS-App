@@ -246,29 +246,9 @@ struct SceneCard: View {
     }
 
     private func loadImage() {
-        guard let projectDir = projectDir else { return }
-
-        // Try sceneOverviewImage first, then first locationImage
-        var paths: [String] = []
-        if let overviewImg = scene.sceneOverviewImage, !overviewImg.isEmpty {
-            paths.append(overviewImg)
-        }
-        if let firstLocImg = scene.locationImages.first {
-            paths.append(firstLocImg.imagePath)
-        }
-
-        for path in paths {
-            let fullPath = projectDir.appendingPathComponent(path)
-            if let cached = OverviewImageCache.shared.image(forKey: fullPath.path) {
-                cardImage = cached
-                return
-            }
-            if let image = NSImage(contentsOf: fullPath) {
-                OverviewImageCache.shared.setImage(image, forKey: fullPath.path)
-                cardImage = image
-                return
-            }
-        }
+        // Try sceneOverviewImage first, then first locationImage.
+        let paths = [scene.sceneOverviewImage, scene.locationImages.first?.imagePath].compactMap { $0 }
+        OverviewImageCache.shared.loadAsync(paths: paths, base: projectDir) { cardImage = $0 }
     }
 }
 
@@ -361,23 +341,9 @@ struct CharacterPortrait: View {
     }
 
     private func loadPortrait() {
-        guard let projectDir = projectDir else { return }
-
-        // Priority: overviewPortrait -> baseImage -> imageFront
-        let paths = [character.overviewPortrait, character.baseImage, character.imageFront].compactMap { $0 }.filter { !$0.isEmpty }
-
-        for path in paths {
-            let fullPath = projectDir.appendingPathComponent(path)
-            if let cached = OverviewImageCache.shared.image(forKey: fullPath.path) {
-                portraitImage = cached
-                return
-            }
-            if let image = NSImage(contentsOf: fullPath) {
-                OverviewImageCache.shared.setImage(image, forKey: fullPath.path)
-                portraitImage = image
-                return
-            }
-        }
+        // Priority: overviewPortrait -> baseImage -> imageFront.
+        let paths = [character.overviewPortrait, character.baseImage, character.imageFront].compactMap { $0 }
+        OverviewImageCache.shared.loadAsync(paths: paths, base: projectDir) { portraitImage = $0 }
     }
 }
 

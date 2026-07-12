@@ -13,9 +13,9 @@ import DirectorsChairServices
 
 // MARK: - Image Cache
 
-final class OverviewImageCache {
+final class OverviewImageCache: @unchecked Sendable {
     static let shared = OverviewImageCache()
-    private let cache = NSCache<NSString, NSImage>()
+    private let cache = NSCache<NSString, NSImage>()  // NSCache is thread-safe
 
     private init() {
         cache.countLimit = 200
@@ -31,6 +31,30 @@ final class OverviewImageCache {
 
     func removeImage(forKey key: String) {
         cache.removeObject(forKey: key as NSString)
+    }
+
+    /// Loads the first existing image among `paths` (relative to `base`) WITHOUT
+    /// blocking the main thread: a cache hit calls `assign` immediately; a miss
+    /// decodes off-main and calls `assign` back on the main actor. Overview cards
+    /// previously decoded synchronously in `.onAppear`, so mounting a tab full of
+    /// cards stalled the main thread for seconds (perf: tab first-mount).
+    @MainActor
+    func loadAsync(paths: [String], base: URL?, assign: @escaping @MainActor (NSImage) -> Void) {
+        guard let base else { return }
+        let urls = paths.filter { !$0.isEmpty }.map { base.appendingPathComponent($0) }
+        for url in urls where image(forKey: url.path) != nil {
+            if let cached = image(forKey: url.path) { assign(cached); return }
+        }
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for url in urls {
+                if let img = NSImage(contentsOf: url) {
+                    Self.shared.setImage(img, forKey: url.path)
+                    await MainActor.run { assign(img) }
+                    return
+                }
+            }
+        }
     }
 }
 
