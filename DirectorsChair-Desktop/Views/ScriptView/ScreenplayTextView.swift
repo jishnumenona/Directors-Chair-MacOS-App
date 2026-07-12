@@ -328,8 +328,15 @@ struct ScreenplayTextView: NSViewRepresentable {
 
         // Scroll to element if requested
         if let targetId = scrollToElementId {
-            let targetIndex = parent.elements.firstIndex(where: { $0.id == targetId })
-            if let idx = targetIndex {
+            // Resolve the target range against a CURRENT document. A scroll
+            // issued right after a structural change (e.g. a scene reorder)
+            // must not use stale paragraph starts: element index N would map to
+            // an old paragraph position and land on the wrong scene. Sync the
+            // text and drop the cached starts first — the focus block below
+            // already does the equivalent sync before computing its range.
+            context.coordinator.incrementalSync()
+            context.coordinator.invalidateCache()
+            if let idx = parent.elements.firstIndex(where: { $0.id == targetId }) {
                 let range = context.coordinator.rangeForParagraph(idx)
                 DispatchQueue.main.async {
                     textView.scrollRangeToVisible(range)
@@ -445,7 +452,7 @@ struct ScreenplayTextView: NSViewRepresentable {
         private var cachedStarts: [Int]?
 
         /// Invalidate the cached paragraph starts (call after text changes or rebuild).
-        private func invalidateCache() {
+        func invalidateCache() {
             cachedStarts = nil
         }
 
