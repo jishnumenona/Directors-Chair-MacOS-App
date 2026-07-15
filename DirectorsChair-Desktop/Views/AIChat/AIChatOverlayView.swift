@@ -14,7 +14,7 @@ struct AIChatOverlayView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @StateObject private var viewModel = AIChatViewModel()
     @FocusState private var isInputFocused: Bool
-    @AppStorage(PrefKey.showAssistantOnLaunch) private var showAssistantOnLaunch: Bool = true
+    @AppStorage(PrefKey.showAssistantOnLaunch) private var showAssistantOnLaunch: Bool = false
 
     var body: some View {
         ZStack {

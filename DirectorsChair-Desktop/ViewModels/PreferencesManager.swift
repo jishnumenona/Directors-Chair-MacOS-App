@@ -172,7 +172,7 @@ class PreferencesManager: ObservableObject {
 
     // MARK: - General > AI Assistant
 
-    @AppStorage(PrefKey.showAssistantOnLaunch) var showAssistantOnLaunch: Bool = true
+    @AppStorage(PrefKey.showAssistantOnLaunch) var showAssistantOnLaunch: Bool = false
 
     // MARK: - Editor > Typography
 
@@ -332,7 +332,7 @@ class PreferencesManager: ObservableObject {
         autoSaveInterval = 500
         saveConfirmation = true
         showHints = true
-        showAssistantOnLaunch = true
+        showAssistantOnLaunch = false
 
         // Editor
         editorFontFamily = "Courier Prime"
