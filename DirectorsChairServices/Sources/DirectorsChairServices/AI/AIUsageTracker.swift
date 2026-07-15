@@ -25,6 +25,7 @@ public struct AIUsageRecord: Identifiable, Codable, Sendable {
         case text
         case image
         case video
+        case speech
     }
 
     public let videoDurationSeconds: Double
@@ -78,6 +79,8 @@ public struct AIUsageStats: Codable, Sendable {
     public var totalVideos: Int = 0
     public var totalVideoCalls: Int = 0
     public var totalVideoSeconds: Double = 0
+    public var totalSpeechChars: Int = 0
+    public var totalSpeechCalls: Int = 0
 
     public init() {}
 
@@ -91,13 +94,17 @@ public struct AIUsageStats: Codable, Sendable {
         totalVideos = try container.decodeIfPresent(Int.self, forKey: .totalVideos) ?? 0
         totalVideoCalls = try container.decodeIfPresent(Int.self, forKey: .totalVideoCalls) ?? 0
         totalVideoSeconds = try container.decodeIfPresent(Double.self, forKey: .totalVideoSeconds) ?? 0
+        totalSpeechChars = try container.decodeIfPresent(Int.self, forKey: .totalSpeechChars) ?? 0
+        totalSpeechCalls = try container.decodeIfPresent(Int.self, forKey: .totalSpeechCalls) ?? 0
     }
 
-    /// Cost per token (Google Gemini 2.5 Flash — ai.google.dev/gemini-api/docs/pricing)
+    /// Rates aligned with the server's authoritative cost model (ai-gateway cost.py).
+    /// Google Gemini 2.5 Flash (text) · gemini-2.5-flash-image · Veo · Google TTS.
     private static let textInputCostPerToken: Double = 0.0000003    // $0.30 / 1M tokens
     private static let textOutputCostPerToken: Double = 0.0000025   // $2.50 / 1M tokens
-    private static let imageCostPerImage: Double = 0.04             // Imagen standard $0.04/image
-    private static let videoCostPerSecond: Double = 0.02            // Proxy-mediated rate (not direct Veo API)
+    private static let imageCostPerImage: Double = 0.04             // $0.04 / image
+    private static let videoCostPerSecond: Double = 0.40            // Veo ~$0.40/s (server §10.2)
+    private static let speechCostPer1kChars: Double = 0.015         // Google TTS $0.015 / 1k chars
 
     public var textInputCostUSD: Double {
         Double(totalPromptTokens) * Self.textInputCostPerToken
@@ -115,12 +122,16 @@ public struct AIUsageStats: Codable, Sendable {
         totalVideoSeconds * Self.videoCostPerSecond
     }
 
+    public var speechCostUSD: Double {
+        Double(totalSpeechChars) / 1000.0 * Self.speechCostPer1kChars
+    }
+
     public var totalCostUSD: Double {
-        textInputCostUSD + textOutputCostUSD + imageCostUSD + videoCostUSD
+        textInputCostUSD + textOutputCostUSD + imageCostUSD + videoCostUSD + speechCostUSD
     }
 
     public var totalCalls: Int {
-        totalTextCalls + totalImageCalls + totalVideoCalls
+        totalTextCalls + totalImageCalls + totalVideoCalls + totalSpeechCalls
     }
 
     public mutating func addTextUsage(promptTokens: Int, completionTokens: Int) {
@@ -140,6 +151,11 @@ public struct AIUsageStats: Codable, Sendable {
         totalVideoSeconds += durationSeconds
     }
 
+    public mutating func addSpeechUsage(charCount: Int) {
+        totalSpeechChars += charCount
+        totalSpeechCalls += 1
+    }
+
     /// Estimated cost threshold above which a warning should be shown
     public static let costWarningThreshold: Double = 0.05
 
@@ -153,9 +169,14 @@ public struct AIUsageStats: Codable, Sendable {
         Double(imageCount) * imageCostPerImage
     }
 
-    /// Cost for a specific video call (proxy-mediated flat rate)
+    /// Cost for a specific video call (Veo per-second rate)
     public static func videoCallCost(durationSeconds: Double, quality: String = "High") -> Double {
         return durationSeconds * videoCostPerSecond
+    }
+
+    /// Cost for a specific speech/TTS call (per-1000-character rate)
+    public static func speechCallCost(charCount: Int) -> Double {
+        return Double(charCount) / 1000.0 * speechCostPer1kChars
     }
 }
 
@@ -277,6 +298,23 @@ public final class AIUsageTracker: ObservableObject {
 
         sessionStats.addVideoUsage(durationSeconds: durationSeconds)
         projectStats.addVideoUsage(durationSeconds: durationSeconds)
+
+        appendRecord(record)
+        saveProjectData()
+    }
+
+    public func recordSpeechUsage(provider: String, model: String, characterCount: Int) {
+        let cost = AIUsageStats.speechCallCost(charCount: characterCount)
+
+        let record = AIUsageRecord(
+            type: .speech,
+            provider: provider,
+            model: model,
+            costUSD: cost
+        )
+
+        sessionStats.addSpeechUsage(charCount: characterCount)
+        projectStats.addSpeechUsage(charCount: characterCount)
 
         appendRecord(record)
         saveProjectData()
