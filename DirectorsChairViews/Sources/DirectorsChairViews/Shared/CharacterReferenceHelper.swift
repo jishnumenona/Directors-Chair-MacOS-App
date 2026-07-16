@@ -59,10 +59,10 @@ public enum CharacterReferenceHelper {
                 }
             }
 
-            // Active costume image
-            if let costumeImage = loadActiveCostumeImage(character, projectDirectory: projectDir) {
+            // Costume the character wears in THIS scene (assignment-aware)
+            if let costumeImage = loadCostumeImage(character, scene: scene, projectDirectory: projectDir) {
                 if let base64 = resizeAndEncodeImage(costumeImage, maxDimension: 512) {
-                    let costumeName = activeCostumeName(for: character)
+                    let costumeName = ShotPromptBuilder.assignedCostume(for: character, in: scene)?.name ?? "default"
                     refs.append(ReferenceImage(
                         base64: base64,
                         mimeType: "image/png",
@@ -146,6 +146,20 @@ public enum CharacterReferenceHelper {
     // MARK: - Image Loading
 
     /// Load the primary location image for a scene.
+    /// Filename patterns to search for in a location's asset folder, ordered by
+    /// preference. When the scene declares a time of day, its matching AI
+    /// variation (e.g. "golden_hour", "night") is preferred over the generic
+    /// hero image so the reference matches the scene's light. Pure — tested.
+    static func locationImagePatterns(timeOfDay: String?) -> [String] {
+        var patterns = ["primary", "main", "hero", "day", "wide", "establishing"]
+        if let tod = timeOfDay?.trimmingCharacters(in: .whitespaces), !tod.isEmpty {
+            let key = tod.lowercased().replacingOccurrences(of: " ", with: "_")
+            patterns.removeAll { $0 == key }
+            patterns.insert(key, at: 0)
+        }
+        return patterns
+    }
+
     private static func loadLocationImage(
         forScene scene: DirectorsChairCore.Scene,
         locations: [Location],
@@ -153,7 +167,21 @@ public enum CharacterReferenceHelper {
     ) -> NSImage? {
         guard let locationName = scene.location, !locationName.isEmpty else { return nil }
 
-        // 1. Try the Location model's primaryImage / images array
+        let sanitized = sanitizeLocationName(locationName)
+        let locationFolder = projectDirectory
+            .appendingPathComponent("assets")
+            .appendingPathComponent("locations")
+            .appendingPathComponent(sanitized)
+        let patterns = locationImagePatterns(timeOfDay: scene.timeOfDay)
+
+        // 1. A scene with an explicit time of day prefers the matching
+        //    variation image over the location's generic primary image.
+        if let tod = scene.timeOfDay, !tod.isEmpty,
+           let variation = findImageInFolder(locationFolder, patterns: [patterns[0]]) {
+            return variation
+        }
+
+        // 2. Try the Location model's primaryImage / images array
         if let location = locations.first(where: {
             $0.name.lowercased() == locationName.lowercased()
         }) {
@@ -167,14 +195,7 @@ public enum CharacterReferenceHelper {
             }
         }
 
-        // 2. Discover from assets/locations/{sanitized_name}/
-        let sanitized = sanitizeLocationName(locationName)
-        let locationFolder = projectDirectory
-            .appendingPathComponent("assets")
-            .appendingPathComponent("locations")
-            .appendingPathComponent(sanitized)
-
-        let patterns = ["primary", "main", "hero", "day", "wide", "establishing"]
+        // 3. Discover from assets/locations/{sanitized_name}/
         if let found = findImageInFolder(locationFolder, patterns: patterns) {
             return found
         }
@@ -195,11 +216,21 @@ public enum CharacterReferenceHelper {
         return nil
     }
 
-    /// Load the active costume's front image for a character.
-    private static func loadActiveCostumeImage(_ character: Character, projectDirectory: URL) -> NSImage? {
-        guard let costumes = character.costumes, !costumes.isEmpty else { return nil }
-        let activeIndex = character.activeCostumeIndex ?? 0
-        let costume = costumes.indices.contains(activeIndex) ? costumes[activeIndex] : costumes[0]
+    /// Load the front image of the costume the character wears in this scene
+    /// (scene assignment → active costume → first costume).
+    private static func loadCostumeImage(_ character: Character,
+                                         scene: DirectorsChairCore.Scene?,
+                                         projectDirectory: URL) -> NSImage? {
+        guard let costume = ShotPromptBuilder.assignedCostume(for: character, in: scene) else {
+            // No costume records — fall back to costume-transformed character images
+            let charCostumeCandidates = [character.costumeImageFront, character.costumeImageThreeQuarterLeft]
+            for imagePath in charCostumeCandidates {
+                guard let path = imagePath, !path.isEmpty else { continue }
+                let url = projectDirectory.appendingPathComponent(path)
+                if let image = NSImage(contentsOf: url) { return image }
+            }
+            return nil
+        }
 
         // Try costume image paths
         let candidates = [costume.imageFront, costume.imageFullBody, costume.imageThreeQuarterLeft]
@@ -218,14 +249,6 @@ public enum CharacterReferenceHelper {
         }
 
         return nil
-    }
-
-    /// Get the active costume name for a character.
-    private static func activeCostumeName(for character: Character) -> String {
-        guard let costumes = character.costumes, !costumes.isEmpty else { return "default" }
-        let activeIndex = character.activeCostumeIndex ?? 0
-        let costume = costumes.indices.contains(activeIndex) ? costumes[activeIndex] : costumes[0]
-        return costume.name
     }
 
     /// Return the most prominent characters in a scene by dialogue count.

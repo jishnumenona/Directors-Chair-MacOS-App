@@ -92,18 +92,23 @@ struct ShotContextCard: View {
                         }
                     }
 
-                    // Costumes
+                    // Costumes — click to assign what each character wears in THIS scene
                     let allCostumes = charNames.flatMap { name -> [(Character, CharacterCostume)] in
                         guard let char = characters.first(where: { $0.name == name }),
                               let costumes = char.costumes else { return [] }
                         return costumes.map { (char, $0) }
                     }
                     if !allCostumes.isEmpty {
-                        contextSection(icon: "tshirt.fill", iconColor: .purple, title: "COSTUMES") {
-                            VideoContextFlowLayout(spacing: 8) {
-                                ForEach(allCostumes, id: \.1.id) { char, costume in
-                                    costumeChip(character: char, costume: costume)
+                        contextSection(icon: "tshirt.fill", iconColor: .purple, title: "WARDROBE (THIS SCENE)") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                VideoContextFlowLayout(spacing: 8) {
+                                    ForEach(allCostumes, id: \.1.id) { char, costume in
+                                        costumeChip(character: char, costume: costume)
+                                    }
                                 }
+                                Text("Click a costume to assign it for this scene — prompts and reference images follow the assignment.")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.gray.opacity(0.5))
                             }
                         }
                     }
@@ -583,46 +588,78 @@ struct ShotContextCard: View {
         .cornerRadius(8)
     }
 
-    // MARK: - Costume Chip
+    // MARK: - Costume Chip (scene wardrobe assignment)
+
+    /// Whether this costume is the one the character wears in this scene.
+    private func isAssigned(_ costume: CharacterCostume, for character: Character) -> Bool {
+        scene?.costumeAssignments?[character.name] == costume.costumeId
+    }
+
+    /// Toggle the scene's wardrobe assignment for a character.
+    private func toggleCostumeAssignment(_ costume: CharacterCostume, for character: Character) {
+        guard var updated = scene else { return }
+        var assignments = updated.costumeAssignments ?? [:]
+        if assignments[character.name] == costume.costumeId {
+            assignments.removeValue(forKey: character.name)
+        } else {
+            assignments[character.name] = costume.costumeId
+        }
+        updated.costumeAssignments = assignments.isEmpty ? nil : assignments
+        onSceneUpdated?(updated)
+    }
 
     @ViewBuilder
     private func costumeChip(character: Character, costume: CharacterCostume) -> some View {
-        Button(action: {
-            onNavigateToCharacter?(character)
-        }) {
+        let assigned = isAssigned(costume, for: character)
+
+        Button(action: { toggleCostumeAssignment(costume, for: character) }) {
             HStack(spacing: 6) {
-                if let basePath = projectBasePath, let path = costume.imageFront,
-                   let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                    Image(nsImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 22, height: 22)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else {
-                    defaultSquareIcon(icon: "tshirt", color: .purple)
+                ZStack(alignment: .bottomTrailing) {
+                    if let basePath = projectBasePath, let path = costume.imageFront,
+                       let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 22, height: 22)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    } else {
+                        defaultSquareIcon(icon: "tshirt", color: .purple)
+                    }
+                    if assigned {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.green)
+                            .background(Circle().fill(Color.black).frame(width: 8, height: 8))
+                            .offset(x: 3, y: 3)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(costume.name)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
+                        .font(.system(size: 10, weight: assigned ? .semibold : .medium))
+                        .foregroundColor(.white.opacity(assigned ? 1.0 : 0.9))
                         .lineLimit(1)
-                    Text(character.name)
+                    Text(assigned ? "\(character.name) — worn in scene" : character.name)
                         .font(.system(size: 8))
-                        .foregroundColor(.gray)
+                        .foregroundColor(assigned ? .green.opacity(0.8) : .gray)
                 }
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 7))
-                    .foregroundColor(.gray.opacity(0.4))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Color.purple.opacity(0.08))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.purple.opacity(0.15), lineWidth: 1))
+            .background(assigned ? Color.green.opacity(0.10) : Color.purple.opacity(0.08))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(assigned ? Color.green.opacity(0.45) : Color.purple.opacity(0.15),
+                        lineWidth: assigned ? 1.5 : 1))
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+        .help(assigned ? "Worn in this scene — click to unassign"
+                       : "Click to assign for this scene")
+        .contextMenu {
+            Button(action: { onNavigateToCharacter?(character) }) {
+                Label("Open in Story Design", systemImage: "person.crop.square")
+            }
+        }
     }
 
     // MARK: - Deletable Location Chip

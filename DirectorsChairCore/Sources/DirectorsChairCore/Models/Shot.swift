@@ -40,6 +40,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var videoProvider: String?                // Last used provider
     public var videoQuality: String?                 // Standard/High/Ultra
     public var videoResolution: String?              // "720p"/"1080p"
+    public var lightingStyle: String?                // Key-light mood ("Soft key", "Low-key", ...)
 
     public init(
         uuid: String = UUID().uuidString,
@@ -68,7 +69,8 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoDuration: Double? = nil,
         videoProvider: String? = nil,
         videoQuality: String? = nil,
-        videoResolution: String? = nil
+        videoResolution: String? = nil,
+        lightingStyle: String? = nil
     ) {
         self.uuid = uuid
         self.shotId = shotId
@@ -97,6 +99,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.videoProvider = videoProvider
         self.videoQuality = videoQuality
         self.videoResolution = videoResolution
+        self.lightingStyle = lightingStyle
     }
 
     enum CodingKeys: String, CodingKey {
@@ -127,6 +130,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case videoProvider = "video_provider"
         case videoQuality = "video_quality"
         case videoResolution = "video_resolution"
+        case lightingStyle = "lighting_style"
     }
 
     enum AlternativeCodingKeys: String, CodingKey {
@@ -213,6 +217,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoProvider = try container.decodeIfPresent(String.self, forKey: .videoProvider)
         videoQuality = try container.decodeIfPresent(String.self, forKey: .videoQuality)
         videoResolution = try container.decodeIfPresent(String.self, forKey: .videoResolution)
+        lightingStyle = try container.decodeIfPresent(String.self, forKey: .lightingStyle)
     }
 
     // MARK: - Take Helpers

@@ -52,20 +52,39 @@ struct VideoSettingsCard: View {
     @Binding var aspectRatio: String
     @Binding var resolution: String
     @Binding var cameraMotion: String
+    @Binding var motionSpeed: String
     @Binding var subjectMotion: String
     @Binding var negativePrompt: String
+    @Binding var lightingStyle: String
     @Binding var syncDuration: Bool
     /// End keyframe has an image → the provider bridges start→end and fixes
     /// the clip length itself; the duration slider would be a lie.
     let interpolatesEndFrame: Bool
     let shot: Shot
+    /// Look bible: project styles + built-in presets, the shot's explicit
+    /// override id, and the style that actually resolves (incl. inherited).
+    let lookStyles: [FilmStyle]
+    let activeStyleId: String?
+    let resolvedStyle: FilmStyle?
+    let onStyleSelected: (String?) -> Void
+    /// Scene atmosphere (slug-line facts) — owned by the scene, edited here.
+    let timeOfDay: String?
+    let weather: String?
+    let onTimeOfDayChanged: (String?) -> Void
+    let onWeatherChanged: (String?) -> Void
     let onDurationChanged: (Double) -> Void
 
     @State private var showMoreSettings: Bool = false
 
     private let qualities = ["Standard", "High", "Ultra"]
-    private let cameraMotions = ["Static", "Pan Left", "Pan Right", "Zoom In", "Zoom Out", "Dolly", "Crane", "Tracking"]
+    // One movement vocabulary across the app — same list as the shot editor.
+    private var cameraMotions: [String] { CameraAngleOptions.movements }
+    private let motionSpeeds = ["Slow", "Normal", "Fast", "Whip"]
     private let subjectMotions = ["Static", "Subtle", "Walking", "Running", "Dynamic"]
+    private let timesOfDay = ["Day", "Night", "Golden Hour", "Blue Hour", "Dawn", "Dusk", "Overcast"]
+    private let weathers = ["Clear", "Rain", "Fog", "Snow", "Storm", "Haze"]
+    private let lightingMoods = ["Soft key", "Hard key", "Low-key", "High-key", "Backlit rim",
+                                 "Silhouette", "Practical sources", "Candlelight", "Neon glow"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -77,6 +96,56 @@ struct VideoSettingsCard: View {
                     .font(.system(size: 10, weight: .bold))
                     .tracking(1.2)
                     .foregroundColor(.gray)
+            }
+
+            // Look (film style — the shot's look bible entry)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Look")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.gray)
+                    .textCase(.uppercase)
+                Menu {
+                    Button("Project default") { onStyleSelected(nil) }
+                    Divider()
+                    ForEach(lookStyles) { style in
+                        Button(action: { onStyleSelected(style.id) }) {
+                            if style.id == activeStyleId {
+                                Label(style.name, systemImage: "checkmark")
+                            } else {
+                                Text(style.name)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "paintpalette.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(resolvedStyle != nil ? .accentColor : .gray)
+                        Text(resolvedStyle?.name ?? "No look set")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(resolvedStyle != nil ? .white : .gray)
+                        if activeStyleId == nil && resolvedStyle != nil {
+                            Text("inherited")
+                                .font(.system(size: 8))
+                                .foregroundColor(.gray.opacity(0.6))
+                        }
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 8))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color(hex: "#3A3A3A"))
+                    .cornerRadius(6)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                if let style = resolvedStyle, !style.description.isEmpty {
+                    Text(style.description)
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.7))
+                        .lineLimit(1)
+                }
             }
 
             // Provider
@@ -133,13 +202,27 @@ struct VideoSettingsCard: View {
                             Toggle("", isOn: $syncDuration).toggleStyle(.switch).scaleEffect(0.6).frame(width: 30)
                         }
                     }
-                    HStack(spacing: 12) {
-                        Text(String(format: "%.1f", duration))
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                        Text("sec").font(.system(size: 11)).foregroundColor(.gray)
-                        Slider(value: $duration, in: selectedProvider.minDuration...selectedProvider.maxDuration, step: 0.5)
-                            .onChange(of: duration) { _, newValue in onDurationChanged(newValue) }
+                    if let options = selectedProvider.discreteDurations {
+                        // Veo renders fixed clip lengths — offer exactly those,
+                        // instead of a slider whose value would be snapped anyway.
+                        HStack(spacing: 6) {
+                            ForEach(options, id: \.self) { option in
+                                chipButton(icon: "timer", label: "\(Int(option))s",
+                                           isSelected: duration == option) {
+                                    duration = option
+                                    onDurationChanged(option)
+                                }
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 12) {
+                            Text(String(format: "%.1f", duration))
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                            Text("sec").font(.system(size: 11)).foregroundColor(.gray)
+                            Slider(value: $duration, in: selectedProvider.minDuration...selectedProvider.maxDuration, step: 0.5)
+                                .onChange(of: duration) { _, newValue in onDurationChanged(newValue) }
+                        }
                     }
                 }
             }
@@ -172,12 +255,70 @@ struct VideoSettingsCard: View {
                 }
             }
 
-            // Camera Motion
+            // Camera Motion (same vocabulary as the shot editor) + speed
             VStack(alignment: .leading, spacing: 6) {
                 Text("Camera Motion").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 6)], spacing: 6) {
                     ForEach(cameraMotions, id: \.self) { motion in
                         chipButton(icon: motionIcon(motion), label: motion, isSelected: cameraMotion == motion) { cameraMotion = motion }
+                    }
+                }
+                if cameraMotion != "Static" {
+                    HStack(spacing: 6) {
+                        Text("Speed").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                        ForEach(motionSpeeds, id: \.self) { speed in
+                            chipButton(icon: speed == "Slow" ? "tortoise" : speed == "Whip" ? "bolt" : speed == "Fast" ? "hare" : "metronome",
+                                       label: speed, isSelected: motionSpeed == speed) { motionSpeed = speed }
+                        }
+                    }
+                }
+            }
+
+            // Lighting (scene atmosphere + this shot's key mood)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sun.max.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.yellow.opacity(0.8))
+                    Text("LIGHTING")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.0)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("time & weather apply to the whole scene")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray.opacity(0.5))
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Time of Day").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                    VideoContextFlowLayout(spacing: 6) {
+                        ForEach(timesOfDay, id: \.self) { tod in
+                            chipButton(icon: tod == "Night" ? "moon.fill" : tod == "Golden Hour" ? "sun.horizon.fill" : "sun.max",
+                                       label: tod, isSelected: timeOfDay == tod) {
+                                onTimeOfDayChanged(timeOfDay == tod ? nil : tod)
+                            }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Weather / Atmosphere").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                    VideoContextFlowLayout(spacing: 6) {
+                        ForEach(weathers, id: \.self) { condition in
+                            chipButton(icon: condition == "Rain" ? "cloud.rain" : condition == "Fog" || condition == "Haze" ? "cloud.fog" : condition == "Snow" ? "snowflake" : condition == "Storm" ? "cloud.bolt" : "sun.min",
+                                       label: condition, isSelected: weather == condition) {
+                                onWeatherChanged(weather == condition ? nil : condition)
+                            }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Key Mood").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                    VideoContextFlowLayout(spacing: 6) {
+                        ForEach(lightingMoods, id: \.self) { mood in
+                            chipButton(icon: "lightbulb", label: mood, isSelected: lightingStyle == mood) {
+                                lightingStyle = (lightingStyle == mood) ? "" : mood
+                            }
+                        }
                     }
                 }
             }
@@ -229,9 +370,23 @@ struct VideoSettingsCard: View {
 
     private func motionIcon(_ motion: String) -> String {
         switch motion {
-        case "Static": return "viewfinder"; case "Pan Left": return "arrow.left"; case "Pan Right": return "arrow.right"
-        case "Zoom In": return "plus.magnifyingglass"; case "Zoom Out": return "minus.magnifyingglass"
-        case "Dolly": return "arrow.up.and.down"; case "Crane": return "arrow.up.forward"; case "Tracking": return "figure.walk"
+        case "Static": return "viewfinder"
+        case "Pan Left": return "arrow.left"
+        case "Pan Right": return "arrow.right"
+        case "Tilt Up": return "arrow.up"
+        case "Tilt Down": return "arrow.down"
+        case "Zoom In", "Push In": return "plus.magnifyingglass"
+        case "Zoom Out", "Pull Out": return "minus.magnifyingglass"
+        case "Dolly In": return "arrow.up.forward.circle"
+        case "Dolly Out": return "arrow.down.backward.circle"
+        case "Dolly Left", "Arc Left": return "arrow.turn.up.left"
+        case "Dolly Right", "Arc Right": return "arrow.turn.up.right"
+        case "Crane Up": return "arrow.up.to.line"
+        case "Crane Down": return "arrow.down.to.line"
+        case "Handheld": return "hand.raised"
+        case "Steadicam": return "figure.walk.motion"
+        case "Tracking": return "figure.walk"
+        case "Whip Pan": return "bolt.horizontal"
         default: return "arrow.left.and.right"
         }
     }

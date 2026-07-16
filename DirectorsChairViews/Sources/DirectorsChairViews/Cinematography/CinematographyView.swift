@@ -28,6 +28,11 @@ public struct CinematographyView: View {
     let locations: [Location]
     let projectBasePath: URL?
 
+    /// Project look bible: user-defined FilmStyles + the project default,
+    /// resolved per shot (shot → scene → default) for AI generation.
+    let filmStyles: [FilmStyle]
+    let defaultFilmStyleId: String?
+
     /// Callback when shots change (for persistence)
     public var onShotsChanged: (([Shot]) -> Void)?
 
@@ -67,6 +72,8 @@ public struct CinematographyView: View {
         characters: [Character] = [],
         locations: [Location] = [],
         projectBasePath: URL? = nil,
+        filmStyles: [FilmStyle] = [],
+        defaultFilmStyleId: String? = nil,
         initialSelectedShotId: Int? = nil,
         scrollToShotSection: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
@@ -84,6 +91,8 @@ public struct CinematographyView: View {
         self.characters = characters
         self.locations = locations
         self.projectBasePath = projectBasePath
+        self.filmStyles = filmStyles
+        self.defaultFilmStyleId = defaultFilmStyleId
         self.initialSelectedShotId = initialSelectedShotId
         self._scrollToShotSection = scrollToShotSection
         self.onShotsChanged = onShotsChanged
@@ -541,6 +550,8 @@ public struct CinematographyView: View {
                         characters: characters,
                         locations: locations,
                         projectBasePath: projectBasePath?.deletingLastPathComponent(),
+                        filmStyles: filmStyles,
+                        defaultFilmStyleId: defaultFilmStyleId,
                         onShotUpdated: { updatedShot in
                             viewModel.updateShot(updatedShot)
                         },

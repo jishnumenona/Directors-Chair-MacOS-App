@@ -146,7 +146,7 @@ final class ShotPromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Alex (Weathered detective"), "character appearance missing")
         XCTAssertTrue(prompt.contains("Maya"), "action-only character missing")
         XCTAssertTrue(prompt.contains("black hair"), "character physical attributes missing")
-        XCTAssertTrue(prompt.contains("Costumes: Alex: Detective Coat"), "costumes missing")
+        XCTAssertTrue(prompt.contains("Costumes: Alex wears Detective Coat"), "costumes missing")
         XCTAssertTrue(prompt.contains("Alex: \"We're too late.\""), "linked dialogue missing")
         XCTAssertTrue(prompt.contains("Action: Maya forces the door"), "linked action missing")
         XCTAssertTrue(prompt.contains("Sound atmosphere: distant harbor horn"), "sound notes missing")
@@ -165,6 +165,130 @@ final class ShotPromptBuilderTests: XCTestCase {
     func testCharacterNamesUnionsDialoguesAndActions() {
         let (scene, _, _) = makeVideoScene()
         XCTAssertEqual(ShotPromptBuilder.characterNames(in: scene), ["Alex", "Maya"])
+    }
+
+    // MARK: - Film style resolution & clause
+
+    func testResolveFilmStylePrecedence() {
+        let projectStyle = FilmStyle(id: "proj-1", name: "House Look")
+        var shot = makeShot()
+        var scene = DCScene(name: "S1")
+
+        // Shot override wins
+        shot.styleOverride = "proj-1"
+        scene.styleOverride = "preset-film-noir"
+        XCTAssertEqual(ShotPromptBuilder.resolveFilmStyle(shot: shot, scene: scene,
+                                                          projectStyles: [projectStyle],
+                                                          defaultStyleId: "preset-anime")?.id, "proj-1")
+        // Scene override next
+        shot.styleOverride = nil
+        XCTAssertEqual(ShotPromptBuilder.resolveFilmStyle(shot: shot, scene: scene,
+                                                          projectStyles: [projectStyle],
+                                                          defaultStyleId: "preset-anime")?.id, "preset-film-noir")
+        // Project default last
+        scene.styleOverride = nil
+        XCTAssertEqual(ShotPromptBuilder.resolveFilmStyle(shot: shot, scene: scene,
+                                                          projectStyles: [projectStyle],
+                                                          defaultStyleId: "preset-anime")?.id, "preset-anime")
+        // Nothing set → nil
+        XCTAssertNil(ShotPromptBuilder.resolveFilmStyle(shot: shot, scene: scene,
+                                                        projectStyles: [projectStyle],
+                                                        defaultStyleId: nil))
+        // Dangling id falls through to the next candidate
+        shot.styleOverride = "missing-style"
+        XCTAssertEqual(ShotPromptBuilder.resolveFilmStyle(shot: shot, scene: scene,
+                                                          projectStyles: [projectStyle],
+                                                          defaultStyleId: "preset-anime")?.id, "preset-anime")
+    }
+
+    func testStyleClausePrefersHandWrittenPrompt() {
+        let style = FilmStyle(name: "Noir", colorGrading: "warm", filmGrain: true,
+                              aiStylePrompt: "hard single-source noir lighting")
+        let clause = ShotPromptBuilder.styleClause(for: style)
+        XCTAssertTrue(clause.contains("hard single-source noir lighting"))
+        XCTAssertFalse(clause.contains("warm color grading"), "structured fields yield to aiStylePrompt")
+    }
+
+    func testStyleClauseDerivesFromStructuredFields() {
+        let style = FilmStyle(name: "Custom", colorPalette: ["#112233"],
+                              colorGrading: "vintage", contrastLevel: "dramatic",
+                              filmGrain: true, vignette: true)
+        let clause = ShotPromptBuilder.styleClause(for: style)
+        XCTAssertTrue(clause.contains("vintage color grading"))
+        XCTAssertTrue(clause.contains("dramatic contrast"))
+        XCTAssertTrue(clause.contains("film grain"))
+        XCTAssertTrue(clause.contains("subtle vignette"))
+        XCTAssertTrue(clause.contains("#112233"))
+    }
+
+    func testVideoPromptUsesFilmStyleInsteadOfHardcodedTail() {
+        let style = FilmStyle.presets.first { $0.id == "preset-film-noir" }!
+        let prompt = ShotPromptBuilder.videoPrompt(shot: makeShot(), scene: nil,
+                                                   characters: [], locations: [],
+                                                   cameraMotion: "Static", duration: 5.0,
+                                                   filmStyle: style)
+        XCTAssertTrue(prompt.contains("film noir"))
+        XCTAssertFalse(prompt.contains("Dramatic lighting, cinematic quality, professional filmmaking."),
+                       "hardcoded tail must yield to the film style")
+    }
+
+    // MARK: - Atmosphere & lighting
+
+    func testVideoPromptIncludesSceneAtmosphereAndLighting() {
+        var scene = DCScene(name: "S1")
+        scene.timeOfDay = "Golden Hour"
+        scene.weather = "Rain"
+        let prompt = ShotPromptBuilder.videoPrompt(shot: makeShot(), scene: scene,
+                                                   characters: [], locations: [],
+                                                   cameraMotion: "Static", duration: 5.0,
+                                                   lightingStyle: "Low-key")
+        XCTAssertTrue(prompt.contains("golden hour light"))
+        XCTAssertTrue(prompt.contains("rain"))
+        XCTAssertTrue(prompt.contains("low-key lighting"))
+    }
+
+    func testAtmosphereClauseNilWhenNothingSet() {
+        XCTAssertNil(ShotPromptBuilder.atmosphereClause(scene: DCScene(name: "S1"), lightingStyle: nil))
+    }
+
+    // MARK: - Wardrobe continuity
+
+    private func makeCostumedCharacter() -> Character {
+        var char = Character(name: "Alex")
+        var coat = CharacterCostume(name: "Detective Coat")
+        coat.costumeId = "c-coat"
+        var gala = CharacterCostume(name: "Gala Suit")
+        gala.costumeId = "c-gala"
+        char.costumes = [coat, gala]
+        return char
+    }
+
+    func testAssignedCostumeHonorsSceneAssignment() {
+        let char = makeCostumedCharacter()
+        var scene = DCScene(name: "S1")
+        scene.costumeAssignments = ["Alex": "c-gala"]
+        XCTAssertEqual(ShotPromptBuilder.assignedCostume(for: char, in: scene)?.name, "Gala Suit")
+    }
+
+    func testAssignedCostumeFallsBackToActiveThenFirst() {
+        var char = makeCostumedCharacter()
+        let scene = DCScene(name: "S1")  // no assignments
+        char.activeCostumeIndex = 1
+        XCTAssertEqual(ShotPromptBuilder.assignedCostume(for: char, in: scene)?.name, "Gala Suit")
+        char.activeCostumeIndex = nil
+        XCTAssertEqual(ShotPromptBuilder.assignedCostume(for: char, in: scene)?.name, "Detective Coat")
+    }
+
+    func testVideoPromptCostumeLineFollowsAssignment() {
+        let char = makeCostumedCharacter()
+        var scene = DCScene(name: "S1")
+        scene.dialogues = [Dialogue(character: "Alex", text: "Hello.", chronologyNumber: 1)]
+        scene.costumeAssignments = ["Alex": "c-gala"]
+        let prompt = ShotPromptBuilder.videoPrompt(shot: makeShot(), scene: scene,
+                                                   characters: [char], locations: [],
+                                                   cameraMotion: "Static", duration: 5.0)
+        XCTAssertTrue(prompt.contains("Alex wears Gala Suit"))
+        XCTAssertFalse(prompt.contains("Detective Coat"), "only the scene's assigned costume is stated")
     }
 
     // MARK: - StoryDesignPromptBuilder (WS6.2)

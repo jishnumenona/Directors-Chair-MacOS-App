@@ -35,6 +35,15 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
     public var productionStatus: String  // "Planning", "Scheduled", "Ready", "Shooting", "Shot", "Complete"
     public var styleOverride: String?  // FilmStyle ID to override project default
 
+    // MARK: - Atmosphere (slug-line facts: "INT. KITCHEN - DAY")
+    public var timeOfDay: String?  // "Day", "Night", "Golden Hour", "Blue Hour", "Overcast", ...
+    public var weather: String?    // "Clear", "Rain", "Fog", "Snow", "Storm", ...
+
+    // MARK: - Wardrobe continuity
+    /// Which costume each character wears in THIS scene (character name → CharacterCostume.costumeId).
+    /// Unset characters fall back to their first/active costume.
+    public var costumeAssignments: [String: String]?
+
     // MARK: - Scene Overview
     public var sceneOverviewImage: String?  // AI-generated composite showing emotional essence
     public var sceneEmotionalAnalysis: [String: Double]?  // Emotional analysis (emotions and weights)
@@ -63,7 +72,10 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         sceneOverviewImage: String? = nil,
         sceneEmotionalAnalysis: [String: Double]? = nil,
         sceneOverviewPrompt: String? = nil,
-        sceneOverviewSummary: String? = nil
+        sceneOverviewSummary: String? = nil,
+        timeOfDay: String? = nil,
+        weather: String? = nil,
+        costumeAssignments: [String: String]? = nil
     ) {
         self.uuid = uuid
         self.name = name
@@ -87,6 +99,9 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         self.sceneEmotionalAnalysis = sceneEmotionalAnalysis
         self.sceneOverviewPrompt = sceneOverviewPrompt
         self.sceneOverviewSummary = sceneOverviewSummary
+        self.timeOfDay = timeOfDay
+        self.weather = weather
+        self.costumeAssignments = costumeAssignments
     }
 
     enum CodingKeys: String, CodingKey {
@@ -112,6 +127,9 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         case sceneEmotionalAnalysis = "scene_emotional_analysis"
         case sceneOverviewPrompt = "scene_overview_prompt"
         case sceneOverviewSummary = "scene_overview_summary"
+        case timeOfDay = "time_of_day"
+        case weather
+        case costumeAssignments = "costume_assignments"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -153,5 +171,10 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         sceneEmotionalAnalysis = try container.decodeIfPresent([String: Double].self, forKey: .sceneEmotionalAnalysis)
         sceneOverviewPrompt = try container.decodeIfPresent(String.self, forKey: .sceneOverviewPrompt)
         sceneOverviewSummary = try container.decodeIfPresent(String.self, forKey: .sceneOverviewSummary)
+
+        // Atmosphere & wardrobe continuity
+        timeOfDay = try container.decodeIfPresent(String.self, forKey: .timeOfDay)
+        weather = try container.decodeIfPresent(String.self, forKey: .weather)
+        costumeAssignments = try container.decodeIfPresent([String: String].self, forKey: .costumeAssignments)
     }
 }

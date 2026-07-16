@@ -189,4 +189,25 @@ final class VideoProviderTests: XCTestCase {
         XCTAssertEqual(VideoProvider.sora2.effectiveDuration(requested: 12.0, bridgesEndFrame: true), 12.0)
         XCTAssertEqual(VideoProvider.kling.effectiveDuration(requested: 7.0, bridgesEndFrame: true), 7.0)
     }
+
+    // MARK: - Discrete durations (Veo renders fixed clip lengths)
+
+    func testVeoHasDiscreteDurations() {
+        XCTAssertEqual(VideoProvider.veo3.discreteDurations, [4, 6, 8])
+        XCTAssertNil(VideoProvider.sora2.discreteDurations)
+        XCTAssertNil(VideoProvider.kling.discreteDurations)
+    }
+
+    func testSnappedDurationPicksNearestDiscrete() {
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(4.4), 4)
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(5.0), 4, "ties snap to the shorter length")
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(6.9), 6)
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(7.5), 8)
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(10.0), 8)
+    }
+
+    func testSnappedDurationIdentityForContinuousProviders() {
+        XCTAssertEqual(VideoProvider.sora2.snappedDuration(12.5), 12.5)
+        XCTAssertEqual(VideoProvider.kling.snappedDuration(3.5), 3.5)
+    }
 }

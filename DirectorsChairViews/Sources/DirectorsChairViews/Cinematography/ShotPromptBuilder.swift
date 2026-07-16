@@ -150,6 +150,66 @@ public enum ShotPromptBuilder {
 
         return parts.joined(separator: ", ")
     }
+    // MARK: - Film style (look bible)
+
+    /// Resolve the effective FilmStyle for a shot: shot override → scene
+    /// override → project default, each looked up in the project's styles
+    /// first and the built-in presets second.
+    public static func resolveFilmStyle(shot: Shot, scene: DCScene?,
+                                        projectStyles: [FilmStyle],
+                                        defaultStyleId: String?) -> FilmStyle? {
+        for id in [shot.styleOverride, scene?.styleOverride, defaultStyleId] {
+            if let id, !id.isEmpty, let style = FilmStyle.resolve(id: id, in: projectStyles) {
+                return style
+            }
+        }
+        return nil
+    }
+
+    /// Prompt clause for a FilmStyle. A hand-written `aiStylePrompt` wins;
+    /// otherwise the clause is derived from the structured fields.
+    public static func styleClause(for style: FilmStyle) -> String {
+        var bits: [String] = []
+        if !style.aiStylePrompt.isEmpty {
+            bits.append(style.aiStylePrompt)
+        } else {
+            if style.renderingStyle != "realistic" { bits.append("\(style.renderingStyle) rendering") }
+            if style.colorGrading != "neutral" { bits.append("\(style.colorGrading) color grading") }
+            if style.contrastLevel != "medium" { bits.append("\(style.contrastLevel) contrast") }
+            if style.filmGrain { bits.append("film grain") }
+            if style.vignette { bits.append("subtle vignette") }
+            if bits.isEmpty { bits.append("cinematic quality, professional filmmaking") }
+        }
+        if !style.colorPalette.isEmpty {
+            bits.append("color palette anchored to \(style.colorPalette.joined(separator: ", "))")
+        }
+        return "Style: \(bits.joined(separator: ", "))."
+    }
+
+    /// Scene atmosphere clause from slug-line facts (time of day, weather).
+    static func atmosphereClause(scene: DCScene?, lightingStyle: String?) -> String? {
+        var bits: [String] = []
+        if let tod = scene?.timeOfDay, !tod.isEmpty { bits.append(tod.lowercased() + " light") }
+        if let weather = scene?.weather, !weather.isEmpty { bits.append(weather.lowercased()) }
+        if let lighting = lightingStyle, !lighting.isEmpty { bits.append("\(lighting.lowercased()) lighting") }
+        guard !bits.isEmpty else { return nil }
+        return "Atmosphere: \(bits.joined(separator: ", "))."
+    }
+
+    /// The costume a character wears in a given scene: the scene's explicit
+    /// assignment first, then the character's active costume, then the first.
+    public static func assignedCostume(for character: Character, in scene: DCScene?) -> CharacterCostume? {
+        guard let costumes = character.costumes, !costumes.isEmpty else { return nil }
+        if let assignedId = scene?.costumeAssignments?[character.name],
+           let assigned = costumes.first(where: { $0.costumeId == assignedId }) {
+            return assigned
+        }
+        if let activeIdx = character.activeCostumeIndex, costumes.indices.contains(activeIdx) {
+            return costumes[activeIdx]
+        }
+        return costumes.first
+    }
+
     /// Character names appearing in a scene, resolved from both dialogues and
     /// actions (a character who only acts, never speaks, still appears).
     public static func characterNames(in scene: DCScene) -> [String] {
@@ -171,7 +231,9 @@ public enum ShotPromptBuilder {
     /// provider fixes the clip length itself.
     public static func videoPrompt(shot: Shot, scene: DCScene?, characters: [Character],
                                    locations: [Location], cameraMotion: String,
-                                   duration: Double?) -> String {
+                                   duration: Double?,
+                                   filmStyle: FilmStyle? = nil,
+                                   lightingStyle: String? = nil) -> String {
         var parts: [String] = []
         parts.append("Cinematic video shot. \(shot.shotType) shot, \(shot.cameraAngle) angle")
         if let lens = shot.lensMm {
@@ -196,11 +258,15 @@ public enum ShotPromptBuilder {
                 }
                 parts.append("Characters: \(charDescriptions.joined(separator: "; "))")
             }
+            // Wardrobe continuity: the scene's assigned costume, not the whole closet.
             let costumeDescriptions = sceneCharNames.compactMap { name -> String? in
                 guard let char = characters.first(where: { $0.name == name }),
-                      let costumes = char.costumes, !costumes.isEmpty else { return nil }
-                let costumeNames = costumes.prefix(2).map { $0.name }
-                return "\(name): \(costumeNames.joined(separator: ", "))"
+                      let costume = assignedCostume(for: char, in: currentScene) else { return nil }
+                var desc = "\(name) wears \(costume.name)"
+                if let palette = costume.colorPalette, !palette.isEmpty {
+                    desc += " (\(palette.prefix(2).joined(separator: "/")))"
+                }
+                return desc
             }
             if !costumeDescriptions.isEmpty {
                 parts.append("Costumes: \(costumeDescriptions.joined(separator: "; "))")
@@ -240,12 +306,19 @@ public enum ShotPromptBuilder {
                 parts.append("Sound atmosphere: \(sounds.joined(separator: ", "))")
             }
         }
+        if let atmosphere = atmosphereClause(scene: scene, lightingStyle: lightingStyle) {
+            parts.append(atmosphere)
+        }
         if let duration {
             parts.append("Camera motion: \(cameraMotion). Duration: \(String(format: "%.1f", duration))s.")
         } else {
             parts.append("Camera motion: \(cameraMotion).")
         }
-        parts.append("Dramatic lighting, cinematic quality, professional filmmaking.")
+        if let style = filmStyle {
+            parts.append(styleClause(for: style))
+        } else {
+            parts.append("Dramatic lighting, cinematic quality, professional filmmaking.")
+        }
         return parts.joined(separator: "\n")
     }
 
@@ -253,7 +326,9 @@ public enum ShotPromptBuilder {
     /// 1 = final frame).
     public static func keyframePrompt(shot: Shot, scene: DCScene?, characterNames: [String],
                                       characters: [Character], locations: [Location],
-                                      position: Double) -> String {
+                                      position: Double,
+                                      filmStyle: FilmStyle? = nil,
+                                      lightingStyle: String? = nil) -> String {
         var parts: [String] = []
         parts.append("A single cinematic film frame. \(shot.shotType) shot, \(shot.cameraAngle) angle.")
         if let lens = shot.lensMm {
@@ -277,8 +352,8 @@ public enum ShotPromptBuilder {
                         else if !char.hairStyle.isEmpty { desc += ", \(char.hairStyle) hair" }
                         if !char.distinguishingFeatures.isEmpty { desc += ", \(char.distinguishingFeatures)" }
                     }
-                    if let costumes = char.costumes, let first = costumes.first {
-                        desc += ", wearing \(first.name)"
+                    if let costume = assignedCostume(for: char, in: currentScene) {
+                        desc += ", wearing \(costume.name)"
                     }
                     return desc
                 }
@@ -305,7 +380,15 @@ public enum ShotPromptBuilder {
         } else {
             parts.append("This frame is at \(String(format: "%.0f%%", position * 100)) through the shot.")
         }
-        parts.append("Dramatic lighting, cinematic quality, professional filmmaking, photorealistic.")
+        if let atmosphere = atmosphereClause(scene: scene, lightingStyle: lightingStyle) {
+            parts.append(atmosphere)
+        }
+        // Keyframes must match the video's look — same style clause as videoPrompt.
+        if let style = filmStyle {
+            parts.append(styleClause(for: style))
+        } else {
+            parts.append("Dramatic lighting, cinematic quality, professional filmmaking, photorealistic.")
+        }
         return parts.joined(separator: "\n")
     }
 
