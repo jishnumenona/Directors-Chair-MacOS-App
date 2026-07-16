@@ -71,20 +71,6 @@ struct VideoReferenceTray: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "person.crop.rectangle.stack")
-                    .font(.system(size: 12))
-                    .foregroundColor(.accentColor)
-                Text("CONSISTENCY REFERENCES")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(.gray)
-                Spacer()
-                Text("\(selectedIds.count)/\(limit) sent with the video request")
-                    .font(.system(size: 9))
-                    .foregroundColor(selectedIds.count >= limit ? .orange : .gray.opacity(0.6))
-            }
-
             if candidates.isEmpty {
                 Text("Generate keyframes, or add character/location images in Story Design, to anchor the video's look.")
                     .font(.system(size: 10))
@@ -98,11 +84,11 @@ struct VideoReferenceTray: View {
                     }
                     .padding(.vertical, 2)
                 }
+                Text("Click to choose up to \(limit) images sent to the model for subject/scene consistency — selection order is send order.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray.opacity(0.5))
             }
         }
-        .padding(12)
-        .background(Color(hex: "#252525"))
-        .cornerRadius(10)
     }
 
     private func toggle(_ candidate: VideoReferenceCandidate) {

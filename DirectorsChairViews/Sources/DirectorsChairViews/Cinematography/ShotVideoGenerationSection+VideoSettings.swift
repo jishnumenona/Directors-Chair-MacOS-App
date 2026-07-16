@@ -74,7 +74,10 @@ struct VideoSettingsCard: View {
     let onWeatherChanged: (String?) -> Void
     let onDurationChanged: (Double) -> Void
 
-    @State private var showMoreSettings: Bool = false
+    // Grouped disclosures — preferences persist across shots and launches.
+    @AppStorage("shotCard.settings.lookLighting") private var showLookLighting: Bool = false
+    @AppStorage("shotCard.settings.cameraMotion") private var showCameraMotion: Bool = false
+    @AppStorage("shotCard.settings.advanced") private var showAdvanced: Bool = false
 
     private let qualities = ["Standard", "High", "Ultra"]
     // One movement vocabulary across the app — same list as the shot editor.
@@ -96,56 +99,6 @@ struct VideoSettingsCard: View {
                     .font(.system(size: 10, weight: .bold))
                     .tracking(1.2)
                     .foregroundColor(.gray)
-            }
-
-            // Look (film style — the shot's look bible entry)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Look")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.gray)
-                    .textCase(.uppercase)
-                Menu {
-                    Button("Project default") { onStyleSelected(nil) }
-                    Divider()
-                    ForEach(lookStyles) { style in
-                        Button(action: { onStyleSelected(style.id) }) {
-                            if style.id == activeStyleId {
-                                Label(style.name, systemImage: "checkmark")
-                            } else {
-                                Text(style.name)
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "paintpalette.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(resolvedStyle != nil ? .accentColor : .gray)
-                        Text(resolvedStyle?.name ?? "No look set")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(resolvedStyle != nil ? .white : .gray)
-                        if activeStyleId == nil && resolvedStyle != nil {
-                            Text("inherited")
-                                .font(.system(size: 8))
-                                .foregroundColor(.gray.opacity(0.6))
-                        }
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 8))
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color(hex: "#3A3A3A"))
-                    .cornerRadius(6)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                if let style = resolvedStyle, !style.description.isEmpty {
-                    Text(style.description)
-                        .font(.system(size: 9))
-                        .foregroundColor(.gray.opacity(0.7))
-                        .lineLimit(1)
-                }
             }
 
             // Provider
@@ -227,145 +180,239 @@ struct VideoSettingsCard: View {
                 }
             }
 
-            // Quality & Aspect & Resolution
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Quality").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                    HStack(spacing: 6) {
-                        ForEach(qualities, id: \.self) { q in
-                            chipButton(icon: q == "Ultra" ? "star.fill" : q == "High" ? "sparkles" : "circle", label: q, isSelected: quality == q) { quality = q }
-                        }
-                    }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Aspect Ratio").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                    HStack(spacing: 6) {
-                        ForEach(selectedProvider.supportedAspectRatios, id: \.self) { ar in
-                            chipButton(icon: ar == "16:9" ? "rectangle" : ar == "9:16" ? "rectangle.portrait" : "square", label: ar, isSelected: aspectRatio == ar) { aspectRatio = ar }
-                        }
-                    }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Resolution").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                    HStack(spacing: 6) {
-                        ForEach(selectedProvider.supportedResolutions, id: \.self) { res in
-                            chipButton(icon: res == "1080p" ? "sparkles.tv" : "tv", label: res, isSelected: resolution == res) { resolution = res }
-                        }
-                    }
-                }
-            }
-
-            // Camera Motion (same vocabulary as the shot editor) + speed
+            // Resolution — essential (directly changes what you pay for/get)
             VStack(alignment: .leading, spacing: 6) {
-                Text("Camera Motion").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 6)], spacing: 6) {
-                    ForEach(cameraMotions, id: \.self) { motion in
-                        chipButton(icon: motionIcon(motion), label: motion, isSelected: cameraMotion == motion) { cameraMotion = motion }
-                    }
-                }
-                if cameraMotion != "Static" {
-                    HStack(spacing: 6) {
-                        Text("Speed").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                        ForEach(motionSpeeds, id: \.self) { speed in
-                            chipButton(icon: speed == "Slow" ? "tortoise" : speed == "Whip" ? "bolt" : speed == "Fast" ? "hare" : "metronome",
-                                       label: speed, isSelected: motionSpeed == speed) { motionSpeed = speed }
-                        }
+                Text("Resolution").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                HStack(spacing: 6) {
+                    ForEach(selectedProvider.supportedResolutions, id: \.self) { res in
+                        chipButton(icon: res == "1080p" ? "sparkles.tv" : "tv", label: res, isSelected: resolution == res) { resolution = res }
                     }
                 }
             }
 
-            // Lighting (scene atmosphere + this shot's key mood)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: "sun.max.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.yellow.opacity(0.8))
-                    Text("LIGHTING")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(1.0)
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Text("time & weather apply to the whole scene")
+            // Look & Lighting — collapsed group with a live summary
+            disclosureGroup(
+                icon: "paintpalette.fill", iconColor: .accentColor,
+                title: "Look & Lighting",
+                summary: ShotViewSummaries.lookLighting(styleName: resolvedStyle?.name,
+                                                        timeOfDay: timeOfDay, weather: weather,
+                                                        keyMood: lightingStyle.isEmpty ? nil : lightingStyle),
+                isExpanded: $showLookLighting
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    lookPicker
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Time of Day").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                        VideoContextFlowLayout(spacing: 6) {
+                            ForEach(timesOfDay, id: \.self) { tod in
+                                chipButton(icon: tod == "Night" ? "moon.fill" : tod == "Golden Hour" ? "sun.horizon.fill" : "sun.max",
+                                           label: tod, isSelected: timeOfDay == tod) {
+                                    onTimeOfDayChanged(timeOfDay == tod ? nil : tod)
+                                }
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Weather / Atmosphere").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                        VideoContextFlowLayout(spacing: 6) {
+                            ForEach(weathers, id: \.self) { condition in
+                                chipButton(icon: condition == "Rain" ? "cloud.rain" : condition == "Fog" || condition == "Haze" ? "cloud.fog" : condition == "Snow" ? "snowflake" : condition == "Storm" ? "cloud.bolt" : "sun.min",
+                                           label: condition, isSelected: weather == condition) {
+                                    onWeatherChanged(weather == condition ? nil : condition)
+                                }
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Key Mood").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                        VideoContextFlowLayout(spacing: 6) {
+                            ForEach(lightingMoods, id: \.self) { mood in
+                                chipButton(icon: "lightbulb", label: mood, isSelected: lightingStyle == mood) {
+                                    lightingStyle = (lightingStyle == mood) ? "" : mood
+                                }
+                            }
+                        }
+                    }
+                    Text("Time of day & weather apply to the whole scene; look & key mood to this shot.")
                         .font(.system(size: 8))
                         .foregroundColor(.gray.opacity(0.5))
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Time of Day").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                    VideoContextFlowLayout(spacing: 6) {
-                        ForEach(timesOfDay, id: \.self) { tod in
-                            chipButton(icon: tod == "Night" ? "moon.fill" : tod == "Golden Hour" ? "sun.horizon.fill" : "sun.max",
-                                       label: tod, isSelected: timeOfDay == tod) {
-                                onTimeOfDayChanged(timeOfDay == tod ? nil : tod)
-                            }
+            }
+
+            // Camera Motion — collapsed group (21-movement vocabulary + speed)
+            disclosureGroup(
+                icon: "video.badge.waveform", iconColor: .cyan,
+                title: "Camera Motion",
+                summary: ShotViewSummaries.motion(cameraMotion: cameraMotion, speed: motionSpeed),
+                isExpanded: $showCameraMotion
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 6)], spacing: 6) {
+                        ForEach(cameraMotions, id: \.self) { motion in
+                            chipButton(icon: motionIcon(motion), label: motion, isSelected: cameraMotion == motion) { cameraMotion = motion }
                         }
                     }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Weather / Atmosphere").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                    VideoContextFlowLayout(spacing: 6) {
-                        ForEach(weathers, id: \.self) { condition in
-                            chipButton(icon: condition == "Rain" ? "cloud.rain" : condition == "Fog" || condition == "Haze" ? "cloud.fog" : condition == "Snow" ? "snowflake" : condition == "Storm" ? "cloud.bolt" : "sun.min",
-                                       label: condition, isSelected: weather == condition) {
-                                onWeatherChanged(weather == condition ? nil : condition)
-                            }
-                        }
-                    }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Key Mood").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                    VideoContextFlowLayout(spacing: 6) {
-                        ForEach(lightingMoods, id: \.self) { mood in
-                            chipButton(icon: "lightbulb", label: mood, isSelected: lightingStyle == mood) {
-                                lightingStyle = (lightingStyle == mood) ? "" : mood
+                    if cameraMotion != "Static" {
+                        HStack(spacing: 6) {
+                            Text("Speed").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                            ForEach(motionSpeeds, id: \.self) { speed in
+                                chipButton(icon: speed == "Slow" ? "tortoise" : speed == "Whip" ? "bolt" : speed == "Fast" ? "hare" : "metronome",
+                                           label: speed, isSelected: motionSpeed == speed) { motionSpeed = speed }
                             }
                         }
                     }
                 }
             }
 
-            // More settings (advanced, provider support varies)
-            VStack(alignment: .leading, spacing: 8) {
-                Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showMoreSettings.toggle() } }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: showMoreSettings ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                        Text("More settings")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .foregroundColor(.gray)
-                }
-                .buttonStyle(.plain)
-
-                if showMoreSettings {
-                    VStack(alignment: .leading, spacing: 10) {
+            // Advanced — quality, aspect, subject motion, negative prompt
+            disclosureGroup(
+                icon: "slider.horizontal.3", iconColor: .gray,
+                title: "Advanced",
+                summary: ShotViewSummaries.advanced(quality: quality, aspectRatio: aspectRatio,
+                                                    subjectMotion: subjectMotion,
+                                                    hasNegativePrompt: !negativePrompt.trimmingCharacters(in: .whitespaces).isEmpty),
+                isExpanded: $showAdvanced
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Subject Motion").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                            Text("Quality").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
                             HStack(spacing: 6) {
-                                ForEach(subjectMotions, id: \.self) { motion in
-                                    chipButton(icon: motion == "Static" ? "figure.stand" : "figure.walk.motion", label: motion, isSelected: subjectMotion == motion) { subjectMotion = motion }
+                                ForEach(qualities, id: \.self) { q in
+                                    chipButton(icon: q == "Ultra" ? "star.fill" : q == "High" ? "sparkles" : "circle", label: q, isSelected: quality == q) { quality = q }
                                 }
                             }
                         }
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Negative Prompt").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                            TextField("What to avoid (e.g. text overlays, blur)…", text: $negativePrompt)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 11))
-                                .padding(8)
-                                .background(Color(hex: "#1A1A1A"))
-                                .cornerRadius(6)
+                            Text("Aspect Ratio").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                            HStack(spacing: 6) {
+                                ForEach(selectedProvider.supportedAspectRatios, id: \.self) { ar in
+                                    chipButton(icon: ar == "16:9" ? "rectangle" : ar == "9:16" ? "rectangle.portrait" : "square", label: ar, isSelected: aspectRatio == ar) { aspectRatio = ar }
+                                }
+                            }
                         }
-                        Text("Provider support varies — Veo currently ignores subject motion and negative prompts.")
-                            .font(.system(size: 9))
-                            .foregroundColor(.gray.opacity(0.7))
                     }
-                    .padding(.leading, 2)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Subject Motion").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                        HStack(spacing: 6) {
+                            ForEach(subjectMotions, id: \.self) { motion in
+                                chipButton(icon: motion == "Static" ? "figure.stand" : "figure.walk.motion", label: motion, isSelected: subjectMotion == motion) { subjectMotion = motion }
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Negative Prompt").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                        TextField("What to avoid (e.g. text overlays, blur)…", text: $negativePrompt)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11))
+                            .padding(8)
+                            .background(Color(hex: "#1A1A1A"))
+                            .cornerRadius(6)
+                    }
+                    Text("Provider support varies — Veo currently ignores subject motion and negative prompts.")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.7))
                 }
             }
         }
         .padding(14)
         .background(Color(hex: "#252525"))
         .cornerRadius(10)
+    }
+
+    // MARK: - Look picker (inside Look & Lighting)
+
+    private var lookPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Look")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.gray)
+                .textCase(.uppercase)
+            Menu {
+                Button("Project default") { onStyleSelected(nil) }
+                Divider()
+                ForEach(lookStyles) { style in
+                    Button(action: { onStyleSelected(style.id) }) {
+                        if style.id == activeStyleId {
+                            Label(style.name, systemImage: "checkmark")
+                        } else {
+                            Text(style.name)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "paintpalette.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(resolvedStyle != nil ? .accentColor : .gray)
+                    Text(resolvedStyle?.name ?? "No look set")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(resolvedStyle != nil ? .white : .gray)
+                    if activeStyleId == nil && resolvedStyle != nil {
+                        Text("inherited")
+                            .font(.system(size: 8))
+                            .foregroundColor(.gray.opacity(0.6))
+                    }
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color(hex: "#3A3A3A"))
+                .cornerRadius(6)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            if let style = resolvedStyle, !style.description.isEmpty {
+                Text(style.description)
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray.opacity(0.7))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    // MARK: - In-card disclosure group
+
+    @ViewBuilder
+    private func disclosureGroup<Content: View>(icon: String, iconColor: Color, title: String,
+                                                summary: String, isExpanded: Binding<Bool>,
+                                                @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isExpanded.wrappedValue.toggle() } }) {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.gray)
+                        .frame(width: 10)
+                    Image(systemName: icon)
+                        .font(.system(size: 10))
+                        .foregroundColor(iconColor.opacity(0.85))
+                    Text(title)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
+                    if !isExpanded.wrappedValue && !summary.isEmpty {
+                        Text(summary)
+                            .font(.system(size: 9))
+                            .foregroundColor(.gray)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded.wrappedValue {
+                content()
+                    .padding(.leading, 16)
+            }
+        }
+        .padding(10)
+        .background(Color(hex: "#1E1E1E"))
+        .cornerRadius(8)
     }
 
     private func motionIcon(_ motion: String) -> String {

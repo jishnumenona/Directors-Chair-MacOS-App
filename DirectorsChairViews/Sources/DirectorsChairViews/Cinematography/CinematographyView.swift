@@ -495,13 +495,19 @@ public struct CinematographyView: View {
                     // Linked Script Elements
                     if let currentScene = sceneForShot(shot),
                        (!shot.linkedDialogueIds.isEmpty || !shot.linkedActionIds.isEmpty || !shot.linkedNarrationIds.isEmpty) {
-                        LinkedScriptElementsSection(
-                            shot: shot,
-                            scene: currentScene,
-                            onJumpToScript: { itemId, itemType in
-                                onJumpToScriptElement?(itemId, itemType)
-                            }
-                        )
+                        CollapsibleCard(icon: "link",
+                                        iconColor: .cyan,
+                                        title: "Linked Script",
+                                        summary: linkedScriptSummary(shot),
+                                        storageKey: "linkedScript") {
+                            LinkedScriptElementsSection(
+                                shot: shot,
+                                scene: currentScene,
+                                onJumpToScript: { itemId, itemType in
+                                    onJumpToScriptElement?(itemId, itemType)
+                                }
+                            )
+                        }
                     }
 
                     // Takes Section (visible when shooting or has takes)
@@ -520,28 +526,41 @@ public struct CinematographyView: View {
                         Divider()
                     }
 
-                    // Camera settings grid
-                    shotCameraSettings(shot)
+                    // Camera settings — expanded by default (the craft core of a
+                    // shot), collapsible to one summary line when not needed.
+                    CollapsibleCard(icon: "camera.fill",
+                                    iconColor: .white,
+                                    title: "Camera",
+                                    summary: ShotViewSummaries.camera(for: shot),
+                                    storageKey: "camera",
+                                    defaultExpanded: true) {
+                        shotCameraSettings(shot)
+                            .padding(.top, 4)
+                    }
 
-                    Divider()
-
-                    // Reference Media
-                    ReferenceMediaSection(
-                        media: shot.referenceMedia,
-                        shotId: shot.shotId,
-                        projectBasePath: projectBasePath,
-                        onMediaAdded: { newMedia in
-                            updateShotField(shot) { $0.referenceMedia.append(newMedia) }
-                        },
-                        onMediaRemoved: { mediaId in
-                            updateShotField(shot) { $0.referenceMedia.removeAll { $0.id == mediaId } }
-                        },
-                        onUseAsPreview: { imagePath in
-                            updateShotField(shot) { $0.previewImage = imagePath }
-                        }
-                    )
-
-                    Divider()
+                    // Reference Media — collapsed; summary shows the count
+                    CollapsibleCard(icon: "photo.on.rectangle.angled",
+                                    iconColor: .orange,
+                                    title: "Reference Media",
+                                    summary: shot.referenceMedia.isEmpty
+                                        ? "none added"
+                                        : "\(shot.referenceMedia.count) item\(shot.referenceMedia.count == 1 ? "" : "s")",
+                                    storageKey: "referenceMedia") {
+                        ReferenceMediaSection(
+                            media: shot.referenceMedia,
+                            shotId: shot.shotId,
+                            projectBasePath: projectBasePath,
+                            onMediaAdded: { newMedia in
+                                updateShotField(shot) { $0.referenceMedia.append(newMedia) }
+                            },
+                            onMediaRemoved: { mediaId in
+                                updateShotField(shot) { $0.referenceMedia.removeAll { $0.id == mediaId } }
+                            },
+                            onUseAsPreview: { imagePath in
+                                updateShotField(shot) { $0.previewImage = imagePath }
+                            }
+                        )
+                    }
 
                     // Video Generation
                     ShotVideoGenerationSection(
@@ -738,6 +757,15 @@ public struct CinematographyView: View {
                 )
             }
         }
+    }
+
+    /// Summary for the collapsed Linked Script card.
+    private func linkedScriptSummary(_ shot: Shot) -> String {
+        var parts: [String] = []
+        if !shot.linkedDialogueIds.isEmpty { parts.append("\(shot.linkedDialogueIds.count) dialogue") }
+        if !shot.linkedActionIds.isEmpty { parts.append("\(shot.linkedActionIds.count) action\(shot.linkedActionIds.count == 1 ? "" : "s")") }
+        if !shot.linkedNarrationIds.isEmpty { parts.append("\(shot.linkedNarrationIds.count) narration\(shot.linkedNarrationIds.count == 1 ? "" : "s")") }
+        return parts.joined(separator: " · ")
     }
 
     /// Helper to update a single field of a shot

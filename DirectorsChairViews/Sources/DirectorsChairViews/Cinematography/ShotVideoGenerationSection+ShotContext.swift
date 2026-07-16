@@ -21,6 +21,8 @@ struct ShotContextCard: View {
     let characters: [Character]
     let locations: [Location]
     let projectBasePath: URL?
+    /// False when hosted inside a CollapsibleCard, which supplies the title.
+    var showsHeader: Bool = true
     var onNavigateToCharacter: ((Character) -> Void)?
     var onNavigateToLocation: ((Location) -> Void)?
     var onNavigateToStoryDesign: (() -> Void)?
@@ -41,15 +43,17 @@ struct ShotContextCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header
+            // Header (title omitted when the hosting card provides it)
             HStack(spacing: 8) {
-                Image(systemName: "text.book.closed.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.accentColor)
-                Text("SHOT CONTEXT")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(.white.opacity(0.9))
+                if showsHeader {
+                    Image(systemName: "text.book.closed.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                    Text("SHOT CONTEXT")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundColor(.white.opacity(0.9))
+                }
                 Spacer()
 
                 Button(action: { Task { await detectFromScript() } }) {
@@ -229,14 +233,18 @@ struct ShotContextCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(showsHeader ? 16 : 0)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(hex: "#222222"))
-                .overlay(
+            Group {
+                if showsHeader {
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color(hex: "#333333"), lineWidth: 1)
-                )
+                        .fill(Color(hex: "#222222"))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(hex: "#333333"), lineWidth: 1)
+                        )
+                }
+            }
         )
         .popover(isPresented: $showingCharacterPicker) {
             characterPickerPopover

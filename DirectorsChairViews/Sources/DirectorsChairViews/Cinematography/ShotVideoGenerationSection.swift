@@ -230,51 +230,71 @@ struct ShotVideoGenerationSection: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 16) {
-                    // 1. Shot Context (above keyframes)
-                    ShotContextCard(
-                        shot: shot,
-                        scene: scene,
-                        characters: characters,
-                        locations: locations,
-                        projectBasePath: projectBasePath,
-                        onNavigateToCharacter: onNavigateToCharacter,
-                        onNavigateToLocation: onNavigateToLocation,
-                        onNavigateToStoryDesign: onNavigateToStoryDesign,
-                        onSceneUpdated: onSceneUpdated
-                    )
+                    // 1. Shot Context — collapsed by default; the summary keeps
+                    // it glanceable without the full chip wall.
+                    CollapsibleCard(icon: "text.book.closed.fill",
+                                    title: "Shot Context",
+                                    summary: contextSummary,
+                                    storageKey: "videoContext") {
+                        ShotContextCard(
+                            shot: shot,
+                            scene: scene,
+                            characters: characters,
+                            locations: locations,
+                            projectBasePath: projectBasePath,
+                            showsHeader: false,
+                            onNavigateToCharacter: onNavigateToCharacter,
+                            onNavigateToLocation: onNavigateToLocation,
+                            onNavigateToStoryDesign: onNavigateToStoryDesign,
+                            onSceneUpdated: onSceneUpdated
+                        )
+                    }
 
-                    // 2. Keyframe Gallery
-                    KeyframeGallery(
-                        keyframes: $keyframes,
-                        duration: duration,
-                        shot: shot,
-                        projectBasePath: projectBasePath,
-                        isGeneratingKeyframe: isGeneratingKeyframe,
-                        activeKeyframeId: activeKeyframeId,
-                        onGenerateKeyframe: { kfId in
-                            activeKeyframeId = kfId
-                            keyframePrompt = buildKeyframePrompt(for: kfId)
-                            showingKeyframePromptSheet = true
-                        },
-                        onRemoveKeyframe: { kfId in
-                            keyframes.removeAll { $0.id == kfId }
-                        },
-                        onAddKeyframe: addIntermediateKeyframe,
-                        onAnnotationsApplied: { kfId, annotations in
-                            // Set annotations and trigger regeneration with edit prompt
-                            if let idx = keyframes.firstIndex(where: { $0.id == kfId }) {
-                                keyframes[idx].annotations = annotations
+                    // 2. Keyframes — the storyboard is the creative heart, so
+                    // it starts expanded (still collapsible).
+                    CollapsibleCard(icon: "film",
+                                    title: "Keyframes",
+                                    summary: keyframeSummary,
+                                    storageKey: "videoKeyframes",
+                                    defaultExpanded: true) {
+                        KeyframeGallery(
+                            keyframes: $keyframes,
+                            duration: duration,
+                            shot: shot,
+                            projectBasePath: projectBasePath,
+                            showsHeader: false,
+                            isGeneratingKeyframe: isGeneratingKeyframe,
+                            activeKeyframeId: activeKeyframeId,
+                            onGenerateKeyframe: { kfId in
+                                activeKeyframeId = kfId
+                                keyframePrompt = buildKeyframePrompt(for: kfId)
+                                showingKeyframePromptSheet = true
+                            },
+                            onRemoveKeyframe: { kfId in
+                                keyframes.removeAll { $0.id == kfId }
+                            },
+                            onAddKeyframe: addIntermediateKeyframe,
+                            onAnnotationsApplied: { kfId, annotations in
+                                // Set annotations and trigger regeneration with edit prompt
+                                if let idx = keyframes.firstIndex(where: { $0.id == kfId }) {
+                                    keyframes[idx].annotations = annotations
+                                }
+                                activeKeyframeId = kfId
+                                generateKeyframeWithAnnotations(keyframeId: kfId, annotations: annotations)
                             }
-                            activeKeyframeId = kfId
-                            generateKeyframeWithAnnotations(keyframeId: kfId, annotations: annotations)
-                        }
-                    )
+                        )
+                    }
 
                     // 3. Consistency References (story design → video)
-                    VideoReferenceTray(
-                        candidates: referenceCandidates,
-                        selectedIds: $selectedReferenceIds
-                    )
+                    CollapsibleCard(icon: "person.crop.rectangle.stack",
+                                    title: "References",
+                                    summary: ShotViewSummaries.references(selected: selectedReferenceIds.count),
+                                    storageKey: "videoReferences") {
+                        VideoReferenceTray(
+                            candidates: referenceCandidates,
+                            selectedIds: $selectedReferenceIds
+                        )
+                    }
 
                     // 4. Video Settings
                     VideoSettingsCard(
@@ -731,6 +751,25 @@ struct ShotVideoGenerationSection: View {
     /// start→end (interpolation) and fixes the clip duration itself.
     private var hasEndFrame: Bool {
         keyframes.contains { $0.position == 1.0 && $0.imagePath != nil }
+    }
+
+    // MARK: - Collapsed-card summaries
+
+    private var contextSummary: String {
+        guard let scene else { return "no scene linked" }
+        return ShotViewSummaries.context(
+            characterCount: ShotPromptBuilder.characterNames(in: scene).count,
+            location: scene.location,
+            propCount: scene.props.count,
+            soundCount: scene.soundNotes.count
+        )
+    }
+
+    private var keyframeSummary: String {
+        ShotViewSummaries.keyframes(
+            withImages: keyframes.filter { $0.imagePath != nil }.count,
+            total: keyframes.count
+        )
     }
 
     /// The look this shot renders in: shot override → scene override → project

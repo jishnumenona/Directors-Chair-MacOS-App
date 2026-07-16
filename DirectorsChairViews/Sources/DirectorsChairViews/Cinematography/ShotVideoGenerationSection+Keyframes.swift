@@ -20,6 +20,8 @@ struct KeyframeGallery: View {
     let duration: Double
     let shot: Shot
     let projectBasePath: URL?
+    /// False when hosted inside a CollapsibleCard, which supplies the title.
+    var showsHeader: Bool = true
     let isGeneratingKeyframe: Bool
     let activeKeyframeId: String?
     let onGenerateKeyframe: (String) -> Void
@@ -34,21 +36,23 @@ struct KeyframeGallery: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
-            HStack {
-                Image(systemName: "film")
-                    .font(.system(size: 12))
-                    .foregroundColor(.accentColor)
-                Text("KEYFRAMES")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(.gray)
+            // Header (title omitted when the hosting card provides it)
+            if showsHeader {
+                HStack {
+                    Image(systemName: "film")
+                        .font(.system(size: 12))
+                        .foregroundColor(.accentColor)
+                    Text("KEYFRAMES")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundColor(.gray)
 
-                Spacer()
+                    Spacer()
 
-                Text("\(keyframes.count) frame\(keyframes.count == 1 ? "" : "s")")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray.opacity(0.6))
+                    Text("\(keyframes.count) frame\(keyframes.count == 1 ? "" : "s")")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray.opacity(0.6))
+                }
             }
 
             // Timeline track
