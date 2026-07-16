@@ -146,4 +146,47 @@ final class VideoProviderTests: XCTestCase {
             XCTAssertEqual(VideoProvider.fromFolderName(provider.folderName), provider)
         }
     }
+
+    // MARK: - Supported Aspect Ratios / Resolutions
+
+    func testVeoRejectsSquareAspectRatio() {
+        // Veo 400s on 1:1 — the UI must not offer it.
+        XCTAssertEqual(VideoProvider.veo3.supportedAspectRatios, ["16:9", "9:16"])
+        XCTAssertFalse(VideoProvider.veo3.supportedAspectRatios.contains("1:1"))
+    }
+
+    func testOtherProvidersKeepSquareAspectRatio() {
+        XCTAssertTrue(VideoProvider.sora2.supportedAspectRatios.contains("1:1"))
+        XCTAssertTrue(VideoProvider.kling.supportedAspectRatios.contains("1:1"))
+    }
+
+    func testSupportedResolutions() {
+        for provider in VideoProvider.allCases {
+            XCTAssertEqual(provider.supportedResolutions, ["720p", "1080p"])
+        }
+    }
+
+    // MARK: - End-frame interpolation duration
+
+    func testOnlyVeoSupportsEndFrameInterpolation() {
+        XCTAssertTrue(VideoProvider.veo3.supportsEndFrameInterpolation)
+        XCTAssertFalse(VideoProvider.sora2.supportsEndFrameInterpolation)
+        XCTAssertFalse(VideoProvider.kling.supportsEndFrameInterpolation)
+    }
+
+    func testEffectiveDurationFixedWhenVeoBridgesEndFrame() {
+        // Veo interpolation ignores the requested duration and fixes the clip
+        // length itself — billing/estimates must use that length.
+        XCTAssertEqual(VideoProvider.veo3.effectiveDuration(requested: 5.0, bridgesEndFrame: true),
+                       VideoProvider.interpolationDurationSeconds)
+    }
+
+    func testEffectiveDurationHonorsRequestWithoutEndFrame() {
+        XCTAssertEqual(VideoProvider.veo3.effectiveDuration(requested: 6.5, bridgesEndFrame: false), 6.5)
+    }
+
+    func testEffectiveDurationHonorsRequestForNonInterpolatingProviders() {
+        XCTAssertEqual(VideoProvider.sora2.effectiveDuration(requested: 12.0, bridgesEndFrame: true), 12.0)
+        XCTAssertEqual(VideoProvider.kling.effectiveDuration(requested: 7.0, bridgesEndFrame: true), 7.0)
+    }
 }

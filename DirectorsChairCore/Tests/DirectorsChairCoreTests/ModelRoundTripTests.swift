@@ -484,7 +484,8 @@ final class ModelRoundTripTests: XCTestCase {
             videoPrompt: "Cinematic wide shot of downtown",
             videoDuration: 8.0,
             videoProvider: "runway",
-            videoQuality: "High"
+            videoQuality: "High",
+            videoResolution: "1080p"
         )
 
         let decoded = try roundTrip(original)
@@ -524,6 +525,7 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.videoDuration, 8.0)
         XCTAssertEqual(decoded.videoProvider, "runway")
         XCTAssertEqual(decoded.videoQuality, "High")
+        XCTAssertEqual(decoded.videoResolution, "1080p")
     }
 
     func testShotSnakeCaseCodingKeys() throws {

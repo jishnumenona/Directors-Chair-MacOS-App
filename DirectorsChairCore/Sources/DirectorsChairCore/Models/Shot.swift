@@ -39,6 +39,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var videoDuration: Double?                // Video-specific duration (bidirectional sync with shot.duration)
     public var videoProvider: String?                // Last used provider
     public var videoQuality: String?                 // Standard/High/Ultra
+    public var videoResolution: String?              // "720p"/"1080p"
 
     public init(
         uuid: String = UUID().uuidString,
@@ -66,7 +67,8 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoPrompt: String? = nil,
         videoDuration: Double? = nil,
         videoProvider: String? = nil,
-        videoQuality: String? = nil
+        videoQuality: String? = nil,
+        videoResolution: String? = nil
     ) {
         self.uuid = uuid
         self.shotId = shotId
@@ -94,6 +96,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.videoDuration = videoDuration
         self.videoProvider = videoProvider
         self.videoQuality = videoQuality
+        self.videoResolution = videoResolution
     }
 
     enum CodingKeys: String, CodingKey {
@@ -123,6 +126,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case videoDuration = "video_duration"
         case videoProvider = "video_provider"
         case videoQuality = "video_quality"
+        case videoResolution = "video_resolution"
     }
 
     enum AlternativeCodingKeys: String, CodingKey {
@@ -208,6 +212,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoDuration = try container.decodeIfPresent(Double.self, forKey: .videoDuration)
         videoProvider = try container.decodeIfPresent(String.self, forKey: .videoProvider)
         videoQuality = try container.decodeIfPresent(String.self, forKey: .videoQuality)
+        videoResolution = try container.decodeIfPresent(String.self, forKey: .videoResolution)
     }
 
     // MARK: - Take Helpers

@@ -50,14 +50,22 @@ struct VideoSettingsCard: View {
     @Binding var duration: Double
     @Binding var quality: String
     @Binding var aspectRatio: String
+    @Binding var resolution: String
     @Binding var cameraMotion: String
+    @Binding var subjectMotion: String
+    @Binding var negativePrompt: String
     @Binding var syncDuration: Bool
+    /// End keyframe has an image → the provider bridges start→end and fixes
+    /// the clip length itself; the duration slider would be a lie.
+    let interpolatesEndFrame: Bool
     let shot: Shot
     let onDurationChanged: (Double) -> Void
 
+    @State private var showMoreSettings: Bool = false
+
     private let qualities = ["Standard", "High", "Ultra"]
-    private let aspectRatios = ["16:9", "9:16", "1:1"]
     private let cameraMotions = ["Static", "Pan Left", "Pan Right", "Zoom In", "Zoom Out", "Dolly", "Crane", "Tracking"]
+    private let subjectMotions = ["Static", "Subtle", "Walking", "Running", "Dynamic"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -83,33 +91,60 @@ struct VideoSettingsCard: View {
                             selectedProvider = provider
                             if duration > provider.maxDuration { duration = provider.maxDuration; onDurationChanged(duration) }
                             if duration < provider.minDuration { duration = provider.minDuration; onDurationChanged(duration) }
+                            if !provider.supportedAspectRatios.contains(aspectRatio) {
+                                aspectRatio = provider.supportedAspectRatios.first ?? "16:9"
+                            }
+                            if !provider.supportedResolutions.contains(resolution) {
+                                resolution = provider.supportedResolutions.first ?? "720p"
+                            }
                         }
                     }
                 }
             }
 
-            // Duration
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Duration").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
-                    Spacer()
-                    HStack(spacing: 4) {
-                        Image(systemName: syncDuration ? "link" : "link.badge.plus").font(.system(size: 9)).foregroundColor(syncDuration ? .accentColor : .gray)
-                        Text("Sync timeline").font(.system(size: 9)).foregroundColor(.gray)
-                        Toggle("", isOn: $syncDuration).toggleStyle(.switch).scaleEffect(0.6).frame(width: 30)
+            // Duration — hidden while interpolating (the provider sets the length)
+            if interpolatesEndFrame {
+                HStack(spacing: 8) {
+                    Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                        .font(.system(size: 11))
+                        .foregroundColor(.accentColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Start → end frame bridging")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text("Duration is set by \(selectedProvider.displayName) when an end frame is present (~\(Int(VideoProvider.interpolationDurationSeconds))s). Remove the End keyframe image to control duration manually.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                HStack(spacing: 12) {
-                    Text(String(format: "%.1f", duration))
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                    Text("sec").font(.system(size: 11)).foregroundColor(.gray)
-                    Slider(value: $duration, in: selectedProvider.minDuration...selectedProvider.maxDuration, step: 0.5)
-                        .onChange(of: duration) { _, newValue in onDurationChanged(newValue) }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(0.08))
+                .cornerRadius(8)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Duration").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Image(systemName: syncDuration ? "link" : "link.badge.plus").font(.system(size: 9)).foregroundColor(syncDuration ? .accentColor : .gray)
+                            Text("Sync timeline").font(.system(size: 9)).foregroundColor(.gray)
+                            Toggle("", isOn: $syncDuration).toggleStyle(.switch).scaleEffect(0.6).frame(width: 30)
+                        }
+                    }
+                    HStack(spacing: 12) {
+                        Text(String(format: "%.1f", duration))
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                        Text("sec").font(.system(size: 11)).foregroundColor(.gray)
+                        Slider(value: $duration, in: selectedProvider.minDuration...selectedProvider.maxDuration, step: 0.5)
+                            .onChange(of: duration) { _, newValue in onDurationChanged(newValue) }
+                    }
                 }
             }
 
-            // Quality & Aspect
+            // Quality & Aspect & Resolution
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Quality").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
@@ -122,8 +157,16 @@ struct VideoSettingsCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Aspect Ratio").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
                     HStack(spacing: 6) {
-                        ForEach(aspectRatios, id: \.self) { ar in
+                        ForEach(selectedProvider.supportedAspectRatios, id: \.self) { ar in
                             chipButton(icon: ar == "16:9" ? "rectangle" : ar == "9:16" ? "rectangle.portrait" : "square", label: ar, isSelected: aspectRatio == ar) { aspectRatio = ar }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Resolution").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                    HStack(spacing: 6) {
+                        ForEach(selectedProvider.supportedResolutions, id: \.self) { res in
+                            chipButton(icon: res == "1080p" ? "sparkles.tv" : "tv", label: res, isSelected: resolution == res) { resolution = res }
                         }
                     }
                 }
@@ -136,6 +179,46 @@ struct VideoSettingsCard: View {
                     ForEach(cameraMotions, id: \.self) { motion in
                         chipButton(icon: motionIcon(motion), label: motion, isSelected: cameraMotion == motion) { cameraMotion = motion }
                     }
+                }
+            }
+
+            // More settings (advanced, provider support varies)
+            VStack(alignment: .leading, spacing: 8) {
+                Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showMoreSettings.toggle() } }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: showMoreSettings ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("More settings")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+
+                if showMoreSettings {
+                    VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Subject Motion").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                            HStack(spacing: 6) {
+                                ForEach(subjectMotions, id: \.self) { motion in
+                                    chipButton(icon: motion == "Static" ? "figure.stand" : "figure.walk.motion", label: motion, isSelected: subjectMotion == motion) { subjectMotion = motion }
+                                }
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Negative Prompt").font(.system(size: 9, weight: .medium)).foregroundColor(.gray).textCase(.uppercase)
+                            TextField("What to avoid (e.g. text overlays, blur)…", text: $negativePrompt)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11))
+                                .padding(8)
+                                .background(Color(hex: "#1A1A1A"))
+                                .cornerRadius(6)
+                        }
+                        Text("Provider support varies — Veo currently ignores subject motion and negative prompts.")
+                            .font(.system(size: 9))
+                            .foregroundColor(.gray.opacity(0.7))
+                    }
+                    .padding(.leading, 2)
                 }
             }
         }

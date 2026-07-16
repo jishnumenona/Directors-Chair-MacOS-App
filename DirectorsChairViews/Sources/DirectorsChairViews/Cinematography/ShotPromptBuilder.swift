@@ -150,6 +150,105 @@ public enum ShotPromptBuilder {
 
         return parts.joined(separator: ", ")
     }
+    /// Character names appearing in a scene, resolved from both dialogues and
+    /// actions (a character who only acts, never speaks, still appears).
+    public static func characterNames(in scene: DCScene) -> [String] {
+        var names = Set<String>()
+        for dialogue in scene.dialogues { names.insert(dialogue.character) }
+        for action in scene.actions {
+            for char in action.characters { names.insert(char) }
+        }
+        return Array(names).sorted()
+    }
+
+    /// Video generation prompt for a shot. Every user-editable shot attribute
+    /// with visual meaning is stated explicitly: shot type, camera angle, lens,
+    /// aperture, description, plus full scene context (location record, scene
+    /// description, character appearances, costumes, props, linked dialogue and
+    /// action, sound) and the chosen camera motion. `shot.movement` reaches the
+    /// prompt through `cameraMotion` (the video UI seeds its motion control
+    /// from it); `duration` is nil for start→end interpolation, where the
+    /// provider fixes the clip length itself.
+    public static func videoPrompt(shot: Shot, scene: DCScene?, characters: [Character],
+                                   locations: [Location], cameraMotion: String,
+                                   duration: Double?) -> String {
+        var parts: [String] = []
+        parts.append("Cinematic video shot. \(shot.shotType) shot, \(shot.cameraAngle) angle")
+        if let lens = shot.lensMm {
+            parts.append("\(lens)mm lens, \(shot.aperture)")
+        } else {
+            parts.append("\(shot.aperture) aperture")
+        }
+        if !shot.description.isEmpty {
+            parts.append(shot.description)
+        }
+        if let currentScene = scene {
+            let sceneCharNames = characterNames(in: currentScene)
+            if !sceneCharNames.isEmpty {
+                let charDescriptions = sceneCharNames.compactMap { name -> String? in
+                    guard let char = characters.first(where: { $0.name == name }) else { return name }
+                    var desc = name
+                    let physical = characterDescription(char)
+                    if !physical.isEmpty {
+                        desc += " (\(physical.prefix(150)))"
+                    }
+                    return desc
+                }
+                parts.append("Characters: \(charDescriptions.joined(separator: "; "))")
+            }
+            let costumeDescriptions = sceneCharNames.compactMap { name -> String? in
+                guard let char = characters.first(where: { $0.name == name }),
+                      let costumes = char.costumes, !costumes.isEmpty else { return nil }
+                let costumeNames = costumes.prefix(2).map { $0.name }
+                return "\(name): \(costumeNames.joined(separator: ", "))"
+            }
+            if !costumeDescriptions.isEmpty {
+                parts.append("Costumes: \(costumeDescriptions.joined(separator: "; "))")
+            }
+            if let loc = currentScene.location, !loc.isEmpty {
+                if let location = locations.first(where: { $0.name.lowercased() == loc.lowercased() }) {
+                    var locDesc = "Location: \(location.name)"
+                    if !location.locationType.isEmpty { locDesc += " (\(location.locationType))" }
+                    if !location.description.isEmpty { locDesc += " — \(location.description.prefix(200))" }
+                    parts.append(locDesc)
+                } else {
+                    parts.append("Location: \(loc)")
+                }
+            }
+            if !currentScene.description.isEmpty {
+                parts.append("Scene: \(currentScene.description.prefix(200))")
+            }
+            if !currentScene.props.isEmpty {
+                parts.append("Props: \(currentScene.props.joined(separator: ", "))")
+            }
+            let dialogueTexts = shot.linkedDialogueIds.prefix(3).compactMap { dialogueId -> String? in
+                guard let dialogue = currentScene.dialogues.first(where: { $0.id == dialogueId }) else { return nil }
+                return "\(dialogue.character): \"\(dialogue.text)\""
+            }
+            if !dialogueTexts.isEmpty {
+                parts.append("Dialogue: \(dialogueTexts.joined(separator: " "))")
+            }
+            let actionTexts = shot.linkedActionIds.prefix(2).compactMap { actionId -> String? in
+                guard let action = currentScene.actions.first(where: { $0.id == actionId }) else { return nil }
+                return action.description
+            }
+            if !actionTexts.isEmpty {
+                parts.append("Action: \(actionTexts.joined(separator: ". "))")
+            }
+            if !currentScene.soundNotes.isEmpty {
+                let sounds = currentScene.soundNotes.prefix(3).map { $0.description }
+                parts.append("Sound atmosphere: \(sounds.joined(separator: ", "))")
+            }
+        }
+        if let duration {
+            parts.append("Camera motion: \(cameraMotion). Duration: \(String(format: "%.1f", duration))s.")
+        } else {
+            parts.append("Camera motion: \(cameraMotion).")
+        }
+        parts.append("Dramatic lighting, cinematic quality, professional filmmaking.")
+        return parts.joined(separator: "\n")
+    }
+
     /// Video keyframe prompt for a position within a shot (0 = opening frame,
     /// 1 = final frame).
     public static func keyframePrompt(shot: Shot, scene: DCScene?, characterNames: [String],

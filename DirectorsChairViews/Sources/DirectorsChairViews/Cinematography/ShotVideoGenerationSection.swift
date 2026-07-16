@@ -73,6 +73,35 @@ enum VideoProvider: String, CaseIterable {
         }
     }
 
+    /// Aspect ratios the provider actually accepts (Veo rejects 1:1 with a 400).
+    var supportedAspectRatios: [String] {
+        switch self {
+        case .veo3: return ["16:9", "9:16"]
+        case .sora2, .kling: return ["16:9", "9:16", "1:1"]
+        }
+    }
+
+    /// Output resolutions the gateway accepts for this provider.
+    var supportedResolutions: [String] {
+        ["720p", "1080p"]
+    }
+
+    /// Whether this provider supports start→end frame interpolation (bridging).
+    var supportsEndFrameInterpolation: Bool {
+        self == .veo3
+    }
+
+    /// Veo's end-frame interpolation ignores the requested duration and fixes
+    /// the clip length itself (~8s), so cost estimation and usage tracking must
+    /// use that length, not the slider value.
+    static let interpolationDurationSeconds: Double = 8.0
+
+    /// The duration the job will actually bill/run at.
+    func effectiveDuration(requested: Double, bridgesEndFrame: Bool) -> Double {
+        guard bridgesEndFrame && supportsEndFrameInterpolation else { return requested }
+        return Self.interpolationDurationSeconds
+    }
+
     static func fromFolderName(_ name: String) -> VideoProvider? {
         allCases.first { $0.folderName == name }
     }
@@ -147,7 +176,10 @@ struct ShotVideoGenerationSection: View {
     @State private var duration: Double = 5.0
     @State private var quality: String = "High"
     @State private var aspectRatio: String = "16:9"
+    @State private var resolution: String = "720p"
     @State private var cameraMotion: String = "Static"
+    @State private var subjectMotion: String = "Static"
+    @State private var negativePromptText: String = ""
     @State private var keyframes: [VideoKeyframe] = []
     @State private var isGenerating: Bool = false
     @State private var generationJobId: String? = nil
@@ -224,8 +256,12 @@ struct ShotVideoGenerationSection: View {
                         duration: $duration,
                         quality: $quality,
                         aspectRatio: $aspectRatio,
+                        resolution: $resolution,
                         cameraMotion: $cameraMotion,
+                        subjectMotion: $subjectMotion,
+                        negativePrompt: $negativePromptText,
                         syncDuration: $syncDuration,
+                        interpolatesEndFrame: hasEndFrame,
                         shot: shot,
                         onDurationChanged: { newDuration in
                             if syncDuration {
@@ -240,7 +276,8 @@ struct ShotVideoGenerationSection: View {
                     // 4. Cost Estimate
                     CostEstimateBar(
                         provider: selectedProvider,
-                        duration: duration,
+                        duration: selectedProvider.effectiveDuration(requested: duration,
+                                                                     bridgesEndFrame: hasEndFrame),
                         quality: quality
                     )
 
@@ -272,7 +309,8 @@ struct ShotVideoGenerationSection: View {
                             showingFullScreen: $showingFullScreenPlayer,
                             onRegenerate: { startGeneration() },
                             onDownload: downloadToDesktop,
-                            onShowInFinder: { showVideoInFinder(url) }
+                            onShowInFinder: { showVideoInFinder(url) },
+                            onShowPrompt: { openPromptEditor() }
                         )
                     } else {
                         generateButtons
@@ -422,7 +460,7 @@ struct ShotVideoGenerationSection: View {
     // Prompt construction lives in ShotPromptBuilder (WS6.2).
     private func buildKeyframePrompt(for keyframeId: String) -> String {
         guard let kf = keyframes.first(where: { $0.id == keyframeId }) else { return "" }
-        let names = scene.map { resolveCharacterNames(from: $0) } ?? []
+        let names = scene.map { ShotPromptBuilder.characterNames(in: $0) } ?? []
         return ShotPromptBuilder.keyframePrompt(shot: shot, scene: scene, characterNames: names,
                                                 characters: characters, locations: locations,
                                                 position: kf.position)
@@ -593,6 +631,9 @@ struct ShotVideoGenerationSection: View {
         if let q = shot.videoQuality {
             quality = q
         }
+        if let r = shot.videoResolution, selectedProvider.supportedResolutions.contains(r) {
+            resolution = r
+        }
         if let existing = shot.videoKeyframes, !existing.isEmpty {
             keyframes = existing
         } else {
@@ -621,73 +662,21 @@ struct ShotVideoGenerationSection: View {
 
     // MARK: - Prompt Building
 
-    private func buildAutoPrompt() -> String {
-        var parts: [String] = []
-        parts.append("Cinematic video shot. \(shot.shotType) shot, \(shot.cameraAngle) angle")
-        if let lens = shot.lensMm {
-            parts.append("\(lens)mm lens, \(shot.aperture)")
-        }
-        if !shot.description.isEmpty {
-            parts.append(shot.description)
-        }
-        if let currentScene = scene {
-            let sceneCharNames = resolveCharacterNames(from: currentScene)
-            if !sceneCharNames.isEmpty {
-                let charDescriptions = sceneCharNames.compactMap { name -> String? in
-                    guard let char = characters.first(where: { $0.name == name }) else { return name }
-                    var desc = name
-                    desc += ", age \(char.age)"
-                    if !char.gender.isEmpty { desc += ", \(char.gender)" }
-                    return desc
-                }
-                parts.append("Characters: \(charDescriptions.joined(separator: "; "))")
-            }
-            let costumeDescriptions = sceneCharNames.compactMap { name -> String? in
-                guard let char = characters.first(where: { $0.name == name }),
-                      let costumes = char.costumes, !costumes.isEmpty else { return nil }
-                let costumeNames = costumes.prefix(2).map { $0.name }
-                return "\(name): \(costumeNames.joined(separator: ", "))"
-            }
-            if !costumeDescriptions.isEmpty {
-                parts.append("Costumes: \(costumeDescriptions.joined(separator: "; "))")
-            }
-            if let loc = currentScene.location, !loc.isEmpty {
-                parts.append("Location: \(loc)")
-            }
-            if !currentScene.props.isEmpty {
-                parts.append("Props: \(currentScene.props.joined(separator: ", "))")
-            }
-            let dialogueTexts = shot.linkedDialogueIds.prefix(3).compactMap { dialogueId -> String? in
-                guard let dialogue = currentScene.dialogues.first(where: { $0.id == dialogueId }) else { return nil }
-                return "\(dialogue.character): \"\(dialogue.text)\""
-            }
-            if !dialogueTexts.isEmpty {
-                parts.append("Dialogue: \(dialogueTexts.joined(separator: " "))")
-            }
-            let actionTexts = shot.linkedActionIds.prefix(2).compactMap { actionId -> String? in
-                guard let action = currentScene.actions.first(where: { $0.id == actionId }) else { return nil }
-                return action.description
-            }
-            if !actionTexts.isEmpty {
-                parts.append("Action: \(actionTexts.joined(separator: ". "))")
-            }
-            if !currentScene.soundNotes.isEmpty {
-                let sounds = currentScene.soundNotes.prefix(3).map { $0.description }
-                parts.append("Sound atmosphere: \(sounds.joined(separator: ", "))")
-            }
-        }
-        parts.append("Camera motion: \(cameraMotion). Duration: \(String(format: "%.1f", duration))s.")
-        parts.append("Dramatic lighting, cinematic quality, professional filmmaking.")
-        return parts.joined(separator: "\n")
+    /// True when the End keyframe has an image, meaning the provider bridges
+    /// start→end (interpolation) and fixes the clip duration itself.
+    private var hasEndFrame: Bool {
+        keyframes.contains { $0.position == 1.0 && $0.imagePath != nil }
     }
 
-    private func resolveCharacterNames(from scene: DCScene) -> [String] {
-        var names = Set<String>()
-        for dialogue in scene.dialogues { names.insert(dialogue.character) }
-        for action in scene.actions {
-            for char in action.characters { names.insert(char) }
-        }
-        return Array(names).sorted()
+    // Prompt construction lives in ShotPromptBuilder (WS6.2) so it is pure and
+    // unit-tested. Duration is omitted while interpolating — the provider
+    // ignores it in that mode.
+    private func buildAutoPrompt() -> String {
+        ShotPromptBuilder.videoPrompt(
+            shot: shot, scene: scene, characters: characters, locations: locations,
+            cameraMotion: cameraMotion,
+            duration: hasEndFrame ? nil : duration
+        )
     }
 
     // MARK: - Generation
@@ -706,6 +695,7 @@ struct ShotVideoGenerationSection: View {
         updated.videoDuration = duration
         updated.videoProvider = selectedProvider.rawValue
         updated.videoQuality = quality
+        updated.videoResolution = resolution
         updated.videoKeyframes = keyframes
         onShotUpdated(updated)
 
@@ -723,18 +713,39 @@ struct ShotVideoGenerationSection: View {
                 endFrameBase64 = data.base64EncodedString()
             }
         }
+        // Mid keyframes (0 < position < 1) ride along as reference frames for
+        // subject/scene consistency through the shot. The gateway forwards ≤3.
+        let referenceFrames: [ReferenceImage] = keyframes
+            .filter { $0.position > 0.0 && $0.position < 1.0 }
+            .sorted { $0.position < $1.position }
+            .prefix(3)
+            .compactMap { kf in
+                guard let imagePath = kf.imagePath, let basePath = projectBasePath,
+                      let data = try? Data(contentsOf: basePath.appendingPathComponent(imagePath))
+                else { return nil }
+                return ReferenceImage(base64: data.base64EncodedString(), label: kf.label)
+            }
+        // With an end frame the provider interpolates and fixes the length
+        // itself; bill/estimate at that length, not the slider value.
+        let bridging = endFrameBase64 != nil
+        let effectiveDuration = selectedProvider.effectiveDuration(requested: duration,
+                                                                   bridgesEndFrame: bridging)
+        let trimmedNegative = negativePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let request = VideoGenerationRequest(
             prompt: prompt,
             provider: selectedProvider.aiProvider,
-            durationSeconds: duration,
+            durationSeconds: effectiveDuration,
             quality: quality,
             aspectRatio: aspectRatio,
             fps: 24,
             cameraMotion: cameraMotion,
-            subjectMotion: "Static",
+            subjectMotion: subjectMotion,
+            negativePrompt: trimmedNegative.isEmpty ? nil : trimmedNegative,
             startFrameBase64: startFrameBase64,
             endFrameBase64: endFrameBase64,
+            referenceFrames: referenceFrames.isEmpty ? nil : referenceFrames,
+            resolution: resolution,
             shotId: shot.id,
             projectId: nil
         )
@@ -761,7 +772,10 @@ struct ShotVideoGenerationSection: View {
             providerRawValue: selectedProvider.rawValue,
             providerDisplayName: selectedProvider.displayName,
             basePath: basePath,
-            duration: duration,
+            // Usage tracking bills interpolation jobs at the provider-fixed
+            // length, not the slider value.
+            duration: selectedProvider.effectiveDuration(requested: duration,
+                                                         bridgesEndFrame: hasEndFrame),
             quality: quality
         )
     }
