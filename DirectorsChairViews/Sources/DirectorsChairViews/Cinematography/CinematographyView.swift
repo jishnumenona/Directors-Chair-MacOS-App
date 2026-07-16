@@ -492,6 +492,27 @@ public struct CinematographyView: View {
                         }
                     )
 
+                    // Shot Context — who/where/what of this shot's scene, plus
+                    // the scene's script bubbles. Shot-level truth, so it lives
+                    // here rather than inside video generation.
+                    CollapsibleCard(icon: "text.book.closed.fill",
+                                    title: "Shot Context",
+                                    summary: contextSummary(for: shot),
+                                    storageKey: "shotContext") {
+                        ShotContextCard(
+                            shot: shot,
+                            scene: sceneForShot(shot),
+                            characters: characters,
+                            locations: locations,
+                            projectBasePath: projectBasePath?.deletingLastPathComponent(),
+                            showsHeader: false,
+                            onNavigateToCharacter: onNavigateToCharacter,
+                            onNavigateToLocation: onNavigateToLocation,
+                            onNavigateToStoryDesign: onNavigateToStoryDesign,
+                            onSceneUpdated: onSceneUpdated
+                        )
+                    }
+
                     // Linked Script Elements
                     if let currentScene = sceneForShot(shot),
                        (!shot.linkedDialogueIds.isEmpty || !shot.linkedActionIds.isEmpty || !shot.linkedNarrationIds.isEmpty) {
@@ -574,10 +595,7 @@ public struct CinematographyView: View {
                         onShotUpdated: { updatedShot in
                             viewModel.updateShot(updatedShot)
                         },
-                        onSceneUpdated: onSceneUpdated,
-                        onNavigateToCharacter: onNavigateToCharacter,
-                        onNavigateToLocation: onNavigateToLocation,
-                        onNavigateToStoryDesign: onNavigateToStoryDesign
+                        onSceneUpdated: onSceneUpdated
                     )
 
                     Spacer()
@@ -757,6 +775,17 @@ public struct CinematographyView: View {
                 )
             }
         }
+    }
+
+    /// Summary for the collapsed Shot Context card.
+    private func contextSummary(for shot: Shot) -> String {
+        guard let scene = sceneForShot(shot) else { return "no scene linked" }
+        return ShotViewSummaries.context(
+            characterCount: ShotPromptBuilder.characterNames(in: scene).count,
+            location: scene.location,
+            propCount: scene.props.count,
+            soundCount: scene.soundNotes.count
+        )
     }
 
     /// Summary for the collapsed Linked Script card.

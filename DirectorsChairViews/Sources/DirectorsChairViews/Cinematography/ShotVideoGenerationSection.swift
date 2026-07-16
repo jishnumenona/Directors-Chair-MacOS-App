@@ -181,9 +181,6 @@ struct ShotVideoGenerationSection: View {
     var defaultFilmStyleId: String? = nil
     let onShotUpdated: (Shot) -> Void
     var onSceneUpdated: ((DCScene) -> Void)?
-    var onNavigateToCharacter: ((Character) -> Void)?
-    var onNavigateToLocation: ((Location) -> Void)?
-    var onNavigateToStoryDesign: (() -> Void)?
 
     // MARK: - State
 
@@ -230,27 +227,7 @@ struct ShotVideoGenerationSection: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 16) {
-                    // 1. Shot Context — collapsed by default; the summary keeps
-                    // it glanceable without the full chip wall.
-                    CollapsibleCard(icon: "text.book.closed.fill",
-                                    title: "Shot Context",
-                                    summary: contextSummary,
-                                    storageKey: "videoContext") {
-                        ShotContextCard(
-                            shot: shot,
-                            scene: scene,
-                            characters: characters,
-                            locations: locations,
-                            projectBasePath: projectBasePath,
-                            showsHeader: false,
-                            onNavigateToCharacter: onNavigateToCharacter,
-                            onNavigateToLocation: onNavigateToLocation,
-                            onNavigateToStoryDesign: onNavigateToStoryDesign,
-                            onSceneUpdated: onSceneUpdated
-                        )
-                    }
-
-                    // 2. Keyframes — the storyboard is the creative heart, so
+                    // 1. Keyframes — the storyboard is the creative heart, so
                     // it starts expanded (still collapsible).
                     CollapsibleCard(icon: "film",
                                     title: "Keyframes",
@@ -285,7 +262,7 @@ struct ShotVideoGenerationSection: View {
                         )
                     }
 
-                    // 3. Consistency References (story design → video)
+                    // 2. Consistency References (story design → video)
                     CollapsibleCard(icon: "person.crop.rectangle.stack",
                                     title: "References",
                                     summary: ShotViewSummaries.references(selected: selectedReferenceIds.count),
@@ -296,7 +273,7 @@ struct ShotVideoGenerationSection: View {
                         )
                     }
 
-                    // 4. Video Settings
+                    // 3. Video Settings
                     VideoSettingsCard(
                         selectedProvider: $selectedProvider,
                         duration: $duration,
@@ -343,7 +320,7 @@ struct ShotVideoGenerationSection: View {
                         }
                     )
 
-                    // 5. Cost Estimate
+                    // 4. Cost Estimate
                     CostEstimateBar(
                         provider: selectedProvider,
                         duration: selectedProvider.effectiveDuration(requested: duration,
@@ -351,7 +328,7 @@ struct ShotVideoGenerationSection: View {
                         quality: quality
                     )
 
-                    // 6. Version Picker (only when multiple versions exist)
+                    // 5. Version Picker (only when multiple versions exist)
                     if videoVersions.count > 1 {
                         VideoVersionPicker(
                             versions: videoVersions,
@@ -365,7 +342,7 @@ struct ShotVideoGenerationSection: View {
                         )
                     }
 
-                    // 7. Generation / Player Area
+                    // 6. Generation / Player Area
                     if isGenerating {
                         GenerationProgressView(
                             progress: generationProgress,
@@ -754,16 +731,6 @@ struct ShotVideoGenerationSection: View {
     }
 
     // MARK: - Collapsed-card summaries
-
-    private var contextSummary: String {
-        guard let scene else { return "no scene linked" }
-        return ShotViewSummaries.context(
-            characterCount: ShotPromptBuilder.characterNames(in: scene).count,
-            location: scene.location,
-            propCount: scene.props.count,
-            soundCount: scene.soundNotes.count
-        )
-    }
 
     private var keyframeSummary: String {
         ShotViewSummaries.keyframes(

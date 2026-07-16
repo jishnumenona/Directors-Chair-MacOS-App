@@ -190,29 +190,30 @@ struct ShotContextCard: View {
                         }
                     }
 
-                    // Linked Dialogue
-                    let linkedDialogues = shot.linkedDialogueIds.compactMap { id in
-                        currentScene.dialogues.first(where: { $0.id == id })
-                    }
-                    if !linkedDialogues.isEmpty {
-                        contextSection(icon: "text.bubble.fill", iconColor: .cyan, title: "DIALOGUE") {
+                    // Scene Script — every bubble (dialogue, action, narration)
+                    // in chronological order; rows linked to THIS shot are
+                    // highlighted. Linking is authored in Scene Connections.
+                    let scriptItems = sceneScriptItems(currentScene)
+                    if !scriptItems.isEmpty {
+                        contextSection(icon: "text.bubble.fill", iconColor: .cyan, title: "SCENE SCRIPT") {
                             VStack(alignment: .leading, spacing: 6) {
-                                ForEach(linkedDialogues.prefix(4)) { d in
-                                    dialogueRow(dialogue: d)
+                                ScrollView {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        ForEach(scriptItems) { item in
+                                            scriptRow(item)
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                    }
-
-                    // Linked Actions
-                    let linkedActions = shot.linkedActionIds.compactMap { id in
-                        currentScene.actions.first(where: { $0.id == id })
-                    }
-                    if !linkedActions.isEmpty {
-                        contextSection(icon: "figure.walk", iconColor: .yellow, title: "ACTIONS") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(linkedActions.prefix(3)) { a in
-                                    actionRow(action: a)
+                                .frame(maxHeight: scriptItems.count > 4 ? 220 : .infinity)
+                                if shot.linkedDialogueIds.isEmpty && shot.linkedActionIds.isEmpty
+                                    && shot.linkedNarrationIds.isEmpty {
+                                    Text("No script elements are linked to this shot yet — link them in Scene Connections to highlight what this shot covers.")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.gray.opacity(0.5))
+                                } else {
+                                    Text("Highlighted rows are covered by this shot.")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.gray.opacity(0.5))
                                 }
                             }
                         }
@@ -1028,10 +1029,72 @@ struct ShotContextCard: View {
         .cornerRadius(7)
     }
 
+    // MARK: - Scene Script (all bubble elements, chronological)
+
+    private enum SceneScriptItem: Identifiable {
+        case dialogue(Dialogue)
+        case action(Action)
+        case narration(Narration)
+
+        var id: String {
+            switch self {
+            case .dialogue(let d): return d.id
+            case .action(let a): return a.id
+            case .narration(let n): return n.id
+            }
+        }
+
+        var chronology: Int {
+            switch self {
+            case .dialogue(let d): return d.chronologyNumber
+            case .action(let a): return a.chronologyNumber
+            case .narration(let n): return n.chronologyNumber
+            }
+        }
+    }
+
+    private func sceneScriptItems(_ scene: DCScene) -> [SceneScriptItem] {
+        (scene.dialogues.map(SceneScriptItem.dialogue)
+            + scene.actions.map(SceneScriptItem.action)
+            + scene.narrations.map(SceneScriptItem.narration))
+            .sorted { $0.chronology < $1.chronology }
+    }
+
+    /// Whether a script element is covered by (linked to) this shot.
+    private func isLinked(_ item: SceneScriptItem) -> Bool {
+        switch item {
+        case .dialogue(let d): return shot.linkedDialogueIds.contains(d.id)
+        case .action(let a): return shot.linkedActionIds.contains(a.id)
+        case .narration(let n): return shot.linkedNarrationIds.contains(n.id)
+        }
+    }
+
+    @ViewBuilder
+    private func scriptRow(_ item: SceneScriptItem) -> some View {
+        let linked = isLinked(item)
+        switch item {
+        case .dialogue(let d): dialogueRow(dialogue: d, isLinked: linked)
+        case .action(let a): actionRow(action: a, isLinked: linked)
+        case .narration(let n): narrationRow(narration: n, isLinked: linked)
+        }
+    }
+
+    @ViewBuilder
+    private func linkedBadge() -> some View {
+        Text("THIS SHOT")
+            .font(.system(size: 7, weight: .bold))
+            .tracking(0.5)
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.accentColor.opacity(0.12))
+            .cornerRadius(3)
+    }
+
     // MARK: - Dialogue Row
 
     @ViewBuilder
-    private func dialogueRow(dialogue: Dialogue) -> some View {
+    private func dialogueRow(dialogue: Dialogue, isLinked: Bool = false) -> some View {
         let char = characters.first(where: { $0.name == dialogue.character })
 
         Button(action: {
@@ -1068,12 +1131,17 @@ struct ShotContextCard: View {
                         .lineLimit(2)
                         .italic()
                 }
+
+                Spacer(minLength: 0)
+                if isLinked { linkedBadge() }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.cyan.opacity(0.04))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.cyan.opacity(0.1), lineWidth: 1))
+            .background(Color.cyan.opacity(isLinked ? 0.10 : 0.04))
+            .overlay(RoundedRectangle(cornerRadius: 7)
+                .stroke(isLinked ? Color.accentColor.opacity(0.45) : Color.cyan.opacity(0.1),
+                        lineWidth: isLinked ? 1.5 : 1))
             .cornerRadius(7)
         }
         .buttonStyle(.plain)
@@ -1082,7 +1150,7 @@ struct ShotContextCard: View {
     // MARK: - Action Row
 
     @ViewBuilder
-    private func actionRow(action: Action) -> some View {
+    private func actionRow(action: Action, isLinked: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "arrow.right")
                 .font(.system(size: 9, weight: .medium))
@@ -1093,12 +1161,44 @@ struct ShotContextCard: View {
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.75))
                 .lineLimit(2)
+            Spacer(minLength: 0)
+            if isLinked { linkedBadge() }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.yellow.opacity(0.04))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.yellow.opacity(0.1), lineWidth: 1))
+        .background(Color.yellow.opacity(isLinked ? 0.10 : 0.04))
+        .overlay(RoundedRectangle(cornerRadius: 7)
+            .stroke(isLinked ? Color.accentColor.opacity(0.45) : Color.yellow.opacity(0.1),
+                    lineWidth: isLinked ? 1.5 : 1))
+        .cornerRadius(7)
+    }
+
+    // MARK: - Narration Row
+
+    @ViewBuilder
+    private func narrationRow(narration: Narration, isLinked: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "text.alignleft")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.mint.opacity(0.7))
+                .frame(width: 16, alignment: .center)
+                .padding(.top, 2)
+            Text("(V.O.) \(narration.text)")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.7))
+                .lineLimit(2)
+                .italic()
+            Spacer(minLength: 0)
+            if isLinked { linkedBadge() }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.mint.opacity(isLinked ? 0.10 : 0.04))
+        .overlay(RoundedRectangle(cornerRadius: 7)
+            .stroke(isLinked ? Color.accentColor.opacity(0.45) : Color.mint.opacity(0.1),
+                    lineWidth: isLinked ? 1.5 : 1))
         .cornerRadius(7)
     }
 
