@@ -604,7 +604,9 @@ public struct CinematographyView: View {
                         onShotUpdated: { updatedShot in
                             viewModel.updateShot(updatedShot)
                         },
-                        onSceneUpdated: onSceneUpdated
+                        onSceneUpdated: onSceneUpdated,
+                        onNavigateToCharacter: onNavigateToCharacter,
+                        onNavigateToLocation: onNavigateToLocation
                     )
 
                     Spacer()

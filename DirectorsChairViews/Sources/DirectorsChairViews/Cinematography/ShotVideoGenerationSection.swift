@@ -181,6 +181,9 @@ struct ShotVideoGenerationSection: View {
     var defaultFilmStyleId: String? = nil
     let onShotUpdated: (Shot) -> Void
     var onSceneUpdated: ((DCScene) -> Void)?
+    /// Story Design hyperlinks from the keyframe prompt sheet's context strip.
+    var onNavigateToCharacter: ((Character) -> Void)?
+    var onNavigateToLocation: ((Location) -> Void)?
 
     // MARK: - State
 
@@ -426,6 +429,8 @@ struct ShotVideoGenerationSection: View {
                 onSave: { text in
                     if let kfId = activeKeyframeId { saveKeyframePrompt(text, for: kfId) }
                 },
+                onNavigateToCharacter: onNavigateToCharacter,
+                onNavigateToLocation: onNavigateToLocation,
                 onGenerate: {
                     generateKeyframeImage()
                 }

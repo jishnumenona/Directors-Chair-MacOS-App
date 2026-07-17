@@ -1459,6 +1459,10 @@ struct KeyframePromptSheet: View {
     var projectBasePath: URL? = nil
     /// Persist the edited prompt as the keyframe's custom prompt (without generating).
     var onSave: ((String) -> Void)? = nil
+    /// Hyperlinks from the context strip into Story Design (⌘[ returns here).
+    /// Clicking dismisses the sheet first — Story Design opens behind it.
+    var onNavigateToCharacter: ((Character) -> Void)? = nil
+    var onNavigateToLocation: ((Location) -> Void)? = nil
     let onGenerate: () -> Void
 
     private var isCustomized: Bool {
@@ -1578,12 +1582,24 @@ struct KeyframePromptSheet: View {
                     let character = characters.first { $0.name == name }
                     let costume = character.flatMap { ShotPromptBuilder.assignedCostume(for: $0, in: scene) }
                     contextChip(icon: "person.fill", tint: .blue,
-                                text: costume.map { "\(name) — \($0.name)" } ?? name)
+                                text: costume.map { "\(name) — \($0.name)" } ?? name,
+                                action: character.flatMap { char in
+                                    onNavigateToCharacter.map { navigate in
+                                        { isPresented = false; navigate(char) }
+                                    }
+                                })
                 }
                 if let loc = scene.location, !loc.isEmpty {
-                    contextChip(icon: "mappin.and.ellipse", tint: .green, text: loc)
+                    let location = locations.first { $0.name.lowercased() == loc.lowercased() }
+                    contextChip(icon: "mappin.and.ellipse", tint: .green, text: loc,
+                                action: location.flatMap { record in
+                                    onNavigateToLocation.map { navigate in
+                                        { isPresented = false; navigate(record) }
+                                    }
+                                })
                 }
                 ForEach(scene.props, id: \.self) { prop in
+                    // Props stay plain until the Story Design props tab exists.
                     contextChip(icon: "cube.fill", tint: .orange, text: prop)
                 }
                 if names.isEmpty && (scene.location ?? "").isEmpty && scene.props.isEmpty {
@@ -1600,8 +1616,9 @@ struct KeyframePromptSheet: View {
     }
 
     @ViewBuilder
-    private func contextChip(icon: String, tint: Color, text: String) -> some View {
-        HStack(spacing: 4) {
+    private func contextChip(icon: String, tint: Color, text: String,
+                             action: (() -> Void)? = nil) -> some View {
+        let chipBody = HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 8))
                 .foregroundColor(tint.opacity(0.8))
@@ -1609,11 +1626,24 @@ struct KeyframePromptSheet: View {
                 .font(.system(size: 9, weight: .medium))
                 .foregroundColor(.white.opacity(0.85))
                 .lineLimit(1)
+            if action != nil {
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: 6, weight: .semibold))
+                    .foregroundColor(tint.opacity(0.6))
+            }
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(tint.opacity(0.08))
-        .overlay(Capsule().stroke(tint.opacity(0.2), lineWidth: 1))
+        .overlay(Capsule().stroke(tint.opacity(action != nil ? 0.35 : 0.2), lineWidth: 1))
         .clipShape(Capsule())
+
+        if let action {
+            Button(action: action) { chipBody }
+                .buttonStyle(.plain)
+                .help("Open in Story Design (⌘[ returns here)")
+        } else {
+            chipBody
+        }
     }
 }
