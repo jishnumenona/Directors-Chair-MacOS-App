@@ -258,6 +258,11 @@ struct ShotVideoGenerationSection: View {
                                 }
                                 activeKeyframeId = kfId
                                 generateKeyframeWithAnnotations(keyframeId: kfId, annotations: annotations)
+                            },
+                            onEditKeyframePrompt: { kfId in
+                                activeKeyframeId = kfId
+                                keyframePrompt = buildKeyframePrompt(for: kfId)
+                                showingKeyframePromptSheet = true
                             }
                         )
                     }
@@ -413,6 +418,14 @@ struct ShotVideoGenerationSection: View {
                 prompt: $keyframePrompt,
                 isPresented: $showingKeyframePromptSheet,
                 keyframeLabel: keyframes.first(where: { $0.id == activeKeyframeId })?.label ?? "Keyframe",
+                autoPrompt: activeKeyframeId.map { autoKeyframePrompt(for: $0) } ?? "",
+                scene: scene,
+                characters: characters,
+                locations: locations,
+                projectBasePath: projectBasePath,
+                onSave: { text in
+                    if let kfId = activeKeyframeId { saveKeyframePrompt(text, for: kfId) }
+                },
                 onGenerate: {
                     generateKeyframeImage()
                 }
@@ -513,7 +526,8 @@ struct ShotVideoGenerationSection: View {
     }
 
     // Prompt construction lives in ShotPromptBuilder (WS6.2).
-    private func buildKeyframePrompt(for keyframeId: String) -> String {
+    /// The auto-built prompt for a keyframe (ignores any custom override).
+    private func autoKeyframePrompt(for keyframeId: String) -> String {
         guard let kf = keyframes.first(where: { $0.id == keyframeId }) else { return "" }
         let names = scene.map { ShotPromptBuilder.characterNames(in: $0) } ?? []
         return ShotPromptBuilder.keyframePrompt(shot: shot, scene: scene, characterNames: names,
@@ -521,6 +535,28 @@ struct ShotVideoGenerationSection: View {
                                                 position: kf.position,
                                                 filmStyle: resolvedFilmStyle,
                                                 lightingStyle: lightingStyle.isEmpty ? nil : lightingStyle)
+    }
+
+    /// The prompt this keyframe will actually generate with: the user's saved
+    /// custom prompt when present, the auto-built one otherwise.
+    private func buildKeyframePrompt(for keyframeId: String) -> String {
+        if let custom = keyframes.first(where: { $0.id == keyframeId })?.customPrompt,
+           !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return custom
+        }
+        return autoKeyframePrompt(for: keyframeId)
+    }
+
+    /// Persist an edited keyframe prompt. Text equal to the auto prompt (or
+    /// empty) clears the override so the frame follows shot changes again.
+    private func saveKeyframePrompt(_ text: String, for keyframeId: String) {
+        guard let idx = keyframes.firstIndex(where: { $0.id == keyframeId }) else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let auto = autoKeyframePrompt(for: keyframeId)
+        keyframes[idx].customPrompt = (trimmed.isEmpty || trimmed == auto) ? nil : text
+        var updated = shot
+        updated.videoKeyframes = keyframes
+        onShotUpdated(updated)
     }
 
     /// Collect all reference images for the current scene.
@@ -538,6 +574,10 @@ struct ShotVideoGenerationSection: View {
         guard let kfId = activeKeyframeId else { return }
         showingKeyframePromptSheet = false
         isGeneratingKeyframe = true
+
+        // What you generate with is what's saved — edits made in the sheet
+        // persist as this keyframe's custom prompt.
+        saveKeyframePrompt(keyframePrompt, for: kfId)
 
         let basePrompt = keyframePrompt
 

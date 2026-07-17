@@ -1450,22 +1450,49 @@ struct KeyframePromptSheet: View {
     @Binding var prompt: String
     @Binding var isPresented: Bool
     let keyframeLabel: String
+    /// The auto-built prompt (for "Reset to Auto" and custom-detection).
+    var autoPrompt: String = ""
+    /// Story context shown while editing: who/where/what this frame contains.
+    var scene: DCScene? = nil
+    var characters: [Character] = []
+    var locations: [Location] = []
+    var projectBasePath: URL? = nil
+    /// Persist the edited prompt as the keyframe's custom prompt (without generating).
+    var onSave: ((String) -> Void)? = nil
     let onGenerate: () -> Void
 
+    private var isCustomized: Bool {
+        !autoPrompt.isEmpty && prompt != autoPrompt
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             HStack {
                 Image(systemName: "wand.and.stars")
                     .foregroundColor(.accentColor)
-                Text("Generate \(keyframeLabel) Frame")
+                Text("\(keyframeLabel) Frame Prompt")
                     .font(.headline)
                     .foregroundColor(.white)
+                if isCustomized {
+                    Text("edited")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.12))
+                        .cornerRadius(4)
+                }
                 Spacer()
                 Button("Cancel") { isPresented = false }
                     .foregroundColor(.gray)
             }
 
-            Text("Edit the prompt below, then generate the keyframe image.")
+            // Story context — the elements this frame draws from
+            if let scene {
+                storyContextStrip(scene)
+            }
+
+            Text("This is the prompt used when you press Generate. Edits are saved to this keyframe.")
                 .font(.system(size: 11))
                 .foregroundColor(.gray)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1476,10 +1503,43 @@ struct KeyframePromptSheet: View {
                 .padding(10)
                 .background(Color(hex: "#1A1A1A"))
                 .cornerRadius(8)
-                .frame(minHeight: 180)
+                .frame(minHeight: 170)
 
-            HStack {
+            HStack(spacing: 10) {
+                if !autoPrompt.isEmpty {
+                    Button(action: { prompt = autoPrompt }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 10))
+                            Text("Reset to Auto")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.gray)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isCustomized)
+                    .help("Discard edits and rebuild the prompt from the shot, scene, and look settings")
+                }
+
                 Spacer()
+
+                if let onSave {
+                    Button(action: {
+                        onSave(prompt)
+                        isPresented = false
+                    }) {
+                        Text("Save")
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(Color(hex: "#3A3A3A"))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Save the prompt to this keyframe without generating")
+                }
+
                 Button(action: {
                     onGenerate()
                 }) {
@@ -1499,7 +1559,61 @@ struct KeyframePromptSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 520, height: 380)
+        .frame(width: 560, height: 520)
         .background(Color(hex: "#252525"))
+    }
+
+    // MARK: - Story context strip
+
+    @ViewBuilder
+    private func storyContextStrip(_ scene: DCScene) -> some View {
+        let names = ShotPromptBuilder.characterNames(in: scene)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("IN THIS SCENE")
+                .font(.system(size: 8, weight: .bold))
+                .tracking(1.0)
+                .foregroundColor(.gray)
+            VideoContextFlowLayout(spacing: 6) {
+                ForEach(names, id: \.self) { name in
+                    let character = characters.first { $0.name == name }
+                    let costume = character.flatMap { ShotPromptBuilder.assignedCostume(for: $0, in: scene) }
+                    contextChip(icon: "person.fill", tint: .blue,
+                                text: costume.map { "\(name) — \($0.name)" } ?? name)
+                }
+                if let loc = scene.location, !loc.isEmpty {
+                    contextChip(icon: "mappin.and.ellipse", tint: .green, text: loc)
+                }
+                ForEach(scene.props, id: \.self) { prop in
+                    contextChip(icon: "cube.fill", tint: .orange, text: prop)
+                }
+                if names.isEmpty && (scene.location ?? "").isEmpty && scene.props.isEmpty {
+                    Text("No characters, location, or props set for this scene yet")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.6))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color(hex: "#1E1E1E"))
+        .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    private func contextChip(icon: String, tint: Color, text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 8))
+                .foregroundColor(tint.opacity(0.8))
+            Text(text)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(tint.opacity(0.08))
+        .overlay(Capsule().stroke(tint.opacity(0.2), lineWidth: 1))
+        .clipShape(Capsule())
     }
 }

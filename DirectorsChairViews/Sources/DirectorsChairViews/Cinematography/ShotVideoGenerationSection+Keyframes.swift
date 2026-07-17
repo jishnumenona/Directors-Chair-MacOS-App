@@ -28,6 +28,8 @@ struct KeyframeGallery: View {
     let onRemoveKeyframe: (String) -> Void
     let onAddKeyframe: () -> Void
     let onAnnotationsApplied: (String, [KeyframeAnnotation]) -> Void
+    /// View/edit a keyframe's generation prompt without generating.
+    var onEditKeyframePrompt: ((String) -> Void)? = nil
 
     @State private var previewKeyframeImage: NSImage? = nil
     @State private var previewKeyframeLabel: String = ""
@@ -80,6 +82,9 @@ struct KeyframeGallery: View {
                             },
                             onEdit: {
                                 annotatingKeyframeId = kf.id
+                            },
+                            onEditPrompt: onEditKeyframePrompt.map { edit in
+                                { edit(kf.id) }
                             }
                         )
                     }
@@ -231,6 +236,8 @@ struct KeyframeCard: View {
     let onView: (NSImage) -> Void
     let onDownload: (NSImage) -> Void
     let onEdit: () -> Void
+    /// View/edit the prompt this frame will generate with (persistable).
+    var onEditPrompt: (() -> Void)? = nil
 
     @State private var isHovering: Bool = false
 
@@ -296,8 +303,29 @@ struct KeyframeCard: View {
                 }
                 .padding(8)
 
+                // Regeneration overlay — unmissable while an existing image is
+                // being replaced (e.g. after applying annotation edits).
+                if isGenerating, loadedImage != nil {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.black.opacity(0.65))
+                        .frame(width: cardWidth, height: cardHeight)
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .scaleEffect(1.3)
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        Text(keyframe.annotations?.isEmpty == false
+                             ? "Applying annotation edits…"
+                             : "Regenerating frame…")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text("The image updates here when it's ready")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.65))
+                    }
+                }
+
                 // Hover action buttons (top-right) — only when image exists
-                if let image = loadedImage, isHovering {
+                if let image = loadedImage, isHovering, !isGenerating {
                     VStack {
                         HStack {
                             Spacer()
@@ -391,6 +419,20 @@ struct KeyframeCard: View {
                     .background(Color.orange.opacity(0.15))
                     .cornerRadius(4)
                 }
+
+                if keyframe.customPrompt != nil {
+                    HStack(spacing: 3) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 8))
+                        Text("custom prompt")
+                            .font(.system(size: 8, weight: .medium))
+                    }
+                    .foregroundColor(.accentColor.opacity(0.9))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.12))
+                    .cornerRadius(4)
+                }
             }
 
             // Actions row
@@ -410,6 +452,25 @@ struct KeyframeCard: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isGenerating)
+
+                if let onEditPrompt {
+                    Button(action: onEditPrompt) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "text.quote")
+                                .font(.system(size: 9))
+                            Text("Prompt")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(hex: "#3A3A3A"))
+                        .foregroundColor(.white.opacity(0.85))
+                        .cornerRadius(5)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isGenerating)
+                    .help("See and edit the prompt this frame will generate with")
+                }
 
                 if !isStartOrEnd {
                     Button(action: onRemove) {

@@ -453,7 +453,8 @@ final class ModelRoundTripTests: XCTestCase {
             imagePath: "keyframes/start.jpg",
             label: "Start",
             timestamp: 0.0,
-            annotations: [annotation]
+            annotations: [annotation],
+            customPrompt: "A hand-tuned opening frame prompt"
         )
 
         let take = Take(id: "take-in-shot", takeNumber: 1, rating: .alt)
@@ -521,6 +522,7 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.videoKeyframes?.count, 1)
         XCTAssertEqual(decoded.videoKeyframes?[0].annotations?.count, 1)
         XCTAssertEqual(decoded.videoKeyframes?[0].annotations?[0].text, "Move camera left")
+        XCTAssertEqual(decoded.videoKeyframes?[0].customPrompt, "A hand-tuned opening frame prompt")
         XCTAssertEqual(decoded.videoGenerationJobId, "job-abc")
         XCTAssertEqual(decoded.videoPrompt, "Cinematic wide shot of downtown")
         XCTAssertEqual(decoded.videoDuration, 8.0)
