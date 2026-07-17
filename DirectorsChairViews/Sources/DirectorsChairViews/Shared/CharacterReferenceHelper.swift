@@ -160,7 +160,7 @@ public enum CharacterReferenceHelper {
         return patterns
     }
 
-    private static func loadLocationImage(
+    static func loadLocationImage(
         forScene scene: DirectorsChairCore.Scene,
         locations: [Location],
         projectDirectory: URL
@@ -206,7 +206,7 @@ public enum CharacterReferenceHelper {
     }
 
     /// Load a character's face/base image.
-    private static func loadCharacterImage(_ character: Character, projectDirectory: URL) -> NSImage? {
+    static func loadCharacterImage(_ character: Character, projectDirectory: URL) -> NSImage? {
         let candidates = [character.baseImage, character.imageFront]
         for imagePath in candidates {
             guard let path = imagePath, !path.isEmpty else { continue }
@@ -218,7 +218,7 @@ public enum CharacterReferenceHelper {
 
     /// Load the front image of the costume the character wears in this scene
     /// (scene assignment → active costume → first costume).
-    private static func loadCostumeImage(_ character: Character,
+    static func loadCostumeImage(_ character: Character,
                                          scene: DirectorsChairCore.Scene?,
                                          projectDirectory: URL) -> NSImage? {
         guard let costume = ShotPromptBuilder.assignedCostume(for: character, in: scene) else {

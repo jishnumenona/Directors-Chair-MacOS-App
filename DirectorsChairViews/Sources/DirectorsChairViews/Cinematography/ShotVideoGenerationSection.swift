@@ -812,12 +812,60 @@ struct ShotVideoGenerationSection: View {
 
     // MARK: - Reference Candidates
 
-    /// Everything that can anchor the video's look: the shot's mid keyframes
-    /// plus the story-design references (character faces, this scene's
-    /// assigned costumes, the location at the scene's time of day).
+    /// Veo's 3-slot reference discipline: slot 1 = one collage of every
+    /// character in the shot (faces + this scene's wardrobe), slot 2 = one
+    /// collage of the location (+ props once they have imagery), slot 3 = an
+    /// optional director-supplied extra (mid keyframes or the shot's
+    /// reference media).
     private func collectReferenceCandidates() -> [VideoReferenceCandidate] {
         var candidates: [VideoReferenceCandidate] = []
 
+        // Slot 1 & 2 — story-design collages
+        if let currentScene = scene, let basePath = projectBasePath {
+            var characterImages: [NSImage] = []
+            var includedNames: [String] = []
+            for name in ShotPromptBuilder.characterNames(in: currentScene) {
+                guard let character = characters.first(where: { $0.name == name }) else { continue }
+                if let face = CharacterReferenceHelper.loadCharacterImage(character, projectDirectory: basePath) {
+                    characterImages.append(face)
+                    includedNames.append(name)
+                }
+                if let costume = CharacterReferenceHelper.loadCostumeImage(character, scene: currentScene,
+                                                                           projectDirectory: basePath) {
+                    characterImages.append(costume)
+                }
+            }
+            if let collage = ReferenceCollageBuilder.collage(characterImages),
+               let base64 = ReferenceCollageBuilder.encodePNG(collage) {
+                candidates.append(VideoReferenceCandidate(
+                    id: "collage:characters",
+                    source: .characterCollage,
+                    displayName: includedNames.joined(separator: ", "),
+                    reference: ReferenceImage(base64: base64, label: "characters:\(includedNames.joined(separator: ","))")
+                ))
+            }
+
+            // Location (+ props when the props tab gives them imagery)
+            var locationImages: [NSImage] = []
+            if let locationImage = CharacterReferenceHelper.loadLocationImage(forScene: currentScene,
+                                                                              locations: locations,
+                                                                              projectDirectory: basePath) {
+                locationImages.append(locationImage)
+            }
+            if let collage = ReferenceCollageBuilder.collage(locationImages),
+               let base64 = ReferenceCollageBuilder.encodePNG(collage) {
+                let locationName = currentScene.location ?? "Location"
+                let propsSuffix = currentScene.props.isEmpty ? "" : " + " + currentScene.props.joined(separator: ", ")
+                candidates.append(VideoReferenceCandidate(
+                    id: "collage:location",
+                    source: .locationCollage,
+                    displayName: locationName + propsSuffix,
+                    reference: ReferenceImage(base64: base64, label: "location:\(locationName)")
+                ))
+            }
+        }
+
+        // Slot 3 pool — mid keyframes and the shot's own reference media
         if let basePath = projectBasePath {
             let midKeyframes = keyframes
                 .filter { $0.position > 0.0 && $0.position < 1.0 }
@@ -833,22 +881,18 @@ struct ShotVideoGenerationSection: View {
                     reference: ReferenceImage(base64: data.base64EncodedString(), label: kf.label)
                 ))
             }
-        }
 
-        for ref in collectSceneReferenceImages() {
-            let parts = ref.label.split(separator: ":", maxSplits: 1)
-            let source: VideoReferenceCandidate.Source
-            switch parts.first.map(String.init) {
-            case "location": source = .location
-            case "costume": source = .costume
-            default: source = .character
+            for media in shot.referenceMedia where media.type == .image {
+                guard let data = try? Data(contentsOf: basePath.appendingPathComponent(media.path))
+                else { continue }
+                candidates.append(VideoReferenceCandidate(
+                    id: "media:\(media.id)",
+                    source: .custom,
+                    displayName: media.caption.isEmpty ? "Reference media" : media.caption,
+                    reference: ReferenceImage(base64: data.base64EncodedString(),
+                                              label: "custom:\(media.caption)")
+                ))
             }
-            candidates.append(VideoReferenceCandidate(
-                id: "ref:\(ref.label)",
-                source: source,
-                displayName: parts.count > 1 ? String(parts[1]) : ref.label,
-                reference: ref
-            ))
         }
 
         return candidates
@@ -903,14 +947,20 @@ struct ShotVideoGenerationSection: View {
             }
         }
         // The director-selected consistency references (tray order = send
-        // order, ≤3): mid keyframes, character faces, this scene's assigned
-        // costumes, the location at the scene's time of day. Re-collected at
-        // submit so regenerated images are never sent stale.
+        // order, ≤3): the characters collage, the location+props collage, and
+        // an optional extra. Re-collected at submit so regenerated imagery is
+        // never sent stale.
         let freshCandidates = collectReferenceCandidates()
-        let referenceFrames: [ReferenceImage] = selectedReferenceIds
-            .compactMap { id in freshCandidates.first { $0.id == id } }
-            .prefix(3)
-            .map(\.reference)
+        let selectedCandidates: [VideoReferenceCandidate] = Array(
+            selectedReferenceIds
+                .compactMap { id in freshCandidates.first { $0.id == id } }
+                .prefix(3)
+        )
+        let referenceFrames: [ReferenceImage] = selectedCandidates.map(\.reference)
+        // Tell the model what each reference image IS (send-order preamble).
+        // The preamble is transport-level: the stored shot prompt stays clean.
+        let referencePreamble = VideoReferenceCandidate.promptPreamble(for: selectedCandidates)
+        let requestPrompt = referencePreamble.isEmpty ? prompt : referencePreamble + "\n\n" + prompt
         // With an end frame the provider interpolates and fixes the length
         // itself; bill/estimate at that length, not the slider value.
         let bridging = endFrameBase64 != nil
@@ -919,7 +969,7 @@ struct ShotVideoGenerationSection: View {
         let trimmedNegative = negativePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let request = VideoGenerationRequest(
-            prompt: prompt,
+            prompt: requestPrompt,
             provider: selectedProvider.aiProvider,
             durationSeconds: effectiveDuration,
             quality: quality,

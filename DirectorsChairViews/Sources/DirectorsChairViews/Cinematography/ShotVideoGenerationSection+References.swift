@@ -16,23 +16,35 @@ import DirectorsChairServices
 
 struct VideoReferenceCandidate: Identifiable, Equatable {
     enum Source: String, CaseIterable {
+        /// One grid image of every character in the shot (faces + wardrobe).
+        case characterCollage
+        /// One grid image of the location (and its props, once they have imagery).
+        case locationCollage
         case keyframe, character, costume, location
+        /// Director-supplied extra (shot reference media).
+        case custom
 
         var icon: String {
             switch self {
+            case .characterCollage: return "person.2.crop.square.stack"
+            case .locationCollage: return "photo.on.rectangle.angled"
             case .keyframe: return "film"
             case .character: return "person.fill"
             case .costume: return "tshirt.fill"
             case .location: return "mappin.and.ellipse"
+            case .custom: return "paperclip"
             }
         }
 
         var tint: Color {
             switch self {
+            case .characterCollage: return .blue
+            case .locationCollage: return .green
             case .keyframe: return .accentColor
             case .character: return .blue
             case .costume: return .purple
             case .location: return .green
+            case .custom: return .orange
             }
         }
     }
@@ -46,17 +58,52 @@ struct VideoReferenceCandidate: Identifiable, Equatable {
         lhs.id == rhs.id
     }
 
-    /// Default pick when the director hasn't chosen: user-authored mid
-    /// keyframes first (shot-specific), then faces (continuity killers),
-    /// then wardrobe, then the location plate. Pure — tested.
+    /// Default pick when the director hasn't chosen. With collages present the
+    /// Veo slot discipline applies: characters collage + location collage,
+    /// leaving the third slot free for a director-supplied extra. Without
+    /// collages (no scene data), fall back to filling from the pool:
+    /// keyframes first, then faces, wardrobe, location. Pure — tested.
     static func defaultSelection(from candidates: [VideoReferenceCandidate], limit: Int = 3) -> [String] {
+        let collages = candidates.filter {
+            $0.source == .characterCollage || $0.source == .locationCollage
+        }
+        if !collages.isEmpty {
+            return collages.prefix(limit).map(\.id)
+        }
         var ids: [String] = []
-        for source in [Source.keyframe, .character, .costume, .location] {
+        for source in [Source.keyframe, .character, .costume, .location, .custom] {
             for candidate in candidates where candidate.source == source && ids.count < limit {
                 ids.append(candidate.id)
             }
         }
         return ids
+    }
+
+    /// Prompt preamble describing each reference image, in send order, so the
+    /// video model knows what every image is for. Pure — tested.
+    static func promptPreamble(for candidates: [VideoReferenceCandidate]) -> String {
+        guard !candidates.isEmpty else { return "" }
+        var lines = ["You are given \(candidates.count) reference image(s) that define this shot's visual identity:"]
+        for (index, candidate) in candidates.enumerated() {
+            let n = index + 1
+            switch candidate.source {
+            case .characterCollage:
+                lines.append("- Image \(n) is a collage of the characters in this shot (\(candidate.displayName)). Match each person's face, skin tone, hair, build, and wardrobe exactly.")
+            case .locationCollage:
+                lines.append("- Image \(n) is a collage of the location and its props (\(candidate.displayName)). The shot MUST take place in this environment — match the architecture, decor, props, and atmosphere.")
+            case .keyframe:
+                lines.append("- Image \(n) is a mid-shot keyframe (\(candidate.displayName)) the video should pass through — match its composition and content at that moment.")
+            case .character:
+                lines.append("- Image \(n) is character \(candidate.displayName). Match their appearance exactly.")
+            case .costume:
+                lines.append("- Image \(n) is the costume \(candidate.displayName). Match the clothing exactly.")
+            case .location:
+                lines.append("- Image \(n) is the location \(candidate.displayName). The shot takes place here.")
+            case .custom:
+                lines.append("- Image \(n) is an additional reference supplied by the director (\(candidate.displayName)) — honor its subject and style.")
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -84,7 +131,7 @@ struct VideoReferenceTray: View {
                     }
                     .padding(.vertical, 2)
                 }
-                Text("Click to choose up to \(limit) images sent to the model for subject/scene consistency — selection order is send order.")
+                Text("Veo accepts \(limit): the character and location collages are pre-selected — add one keyframe or reference-media image as the optional third. Selection order is send order.")
                     .font(.system(size: 9))
                     .foregroundColor(.gray.opacity(0.5))
             }
