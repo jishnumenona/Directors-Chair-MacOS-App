@@ -27,6 +27,11 @@ struct PropShopView: View {
     @State private var referenceURLText = ""
     @State private var feedback: String?
     @State private var imageRefresh = UUID()
+    // New-prop creation sheet
+    @State private var showingNewPropSheet = false
+    @State private var newPropName = ""
+    @State private var newPropCategory = "Hand"
+    @State private var newPropDescription = ""
 
     static let pipelineStages = ["Concept", "Sourcing", "Building", "Ready", "On Set"]
     static let categories = ["Hero", "Hand", "Set Dressing", "Furniture", "Weapon", "Document", "Food", "Vehicle", "Other"]
@@ -46,6 +51,24 @@ struct PropShopView: View {
         }
     }
 
+    /// Prop names mentioned in scenes (script breakdown / Detect from Script)
+    /// that don't exist in the shop yet — the import queue. Pure — tested.
+    static func unregisteredSceneProps(props: [Prop], scenes: [DCScene]) -> [String] {
+        let known = Set(props.map { $0.name.lowercased() })
+        var seen = Set<String>()
+        var result: [String] = []
+        for scene in scenes {
+            for name in scene.props {
+                let key = name.lowercased()
+                if !known.contains(key), !seen.contains(key), !name.isEmpty {
+                    seen.insert(key)
+                    result.append(name)
+                }
+            }
+        }
+        return result
+    }
+
     private var allScenes: [DCScene] { project.sequences.flatMap(\.scenes) }
 
     var body: some View {
@@ -56,6 +79,7 @@ struct PropShopView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear { if selectedPropId == nil { selectedPropId = project.props.first?.id } }
+        .sheet(isPresented: $showingNewPropSheet) { newPropSheet }
     }
 
     // MARK: - Shelf
@@ -99,17 +123,40 @@ struct PropShopView: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                     Spacer()
-                    Button(action: addProp) {
+                    Button(action: { showingNewPropSheet = true }) {
                         Label("New Prop", systemImage: "plus.circle.fill")
                             .font(.system(size: 10, weight: .medium))
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.accentColor)
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .help("Create a prop (⇧⌘N)")
                 }
             }
             .padding(12)
 
             Divider()
+
+            // Import queue — props the script breakdown already named
+            let detected = Self.unregisteredSceneProps(props: project.props, scenes: allScenes)
+            if !detected.isEmpty {
+                Button(action: importDetectedProps) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.down.on.square")
+                            .font(.system(size: 10))
+                        Text("Import \(detected.count) prop\(detected.count == 1 ? "" : "s") from your scenes")
+                            .font(.system(size: 10, weight: .medium))
+                            .lineLimit(2)
+                        Spacer()
+                    }
+                    .foregroundColor(.orange)
+                    .padding(10)
+                    .background(Color.orange.opacity(0.08))
+                }
+                .buttonStyle(.plain)
+                .help("Scenes mention: \(detected.joined(separator: ", "))")
+                Divider()
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -180,16 +227,164 @@ struct PropShopView: View {
             propEditor($project.props[index])
                 .id(project.props[index].id)
         } else {
-            VStack(spacing: 12) {
+            // Empty state = the creation call-to-action, not a dead pane.
+            let detected = Self.unregisteredSceneProps(props: project.props, scenes: allScenes)
+            VStack(spacing: 16) {
                 Image(systemName: "cube.box")
-                    .font(.system(size: 40))
-                    .foregroundColor(.gray.opacity(0.4))
-                Text("Select a prop from the shelf, or create one")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 44))
+                    .foregroundColor(.orange.opacity(0.5))
+                Text(project.props.isEmpty ? "Stock the prop shop" : "Select a prop from the shelf")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Design a prop with AI concept images, pull references from the web or your clipboard, and place it into scenes.")
+                    .font(.system(size: 11))
                     .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+
+                HStack(spacing: 12) {
+                    Button(action: { showingNewPropSheet = true }) {
+                        Label("Create a Prop", systemImage: "plus.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.defaultAction)
+
+                    if !detected.isEmpty {
+                        Button(action: importDetectedProps) {
+                            Label("Import \(detected.count) from scenes", systemImage: "square.and.arrow.down.on.square")
+                                .font(.system(size: 13, weight: .medium))
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 10)
+                                .background(Color.orange.opacity(0.15))
+                                .foregroundColor(.orange)
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Scenes mention: \(detected.joined(separator: ", "))")
+                    }
+                }
+                if detected.isEmpty && project.props.isEmpty {
+                    Text("Tip: “Detect from Script” in a shot's context breaks down scene props automatically — they'll appear here for import.")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.6))
+                        .frame(maxWidth: 380)
+                        .multilineTextAlignment(.center)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    // MARK: - New-prop sheet
+
+    private var newPropSheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "cube.box.fill").foregroundColor(.orange)
+                Text("New Prop").font(.headline)
+                Spacer()
+                Button("Cancel") { showingNewPropSheet = false }
+                    .foregroundColor(.gray)
+            }
+
+            TextField("Prop name (e.g. “Brass pocket watch”)", text: $newPropName)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+                .onSubmit(createPropFromSheet)
+
+            HStack(spacing: 10) {
+                Text("Category").font(.system(size: 10, weight: .medium)).foregroundColor(.gray)
+                Picker("", selection: $newPropCategory) {
+                    ForEach(Self.categories, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+            }
+
+            TextField("Short visual description (drives the AI concept image)", text: $newPropDescription)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+
+            let detected = Self.unregisteredSceneProps(props: project.props, scenes: allScenes)
+            if !detected.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("DETECTED IN YOUR SCENES — click to use")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.gray)
+                    VideoContextFlowLayout(spacing: 6) {
+                        ForEach(detected, id: \.self) { name in
+                            Button(action: { newPropName = name }) {
+                                Text(name)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(newPropName == name ? Color.orange.opacity(0.3) : Color.orange.opacity(0.08))
+                                    .foregroundColor(.orange)
+                                    .cornerRadius(5)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                if !detected.isEmpty {
+                    Button("Import all \(detected.count)") {
+                        importDetectedProps()
+                        showingNewPropSheet = false
+                    }
+                    .font(.system(size: 11))
+                }
+                Spacer()
+                Button(action: createPropFromSheet) {
+                    Text("Create")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .disabled(newPropName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+
+    private func createPropFromSheet() {
+        let name = newPropName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        var prop = Prop(name: name, description: newPropDescription, category: newPropCategory)
+        prop.status = "Concept"
+        // If the name came from the script breakdown, it's already placed in
+        // those scenes by name — record them.
+        let usedIn = Self.scenesUsing(name, in: allScenes).map(\.name)
+        if !usedIn.isEmpty { prop.sceneNames = usedIn }
+        project.props.append(prop)
+        selectedPropId = prop.id
+        newPropName = ""
+        newPropDescription = ""
+        showingNewPropSheet = false
+    }
+
+    /// Promote every scene-breakdown prop that isn't in the shop yet.
+    private func importDetectedProps() {
+        let detected = Self.unregisteredSceneProps(props: project.props, scenes: allScenes)
+        for name in detected {
+            var prop = Prop(name: name)
+            prop.status = "Concept"
+            prop.sceneNames = Self.scenesUsing(name, in: allScenes).map(\.name)
+            project.props.append(prop)
+        }
+        if selectedPropId == nil { selectedPropId = project.props.first?.id }
     }
 
     @ViewBuilder
@@ -374,12 +569,6 @@ struct PropShopView: View {
     }
 
     // MARK: - Actions
-
-    private func addProp() {
-        let prop = Prop(name: "New Prop")
-        project.props.append(prop)
-        selectedPropId = prop.id
-    }
 
     private func deleteProp(_ prop: Prop) {
         project.props.removeAll { $0.id == prop.id }

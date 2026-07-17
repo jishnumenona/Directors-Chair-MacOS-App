@@ -33,6 +33,15 @@ final class StoryDesignModelTests: XCTestCase {
         XCTAssertEqual(counts["Concept"], 2, "nil status defaults to Concept")
     }
 
+    func testUnregisteredScenePropsDedupesAndSkipsKnown() {
+        var s1 = DCScene(name: "S1"); s1.props = ["Crowbar", "Lantern"]
+        var s2 = DCScene(name: "S2"); s2.props = ["crowbar", "Map"]
+        let existing = [Prop(name: "Lantern")]
+        XCTAssertEqual(PropShopView.unregisteredSceneProps(props: existing, scenes: [s1, s2]),
+                       ["Crowbar", "Map"],
+                       "case-insensitive dedupe; already-registered props skipped")
+    }
+
     func testScenesUsingPropMatchesCaseInsensitively() {
         var scene = DCScene(name: "S1")
         scene.props = ["crowbar", "Shipping Crate"]
