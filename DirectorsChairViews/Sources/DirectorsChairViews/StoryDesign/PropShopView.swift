@@ -283,49 +283,93 @@ struct PropShopView: View {
     // MARK: - New-prop sheet
 
     private var newPropSheet: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let canCreate = !newPropName.trimmingCharacters(in: .whitespaces).isEmpty
+        let detected = Self.unregisteredSceneProps(props: project.props, scenes: allScenes)
+
+        return VStack(alignment: .leading, spacing: 16) {
+            // Header — same pattern as the app's other sheets
             HStack {
-                Image(systemName: "cube.box.fill").foregroundColor(.orange)
-                Text("New Prop").font(.headline)
+                Image(systemName: "cube.box.fill")
+                    .foregroundColor(.orange)
+                Text("New Prop")
+                    .font(.headline)
+                    .foregroundColor(.white)
                 Spacer()
                 Button("Cancel") { showingNewPropSheet = false }
+                    .buttonStyle(.plain)
                     .foregroundColor(.gray)
             }
 
-            TextField("Prop name (e.g. “Brass pocket watch”)", text: $newPropName)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13))
-                .onSubmit(createPropFromSheet)
-
-            HStack(spacing: 10) {
-                Text("Category").font(.system(size: 10, weight: .medium)).foregroundColor(.gray)
-                Picker("", selection: $newPropCategory) {
-                    ForEach(Self.categories, id: \.self) { Text($0).tag($0) }
-                }
-                .labelsHidden()
-                .frame(width: 150)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("NAME")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundColor(.gray)
+                TextField("e.g. Brass pocket watch", text: $newPropName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .padding(10)
+                    .background(Color(hex: "#1A1A1A"))
+                    .cornerRadius(8)
+                    .onSubmit(createPropFromSheet)
             }
 
-            TextField("Short visual description (drives the AI concept image)", text: $newPropDescription)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("CATEGORY")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundColor(.gray)
+                VideoContextFlowLayout(spacing: 6) {
+                    ForEach(Self.categories, id: \.self) { category in
+                        Button(action: { newPropCategory = category }) {
+                            Text(category)
+                                .font(.system(size: 10, weight: .medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(newPropCategory == category ? Color.accentColor : Color(hex: "#3A3A3A"))
+                                .foregroundColor(newPropCategory == category ? .white : .gray)
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
 
-            let detected = Self.unregisteredSceneProps(props: project.props, scenes: allScenes)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("VISUAL DESCRIPTION")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundColor(.gray)
+                TextField("What it looks like — drives the AI concept image", text: $newPropDescription)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .padding(10)
+                    .background(Color(hex: "#1A1A1A"))
+                    .cornerRadius(8)
+            }
+
             if !detected.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("DETECTED IN YOUR SCENES — click to use")
-                        .font(.system(size: 8, weight: .bold))
+                    Text("DETECTED IN YOUR SCENES — CLICK TO USE")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.0)
                         .foregroundColor(.gray)
                     VideoContextFlowLayout(spacing: 6) {
                         ForEach(detected, id: \.self) { name in
                             Button(action: { newPropName = name }) {
-                                Text(name)
-                                    .font(.system(size: 10, weight: .medium))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(newPropName == name ? Color.orange.opacity(0.3) : Color.orange.opacity(0.08))
-                                    .foregroundColor(.orange)
-                                    .cornerRadius(5)
+                                HStack(spacing: 4) {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 8))
+                                    Text(name)
+                                        .font(.system(size: 10, weight: .medium))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(newPropName == name ? Color.orange.opacity(0.25) : Color.orange.opacity(0.08))
+                                .foregroundColor(.orange)
+                                .overlay(RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.orange.opacity(newPropName == name ? 0.5 : 0.2), lineWidth: 1))
+                                .cornerRadius(6)
                             }
                             .buttonStyle(.plain)
                         }
@@ -333,30 +377,49 @@ struct PropShopView: View {
                 }
             }
 
-            HStack {
+            Divider().opacity(0.3)
+
+            HStack(spacing: 10) {
                 if !detected.isEmpty {
-                    Button("Import all \(detected.count)") {
+                    Button(action: {
                         importDetectedProps()
                         showingNewPropSheet = false
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "square.and.arrow.down.on.square")
+                                .font(.system(size: 10))
+                            Text("Import all \(detected.count)")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color(hex: "#3A3A3A"))
+                        .foregroundColor(.orange)
+                        .cornerRadius(8)
                     }
-                    .font(.system(size: 11))
+                    .buttonStyle(.plain)
                 }
                 Spacer()
                 Button(action: createPropFromSheet) {
-                    Text("Create")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12))
+                        Text("Create Prop")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(canCreate ? Color.accentColor : Color(hex: "#3A3A3A"))
+                    .foregroundColor(canCreate ? .white : .gray)
+                    .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
-                .disabled(newPropName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(!canCreate)
             }
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: 480)
+        .background(Color(hex: "#252525"))
     }
 
     private func createPropFromSheet() {
@@ -396,17 +459,27 @@ struct PropShopView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .textFieldStyle(.plain)
 
-                HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("CATEGORY").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
-                        Picker("", selection: prop.category) {
-                            ForEach(Self.categories, id: \.self) { Text($0).tag($0) }
+                        Text("CATEGORY").font(.system(size: 8, weight: .bold)).tracking(1.0).foregroundColor(.gray)
+                        VideoContextFlowLayout(spacing: 4) {
+                            ForEach(Self.categories, id: \.self) { category in
+                                Button(action: { prop.wrappedValue.category = category }) {
+                                    Text(category)
+                                        .font(.system(size: 9, weight: .medium))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(prop.wrappedValue.category == category
+                                                    ? Color.accentColor : Color(hex: "#3A3A3A"))
+                                        .foregroundColor(prop.wrappedValue.category == category ? .white : .gray)
+                                        .cornerRadius(5)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .labelsHidden()
-                        .frame(width: 140)
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("PIPELINE").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
+                        Text("PIPELINE").font(.system(size: 8, weight: .bold)).tracking(1.0).foregroundColor(.gray)
                         HStack(spacing: 4) {
                             ForEach(Self.pipelineStages, id: \.self) { stage in
                                 Button(action: { prop.wrappedValue.status = stage }) {
@@ -415,7 +488,7 @@ struct PropShopView: View {
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
                                         .background((prop.wrappedValue.status ?? "Concept") == stage
-                                                    ? stageColor(stage).opacity(0.25) : Color(nsColor: .quaternarySystemFill))
+                                                    ? stageColor(stage).opacity(0.25) : Color(hex: "#1A1A1A"))
                                         .foregroundColor((prop.wrappedValue.status ?? "Concept") == stage
                                                          ? stageColor(stage) : .gray)
                                         .cornerRadius(5)
@@ -448,7 +521,7 @@ struct PropShopView: View {
                             .frame(height: 70)
                             .scrollContentBackground(.hidden)
                             .padding(6)
-                            .background(Color(nsColor: .quaternarySystemFill))
+                            .background(Color(hex: "#1A1A1A"))
                             .cornerRadius(6)
                         Text("MAKER SPECS / SOURCING NOTES").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
                         TextEditor(text: prop.detailedSpecs)
@@ -456,7 +529,7 @@ struct PropShopView: View {
                             .frame(height: 50)
                             .scrollContentBackground(.hidden)
                             .padding(6)
-                            .background(Color(nsColor: .quaternarySystemFill))
+                            .background(Color(hex: "#1A1A1A"))
                             .cornerRadius(6)
                     }
                 }
@@ -466,7 +539,10 @@ struct PropShopView: View {
                     Text("REFERENCE IMAGES").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
                     HStack(spacing: 8) {
                         TextField("Paste an image URL from the internet…", text: $referenceURLText)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .background(Color(hex: "#1A1A1A"))
+                            .cornerRadius(6)
                             .font(.system(size: 11))
                             .onSubmit { addReferenceFromURL(prop) }
                         Button(action: { addReferenceFromURL(prop) }) {
@@ -557,7 +633,7 @@ struct PropShopView: View {
                         .frame(height: 46)
                         .scrollContentBackground(.hidden)
                         .padding(6)
-                        .background(Color(nsColor: .quaternarySystemFill))
+                        .background(Color(hex: "#1A1A1A"))
                         .cornerRadius(6)
                 }
                 Button(role: .destructive, action: { deleteProp(prop.wrappedValue) }) {
