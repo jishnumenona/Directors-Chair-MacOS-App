@@ -29,6 +29,13 @@ public struct SceneConnectionView: View {
     /// Project base path for loading avatar images
     public var projectBasePath: URL?
 
+    /// Deep-link highlights: when set on arrival (from Shots/Bubble/Scenes
+    /// views), the canvas selects + scrolls to the target, then clears the
+    /// binding (consumed). When both are set, the script item is selected so
+    /// its connected shots light up, and both columns scroll into view.
+    public var highlightShotId: Binding<String?>
+    public var highlightScriptItemId: Binding<String?>
+
     // MARK: - State
 
     @State private var showingDeleteAlert: Bool = false
@@ -51,6 +58,8 @@ public struct SceneConnectionView: View {
         shots: [Shot] = [],
         characters: [Character] = [],
         projectBasePath: URL? = nil,
+        highlightShotId: Binding<String?> = .constant(nil),
+        highlightScriptItemId: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
         onShotDoubleClicked: ((Shot) -> Void)? = nil,
         onScriptItemDoubleClicked: ((ScriptItem) -> Void)? = nil
@@ -63,6 +72,8 @@ public struct SceneConnectionView: View {
         ))
         self.characters = characters
         self.projectBasePath = projectBasePath
+        self.highlightShotId = highlightShotId
+        self.highlightScriptItemId = highlightScriptItemId
         self.onShotsChanged = onShotsChanged
         self.onShotDoubleClicked = onShotDoubleClicked
         self.onScriptItemDoubleClicked = onScriptItemDoubleClicked
@@ -290,6 +301,7 @@ public struct SceneConnectionView: View {
             if viewModel.groupedScriptEntries.isEmpty {
                 emptyScriptItemsState
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: SceneConnectionConstants.cardSpacing) {
                         ForEach(viewModel.groupedScriptEntries) { entry in
@@ -317,6 +329,7 @@ public struct SceneConnectionView: View {
                                         viewModel.endDrag(at: position)
                                     }
                                 )
+                                .id("item-\(group.dialogue.id)")
 
                             case .standalone(let item):
                                 ScriptItemCard(
@@ -341,14 +354,44 @@ public struct SceneConnectionView: View {
                                         viewModel.endDrag(at: position)
                                     }
                                 )
+                                .id("item-\(item.id)")
                             }
                         }
                     }
                     .padding(SceneConnectionConstants.cardPadding)
                 }
+                .onAppear { applyScriptItemHighlight(proxy) }
+                .onChange(of: highlightScriptItemId.wrappedValue) { _, _ in
+                    applyScriptItemHighlight(proxy)
+                }
+                }
             }
         }
         .background(SceneConnectionColors.sidebarBackground)
+    }
+
+    /// Consume a script-item deep-link: select it (its connected shots light
+    /// up), scroll it into view, then clear the binding.
+    private func applyScriptItemHighlight(_ proxy: ScrollViewProxy) {
+        guard let itemId = highlightScriptItemId.wrappedValue else { return }
+        viewModel.selectScriptItem(itemId)
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo("item-\(itemId)", anchor: .center)
+        }
+        DispatchQueue.main.async { highlightScriptItemId.wrappedValue = nil }
+    }
+
+    /// Consume a shot deep-link: select it (unless a script item is the primary
+    /// target), scroll it into view, then clear the binding.
+    private func applyShotHighlight(_ proxy: ScrollViewProxy) {
+        guard let shotId = highlightShotId.wrappedValue else { return }
+        if highlightScriptItemId.wrappedValue == nil {
+            viewModel.selectShot(shotId)
+        }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo("shot-\(shotId)", anchor: .center)
+        }
+        DispatchQueue.main.async { highlightShotId.wrappedValue = nil }
     }
 
     @ViewBuilder
@@ -402,6 +445,7 @@ public struct SceneConnectionView: View {
             if viewModel.shots.isEmpty {
                 emptyShotsState
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: SceneConnectionConstants.cardSpacing) {
                         ForEach(viewModel.shots) { shot in
@@ -424,9 +468,15 @@ public struct SceneConnectionView: View {
                                     onShotDoubleClicked?(shot)
                                 }
                             )
+                            .id("shot-\(shot.id)")
                         }
                     }
                     .padding(SceneConnectionConstants.cardPadding)
+                }
+                .onAppear { applyShotHighlight(proxy) }
+                .onChange(of: highlightShotId.wrappedValue) { _, _ in
+                    applyShotHighlight(proxy)
+                }
                 }
             }
         }

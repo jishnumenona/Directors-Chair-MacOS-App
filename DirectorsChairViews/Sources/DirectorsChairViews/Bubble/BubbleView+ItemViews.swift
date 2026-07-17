@@ -302,6 +302,9 @@ extension BubbleView {
                 )
                 .modifier(HighlightModifier(isHighlighted: isHighlighted))
                 .draggable(BubbleItemDragData(itemId: dialogue.id, itemType: "dialogue"))
+                .overlay(alignment: .topTrailing) {
+                    connectionBadge(itemId: dialogue.id, kind: .dialogue)
+                }
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(isDropTarget ? Color.green : Color.clear, lineWidth: 3)
@@ -398,6 +401,9 @@ extension BubbleView {
             )
             .modifier(HighlightModifier(isHighlighted: isItemHighlighted(action.id)))
             .draggable(BubbleItemDragData(itemId: action.id, itemType: "action"))
+            .overlay(alignment: .topTrailing) {
+                connectionBadge(itemId: action.id, kind: .action)
+            }
             .contextMenu {
                 Button("Disconnect from Dialogue") {
                     disconnectItem(itemId: action.id, itemType: "action")
@@ -426,6 +432,9 @@ extension BubbleView {
             )
             .modifier(HighlightModifier(isHighlighted: isItemHighlighted(narration.id)))
             .draggable(BubbleItemDragData(itemId: narration.id, itemType: "narration"))
+            .overlay(alignment: .topTrailing) {
+                connectionBadge(itemId: narration.id, kind: .narration)
+            }
             .contextMenu {
                 Button("Disconnect from Dialogue") {
                     disconnectItem(itemId: narration.id, itemType: "narration")
@@ -528,6 +537,9 @@ extension BubbleView {
             )
             .modifier(HighlightModifier(isHighlighted: isHighlighted))
             .draggable(BubbleItemDragData(itemId: action.id, itemType: "action"))
+            .overlay(alignment: .topTrailing) {
+                connectionBadge(itemId: action.id, kind: .action)
+            }
             Spacer()
         }
     }
@@ -556,6 +568,9 @@ extension BubbleView {
             )
             .modifier(HighlightModifier(isHighlighted: isHighlighted))
             .draggable(BubbleItemDragData(itemId: narration.id, itemType: "narration"))
+            .overlay(alignment: .topTrailing) {
+                connectionBadge(itemId: narration.id, kind: .narration)
+            }
             Spacer()
         }
     }
@@ -650,6 +665,58 @@ extension BubbleView {
                 return true
             }
             .accessibilityHidden(true)
+    }
+
+    // MARK: - Shot-Coverage Badge (Scene Connections surfaced in the script)
+
+    enum BubbleLinkKind {
+        case dialogue, action, narration
+    }
+
+    /// Shots in the current scene that cover this script item.
+    func coveringShots(itemId: String, kind: BubbleLinkKind) -> [Shot] {
+        guard let scene = selectedScene else { return [] }
+        return scene.shots.filter { shot in
+            switch kind {
+            case .dialogue: return shot.linkedDialogueIds.contains(itemId)
+            case .action: return shot.linkedActionIds.contains(itemId)
+            case .narration: return shot.linkedNarrationIds.contains(itemId)
+            }
+        }
+    }
+
+    /// A small always-visible chip on every linkable bubble: shows which shots
+    /// cover it ("SH 3, 5") or "Link shot" when uncovered. Clicking deep-links
+    /// into Scene Connections with this bubble highlighted (⌘[ returns here).
+    @ViewBuilder
+    func connectionBadge(itemId: String, kind: BubbleLinkKind) -> some View {
+        if let onNavigateToConnections, let scene = selectedScene {
+            let shots = coveringShots(itemId: itemId, kind: kind)
+            Button(action: { onNavigateToConnections(scene, itemId) }) {
+                HStack(spacing: 3) {
+                    Image(systemName: shots.isEmpty ? "link.badge.plus" : "video.fill")
+                        .font(.system(size: 7))
+                    Text(shots.isEmpty
+                         ? "Link shot"
+                         : "SH " + shots.map { "\($0.shotId)" }.sorted().joined(separator: ", "))
+                        .font(.system(size: 8, weight: .semibold))
+                }
+                .foregroundColor(shots.isEmpty ? .gray.opacity(0.65) : .accentColor)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background((shots.isEmpty ? Color.white.opacity(0.05) : Color.accentColor.opacity(0.12)))
+                .overlay(
+                    Capsule().stroke(shots.isEmpty ? Color.gray.opacity(0.25) : Color.accentColor.opacity(0.35),
+                                     lineWidth: 1)
+                )
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help(shots.isEmpty
+                  ? "Not covered by any shot — open Scene Connections to link it (⌘[ returns here)"
+                  : "Covered by shot\(shots.count == 1 ? "" : "s") \(shots.map { "\($0.shotId)" }.joined(separator: ", ")) — view in Scene Connections (⌘[ returns here)")
+            .offset(x: -6, y: -8)
+        }
     }
 
 }

@@ -27,6 +27,9 @@ struct ShotContextCard: View {
     var onNavigateToLocation: ((Location) -> Void)?
     var onNavigateToStoryDesign: (() -> Void)?
     var onSceneUpdated: ((DCScene) -> Void)?
+    /// Deep-link into Scene Connections, optionally targeting a script item
+    /// (nil = just open the canvas for this shot's scene).
+    var onOpenConnections: ((String?) -> Void)?
 
     @State private var showingCharacterPicker = false
     @State private var showingPropInput = false
@@ -55,6 +58,25 @@ struct ShotContextCard: View {
                         .foregroundColor(.white.opacity(0.9))
                 }
                 Spacer()
+
+                if let onOpenConnections {
+                    Button(action: { onOpenConnections(nil) }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                                .font(.system(size: 9))
+                            Text("Connections")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundColor(.accentColor.opacity(0.8))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.06))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor.opacity(0.2), lineWidth: 1))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open Scene Connections to link script elements to this shot (⌘[ returns here)")
+                }
 
                 Button(action: { Task { await detectFromScript() } }) {
                     HStack(spacing: 4) {
@@ -1072,10 +1094,24 @@ struct ShotContextCard: View {
     @ViewBuilder
     private func scriptRow(_ item: SceneScriptItem) -> some View {
         let linked = isLinked(item)
-        switch item {
-        case .dialogue(let d): dialogueRow(dialogue: d, isLinked: linked)
-        case .action(let a): actionRow(action: a, isLinked: linked)
-        case .narration(let n): narrationRow(narration: n, isLinked: linked)
+        HStack(spacing: 6) {
+            Group {
+                switch item {
+                case .dialogue(let d): dialogueRow(dialogue: d, isLinked: linked)
+                case .action(let a): actionRow(action: a, isLinked: linked)
+                case .narration(let n): narrationRow(narration: n, isLinked: linked)
+                }
+            }
+            if let onOpenConnections {
+                Button(action: { onOpenConnections(item.id) }) {
+                    Image(systemName: linked ? "link" : "link.badge.plus")
+                        .font(.system(size: 10))
+                        .foregroundColor(linked ? .accentColor : .gray.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help(linked ? "View this connection in Scene Connections (⌘[ returns here)"
+                             : "Link to this shot in Scene Connections (⌘[ returns here)")
+            }
         }
     }
 

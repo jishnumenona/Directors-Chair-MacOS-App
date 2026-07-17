@@ -51,6 +51,10 @@ public struct CinematographyView: View {
     /// Callback when scene data is updated (props, sounds, etc.)
     public var onSceneUpdated: ((DCScene) -> Void)?
 
+    /// Deep-link to Scene Connections for a shot (optionally targeting a
+    /// specific script item) — the app hub where bubbles link to shots.
+    public var onOpenConnections: ((Shot, String?) -> Void)?
+
     /// Initial shot ID to select when view appears or changes
     public var initialSelectedShotId: Int?
 
@@ -83,6 +87,7 @@ public struct CinematographyView: View {
         onNavigateToLocation: ((Location) -> Void)? = nil,
         onNavigateToStoryDesign: (() -> Void)? = nil,
         onNavigateToCuration: ((Shot) -> Void)? = nil,
+        onOpenConnections: ((Shot, String?) -> Void)? = nil,
         onSceneUpdated: ((DCScene) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: CinematographyViewModel(shots: shots))
@@ -103,6 +108,7 @@ public struct CinematographyView: View {
         self.onNavigateToStoryDesign = onNavigateToStoryDesign
         self.onNavigateToCuration = onNavigateToCuration
         self.onSceneUpdated = onSceneUpdated
+        self.onOpenConnections = onOpenConnections
     }
 
     /// Find the parent scene for a given shot
@@ -509,7 +515,10 @@ public struct CinematographyView: View {
                             onNavigateToCharacter: onNavigateToCharacter,
                             onNavigateToLocation: onNavigateToLocation,
                             onNavigateToStoryDesign: onNavigateToStoryDesign,
-                            onSceneUpdated: onSceneUpdated
+                            onSceneUpdated: onSceneUpdated,
+                            onOpenConnections: onOpenConnections.map { open in
+                                { itemId in open(shot, itemId) }
+                            }
                         )
                     }
 

@@ -118,6 +118,10 @@ public struct BubbleView: View {
     /// Callback when user double-clicks a character avatar to navigate to Story Design
     let onNavigateToCharacter: ((Character) -> Void)?
 
+    /// Deep-link to Scene Connections targeting a script item — clicking a
+    /// bubble's shot-coverage badge navigates there to view/author links.
+    let onNavigateToConnections: ((DCScene, String) -> Void)?
+
     public init(
         project: Binding<Project>,
         projectBasePath: URL? = nil,
@@ -127,7 +131,8 @@ public struct BubbleView: View {
         externalSelectedSceneId: String? = nil,
         externalRefreshTrigger: Int = 0,
         onDialogueSelected: ((Dialogue?) -> Void)? = nil,
-        onNavigateToCharacter: ((Character) -> Void)? = nil
+        onNavigateToCharacter: ((Character) -> Void)? = nil,
+        onNavigateToConnections: ((DCScene, String) -> Void)? = nil
     ) {
         self._project = project
         self.projectBasePath = projectBasePath
@@ -138,6 +143,7 @@ public struct BubbleView: View {
         self.externalRefreshTrigger = externalRefreshTrigger
         self.onDialogueSelected = onDialogueSelected
         self.onNavigateToCharacter = onNavigateToCharacter
+        self.onNavigateToConnections = onNavigateToConnections
     }
 
     public var body: some View {
