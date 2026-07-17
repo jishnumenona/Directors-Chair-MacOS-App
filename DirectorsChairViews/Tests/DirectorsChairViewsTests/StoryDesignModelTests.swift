@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import DirectorsChairViews
+@testable import DirectorsChairCore
 
 final class StoryDesignModelTests: XCTestCase {
 
@@ -10,10 +11,61 @@ final class StoryDesignModelTests: XCTestCase {
 
     func testStoryDesignModeAllCases() {
         // Lighting design belongs to the Theater edition — the cinema build
-        // has exactly Characters and Locations.
-        XCTAssertEqual(StoryDesignMode.allCases.count, 2)
+        // has Characters, Locations, and the Costumes department.
+        XCTAssertEqual(StoryDesignMode.allCases.count, 3)
         XCTAssertTrue(StoryDesignMode.allCases.contains(.characters))
         XCTAssertTrue(StoryDesignMode.allCases.contains(.locations))
+        XCTAssertTrue(StoryDesignMode.allCases.contains(.costumes))
+        XCTAssertEqual(StoryDesignMode.costumes.displayName, "Costumes")
+        XCTAssertEqual(StoryDesignMode.costumes.icon, "tshirt.fill")
+    }
+
+    // MARK: - Costume department & wardrobe plot helpers
+
+    private func makeCostumedCharacter(name: String, statuses: [String]) -> Character {
+        var character = Character(name: name)
+        character.costumes = statuses.enumerated().map { index, status in
+            var costume = CharacterCostume(name: "\(name) look \(index + 1)")
+            costume.costumeId = "\(name)-c\(index + 1)"
+            costume.status = status
+            return costume
+        }
+        return character
+    }
+
+    func testPipelineCountsAcrossCharacters() {
+        let cast = [
+            makeCostumedCharacter(name: "Alex", statuses: ["Ready", "Fitting"]),
+            makeCostumedCharacter(name: "Maya", statuses: ["Ready"]),
+        ]
+        let counts = CostumeDepartmentView.pipelineCounts(for: cast)
+        XCTAssertEqual(counts["Ready"], 2)
+        XCTAssertEqual(counts["Fitting"], 1)
+        XCTAssertNil(counts["Concept"])
+    }
+
+    func testScenesFeaturingCharacterUsesDialogueAndAction() {
+        var speaking = DCScene(name: "S1")
+        speaking.dialogues = [Dialogue(character: "Alex", text: "Hi", chronologyNumber: 1)]
+        var acting = DCScene(name: "S2")
+        acting.actions = [Action(description: "Alex runs", characters: ["Alex"])]
+        let absent = DCScene(name: "S3")
+
+        let featured = WardrobePlotTab.scenesFeaturing("Alex", in: [speaking, acting, absent])
+        XCTAssertEqual(featured.map(\.name), ["S1", "S2"])
+    }
+
+    func testAssignmentProgressCountsExplicitAssignmentsOnly() {
+        var assigned = DCScene(name: "S1")
+        assigned.dialogues = [Dialogue(character: "Alex", text: "Hi", chronologyNumber: 1)]
+        assigned.costumeAssignments = ["Alex": "Alex-c1"]
+        var unassigned = DCScene(name: "S2")
+        unassigned.dialogues = [Dialogue(character: "Alex", text: "Yo", chronologyNumber: 1)]
+
+        let progress = WardrobePlotTab.assignmentProgress(characterName: "Alex",
+                                                          scenes: [assigned, unassigned])
+        XCTAssertEqual(progress.assigned, 1)
+        XCTAssertEqual(progress.total, 2)
     }
 
     func testStoryDesignModeRawValues() {
@@ -67,7 +119,7 @@ final class StoryDesignModelTests: XCTestCase {
 
     func testDesignTabDisplayNames() {
         XCTAssertEqual(DesignTab.physical.displayName, "Physical")
-        XCTAssertEqual(DesignTab.costume.displayName, "Costume")
+        XCTAssertEqual(DesignTab.costume.displayName, "Wardrobe")
         XCTAssertEqual(DesignTab.traits.displayName, "Traits")
         XCTAssertEqual(DesignTab.biography.displayName, "Biography")
         XCTAssertEqual(DesignTab.relationships.displayName, "Relationships")
@@ -77,7 +129,7 @@ final class StoryDesignModelTests: XCTestCase {
 
     func testDesignTabIcons() {
         XCTAssertEqual(DesignTab.physical.icon, "person.fill")
-        XCTAssertEqual(DesignTab.costume.icon, "tshirt")
+        XCTAssertEqual(DesignTab.costume.icon, "checklist")
         XCTAssertEqual(DesignTab.traits.icon, "chart.pie.fill")
         XCTAssertEqual(DesignTab.biography.icon, "book.fill")
         XCTAssertEqual(DesignTab.relationships.icon, "person.2.fill")

@@ -24,7 +24,7 @@ enum DesignTab: String, CaseIterable {
     var displayName: String {
         switch self {
         case .physical: return "Physical"
-        case .costume: return "Costume"
+        case .costume: return "Wardrobe"
         case .traits: return "Traits"
         case .biography: return "Biography"
         case .relationships: return "Relationships"
@@ -36,7 +36,7 @@ enum DesignTab: String, CaseIterable {
     var icon: String {
         switch self {
         case .physical: return "person.fill"
-        case .costume: return "tshirt"
+        case .costume: return "checklist"
         case .traits: return "chart.pie.fill"
         case .biography: return "book.fill"
         case .relationships: return "person.2.fill"

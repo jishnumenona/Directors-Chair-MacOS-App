@@ -42,11 +42,15 @@ public struct CostumeTab: View {
         character: Binding<Character>,
         projectBasePath: URL? = nil,
         project: Project = Project(name: ""),
+        initialCostumeIndex: Int? = nil,
         onGenerateImage: ((String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil
     ) {
         self._character = character
         self.projectBasePath = projectBasePath
         self.project = project
+        if let initialCostumeIndex {
+            self._selectedCostumeIndex = State(initialValue: initialCostumeIndex)
+        }
         self.onGenerateImage = onGenerateImage
     }
 

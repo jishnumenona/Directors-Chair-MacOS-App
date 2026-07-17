@@ -14,11 +14,13 @@ public enum StoryDesignMode: String, CaseIterable {
     // not the cinema version of DirectorsChair.
     case characters
     case locations
+    case costumes
 
     var displayName: String {
         switch self {
         case .characters: return "Characters"
         case .locations: return "Locations"
+        case .costumes: return "Costumes"
         }
     }
 
@@ -26,6 +28,7 @@ public enum StoryDesignMode: String, CaseIterable {
         switch self {
         case .characters: return "person.fill"
         case .locations: return "map.fill"
+        case .costumes: return "tshirt.fill"
         }
     }
 }
@@ -127,6 +130,12 @@ public struct StoryDesignView: View {
                 charactersModeContent
             case .locations:
                 locationsModeContent
+            case .costumes:
+                CostumeDepartmentView(
+                    project: $project,
+                    projectBasePath: projectBasePath,
+                    onGenerateImage: onGenerateImage
+                )
             }
         }
         .alert("Generate All Attributes", isPresented: $showGenerateAllConfirmation) {
