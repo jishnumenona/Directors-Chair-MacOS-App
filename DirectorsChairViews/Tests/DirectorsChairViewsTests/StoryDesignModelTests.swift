@@ -9,10 +9,11 @@ final class StoryDesignModelTests: XCTestCase {
     // MARK: - StoryDesignMode
 
     func testStoryDesignModeAllCases() {
-        XCTAssertEqual(StoryDesignMode.allCases.count, 3)
+        // Lighting design belongs to the Theater edition — the cinema build
+        // has exactly Characters and Locations.
+        XCTAssertEqual(StoryDesignMode.allCases.count, 2)
         XCTAssertTrue(StoryDesignMode.allCases.contains(.characters))
         XCTAssertTrue(StoryDesignMode.allCases.contains(.locations))
-        XCTAssertTrue(StoryDesignMode.allCases.contains(.lighting))
     }
 
     func testStoryDesignModeRawValues() {
