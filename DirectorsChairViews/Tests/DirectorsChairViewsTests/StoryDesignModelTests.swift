@@ -11,13 +11,34 @@ final class StoryDesignModelTests: XCTestCase {
 
     func testStoryDesignModeAllCases() {
         // Lighting design belongs to the Theater edition — the cinema build
-        // has Characters, Locations, and the Costumes department.
-        XCTAssertEqual(StoryDesignMode.allCases.count, 3)
+        // has Characters, Locations, the Costumes department, and the Prop Shop.
+        XCTAssertEqual(StoryDesignMode.allCases.count, 4)
         XCTAssertTrue(StoryDesignMode.allCases.contains(.characters))
         XCTAssertTrue(StoryDesignMode.allCases.contains(.locations))
         XCTAssertTrue(StoryDesignMode.allCases.contains(.costumes))
+        XCTAssertTrue(StoryDesignMode.allCases.contains(.props))
         XCTAssertEqual(StoryDesignMode.costumes.displayName, "Costumes")
         XCTAssertEqual(StoryDesignMode.costumes.icon, "tshirt.fill")
+        XCTAssertEqual(StoryDesignMode.props.displayName, "Props")
+        XCTAssertEqual(StoryDesignMode.props.icon, "cube.box.fill")
+    }
+
+    // MARK: - Prop shop helpers
+
+    func testPropPipelineCounts() {
+        var hero = Prop(name: "Revolver"); hero.status = "Ready"
+        var doc = Prop(name: "Letter"); doc.status = "Concept"
+        let counts = PropShopView.pipelineCounts(for: [hero, doc, Prop(name: "Crate")])
+        XCTAssertEqual(counts["Ready"], 1)
+        XCTAssertEqual(counts["Concept"], 2, "nil status defaults to Concept")
+    }
+
+    func testScenesUsingPropMatchesCaseInsensitively() {
+        var scene = DCScene(name: "S1")
+        scene.props = ["crowbar", "Shipping Crate"]
+        let other = DCScene(name: "S2")
+        XCTAssertEqual(PropShopView.scenesUsing("Crowbar", in: [scene, other]).map(\.name), ["S1"])
+        XCTAssertTrue(PropShopView.scenesUsing("lantern", in: [scene, other]).isEmpty)
     }
 
     // MARK: - Costume department & wardrobe plot helpers

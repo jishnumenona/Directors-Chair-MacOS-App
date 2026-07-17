@@ -15,12 +15,14 @@ public enum StoryDesignMode: String, CaseIterable {
     case characters
     case locations
     case costumes
+    case props
 
     var displayName: String {
         switch self {
         case .characters: return "Characters"
         case .locations: return "Locations"
         case .costumes: return "Costumes"
+        case .props: return "Props"
         }
     }
 
@@ -29,6 +31,7 @@ public enum StoryDesignMode: String, CaseIterable {
         case .characters: return "person.fill"
         case .locations: return "map.fill"
         case .costumes: return "tshirt.fill"
+        case .props: return "cube.box.fill"
         }
     }
 }
@@ -135,6 +138,11 @@ public struct StoryDesignView: View {
                     project: $project,
                     projectBasePath: projectBasePath,
                     onGenerateImage: onGenerateImage
+                )
+            case .props:
+                PropShopView(
+                    project: $project,
+                    projectBasePath: projectBasePath
                 )
             }
         }
