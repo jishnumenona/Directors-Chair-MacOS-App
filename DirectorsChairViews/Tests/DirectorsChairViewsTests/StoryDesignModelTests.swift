@@ -33,6 +33,15 @@ final class StoryDesignModelTests: XCTestCase {
         XCTAssertEqual(counts["Concept"], 2, "nil status defaults to Concept")
     }
 
+    func testPropsNamedMatchesSceneOrderCaseInsensitively() {
+        let crowbar = Prop(name: "Crowbar")
+        let lantern = Prop(name: "Lantern")
+        let matched = PropShopView.propsNamed(["lantern", "CROWBAR", "ghost"],
+                                              in: [crowbar, lantern])
+        XCTAssertEqual(matched.map(\.name), ["Lantern", "Crowbar"],
+                       "scene order preserved; unregistered names skipped")
+    }
+
     func testUnregisteredScenePropsDedupesAndSkipsKnown() {
         var s1 = DCScene(name: "S1"); s1.props = ["Crowbar", "Lantern"]
         var s2 = DCScene(name: "S2"); s2.props = ["crowbar", "Map"]

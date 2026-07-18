@@ -179,6 +179,8 @@ struct ShotVideoGenerationSection: View {
     /// always additionally available.
     var filmStyles: [FilmStyle] = []
     var defaultFilmStyleId: String? = nil
+    /// Prop-shop registry — props with imagery join the location collage.
+    var props: [Prop] = []
     let onShotUpdated: (Shot) -> Void
     var onSceneUpdated: ((DCScene) -> Void)?
     /// Story Design hyperlinks from the keyframe prompt sheet's context strip.
@@ -845,17 +847,25 @@ struct ShotVideoGenerationSection: View {
                 ))
             }
 
-            // Location (+ props when the props tab gives them imagery)
+            // Location + the scene's props that have prop-shop imagery
             var locationImages: [NSImage] = []
             if let locationImage = CharacterReferenceHelper.loadLocationImage(forScene: currentScene,
                                                                               locations: locations,
                                                                               projectDirectory: basePath) {
                 locationImages.append(locationImage)
             }
+            var propNamesInCollage: [String] = []
+            for prop in PropShopView.propsNamed(currentScene.props, in: props) {
+                guard let path = prop.thumbnail,
+                      let image = NSImage(contentsOf: basePath.appendingPathComponent(path))
+                else { continue }
+                locationImages.append(image)
+                propNamesInCollage.append(prop.name)
+            }
             if let collage = ReferenceCollageBuilder.collage(locationImages),
                let base64 = ReferenceCollageBuilder.encodePNG(collage) {
                 let locationName = currentScene.location ?? "Location"
-                let propsSuffix = currentScene.props.isEmpty ? "" : " + " + currentScene.props.joined(separator: ", ")
+                let propsSuffix = propNamesInCollage.isEmpty ? "" : " + " + propNamesInCollage.joined(separator: ", ")
                 candidates.append(VideoReferenceCandidate(
                     id: "collage:location",
                     source: .locationCollage,

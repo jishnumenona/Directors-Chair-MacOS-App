@@ -51,6 +51,15 @@ struct PropShopView: View {
         }
     }
 
+    /// Registered props matching a scene's prop-name list (case-insensitive),
+    /// in scene order. Feeds prop imagery into the video reference collage.
+    /// Pure — tested.
+    static func propsNamed(_ names: [String], in props: [Prop]) -> [Prop] {
+        names.compactMap { name in
+            props.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        }
+    }
+
     /// Prop names mentioned in scenes (script breakdown / Detect from Script)
     /// that don't exist in the shop yet — the import queue. Pure — tested.
     static func unregisteredSceneProps(props: [Prop], scenes: [DCScene]) -> [String] {

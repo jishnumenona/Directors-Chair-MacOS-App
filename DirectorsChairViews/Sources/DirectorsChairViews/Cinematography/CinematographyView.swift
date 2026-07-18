@@ -33,6 +33,9 @@ public struct CinematographyView: View {
     let filmStyles: [FilmStyle]
     let defaultFilmStyleId: String?
 
+    /// Prop-shop registry (prop imagery joins the video reference collages).
+    let props: [Prop]
+
     /// Callback when shots change (for persistence)
     public var onShotsChanged: (([Shot]) -> Void)?
 
@@ -78,6 +81,7 @@ public struct CinematographyView: View {
         projectBasePath: URL? = nil,
         filmStyles: [FilmStyle] = [],
         defaultFilmStyleId: String? = nil,
+        props: [Prop] = [],
         initialSelectedShotId: Int? = nil,
         scrollToShotSection: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
@@ -98,6 +102,7 @@ public struct CinematographyView: View {
         self.projectBasePath = projectBasePath
         self.filmStyles = filmStyles
         self.defaultFilmStyleId = defaultFilmStyleId
+        self.props = props
         self.initialSelectedShotId = initialSelectedShotId
         self._scrollToShotSection = scrollToShotSection
         self.onShotsChanged = onShotsChanged
@@ -601,6 +606,7 @@ public struct CinematographyView: View {
                         projectBasePath: projectBasePath?.deletingLastPathComponent(),
                         filmStyles: filmStyles,
                         defaultFilmStyleId: defaultFilmStyleId,
+                        props: props,
                         onShotUpdated: { updatedShot in
                             viewModel.updateShot(updatedShot)
                         },

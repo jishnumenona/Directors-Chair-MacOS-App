@@ -1065,6 +1065,7 @@ struct CinematographyViewAdapter: View {
                     projectBasePath: projectViewModel.projectPath,
                     filmStyles: projectViewModel.project.filmStyles,
                     defaultFilmStyleId: projectViewModel.project.defaultFilmStyle,
+                    props: projectViewModel.project.props,
                     initialSelectedShotId: coordinator.selectedShot?.shotId,
                     scrollToShotSection: $coordinator.scrollToShotSection,
                     onShotsChanged: { updatedShots in
