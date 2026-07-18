@@ -23,6 +23,8 @@ public struct ShotConnectionCard: View {
 
     var onSelect: (() -> Void)?
     var onDoubleClick: (() -> Void)?
+    var connectTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
+    var onToggleConnect: ((ConnectionMenuTarget) -> Void)? = nil
     var onPortHit: ((ScriptItemType) -> Void)?
 
     // MARK: - State
@@ -59,6 +61,20 @@ public struct ShotConnectionCard: View {
             Divider()
             if totalConnections > 0 {
                 Text("\(totalConnections) connection(s)")
+                Divider()
+            }
+            if let onToggleConnect, let targets = connectTargetsProvider?(), !targets.isEmpty {
+                Menu("Connect Script Item") {
+                    ForEach(targets) { target in
+                        Button(action: { onToggleConnect(target) }) {
+                            if target.isConnected {
+                                Label(target.title, systemImage: "checkmark")
+                            } else {
+                                Text(target.title)
+                            }
+                        }
+                    }
+                }
                 Divider()
             }
             Button("Select") {

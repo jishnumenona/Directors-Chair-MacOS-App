@@ -7,6 +7,15 @@ import DirectorsChairCore
 
 // MARK: - Script Item Card
 
+/// A "Connect to…" context-menu entry — menu-driven linking so connections
+/// can be authored without a pointer drag (long lists, accessibility).
+struct ConnectionMenuTarget: Identifiable {
+    let id: String
+    let title: String
+    let isConnected: Bool
+    var itemType: ScriptItemType? = nil
+}
+
 public struct ScriptItemCard: View {
     // MARK: - Properties
 
@@ -21,6 +30,8 @@ public struct ScriptItemCard: View {
     var onDragStart: (() -> Void)?
     var onDragUpdate: ((CGPoint) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
+    var connectTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
+    var onToggleConnect: ((ConnectionMenuTarget) -> Void)? = nil
 
     // MARK: - State
 
@@ -64,6 +75,20 @@ public struct ScriptItemCard: View {
         .contextMenu {
             if !connectedShotIds.isEmpty {
                 Text("\(connectedShotIds.count) connection(s)")
+                Divider()
+            }
+            if let onToggleConnect, let targets = connectTargetsProvider?(), !targets.isEmpty {
+                Menu("Connect to Shot") {
+                    ForEach(targets) { target in
+                        Button(action: { onToggleConnect(target) }) {
+                            if target.isConnected {
+                                Label(target.title, systemImage: "checkmark")
+                            } else {
+                                Text(target.title)
+                            }
+                        }
+                    }
+                }
                 Divider()
             }
             Button("Select") {
@@ -177,6 +202,8 @@ public struct ScriptItemGroupCard: View {
     var onDragStart: (() -> Void)?
     var onDragUpdate: ((CGPoint) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
+    var connectTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
+    var onToggleConnect: ((ConnectionMenuTarget) -> Void)? = nil
 
     // MARK: - State
 
@@ -253,6 +280,20 @@ public struct ScriptItemGroupCard: View {
             }
             Text("\(group.children.count) sub-item(s)")
             Divider()
+            if let onToggleConnect, let targets = connectTargetsProvider?(), !targets.isEmpty {
+                Menu("Connect to Shot") {
+                    ForEach(targets) { target in
+                        Button(action: { onToggleConnect(target) }) {
+                            if target.isConnected {
+                                Label(target.title, systemImage: "checkmark")
+                            } else {
+                                Text(target.title)
+                            }
+                        }
+                    }
+                }
+                Divider()
+            }
             Button("Select") {
                 onSelect?()
             }
