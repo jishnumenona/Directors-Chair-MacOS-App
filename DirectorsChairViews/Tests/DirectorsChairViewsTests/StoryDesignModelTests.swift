@@ -3,16 +3,108 @@
 
 import XCTest
 @testable import DirectorsChairViews
+@testable import DirectorsChairCore
 
 final class StoryDesignModelTests: XCTestCase {
 
     // MARK: - StoryDesignMode
 
     func testStoryDesignModeAllCases() {
-        XCTAssertEqual(StoryDesignMode.allCases.count, 3)
+        // Lighting design belongs to the Theater edition — the cinema build
+        // has Characters, Locations, the Costumes department, and the Prop Shop.
+        XCTAssertEqual(StoryDesignMode.allCases.count, 4)
         XCTAssertTrue(StoryDesignMode.allCases.contains(.characters))
         XCTAssertTrue(StoryDesignMode.allCases.contains(.locations))
-        XCTAssertTrue(StoryDesignMode.allCases.contains(.lighting))
+        XCTAssertTrue(StoryDesignMode.allCases.contains(.costumes))
+        XCTAssertTrue(StoryDesignMode.allCases.contains(.props))
+        XCTAssertEqual(StoryDesignMode.costumes.displayName, "Costumes")
+        XCTAssertEqual(StoryDesignMode.costumes.icon, "tshirt.fill")
+        XCTAssertEqual(StoryDesignMode.props.displayName, "Props")
+        XCTAssertEqual(StoryDesignMode.props.icon, "cube.box.fill")
+    }
+
+    // MARK: - Prop shop helpers
+
+    func testPropPipelineCounts() {
+        var hero = Prop(name: "Revolver"); hero.status = "Ready"
+        var doc = Prop(name: "Letter"); doc.status = "Concept"
+        let counts = PropShopView.pipelineCounts(for: [hero, doc, Prop(name: "Crate")])
+        XCTAssertEqual(counts["Ready"], 1)
+        XCTAssertEqual(counts["Concept"], 2, "nil status defaults to Concept")
+    }
+
+    func testPropsNamedMatchesSceneOrderCaseInsensitively() {
+        let crowbar = Prop(name: "Crowbar")
+        let lantern = Prop(name: "Lantern")
+        let matched = PropShopView.propsNamed(["lantern", "CROWBAR", "ghost"],
+                                              in: [crowbar, lantern])
+        XCTAssertEqual(matched.map(\.name), ["Lantern", "Crowbar"],
+                       "scene order preserved; unregistered names skipped")
+    }
+
+    func testUnregisteredScenePropsDedupesAndSkipsKnown() {
+        var s1 = DCScene(name: "S1"); s1.props = ["Crowbar", "Lantern"]
+        var s2 = DCScene(name: "S2"); s2.props = ["crowbar", "Map"]
+        let existing = [Prop(name: "Lantern")]
+        XCTAssertEqual(PropShopView.unregisteredSceneProps(props: existing, scenes: [s1, s2]),
+                       ["Crowbar", "Map"],
+                       "case-insensitive dedupe; already-registered props skipped")
+    }
+
+    func testScenesUsingPropMatchesCaseInsensitively() {
+        var scene = DCScene(name: "S1")
+        scene.props = ["crowbar", "Shipping Crate"]
+        let other = DCScene(name: "S2")
+        XCTAssertEqual(PropShopView.scenesUsing("Crowbar", in: [scene, other]).map(\.name), ["S1"])
+        XCTAssertTrue(PropShopView.scenesUsing("lantern", in: [scene, other]).isEmpty)
+    }
+
+    // MARK: - Costume department & wardrobe plot helpers
+
+    private func makeCostumedCharacter(name: String, statuses: [String]) -> Character {
+        var character = Character(name: name)
+        character.costumes = statuses.enumerated().map { index, status in
+            var costume = CharacterCostume(name: "\(name) look \(index + 1)")
+            costume.costumeId = "\(name)-c\(index + 1)"
+            costume.status = status
+            return costume
+        }
+        return character
+    }
+
+    func testPipelineCountsAcrossCharacters() {
+        let cast = [
+            makeCostumedCharacter(name: "Alex", statuses: ["Ready", "Fitting"]),
+            makeCostumedCharacter(name: "Maya", statuses: ["Ready"]),
+        ]
+        let counts = CostumeDepartmentView.pipelineCounts(for: cast)
+        XCTAssertEqual(counts["Ready"], 2)
+        XCTAssertEqual(counts["Fitting"], 1)
+        XCTAssertNil(counts["Concept"])
+    }
+
+    func testScenesFeaturingCharacterUsesDialogueAndAction() {
+        var speaking = DCScene(name: "S1")
+        speaking.dialogues = [Dialogue(character: "Alex", text: "Hi", chronologyNumber: 1)]
+        var acting = DCScene(name: "S2")
+        acting.actions = [Action(description: "Alex runs", characters: ["Alex"])]
+        let absent = DCScene(name: "S3")
+
+        let featured = WardrobePlotTab.scenesFeaturing("Alex", in: [speaking, acting, absent])
+        XCTAssertEqual(featured.map(\.name), ["S1", "S2"])
+    }
+
+    func testAssignmentProgressCountsExplicitAssignmentsOnly() {
+        var assigned = DCScene(name: "S1")
+        assigned.dialogues = [Dialogue(character: "Alex", text: "Hi", chronologyNumber: 1)]
+        assigned.costumeAssignments = ["Alex": "Alex-c1"]
+        var unassigned = DCScene(name: "S2")
+        unassigned.dialogues = [Dialogue(character: "Alex", text: "Yo", chronologyNumber: 1)]
+
+        let progress = WardrobePlotTab.assignmentProgress(characterName: "Alex",
+                                                          scenes: [assigned, unassigned])
+        XCTAssertEqual(progress.assigned, 1)
+        XCTAssertEqual(progress.total, 2)
     }
 
     func testStoryDesignModeRawValues() {
@@ -66,7 +158,7 @@ final class StoryDesignModelTests: XCTestCase {
 
     func testDesignTabDisplayNames() {
         XCTAssertEqual(DesignTab.physical.displayName, "Physical")
-        XCTAssertEqual(DesignTab.costume.displayName, "Costume")
+        XCTAssertEqual(DesignTab.costume.displayName, "Wardrobe")
         XCTAssertEqual(DesignTab.traits.displayName, "Traits")
         XCTAssertEqual(DesignTab.biography.displayName, "Biography")
         XCTAssertEqual(DesignTab.relationships.displayName, "Relationships")
@@ -76,7 +168,7 @@ final class StoryDesignModelTests: XCTestCase {
 
     func testDesignTabIcons() {
         XCTAssertEqual(DesignTab.physical.icon, "person.fill")
-        XCTAssertEqual(DesignTab.costume.icon, "tshirt")
+        XCTAssertEqual(DesignTab.costume.icon, "checklist")
         XCTAssertEqual(DesignTab.traits.icon, "chart.pie.fill")
         XCTAssertEqual(DesignTab.biography.icon, "book.fill")
         XCTAssertEqual(DesignTab.relationships.icon, "person.2.fill")

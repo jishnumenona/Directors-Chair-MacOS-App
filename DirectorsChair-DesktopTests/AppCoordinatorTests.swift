@@ -334,4 +334,36 @@ final class AppCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.scrollToScriptItemId, "scene-fallback-001")
     }
+
+    // MARK: - Connections Deep-Link
+
+    func testNavigateToConnectionsSetsSceneTabAndHighlights() {
+        let coordinator = AppCoordinator()
+        coordinator.selectedView = .shotList
+        let scene = Scene(uuid: "scene-c1", name: "Scene 1")
+
+        coordinator.navigateToConnections(scene: scene,
+                                          highlightShotId: "shot-9",
+                                          highlightItemId: "dlg-4")
+
+        XCTAssertEqual(coordinator.selectedView, .scenes)
+        XCTAssertEqual(coordinator.selectedSceneTab, "Connections")
+        XCTAssertEqual(coordinator.selectedScene?.id, "scene-c1")
+        XCTAssertEqual(coordinator.connectionsHighlightShotId, "shot-9")
+        XCTAssertEqual(coordinator.connectionsHighlightItemId, "dlg-4")
+        XCTAssertTrue(coordinator.canNavigateBack,
+                      "arriving at Connections must be reversible via Cmd+[")
+    }
+
+    func testNavigateToConnectionsWithoutSceneKeepsSelection() {
+        let coordinator = AppCoordinator()
+        let existing = Scene(uuid: "scene-keep", name: "Keep Me")
+        coordinator.selectedScene = existing
+
+        coordinator.navigateToConnections(scene: nil, highlightItemId: "act-1")
+
+        XCTAssertEqual(coordinator.selectedScene?.id, "scene-keep")
+        XCTAssertNil(coordinator.connectionsHighlightShotId)
+        XCTAssertEqual(coordinator.connectionsHighlightItemId, "act-1")
+    }
 }

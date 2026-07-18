@@ -453,7 +453,8 @@ final class ModelRoundTripTests: XCTestCase {
             imagePath: "keyframes/start.jpg",
             label: "Start",
             timestamp: 0.0,
-            annotations: [annotation]
+            annotations: [annotation],
+            customPrompt: "A hand-tuned opening frame prompt"
         )
 
         let take = Take(id: "take-in-shot", takeNumber: 1, rating: .alt)
@@ -484,7 +485,9 @@ final class ModelRoundTripTests: XCTestCase {
             videoPrompt: "Cinematic wide shot of downtown",
             videoDuration: 8.0,
             videoProvider: "runway",
-            videoQuality: "High"
+            videoQuality: "High",
+            videoResolution: "1080p",
+            lightingStyle: "Low-key"
         )
 
         let decoded = try roundTrip(original)
@@ -519,11 +522,14 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.videoKeyframes?.count, 1)
         XCTAssertEqual(decoded.videoKeyframes?[0].annotations?.count, 1)
         XCTAssertEqual(decoded.videoKeyframes?[0].annotations?[0].text, "Move camera left")
+        XCTAssertEqual(decoded.videoKeyframes?[0].customPrompt, "A hand-tuned opening frame prompt")
         XCTAssertEqual(decoded.videoGenerationJobId, "job-abc")
         XCTAssertEqual(decoded.videoPrompt, "Cinematic wide shot of downtown")
         XCTAssertEqual(decoded.videoDuration, 8.0)
         XCTAssertEqual(decoded.videoProvider, "runway")
         XCTAssertEqual(decoded.videoQuality, "High")
+        XCTAssertEqual(decoded.videoResolution, "1080p")
+        XCTAssertEqual(decoded.lightingStyle, "Low-key")
     }
 
     func testShotSnakeCaseCodingKeys() throws {
@@ -643,7 +649,10 @@ final class ModelRoundTripTests: XCTestCase {
             sceneOverviewImage: "overviews/scene1.jpg",
             sceneEmotionalAnalysis: ["tension": 0.8, "warmth": 0.3],
             sceneOverviewPrompt: "A tense morning scene",
-            sceneOverviewSummary: "Alice confronts her fears over breakfast."
+            sceneOverviewSummary: "Alice confronts her fears over breakfast.",
+            timeOfDay: "Golden Hour",
+            weather: "Rain",
+            costumeAssignments: ["ALICE": "costume-42"]
         )
 
         let decoded = try roundTrip(original)
@@ -672,6 +681,26 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.sceneEmotionalAnalysis?["tension"], 0.8)
         XCTAssertEqual(decoded.sceneOverviewPrompt, "A tense morning scene")
         XCTAssertEqual(decoded.sceneOverviewSummary, "Alice confronts her fears over breakfast.")
+        XCTAssertEqual(decoded.timeOfDay, "Golden Hour")
+        XCTAssertEqual(decoded.weather, "Rain")
+        XCTAssertEqual(decoded.costumeAssignments?["ALICE"], "costume-42")
+    }
+
+    func testFilmStylePresetsHaveStableUniqueIds() {
+        let ids = FilmStyle.presets.map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count, "Preset ids must be unique")
+        XCTAssertTrue(ids.allSatisfy { $0.hasPrefix("preset-") })
+        XCTAssertTrue(FilmStyle.presets.allSatisfy { $0.isPreset })
+        XCTAssertTrue(FilmStyle.presets.allSatisfy { !$0.aiStylePrompt.isEmpty },
+                      "Every preset must carry a usable style prompt")
+    }
+
+    func testFilmStyleResolvePrefersProjectStyleOverPreset() {
+        let presetId = FilmStyle.presets[0].id
+        let userStyle = FilmStyle(id: presetId, name: "My Override")
+        XCTAssertEqual(FilmStyle.resolve(id: presetId, in: [userStyle])?.name, "My Override")
+        XCTAssertEqual(FilmStyle.resolve(id: presetId, in: [])?.name, FilmStyle.presets[0].name)
+        XCTAssertNil(FilmStyle.resolve(id: "nope", in: [userStyle]))
     }
 
     func testSceneSnakeCaseCodingKeys() throws {

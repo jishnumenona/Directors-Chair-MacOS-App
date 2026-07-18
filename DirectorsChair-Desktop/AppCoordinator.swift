@@ -98,6 +98,12 @@ class AppCoordinator: ObservableObject {
     @Published var selectedSFXCueId: String?
     @Published var selectedSupportCueId: String?
 
+    /// Deep-link targets for the Scene Connections canvas: when set, the
+    /// canvas selects + scrolls to this shot/script item on arrival, then
+    /// clears them (consumed like scrollToShotSection).
+    @Published var connectionsHighlightShotId: String?
+    @Published var connectionsHighlightItemId: String?
+
     /// When true, PlaybackView should auto-play on appear (set by global space bar shortcut)
     @Published var shouldAutoPlay: Bool = false
 
@@ -257,6 +263,20 @@ class AppCoordinator: ObservableObject {
         // Direct assignment without animation to prevent stacking during rapid switches
         selectedView = view
         debugLog("🧭 Navigation complete to \(view.rawValue)")
+    }
+
+    /// Navigate to the Scene Connections canvas for a scene, optionally
+    /// highlighting a shot and/or a script bubble there. This is the single
+    /// linking hub — every view (Shots, Bubble, Scenes) deep-links here.
+    /// Cmd+[ returns to wherever the user came from.
+    func navigateToConnections(scene: DirectorsChairCore.Scene?,
+                               highlightShotId: String? = nil,
+                               highlightItemId: String? = nil) {
+        if let scene { selectedScene = scene }
+        connectionsHighlightShotId = highlightShotId
+        connectionsHighlightItemId = highlightItemId
+        selectedSceneTab = "Connections"
+        navigateTo(.scenes)
     }
 
     /// Navigate back to the previous view in history

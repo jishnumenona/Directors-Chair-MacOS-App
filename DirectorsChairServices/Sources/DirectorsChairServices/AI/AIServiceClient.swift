@@ -229,6 +229,10 @@ public struct VideoGenerationRequest: Sendable {
     public var negativePrompt: String?
     public var startFrameBase64: String?     // Base64 of start keyframe
     public var endFrameBase64: String?       // Base64 of end keyframe
+    /// Mid-shot keyframes sent as provider reference images for subject/scene
+    /// consistency. The gateway forwards at most 3.
+    public var referenceFrames: [ReferenceImage]?
+    public var resolution: String?           // "720p", "1080p"
     public var shotId: String?
     public var projectId: String?
 
@@ -244,6 +248,8 @@ public struct VideoGenerationRequest: Sendable {
         negativePrompt: String? = nil,
         startFrameBase64: String? = nil,
         endFrameBase64: String? = nil,
+        referenceFrames: [ReferenceImage]? = nil,
+        resolution: String? = nil,
         shotId: String? = nil,
         projectId: String? = nil
     ) {
@@ -258,6 +264,8 @@ public struct VideoGenerationRequest: Sendable {
         self.negativePrompt = negativePrompt
         self.startFrameBase64 = startFrameBase64
         self.endFrameBase64 = endFrameBase64
+        self.referenceFrames = referenceFrames
+        self.resolution = resolution
         self.shotId = shotId
         self.projectId = projectId
     }
@@ -902,15 +910,9 @@ public actor AIServiceClient {
     
     // MARK: - Video Generation
 
-    /// Submit a video generation job
-    public func submitVideoGeneration(_ request: VideoGenerationRequest) async throws -> VideoGenerationResponse {
-        let url = baseURL.appendingPathComponent("generate/video")
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        applyAuthHeader(to: &urlRequest)
-
+    /// Wire body for POST /generate/video. Static so tests can assert the
+    /// exact JSON contract without a network layer.
+    static func videoSubmissionBody(for request: VideoGenerationRequest) -> [String: Any] {
         var body: [String: Any] = [
             "prompt": request.prompt,
             "provider": request.provider.rawValue,
@@ -931,14 +933,34 @@ public actor AIServiceClient {
         if let endFrame = request.endFrameBase64 {
             body["end_frame_base64"] = endFrame
         }
+        if let refs = request.referenceFrames, !refs.isEmpty {
+            // The gateway forwards at most 3 to the provider as reference images.
+            body["reference_frames"] = refs.prefix(3).map { ref in
+                ["base64": ref.base64, "mime_type": ref.mimeType, "label": ref.label]
+            }
+        }
+        if let resolution = request.resolution {
+            body["resolution"] = resolution
+        }
         if let shotId = request.shotId {
             body["shot_id"] = shotId
         }
         if let projectId = request.projectId {
             body["project_id"] = projectId
         }
+        return body
+    }
 
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+    /// Submit a video generation job
+    public func submitVideoGeneration(_ request: VideoGenerationRequest) async throws -> VideoGenerationResponse {
+        let url = baseURL.appendingPathComponent("generate/video")
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyAuthHeader(to: &urlRequest)
+
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: Self.videoSubmissionBody(for: request))
 
         let (data, response) = try await session.data(for: urlRequest)
 

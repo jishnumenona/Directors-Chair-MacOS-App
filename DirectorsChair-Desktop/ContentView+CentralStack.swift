@@ -122,6 +122,9 @@ struct CentralViewStack: View {
                 },
                 onNavigateToCharacter: { character in
                     coordinator.selectCharacter(character)
+                },
+                onNavigateToConnections: { scene, itemId in
+                    coordinator.navigateToConnections(scene: scene, highlightItemId: itemId)
                 }
             )
             .onAppear { debugLog("📱 BubbleView appeared") }
@@ -1060,6 +1063,9 @@ struct CinematographyViewAdapter: View {
                     characters: projectViewModel.project.characters,
                     locations: projectViewModel.project.locations,
                     projectBasePath: projectViewModel.projectPath,
+                    filmStyles: projectViewModel.project.filmStyles,
+                    defaultFilmStyleId: projectViewModel.project.defaultFilmStyle,
+                    props: projectViewModel.project.props,
                     initialSelectedShotId: coordinator.selectedShot?.shotId,
                     scrollToShotSection: $coordinator.scrollToShotSection,
                     onShotsChanged: { updatedShots in
@@ -1085,6 +1091,14 @@ struct CinematographyViewAdapter: View {
                     },
                     onNavigateToCuration: { shot in
                         coordinator.selectShotInCuration(shot)
+                    },
+                    onOpenConnections: { shot, itemId in
+                        let parentScene = projectViewModel.allScenes.first { scene in
+                            scene.shots.contains { $0.id == shot.id }
+                        }
+                        coordinator.navigateToConnections(scene: parentScene,
+                                                          highlightShotId: shot.id,
+                                                          highlightItemId: itemId)
                     },
                     onSceneUpdated: { updatedScene in
                         // Update the scene in the project model — search ALL sequences

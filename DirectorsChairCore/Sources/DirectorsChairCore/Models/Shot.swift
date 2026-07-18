@@ -39,6 +39,8 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var videoDuration: Double?                // Video-specific duration (bidirectional sync with shot.duration)
     public var videoProvider: String?                // Last used provider
     public var videoQuality: String?                 // Standard/High/Ultra
+    public var videoResolution: String?              // "720p"/"1080p"
+    public var lightingStyle: String?                // Key-light mood ("Soft key", "Low-key", ...)
 
     public init(
         uuid: String = UUID().uuidString,
@@ -66,7 +68,9 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoPrompt: String? = nil,
         videoDuration: Double? = nil,
         videoProvider: String? = nil,
-        videoQuality: String? = nil
+        videoQuality: String? = nil,
+        videoResolution: String? = nil,
+        lightingStyle: String? = nil
     ) {
         self.uuid = uuid
         self.shotId = shotId
@@ -94,6 +98,8 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.videoDuration = videoDuration
         self.videoProvider = videoProvider
         self.videoQuality = videoQuality
+        self.videoResolution = videoResolution
+        self.lightingStyle = lightingStyle
     }
 
     enum CodingKeys: String, CodingKey {
@@ -123,6 +129,8 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case videoDuration = "video_duration"
         case videoProvider = "video_provider"
         case videoQuality = "video_quality"
+        case videoResolution = "video_resolution"
+        case lightingStyle = "lighting_style"
     }
 
     enum AlternativeCodingKeys: String, CodingKey {
@@ -208,6 +216,8 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoDuration = try container.decodeIfPresent(Double.self, forKey: .videoDuration)
         videoProvider = try container.decodeIfPresent(String.self, forKey: .videoProvider)
         videoQuality = try container.decodeIfPresent(String.self, forKey: .videoQuality)
+        videoResolution = try container.decodeIfPresent(String.self, forKey: .videoResolution)
+        lightingStyle = try container.decodeIfPresent(String.self, forKey: .lightingStyle)
     }
 
     // MARK: - Take Helpers
@@ -255,6 +265,7 @@ public struct VideoKeyframe: Codable, Identifiable, Hashable, Sendable {
     public var label: String        // "Start", "End", or custom
     public var timestamp: Double    // Time in seconds within the video
     public var annotations: [KeyframeAnnotation]?  // Point-and-click edit annotations
+    public var customPrompt: String?  // User-edited generation prompt (nil = auto-built)
 
     public init(
         id: String = UUID().uuidString,
@@ -262,7 +273,8 @@ public struct VideoKeyframe: Codable, Identifiable, Hashable, Sendable {
         imagePath: String? = nil,
         label: String = "",
         timestamp: Double = 0.0,
-        annotations: [KeyframeAnnotation]? = nil
+        annotations: [KeyframeAnnotation]? = nil,
+        customPrompt: String? = nil
     ) {
         self.id = id
         self.position = position
@@ -270,6 +282,7 @@ public struct VideoKeyframe: Codable, Identifiable, Hashable, Sendable {
         self.label = label
         self.timestamp = timestamp
         self.annotations = annotations
+        self.customPrompt = customPrompt
     }
 
     public init(from decoder: Decoder) throws {
@@ -280,10 +293,12 @@ public struct VideoKeyframe: Codable, Identifiable, Hashable, Sendable {
         label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
         timestamp = try container.decodeIfPresent(Double.self, forKey: .timestamp) ?? 0.0
         annotations = try container.decodeIfPresent([KeyframeAnnotation].self, forKey: .annotations)
+        customPrompt = try container.decodeIfPresent(String.self, forKey: .customPrompt)
     }
 
     enum CodingKeys: String, CodingKey {
         case id, position, imagePath, label, timestamp, annotations
+        case customPrompt = "custom_prompt"
     }
 }
 

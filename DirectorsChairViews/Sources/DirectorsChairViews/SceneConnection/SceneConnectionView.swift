@@ -13,6 +13,14 @@ public struct SceneConnectionView: View {
     // MARK: - Properties
 
     @StateObject private var viewModel: SceneConnectionViewModel
+    @Environment(\.undoManager) private var undoManager
+
+    /// Scene content, stored so external edits (Bubble/Shots views) refresh an
+    /// already-open canvas — the @StateObject only seeds once per identity.
+    private let dialogues: [Dialogue]
+    private let actions: [Action]
+    private let narrations: [Narration]
+    private let inputShots: [Shot]
 
     /// Callback when shots change (for persistence)
     public var onShotsChanged: (([Shot]) -> Void)?
@@ -29,10 +37,17 @@ public struct SceneConnectionView: View {
     /// Project base path for loading avatar images
     public var projectBasePath: URL?
 
+    /// Deep-link highlights: when set on arrival (from Shots/Bubble/Scenes
+    /// views), the canvas selects + scrolls to the target, then clears the
+    /// binding (consumed). When both are set, the script item is selected so
+    /// its connected shots light up, and both columns scroll into view.
+    public var highlightShotId: Binding<String?>
+    public var highlightScriptItemId: Binding<String?>
+
     // MARK: - State
 
-    @State private var showingDeleteAlert: Bool = false
-    @State private var connectionToDelete: ScriptConnection?
+    // Deletes are immediate + undoable (⌘Z) — no confirmation dialog needed.
+    @State private var showingHelp: Bool = false
     @State private var previewModeDefault: Bool = false
     @State private var isCmdHeld: Bool = false
     @State private var cmdKeyMonitor: Any? = nil
@@ -51,6 +66,8 @@ public struct SceneConnectionView: View {
         shots: [Shot] = [],
         characters: [Character] = [],
         projectBasePath: URL? = nil,
+        highlightShotId: Binding<String?> = .constant(nil),
+        highlightScriptItemId: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
         onShotDoubleClicked: ((Shot) -> Void)? = nil,
         onScriptItemDoubleClicked: ((ScriptItem) -> Void)? = nil
@@ -61,8 +78,14 @@ public struct SceneConnectionView: View {
             narrations: narrations,
             shots: shots
         ))
+        self.dialogues = dialogues
+        self.actions = actions
+        self.narrations = narrations
+        self.inputShots = shots
         self.characters = characters
         self.projectBasePath = projectBasePath
+        self.highlightShotId = highlightShotId
+        self.highlightScriptItemId = highlightScriptItemId
         self.onShotsChanged = onShotsChanged
         self.onShotDoubleClicked = onShotDoubleClicked
         self.onScriptItemDoubleClicked = onScriptItemDoubleClicked
@@ -107,31 +130,46 @@ public struct SceneConnectionView: View {
         .onPreferenceChange(PortPositionKey.self) { positions in
             viewModel.updatePortPositions(positions)
         }
+        .onPreferenceChange(ShotCardFrameKey.self) { frames in
+            viewModel.updateCardFrames(frames)
+        }
         .onAppear {
             viewModel.onShotsChanged = onShotsChanged
+            viewModel.undoManager = undoManager
             cmdKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
                 isCmdHeld = event.modifierFlags.contains(.command)
                 return event
             }
+        }
+        .onChange(of: undoManager) { _, newValue in
+            viewModel.undoManager = newValue
+        }
+        // Freshness: edits made in the Bubble/Shots views propagate into an
+        // already-open canvas (the @StateObject only seeds once per identity).
+        .onChange(of: dialogues) { _, newValue in
+            viewModel.refresh(dialogues: newValue, actions: actions,
+                              narrations: narrations, shots: inputShots)
+        }
+        .onChange(of: actions) { _, newValue in
+            viewModel.refresh(dialogues: dialogues, actions: newValue,
+                              narrations: narrations, shots: inputShots)
+        }
+        .onChange(of: narrations) { _, newValue in
+            viewModel.refresh(dialogues: dialogues, actions: actions,
+                              narrations: newValue, shots: inputShots)
+        }
+        .onChange(of: inputShots) { _, newValue in
+            // Skip round-trips of our own edits — the ViewModel is already
+            // ahead of the host during in-canvas mutations.
+            guard newValue != viewModel.shots.sorted(by: { $0.shotId < $1.shotId }) else { return }
+            viewModel.refresh(dialogues: dialogues, actions: actions,
+                              narrations: narrations, shots: newValue)
         }
         .onDisappear {
             if let monitor = cmdKeyMonitor {
                 NSEvent.removeMonitor(monitor)
                 cmdKeyMonitor = nil
             }
-        }
-        .alert("Delete Connection", isPresented: $showingDeleteAlert) {
-            Button("Delete", role: .destructive) {
-                if let connection = connectionToDelete {
-                    viewModel.removeConnection(connection)
-                }
-                connectionToDelete = nil
-            }
-            Button("Cancel", role: .cancel) {
-                connectionToDelete = nil
-            }
-        } message: {
-            Text("Are you sure you want to remove this connection?")
         }
         .onDeleteCommand {
             viewModel.deleteSelectedConnection()
@@ -194,13 +232,27 @@ public struct SceneConnectionView: View {
 
             // Help button
             Button {
-                // Show help
+                showingHelp.toggle()
             } label: {
                 Image(systemName: "questionmark.circle")
                     .foregroundColor(.gray)
             }
             .buttonStyle(.plain)
-            .help("Drag from script items to shots to create connections")
+            .help("How linking works")
+            .popover(isPresented: $showingHelp, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Linking script to shots")
+                        .font(.system(size: 12, weight: .semibold))
+                    Label("Drag from a port dot onto a shot — anywhere on the card works", systemImage: "hand.draw")
+                    Label("Or right-click an item → Connect to Shot", systemImage: "contextualmenu.and.cursorarrow")
+                    Label("Click a line to select it; ⌫ removes it", systemImage: "scissors")
+                    Label("⌘Z undoes any link change", systemImage: "arrow.uturn.backward")
+                    Label("Click an item to light up the shots covering it", systemImage: "rays")
+                }
+                .font(.system(size: 11))
+                .padding(14)
+                .frame(width: 320)
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
@@ -290,6 +342,7 @@ public struct SceneConnectionView: View {
             if viewModel.groupedScriptEntries.isEmpty {
                 emptyScriptItemsState
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: SceneConnectionConstants.cardSpacing) {
                         ForEach(viewModel.groupedScriptEntries) { entry in
@@ -315,8 +368,14 @@ public struct SceneConnectionView: View {
                                     },
                                     onDragEnd: { position in
                                         viewModel.endDrag(at: position)
+                                    },
+                                    connectTargetsProvider: { shotConnectTargets(for: group.dialogue.id, itemType: .dialogue) },
+                                    onToggleConnect: { target in
+                                        viewModel.toggleConnection(scriptItemId: group.dialogue.id,
+                                                                   shotId: target.id, itemType: .dialogue)
                                     }
                                 )
+                                .id("item-\(group.dialogue.id)")
 
                             case .standalone(let item):
                                 ScriptItemCard(
@@ -339,16 +398,51 @@ public struct SceneConnectionView: View {
                                     },
                                     onDragEnd: { position in
                                         viewModel.endDrag(at: position)
+                                    },
+                                    connectTargetsProvider: { shotConnectTargets(for: item.id, itemType: item.itemType) },
+                                    onToggleConnect: { target in
+                                        viewModel.toggleConnection(scriptItemId: item.id,
+                                                                   shotId: target.id, itemType: item.itemType)
                                     }
                                 )
+                                .id("item-\(item.id)")
                             }
                         }
                     }
                     .padding(SceneConnectionConstants.cardPadding)
                 }
+                .onAppear { applyScriptItemHighlight(proxy) }
+                .onChange(of: highlightScriptItemId.wrappedValue) { _, _ in
+                    applyScriptItemHighlight(proxy)
+                }
+                }
             }
         }
         .background(SceneConnectionColors.sidebarBackground)
+    }
+
+    /// Consume a script-item deep-link: select it (its connected shots light
+    /// up), scroll it into view, then clear the binding.
+    private func applyScriptItemHighlight(_ proxy: ScrollViewProxy) {
+        guard let itemId = highlightScriptItemId.wrappedValue else { return }
+        viewModel.selectScriptItem(itemId)
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo("item-\(itemId)", anchor: .center)
+        }
+        DispatchQueue.main.async { highlightScriptItemId.wrappedValue = nil }
+    }
+
+    /// Consume a shot deep-link: select it (unless a script item is the primary
+    /// target), scroll it into view, then clear the binding.
+    private func applyShotHighlight(_ proxy: ScrollViewProxy) {
+        guard let shotId = highlightShotId.wrappedValue else { return }
+        if highlightScriptItemId.wrappedValue == nil {
+            viewModel.selectShot(shotId)
+        }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo("shot-\(shotId)", anchor: .center)
+        }
+        DispatchQueue.main.async { highlightShotId.wrappedValue = nil }
     }
 
     @ViewBuilder
@@ -402,6 +496,7 @@ public struct SceneConnectionView: View {
             if viewModel.shots.isEmpty {
                 emptyShotsState
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: SceneConnectionConstants.cardSpacing) {
                         ForEach(viewModel.shots) { shot in
@@ -422,11 +517,29 @@ public struct SceneConnectionView: View {
                                 },
                                 onDoubleClick: {
                                     onShotDoubleClicked?(shot)
+                                },
+                                connectTargetsProvider: { scriptConnectTargets(forShot: shot.id) },
+                                onToggleConnect: { target in
+                                    guard let itemType = target.itemType else { return }
+                                    viewModel.toggleConnection(scriptItemId: target.id,
+                                                               shotId: shot.id, itemType: itemType)
                                 }
                             )
+                            .id("shot-\(shot.id)")
+                            .background(GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: ShotCardFrameKey.self,
+                                    value: [shot.id: proxy.frame(in: .named("sceneConnections"))]
+                                )
+                            })
                         }
                     }
                     .padding(SceneConnectionConstants.cardPadding)
+                }
+                .onAppear { applyShotHighlight(proxy) }
+                .onChange(of: highlightShotId.wrappedValue) { _, _ in
+                    applyShotHighlight(proxy)
+                }
                 }
             }
         }
@@ -460,9 +573,38 @@ public struct SceneConnectionView: View {
         characters.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
 
+    /// Menu targets for "Connect to Shot" on a script item — computed lazily
+    /// when the context menu opens, not per render.
+    private func shotConnectTargets(for scriptItemId: String, itemType: ScriptItemType) -> [ConnectionMenuTarget] {
+        viewModel.shots.map { shot in
+            ConnectionMenuTarget(
+                id: shot.id,
+                title: "Shot \(shot.shotId)" + (shot.description.isEmpty ? "" : " — \(shot.description.prefix(30))"),
+                isConnected: viewModel.connectionExists(scriptItemId: scriptItemId,
+                                                        shotId: shot.id, itemType: itemType)
+            )
+        }
+    }
+
+    /// Menu targets for "Connect Script Item" on a shot — lazy, menu-open only.
+    private func scriptConnectTargets(forShot shotId: String) -> [ConnectionMenuTarget] {
+        viewModel.scriptItems.map { item in
+            let prefix = item.subtitle.map { "\($0): " } ?? ""
+            return ConnectionMenuTarget(
+                id: item.id,
+                title: "#\(item.chronologyNumber) \(prefix)\(String(item.displayText.prefix(36)))",
+                isConnected: viewModel.connectionExists(scriptItemId: item.id,
+                                                        shotId: shotId, itemType: item.itemType),
+                itemType: item.itemType
+            )
+        }
+    }
+
     private func highlightedTypeForShot(_ shotId: String) -> ScriptItemType? {
-        // Highlight the port type when dragging
+        // Highlight only the hovered drop target while dragging — previously
+        // every shot card lit up (and re-rendered) on each drag tick.
         if viewModel.isDragging {
+            guard viewModel.dragHoverShotId == shotId else { return nil }
             return viewModel.dragSourceType
         }
 
@@ -645,3 +787,14 @@ struct SceneConnectionView_Previews: PreviewProvider {
     }
 }
 #endif
+
+// MARK: - Shot Card Frame Preference
+
+/// Shot CARD frames in canvas space — lets a drag drop anywhere on the card,
+/// not just the 24pt port dot.
+private struct ShotCardFrameKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}

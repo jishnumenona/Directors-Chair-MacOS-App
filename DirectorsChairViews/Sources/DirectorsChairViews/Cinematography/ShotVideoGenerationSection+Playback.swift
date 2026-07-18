@@ -22,11 +22,27 @@ struct VideoPlayerCard: View {
     let onRegenerate: () -> Void
     let onDownload: () -> Void
     var onShowInFinder: (() -> Void)?
+    var onShowPrompt: (() -> Void)?
     @State private var player: AVPlayer?
     @State private var isPlaying: Bool = false
     @State private var currentTime: Double = 0
     @State private var videoDuration: Double = 0
+    @State private var videoAspect: CGFloat?
     @State private var timeObserver: Any?
+
+    /// Player surface height is derived from the clip's real aspect ratio but
+    /// capped so portrait clips don't take over the shot detail column.
+    private static let maxPlayerHeight: CGFloat = 420
+
+    /// Display aspect (width/height) from a video track's natural size and
+    /// preferred transform (rotation metadata swaps the axes). Pure — tested.
+    static func displayAspectRatio(naturalSize: CGSize, preferredTransform: CGAffineTransform) -> CGFloat? {
+        let transformed = naturalSize.applying(preferredTransform)
+        let width = abs(transformed.width)
+        let height = abs(transformed.height)
+        guard width > 0, height > 0 else { return nil }
+        return width / height
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -47,12 +63,14 @@ struct VideoPlayerCard: View {
                     .lineLimit(1)
             }
 
-            // Video Player
+            // Video Player — sized to the clip's real aspect ratio (16:9 until
+            // the track metadata loads), height-capped so portrait clips fit.
             ZStack {
                 if let player = player {
                     NativeVideoPlayerView(player: player)
                         .allowsHitTesting(false)
-                        .frame(height: 240)
+                        .aspectRatio(videoAspect ?? (16.0 / 9.0), contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: Self.maxPlayerHeight)
                         .cornerRadius(8)
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
@@ -67,7 +85,8 @@ struct VideoPlayerCard: View {
                 } else {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color(hex: "#1A1A1A"))
-                        .frame(height: 240)
+                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: Self.maxPlayerHeight)
                         .overlay(
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -160,6 +179,9 @@ struct VideoPlayerCard: View {
                     Spacer()
 
                     // Action buttons
+                    if onShowPrompt != nil {
+                        actionBtn(icon: "text.quote", label: "Show Prompt") { onShowPrompt?() }
+                    }
                     actionBtn(icon: "arrow.up.left.and.arrow.down.right", label: "Full Screen") { showingFullScreen = true }
                     actionBtn(icon: "folder", label: "Show in Finder") { onShowInFinder?() }
                     actionBtn(icon: "square.and.arrow.down", label: "Export", action: onDownload)
@@ -187,12 +209,18 @@ struct VideoPlayerCard: View {
             currentTime = time.seconds
         }
 
-        // Get video duration
+        // Get video duration + the clip's real display aspect ratio
         Task {
-            if let duration = try? await avPlayer.currentItem?.asset.load(.duration) {
+            guard let asset = avPlayer.currentItem?.asset else { return }
+            if let duration = try? await asset.load(.duration) {
                 await MainActor.run {
                     videoDuration = duration.seconds.isFinite ? duration.seconds : self.duration
                 }
+            }
+            if let track = try? await asset.loadTracks(withMediaType: .video).first,
+               let (naturalSize, transform) = try? await track.load(.naturalSize, .preferredTransform),
+               let aspect = Self.displayAspectRatio(naturalSize: naturalSize, preferredTransform: transform) {
+                await MainActor.run { videoAspect = aspect }
             }
         }
 

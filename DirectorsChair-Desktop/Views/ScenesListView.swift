@@ -203,6 +203,8 @@ struct ScenesListView: View {
                     shots: scene.shots,
                     characters: projectViewModel.characters,
                     projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                    highlightShotId: $coordinator.connectionsHighlightShotId,
+                    highlightScriptItemId: $coordinator.connectionsHighlightItemId,
                     onShotsChanged: { updatedShots in
                         updateShotsForScene(scene, updatedShots: updatedShots)
                     },

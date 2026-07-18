@@ -20,8 +20,6 @@ extension StoryDesignView {
                   let char = project.characters.first(where: { $0.id == charId }) {
             selectedMode = .characters
             selectedCharacter = char
-        } else if preferredMode == "lighting" {
-            selectedMode = .lighting
         } else if preferredMode == "locations" {
             selectedMode = .locations
             if selectedLocation == nil, let firstLocation = project.locations.first {

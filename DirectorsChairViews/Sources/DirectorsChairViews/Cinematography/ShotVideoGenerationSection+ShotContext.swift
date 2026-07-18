@@ -21,10 +21,15 @@ struct ShotContextCard: View {
     let characters: [Character]
     let locations: [Location]
     let projectBasePath: URL?
+    /// False when hosted inside a CollapsibleCard, which supplies the title.
+    var showsHeader: Bool = true
     var onNavigateToCharacter: ((Character) -> Void)?
     var onNavigateToLocation: ((Location) -> Void)?
     var onNavigateToStoryDesign: (() -> Void)?
     var onSceneUpdated: ((DCScene) -> Void)?
+    /// Deep-link into Scene Connections, optionally targeting a script item
+    /// (nil = just open the canvas for this shot's scene).
+    var onOpenConnections: ((String?) -> Void)?
 
     @State private var showingCharacterPicker = false
     @State private var showingPropInput = false
@@ -41,16 +46,37 @@ struct ShotContextCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header
+            // Header (title omitted when the hosting card provides it)
             HStack(spacing: 8) {
-                Image(systemName: "text.book.closed.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.accentColor)
-                Text("SHOT CONTEXT")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(.white.opacity(0.9))
+                if showsHeader {
+                    Image(systemName: "text.book.closed.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                    Text("SHOT CONTEXT")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundColor(.white.opacity(0.9))
+                }
                 Spacer()
+
+                if let onOpenConnections {
+                    Button(action: { onOpenConnections(nil) }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                                .font(.system(size: 9))
+                            Text("Connections")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundColor(.accentColor.opacity(0.8))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.06))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor.opacity(0.2), lineWidth: 1))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open Scene Connections to link script elements to this shot (⌘[ returns here)")
+                }
 
                 Button(action: { Task { await detectFromScript() } }) {
                     HStack(spacing: 4) {
@@ -92,18 +118,23 @@ struct ShotContextCard: View {
                         }
                     }
 
-                    // Costumes
+                    // Costumes — click to assign what each character wears in THIS scene
                     let allCostumes = charNames.flatMap { name -> [(Character, CharacterCostume)] in
                         guard let char = characters.first(where: { $0.name == name }),
                               let costumes = char.costumes else { return [] }
                         return costumes.map { (char, $0) }
                     }
                     if !allCostumes.isEmpty {
-                        contextSection(icon: "tshirt.fill", iconColor: .purple, title: "COSTUMES") {
-                            VideoContextFlowLayout(spacing: 8) {
-                                ForEach(allCostumes, id: \.1.id) { char, costume in
-                                    costumeChip(character: char, costume: costume)
+                        contextSection(icon: "tshirt.fill", iconColor: .purple, title: "WARDROBE (THIS SCENE)") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                VideoContextFlowLayout(spacing: 8) {
+                                    ForEach(allCostumes, id: \.1.id) { char, costume in
+                                        costumeChip(character: char, costume: costume)
+                                    }
                                 }
+                                Text("Click a costume to assign it for this scene — prompts and reference images follow the assignment.")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.gray.opacity(0.5))
                             }
                         }
                     }
@@ -181,29 +212,30 @@ struct ShotContextCard: View {
                         }
                     }
 
-                    // Linked Dialogue
-                    let linkedDialogues = shot.linkedDialogueIds.compactMap { id in
-                        currentScene.dialogues.first(where: { $0.id == id })
-                    }
-                    if !linkedDialogues.isEmpty {
-                        contextSection(icon: "text.bubble.fill", iconColor: .cyan, title: "DIALOGUE") {
+                    // Scene Script — every bubble (dialogue, action, narration)
+                    // in chronological order; rows linked to THIS shot are
+                    // highlighted. Linking is authored in Scene Connections.
+                    let scriptItems = sceneScriptItems(currentScene)
+                    if !scriptItems.isEmpty {
+                        contextSection(icon: "text.bubble.fill", iconColor: .cyan, title: "SCENE SCRIPT") {
                             VStack(alignment: .leading, spacing: 6) {
-                                ForEach(linkedDialogues.prefix(4)) { d in
-                                    dialogueRow(dialogue: d)
+                                ScrollView {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        ForEach(scriptItems) { item in
+                                            scriptRow(item)
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                    }
-
-                    // Linked Actions
-                    let linkedActions = shot.linkedActionIds.compactMap { id in
-                        currentScene.actions.first(where: { $0.id == id })
-                    }
-                    if !linkedActions.isEmpty {
-                        contextSection(icon: "figure.walk", iconColor: .yellow, title: "ACTIONS") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(linkedActions.prefix(3)) { a in
-                                    actionRow(action: a)
+                                .frame(maxHeight: scriptItems.count > 4 ? 220 : .infinity)
+                                if shot.linkedDialogueIds.isEmpty && shot.linkedActionIds.isEmpty
+                                    && shot.linkedNarrationIds.isEmpty {
+                                    Text("No script elements are linked to this shot yet — link them in Scene Connections to highlight what this shot covers.")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.gray.opacity(0.5))
+                                } else {
+                                    Text("Highlighted rows are covered by this shot.")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.gray.opacity(0.5))
                                 }
                             }
                         }
@@ -224,14 +256,18 @@ struct ShotContextCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(showsHeader ? 16 : 0)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(hex: "#222222"))
-                .overlay(
+            Group {
+                if showsHeader {
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color(hex: "#333333"), lineWidth: 1)
-                )
+                        .fill(Color(hex: "#222222"))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(hex: "#333333"), lineWidth: 1)
+                        )
+                }
+            }
         )
         .popover(isPresented: $showingCharacterPicker) {
             characterPickerPopover
@@ -583,46 +619,78 @@ struct ShotContextCard: View {
         .cornerRadius(8)
     }
 
-    // MARK: - Costume Chip
+    // MARK: - Costume Chip (scene wardrobe assignment)
+
+    /// Whether this costume is the one the character wears in this scene.
+    private func isAssigned(_ costume: CharacterCostume, for character: Character) -> Bool {
+        scene?.costumeAssignments?[character.name] == costume.costumeId
+    }
+
+    /// Toggle the scene's wardrobe assignment for a character.
+    private func toggleCostumeAssignment(_ costume: CharacterCostume, for character: Character) {
+        guard var updated = scene else { return }
+        var assignments = updated.costumeAssignments ?? [:]
+        if assignments[character.name] == costume.costumeId {
+            assignments.removeValue(forKey: character.name)
+        } else {
+            assignments[character.name] = costume.costumeId
+        }
+        updated.costumeAssignments = assignments.isEmpty ? nil : assignments
+        onSceneUpdated?(updated)
+    }
 
     @ViewBuilder
     private func costumeChip(character: Character, costume: CharacterCostume) -> some View {
-        Button(action: {
-            onNavigateToCharacter?(character)
-        }) {
+        let assigned = isAssigned(costume, for: character)
+
+        Button(action: { toggleCostumeAssignment(costume, for: character) }) {
             HStack(spacing: 6) {
-                if let basePath = projectBasePath, let path = costume.imageFront,
-                   let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                    Image(nsImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 22, height: 22)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else {
-                    defaultSquareIcon(icon: "tshirt", color: .purple)
+                ZStack(alignment: .bottomTrailing) {
+                    if let basePath = projectBasePath, let path = costume.imageFront,
+                       let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 22, height: 22)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    } else {
+                        defaultSquareIcon(icon: "tshirt", color: .purple)
+                    }
+                    if assigned {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.green)
+                            .background(Circle().fill(Color.black).frame(width: 8, height: 8))
+                            .offset(x: 3, y: 3)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(costume.name)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
+                        .font(.system(size: 10, weight: assigned ? .semibold : .medium))
+                        .foregroundColor(.white.opacity(assigned ? 1.0 : 0.9))
                         .lineLimit(1)
-                    Text(character.name)
+                    Text(assigned ? "\(character.name) — worn in scene" : character.name)
                         .font(.system(size: 8))
-                        .foregroundColor(.gray)
+                        .foregroundColor(assigned ? .green.opacity(0.8) : .gray)
                 }
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 7))
-                    .foregroundColor(.gray.opacity(0.4))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Color.purple.opacity(0.08))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.purple.opacity(0.15), lineWidth: 1))
+            .background(assigned ? Color.green.opacity(0.10) : Color.purple.opacity(0.08))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(assigned ? Color.green.opacity(0.45) : Color.purple.opacity(0.15),
+                        lineWidth: assigned ? 1.5 : 1))
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+        .help(assigned ? "Worn in this scene — click to unassign"
+                       : "Click to assign for this scene")
+        .contextMenu {
+            Button(action: { onNavigateToCharacter?(character) }) {
+                Label("Open in Story Design", systemImage: "person.crop.square")
+            }
+        }
     }
 
     // MARK: - Deletable Location Chip
@@ -983,10 +1051,86 @@ struct ShotContextCard: View {
         .cornerRadius(7)
     }
 
+    // MARK: - Scene Script (all bubble elements, chronological)
+
+    private enum SceneScriptItem: Identifiable {
+        case dialogue(Dialogue)
+        case action(Action)
+        case narration(Narration)
+
+        var id: String {
+            switch self {
+            case .dialogue(let d): return d.id
+            case .action(let a): return a.id
+            case .narration(let n): return n.id
+            }
+        }
+
+        var chronology: Int {
+            switch self {
+            case .dialogue(let d): return d.chronologyNumber
+            case .action(let a): return a.chronologyNumber
+            case .narration(let n): return n.chronologyNumber
+            }
+        }
+    }
+
+    private func sceneScriptItems(_ scene: DCScene) -> [SceneScriptItem] {
+        (scene.dialogues.map(SceneScriptItem.dialogue)
+            + scene.actions.map(SceneScriptItem.action)
+            + scene.narrations.map(SceneScriptItem.narration))
+            .sorted { $0.chronology < $1.chronology }
+    }
+
+    /// Whether a script element is covered by (linked to) this shot.
+    private func isLinked(_ item: SceneScriptItem) -> Bool {
+        switch item {
+        case .dialogue(let d): return shot.linkedDialogueIds.contains(d.id)
+        case .action(let a): return shot.linkedActionIds.contains(a.id)
+        case .narration(let n): return shot.linkedNarrationIds.contains(n.id)
+        }
+    }
+
+    @ViewBuilder
+    private func scriptRow(_ item: SceneScriptItem) -> some View {
+        let linked = isLinked(item)
+        HStack(spacing: 6) {
+            Group {
+                switch item {
+                case .dialogue(let d): dialogueRow(dialogue: d, isLinked: linked)
+                case .action(let a): actionRow(action: a, isLinked: linked)
+                case .narration(let n): narrationRow(narration: n, isLinked: linked)
+                }
+            }
+            if let onOpenConnections {
+                Button(action: { onOpenConnections(item.id) }) {
+                    Image(systemName: linked ? "link" : "link.badge.plus")
+                        .font(.system(size: 10))
+                        .foregroundColor(linked ? .accentColor : .gray.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help(linked ? "View this connection in Scene Connections (⌘[ returns here)"
+                             : "Link to this shot in Scene Connections (⌘[ returns here)")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func linkedBadge() -> some View {
+        Text("THIS SHOT")
+            .font(.system(size: 7, weight: .bold))
+            .tracking(0.5)
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.accentColor.opacity(0.12))
+            .cornerRadius(3)
+    }
+
     // MARK: - Dialogue Row
 
     @ViewBuilder
-    private func dialogueRow(dialogue: Dialogue) -> some View {
+    private func dialogueRow(dialogue: Dialogue, isLinked: Bool = false) -> some View {
         let char = characters.first(where: { $0.name == dialogue.character })
 
         Button(action: {
@@ -1023,12 +1167,17 @@ struct ShotContextCard: View {
                         .lineLimit(2)
                         .italic()
                 }
+
+                Spacer(minLength: 0)
+                if isLinked { linkedBadge() }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.cyan.opacity(0.04))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.cyan.opacity(0.1), lineWidth: 1))
+            .background(Color.cyan.opacity(isLinked ? 0.10 : 0.04))
+            .overlay(RoundedRectangle(cornerRadius: 7)
+                .stroke(isLinked ? Color.accentColor.opacity(0.45) : Color.cyan.opacity(0.1),
+                        lineWidth: isLinked ? 1.5 : 1))
             .cornerRadius(7)
         }
         .buttonStyle(.plain)
@@ -1037,7 +1186,7 @@ struct ShotContextCard: View {
     // MARK: - Action Row
 
     @ViewBuilder
-    private func actionRow(action: Action) -> some View {
+    private func actionRow(action: Action, isLinked: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "arrow.right")
                 .font(.system(size: 9, weight: .medium))
@@ -1048,12 +1197,44 @@ struct ShotContextCard: View {
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.75))
                 .lineLimit(2)
+            Spacer(minLength: 0)
+            if isLinked { linkedBadge() }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.yellow.opacity(0.04))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.yellow.opacity(0.1), lineWidth: 1))
+        .background(Color.yellow.opacity(isLinked ? 0.10 : 0.04))
+        .overlay(RoundedRectangle(cornerRadius: 7)
+            .stroke(isLinked ? Color.accentColor.opacity(0.45) : Color.yellow.opacity(0.1),
+                    lineWidth: isLinked ? 1.5 : 1))
+        .cornerRadius(7)
+    }
+
+    // MARK: - Narration Row
+
+    @ViewBuilder
+    private func narrationRow(narration: Narration, isLinked: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "text.alignleft")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.mint.opacity(0.7))
+                .frame(width: 16, alignment: .center)
+                .padding(.top, 2)
+            Text("(V.O.) \(narration.text)")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.7))
+                .lineLimit(2)
+                .italic()
+            Spacer(minLength: 0)
+            if isLinked { linkedBadge() }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.mint.opacity(isLinked ? 0.10 : 0.04))
+        .overlay(RoundedRectangle(cornerRadius: 7)
+            .stroke(isLinked ? Color.accentColor.opacity(0.45) : Color.mint.opacity(0.1),
+                    lineWidth: isLinked ? 1.5 : 1))
         .cornerRadius(7)
     }
 
@@ -1269,22 +1450,53 @@ struct KeyframePromptSheet: View {
     @Binding var prompt: String
     @Binding var isPresented: Bool
     let keyframeLabel: String
+    /// The auto-built prompt (for "Reset to Auto" and custom-detection).
+    var autoPrompt: String = ""
+    /// Story context shown while editing: who/where/what this frame contains.
+    var scene: DCScene? = nil
+    var characters: [Character] = []
+    var locations: [Location] = []
+    var projectBasePath: URL? = nil
+    /// Persist the edited prompt as the keyframe's custom prompt (without generating).
+    var onSave: ((String) -> Void)? = nil
+    /// Hyperlinks from the context strip into Story Design (⌘[ returns here).
+    /// Clicking dismisses the sheet first — Story Design opens behind it.
+    var onNavigateToCharacter: ((Character) -> Void)? = nil
+    var onNavigateToLocation: ((Location) -> Void)? = nil
     let onGenerate: () -> Void
 
+    private var isCustomized: Bool {
+        !autoPrompt.isEmpty && prompt != autoPrompt
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             HStack {
                 Image(systemName: "wand.and.stars")
                     .foregroundColor(.accentColor)
-                Text("Generate \(keyframeLabel) Frame")
+                Text("\(keyframeLabel) Frame Prompt")
                     .font(.headline)
                     .foregroundColor(.white)
+                if isCustomized {
+                    Text("edited")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.12))
+                        .cornerRadius(4)
+                }
                 Spacer()
                 Button("Cancel") { isPresented = false }
                     .foregroundColor(.gray)
             }
 
-            Text("Edit the prompt below, then generate the keyframe image.")
+            // Story context — the elements this frame draws from
+            if let scene {
+                storyContextStrip(scene)
+            }
+
+            Text("This is the prompt used when you press Generate. Edits are saved to this keyframe.")
                 .font(.system(size: 11))
                 .foregroundColor(.gray)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1295,10 +1507,43 @@ struct KeyframePromptSheet: View {
                 .padding(10)
                 .background(Color(hex: "#1A1A1A"))
                 .cornerRadius(8)
-                .frame(minHeight: 180)
+                .frame(minHeight: 170)
 
-            HStack {
+            HStack(spacing: 10) {
+                if !autoPrompt.isEmpty {
+                    Button(action: { prompt = autoPrompt }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 10))
+                            Text("Reset to Auto")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.gray)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isCustomized)
+                    .help("Discard edits and rebuild the prompt from the shot, scene, and look settings")
+                }
+
                 Spacer()
+
+                if let onSave {
+                    Button(action: {
+                        onSave(prompt)
+                        isPresented = false
+                    }) {
+                        Text("Save")
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(Color(hex: "#3A3A3A"))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Save the prompt to this keyframe without generating")
+                }
+
                 Button(action: {
                     onGenerate()
                 }) {
@@ -1318,7 +1563,87 @@ struct KeyframePromptSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 520, height: 380)
+        .frame(width: 560, height: 520)
         .background(Color(hex: "#252525"))
+    }
+
+    // MARK: - Story context strip
+
+    @ViewBuilder
+    private func storyContextStrip(_ scene: DCScene) -> some View {
+        let names = ShotPromptBuilder.characterNames(in: scene)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("IN THIS SCENE")
+                .font(.system(size: 8, weight: .bold))
+                .tracking(1.0)
+                .foregroundColor(.gray)
+            VideoContextFlowLayout(spacing: 6) {
+                ForEach(names, id: \.self) { name in
+                    let character = characters.first { $0.name == name }
+                    let costume = character.flatMap { ShotPromptBuilder.assignedCostume(for: $0, in: scene) }
+                    contextChip(icon: "person.fill", tint: .blue,
+                                text: costume.map { "\(name) — \($0.name)" } ?? name,
+                                action: character.flatMap { char in
+                                    onNavigateToCharacter.map { navigate in
+                                        { isPresented = false; navigate(char) }
+                                    }
+                                })
+                }
+                if let loc = scene.location, !loc.isEmpty {
+                    let location = locations.first { $0.name.lowercased() == loc.lowercased() }
+                    contextChip(icon: "mappin.and.ellipse", tint: .green, text: loc,
+                                action: location.flatMap { record in
+                                    onNavigateToLocation.map { navigate in
+                                        { isPresented = false; navigate(record) }
+                                    }
+                                })
+                }
+                ForEach(scene.props, id: \.self) { prop in
+                    // Props stay plain until the Story Design props tab exists.
+                    contextChip(icon: "cube.fill", tint: .orange, text: prop)
+                }
+                if names.isEmpty && (scene.location ?? "").isEmpty && scene.props.isEmpty {
+                    Text("No characters, location, or props set for this scene yet")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.6))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color(hex: "#1E1E1E"))
+        .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    private func contextChip(icon: String, tint: Color, text: String,
+                             action: (() -> Void)? = nil) -> some View {
+        let chipBody = HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 8))
+                .foregroundColor(tint.opacity(0.8))
+            Text(text)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+                .lineLimit(1)
+            if action != nil {
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: 6, weight: .semibold))
+                    .foregroundColor(tint.opacity(0.6))
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(tint.opacity(0.08))
+        .overlay(Capsule().stroke(tint.opacity(action != nil ? 0.35 : 0.2), lineWidth: 1))
+        .clipShape(Capsule())
+
+        if let action {
+            Button(action: action) { chipBody }
+                .buttonStyle(.plain)
+                .help("Open in Story Design (⌘[ returns here)")
+        } else {
+            chipBody
+        }
     }
 }

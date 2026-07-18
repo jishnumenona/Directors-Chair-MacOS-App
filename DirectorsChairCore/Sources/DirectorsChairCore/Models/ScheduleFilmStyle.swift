@@ -335,3 +335,81 @@ public struct FilmStyle: Codable, Identifiable, Hashable, Sendable {
         author = try container.decodeIfPresent(String.self, forKey: .author)
     }
 }
+
+// MARK: - Built-in Presets
+
+extension FilmStyle {
+    /// Director-grade look presets, available in every project without setup.
+    /// IDs are stable ("preset-…") so `Shot.styleOverride`/`Scene.styleOverride`
+    /// can reference them persistently; user-defined styles in
+    /// `Project.filmStyles` take precedence on ID collision.
+    public static let presets: [FilmStyle] = [
+        FilmStyle(
+            id: "preset-cinematic-standard", name: "Cinematic Standard",
+            description: "Modern digital cinema baseline — clean, filmic, neutral grade",
+            isPreset: true, renderingStyle: "realistic", colorGrading: "cinematic",
+            contrastLevel: "medium",
+            aiStylePrompt: "Shot on a digital cinema camera, naturalistic color, gentle filmic contrast curve, subtle halation on highlights, true-to-life skin tones, professional cinematography"
+        ),
+        FilmStyle(
+            id: "preset-film-noir", name: "Film Noir",
+            description: "Hard single-source light, deep blacks, venetian-blind shadows",
+            isPreset: true, renderingStyle: "realistic", colorGrading: "desaturated",
+            contrastLevel: "dramatic", filmGrain: true, vignette: true,
+            aiStylePrompt: "Black and white film noir, hard single-source key light, deep crushed blacks, dramatic venetian-blind shadows, cigarette-smoke atmosphere, 1940s crime drama aesthetic",
+            negativePrompt: "color, flat lighting"
+        ),
+        FilmStyle(
+            id: "preset-golden-naturalism", name: "Golden Naturalism",
+            description: "Magic-hour naturalism, soft backlit warmth",
+            isPreset: true, renderingStyle: "realistic", colorGrading: "warm",
+            contrastLevel: "low", filmGrain: true,
+            aiStylePrompt: "Golden hour natural light, soft warm backlighting with lens flare, wide dynamic range, gentle earth-tone palette, poetic naturalistic cinematography in the style of a prestige drama"
+        ),
+        FilmStyle(
+            id: "preset-teal-orange", name: "Blockbuster Teal & Orange",
+            description: "High-saturation complementary grade, glossy studio finish",
+            isPreset: true, renderingStyle: "realistic",
+            colorPalette: ["#0F7C7C", "#FF8C42"], colorGrading: "vibrant",
+            contrastLevel: "high",
+            aiStylePrompt: "Modern blockbuster color grade, teal shadows and warm orange skin tones, glossy high-contrast finish, crisp detail, anamorphic lens flares"
+        ),
+        FilmStyle(
+            id: "preset-doc-16mm", name: "16mm Documentary",
+            description: "Handheld vérité, visible grain, available light",
+            isPreset: true, renderingStyle: "realistic", textureQuality: "grainy",
+            colorGrading: "vintage", contrastLevel: "medium", filmGrain: true,
+            aiStylePrompt: "Shot on 16mm film, visible organic grain, available-light documentary realism, slightly muted vintage color, vérité immediacy",
+            negativePrompt: "glossy, polished studio look"
+        ),
+        FilmStyle(
+            id: "preset-neon-noir", name: "Neon Noir",
+            description: "Night exteriors, neon practicals, wet asphalt reflections",
+            isPreset: true, renderingStyle: "realistic",
+            colorPalette: ["#FF2E88", "#00E5FF", "#1A1A2E"], colorGrading: "cool",
+            contrastLevel: "dramatic",
+            aiStylePrompt: "Neon-noir night cinematography, magenta and cyan practical neon sources, wet asphalt reflections, atmospheric haze catching colored light, deep shadow detail"
+        ),
+        FilmStyle(
+            id: "preset-anime", name: "Anime",
+            description: "Cel-shaded 2D animation, painted backgrounds",
+            isPreset: true, renderingStyle: "anime", textureQuality: "painterly",
+            colorGrading: "vibrant", contrastLevel: "medium",
+            aiStylePrompt: "2D anime style, cel-shaded characters with clean line art, hand-painted watercolor backgrounds, dramatic anime lighting and composition",
+            negativePrompt: "photorealistic, live action"
+        ),
+        FilmStyle(
+            id: "preset-mono-classic", name: "Classic Monochrome",
+            description: "Silver-gelatin black & white, fine grain, soft rolloff",
+            isPreset: true, renderingStyle: "realistic", colorGrading: "desaturated",
+            contrastLevel: "high", filmGrain: true,
+            aiStylePrompt: "Classic black and white photography, silver-gelatin tonality, fine film grain, luminous highlight rolloff, timeless mid-century cinema look",
+            negativePrompt: "color"
+        ),
+    ]
+
+    /// Resolve a style ID against user-defined styles first, then presets.
+    public static func resolve(id: String, in projectStyles: [FilmStyle]) -> FilmStyle? {
+        projectStyles.first { $0.id == id } ?? presets.first { $0.id == id }
+    }
+}

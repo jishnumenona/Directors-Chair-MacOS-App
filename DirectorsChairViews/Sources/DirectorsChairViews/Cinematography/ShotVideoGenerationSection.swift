@@ -73,6 +73,47 @@ enum VideoProvider: String, CaseIterable {
         }
     }
 
+    /// Aspect ratios the provider actually accepts (Veo rejects 1:1 with a 400).
+    var supportedAspectRatios: [String] {
+        switch self {
+        case .veo3: return ["16:9", "9:16"]
+        case .sora2, .kling: return ["16:9", "9:16", "1:1"]
+        }
+    }
+
+    /// Output resolutions the gateway accepts for this provider.
+    var supportedResolutions: [String] {
+        ["720p", "1080p"]
+    }
+
+    /// Whether this provider supports start→end frame interpolation (bridging).
+    var supportsEndFrameInterpolation: Bool {
+        self == .veo3
+    }
+
+    /// Veo's end-frame interpolation ignores the requested duration and fixes
+    /// the clip length itself (~8s), so cost estimation and usage tracking must
+    /// use that length, not the slider value.
+    static let interpolationDurationSeconds: Double = 8.0
+
+    /// The duration the job will actually bill/run at.
+    func effectiveDuration(requested: Double, bridgesEndFrame: Bool) -> Double {
+        guard bridgesEndFrame && supportsEndFrameInterpolation else { return requested }
+        return Self.interpolationDurationSeconds
+    }
+
+    /// Veo renders only discrete clip lengths; other providers take a range.
+    var discreteDurations: [Double]? {
+        self == .veo3 ? [4, 6, 8] : nil
+    }
+
+    /// Snap a requested duration to the provider's discrete set (identity for
+    /// providers with a continuous range).
+    func snappedDuration(_ requested: Double) -> Double {
+        guard let options = discreteDurations else { return requested }
+        return options.min { (abs($0 - requested), $0) < (abs($1 - requested), $1) } ?? requested
+    }
+
     static func fromFolderName(_ name: String) -> VideoProvider? {
         allCases.first { $0.folderName == name }
     }
@@ -134,11 +175,17 @@ struct ShotVideoGenerationSection: View {
     let characters: [Character]
     let locations: [Location]
     let projectBasePath: URL?
+    /// Project look bible (user styles + default id); built-in presets are
+    /// always additionally available.
+    var filmStyles: [FilmStyle] = []
+    var defaultFilmStyleId: String? = nil
+    /// Prop-shop registry — props with imagery join the location collage.
+    var props: [Prop] = []
     let onShotUpdated: (Shot) -> Void
     var onSceneUpdated: ((DCScene) -> Void)?
+    /// Story Design hyperlinks from the keyframe prompt sheet's context strip.
     var onNavigateToCharacter: ((Character) -> Void)?
     var onNavigateToLocation: ((Location) -> Void)?
-    var onNavigateToStoryDesign: (() -> Void)?
 
     // MARK: - State
 
@@ -147,7 +194,14 @@ struct ShotVideoGenerationSection: View {
     @State private var duration: Double = 5.0
     @State private var quality: String = "High"
     @State private var aspectRatio: String = "16:9"
+    @State private var resolution: String = "720p"
     @State private var cameraMotion: String = "Static"
+    @State private var motionSpeed: String = "Normal"
+    @State private var subjectMotion: String = "Static"
+    @State private var negativePromptText: String = ""
+    @State private var lightingStyle: String = ""
+    @State private var referenceCandidates: [VideoReferenceCandidate] = []
+    @State private var selectedReferenceIds: [String] = []
     @State private var keyframes: [VideoKeyframe] = []
     @State private var isGenerating: Bool = false
     @State private var generationJobId: String? = nil
@@ -178,45 +232,56 @@ struct ShotVideoGenerationSection: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 16) {
-                    // 1. Shot Context (above keyframes)
-                    ShotContextCard(
-                        shot: shot,
-                        scene: scene,
-                        characters: characters,
-                        locations: locations,
-                        projectBasePath: projectBasePath,
-                        onNavigateToCharacter: onNavigateToCharacter,
-                        onNavigateToLocation: onNavigateToLocation,
-                        onNavigateToStoryDesign: onNavigateToStoryDesign,
-                        onSceneUpdated: onSceneUpdated
-                    )
-
-                    // 2. Keyframe Gallery
-                    KeyframeGallery(
-                        keyframes: $keyframes,
-                        duration: duration,
-                        shot: shot,
-                        projectBasePath: projectBasePath,
-                        isGeneratingKeyframe: isGeneratingKeyframe,
-                        activeKeyframeId: activeKeyframeId,
-                        onGenerateKeyframe: { kfId in
-                            activeKeyframeId = kfId
-                            keyframePrompt = buildKeyframePrompt(for: kfId)
-                            showingKeyframePromptSheet = true
-                        },
-                        onRemoveKeyframe: { kfId in
-                            keyframes.removeAll { $0.id == kfId }
-                        },
-                        onAddKeyframe: addIntermediateKeyframe,
-                        onAnnotationsApplied: { kfId, annotations in
-                            // Set annotations and trigger regeneration with edit prompt
-                            if let idx = keyframes.firstIndex(where: { $0.id == kfId }) {
-                                keyframes[idx].annotations = annotations
+                    // 1. Keyframes — the storyboard is the creative heart, so
+                    // it starts expanded (still collapsible).
+                    CollapsibleCard(icon: "film",
+                                    title: "Keyframes",
+                                    summary: keyframeSummary,
+                                    storageKey: "videoKeyframes",
+                                    defaultExpanded: true) {
+                        KeyframeGallery(
+                            keyframes: $keyframes,
+                            duration: duration,
+                            shot: shot,
+                            projectBasePath: projectBasePath,
+                            showsHeader: false,
+                            isGeneratingKeyframe: isGeneratingKeyframe,
+                            activeKeyframeId: activeKeyframeId,
+                            onGenerateKeyframe: { kfId in
+                                activeKeyframeId = kfId
+                                keyframePrompt = buildKeyframePrompt(for: kfId)
+                                showingKeyframePromptSheet = true
+                            },
+                            onRemoveKeyframe: { kfId in
+                                keyframes.removeAll { $0.id == kfId }
+                            },
+                            onAddKeyframe: addIntermediateKeyframe,
+                            onAnnotationsApplied: { kfId, annotations in
+                                // Set annotations and trigger regeneration with edit prompt
+                                if let idx = keyframes.firstIndex(where: { $0.id == kfId }) {
+                                    keyframes[idx].annotations = annotations
+                                }
+                                activeKeyframeId = kfId
+                                generateKeyframeWithAnnotations(keyframeId: kfId, annotations: annotations)
+                            },
+                            onEditKeyframePrompt: { kfId in
+                                activeKeyframeId = kfId
+                                keyframePrompt = buildKeyframePrompt(for: kfId)
+                                showingKeyframePromptSheet = true
                             }
-                            activeKeyframeId = kfId
-                            generateKeyframeWithAnnotations(keyframeId: kfId, annotations: annotations)
-                        }
-                    )
+                        )
+                    }
+
+                    // 2. Consistency References (story design → video)
+                    CollapsibleCard(icon: "person.crop.rectangle.stack",
+                                    title: "References",
+                                    summary: ShotViewSummaries.references(selected: selectedReferenceIds.count),
+                                    storageKey: "videoReferences") {
+                        VideoReferenceTray(
+                            candidates: referenceCandidates,
+                            selectedIds: $selectedReferenceIds
+                        )
+                    }
 
                     // 3. Video Settings
                     VideoSettingsCard(
@@ -224,9 +289,37 @@ struct ShotVideoGenerationSection: View {
                         duration: $duration,
                         quality: $quality,
                         aspectRatio: $aspectRatio,
+                        resolution: $resolution,
                         cameraMotion: $cameraMotion,
+                        motionSpeed: $motionSpeed,
+                        subjectMotion: $subjectMotion,
+                        negativePrompt: $negativePromptText,
+                        lightingStyle: $lightingStyle,
                         syncDuration: $syncDuration,
+                        interpolatesEndFrame: hasEndFrame,
                         shot: shot,
+                        lookStyles: filmStyles + FilmStyle.presets.filter { preset in
+                            !filmStyles.contains(where: { $0.id == preset.id })
+                        },
+                        activeStyleId: shot.styleOverride,
+                        resolvedStyle: resolvedFilmStyle,
+                        onStyleSelected: { styleId in
+                            var updated = shot
+                            updated.styleOverride = styleId
+                            onShotUpdated(updated)
+                        },
+                        timeOfDay: scene?.timeOfDay,
+                        weather: scene?.weather,
+                        onTimeOfDayChanged: { newValue in
+                            guard var updatedScene = scene else { return }
+                            updatedScene.timeOfDay = newValue
+                            onSceneUpdated?(updatedScene)
+                        },
+                        onWeatherChanged: { newValue in
+                            guard var updatedScene = scene else { return }
+                            updatedScene.weather = newValue
+                            onSceneUpdated?(updatedScene)
+                        },
                         onDurationChanged: { newDuration in
                             if syncDuration {
                                 var updated = shot
@@ -240,7 +333,8 @@ struct ShotVideoGenerationSection: View {
                     // 4. Cost Estimate
                     CostEstimateBar(
                         provider: selectedProvider,
-                        duration: duration,
+                        duration: selectedProvider.effectiveDuration(requested: duration,
+                                                                     bridgesEndFrame: hasEndFrame),
                         quality: quality
                     )
 
@@ -272,7 +366,8 @@ struct ShotVideoGenerationSection: View {
                             showingFullScreen: $showingFullScreenPlayer,
                             onRegenerate: { startGeneration() },
                             onDownload: downloadToDesktop,
-                            onShowInFinder: { showVideoInFinder(url) }
+                            onShowInFinder: { showVideoInFinder(url) },
+                            onShowPrompt: { openPromptEditor() }
                         )
                     } else {
                         generateButtons
@@ -307,6 +402,14 @@ struct ShotVideoGenerationSection: View {
         .onChange(of: videoJobs.jobs[shot.id]) { _, state in
             syncFromCoordinator(state)
         }
+        .onChange(of: keyframes) { _, _ in
+            refreshReferenceCandidates()
+        }
+        .onChange(of: lightingStyle) { _, newValue in
+            var updated = shot
+            updated.lightingStyle = newValue.isEmpty ? nil : newValue
+            onShotUpdated(updated)
+        }
         .sheet(isPresented: $showingPromptEditor) {
             VideoPromptEditorSheet(
                 prompt: $editablePrompt,
@@ -320,6 +423,16 @@ struct ShotVideoGenerationSection: View {
                 prompt: $keyframePrompt,
                 isPresented: $showingKeyframePromptSheet,
                 keyframeLabel: keyframes.first(where: { $0.id == activeKeyframeId })?.label ?? "Keyframe",
+                autoPrompt: activeKeyframeId.map { autoKeyframePrompt(for: $0) } ?? "",
+                scene: scene,
+                characters: characters,
+                locations: locations,
+                projectBasePath: projectBasePath,
+                onSave: { text in
+                    if let kfId = activeKeyframeId { saveKeyframePrompt(text, for: kfId) }
+                },
+                onNavigateToCharacter: onNavigateToCharacter,
+                onNavigateToLocation: onNavigateToLocation,
                 onGenerate: {
                     generateKeyframeImage()
                 }
@@ -420,12 +533,37 @@ struct ShotVideoGenerationSection: View {
     }
 
     // Prompt construction lives in ShotPromptBuilder (WS6.2).
-    private func buildKeyframePrompt(for keyframeId: String) -> String {
+    /// The auto-built prompt for a keyframe (ignores any custom override).
+    private func autoKeyframePrompt(for keyframeId: String) -> String {
         guard let kf = keyframes.first(where: { $0.id == keyframeId }) else { return "" }
-        let names = scene.map { resolveCharacterNames(from: $0) } ?? []
+        let names = scene.map { ShotPromptBuilder.characterNames(in: $0) } ?? []
         return ShotPromptBuilder.keyframePrompt(shot: shot, scene: scene, characterNames: names,
                                                 characters: characters, locations: locations,
-                                                position: kf.position)
+                                                position: kf.position,
+                                                filmStyle: resolvedFilmStyle,
+                                                lightingStyle: lightingStyle.isEmpty ? nil : lightingStyle)
+    }
+
+    /// The prompt this keyframe will actually generate with: the user's saved
+    /// custom prompt when present, the auto-built one otherwise.
+    private func buildKeyframePrompt(for keyframeId: String) -> String {
+        if let custom = keyframes.first(where: { $0.id == keyframeId })?.customPrompt,
+           !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return custom
+        }
+        return autoKeyframePrompt(for: keyframeId)
+    }
+
+    /// Persist an edited keyframe prompt. Text equal to the auto prompt (or
+    /// empty) clears the override so the frame follows shot changes again.
+    private func saveKeyframePrompt(_ text: String, for keyframeId: String) {
+        guard let idx = keyframes.firstIndex(where: { $0.id == keyframeId }) else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let auto = autoKeyframePrompt(for: keyframeId)
+        keyframes[idx].customPrompt = (trimmed.isEmpty || trimmed == auto) ? nil : text
+        var updated = shot
+        updated.videoKeyframes = keyframes
+        onShotUpdated(updated)
     }
 
     /// Collect all reference images for the current scene.
@@ -443,6 +581,10 @@ struct ShotVideoGenerationSection: View {
         guard let kfId = activeKeyframeId else { return }
         showingKeyframePromptSheet = false
         isGeneratingKeyframe = true
+
+        // What you generate with is what's saved — edits made in the sheet
+        // persist as this keyframe's custom prompt.
+        saveKeyframePrompt(keyframePrompt, for: kfId)
 
         let basePrompt = keyframePrompt
 
@@ -588,10 +730,17 @@ struct ShotVideoGenerationSection: View {
         if let provider = shot.videoProvider, let vp = VideoProvider(rawValue: provider) {
             selectedProvider = vp
         }
-        // Clamp duration to provider's valid range
+        // Clamp duration to provider's valid range (and discrete set, for Veo)
         duration = max(selectedProvider.minDuration, min(selectedProvider.maxDuration, duration))
+        duration = selectedProvider.snappedDuration(duration)
         if let q = shot.videoQuality {
             quality = q
+        }
+        if let r = shot.videoResolution, selectedProvider.supportedResolutions.contains(r) {
+            resolution = r
+        }
+        if let lighting = shot.lightingStyle {
+            lightingStyle = lighting
         }
         if let existing = shot.videoKeyframes, !existing.isEmpty {
             keyframes = existing
@@ -607,6 +756,7 @@ struct ShotVideoGenerationSection: View {
                 videoURL = fullPath
             }
         }
+        refreshReferenceCandidates()
         editablePrompt = buildAutoPrompt()
         discoverVideoVersions()
         // If video_path was stale but a version exists on disk, auto-select it
@@ -621,80 +771,161 @@ struct ShotVideoGenerationSection: View {
 
     // MARK: - Prompt Building
 
-    private func buildAutoPrompt() -> String {
-        var parts: [String] = []
-        parts.append("Cinematic video shot. \(shot.shotType) shot, \(shot.cameraAngle) angle")
-        if let lens = shot.lensMm {
-            parts.append("\(lens)mm lens, \(shot.aperture)")
-        }
-        if !shot.description.isEmpty {
-            parts.append(shot.description)
-        }
-        if let currentScene = scene {
-            let sceneCharNames = resolveCharacterNames(from: currentScene)
-            if !sceneCharNames.isEmpty {
-                let charDescriptions = sceneCharNames.compactMap { name -> String? in
-                    guard let char = characters.first(where: { $0.name == name }) else { return name }
-                    var desc = name
-                    desc += ", age \(char.age)"
-                    if !char.gender.isEmpty { desc += ", \(char.gender)" }
-                    return desc
-                }
-                parts.append("Characters: \(charDescriptions.joined(separator: "; "))")
-            }
-            let costumeDescriptions = sceneCharNames.compactMap { name -> String? in
-                guard let char = characters.first(where: { $0.name == name }),
-                      let costumes = char.costumes, !costumes.isEmpty else { return nil }
-                let costumeNames = costumes.prefix(2).map { $0.name }
-                return "\(name): \(costumeNames.joined(separator: ", "))"
-            }
-            if !costumeDescriptions.isEmpty {
-                parts.append("Costumes: \(costumeDescriptions.joined(separator: "; "))")
-            }
-            if let loc = currentScene.location, !loc.isEmpty {
-                parts.append("Location: \(loc)")
-            }
-            if !currentScene.props.isEmpty {
-                parts.append("Props: \(currentScene.props.joined(separator: ", "))")
-            }
-            let dialogueTexts = shot.linkedDialogueIds.prefix(3).compactMap { dialogueId -> String? in
-                guard let dialogue = currentScene.dialogues.first(where: { $0.id == dialogueId }) else { return nil }
-                return "\(dialogue.character): \"\(dialogue.text)\""
-            }
-            if !dialogueTexts.isEmpty {
-                parts.append("Dialogue: \(dialogueTexts.joined(separator: " "))")
-            }
-            let actionTexts = shot.linkedActionIds.prefix(2).compactMap { actionId -> String? in
-                guard let action = currentScene.actions.first(where: { $0.id == actionId }) else { return nil }
-                return action.description
-            }
-            if !actionTexts.isEmpty {
-                parts.append("Action: \(actionTexts.joined(separator: ". "))")
-            }
-            if !currentScene.soundNotes.isEmpty {
-                let sounds = currentScene.soundNotes.prefix(3).map { $0.description }
-                parts.append("Sound atmosphere: \(sounds.joined(separator: ", "))")
-            }
-        }
-        parts.append("Camera motion: \(cameraMotion). Duration: \(String(format: "%.1f", duration))s.")
-        parts.append("Dramatic lighting, cinematic quality, professional filmmaking.")
-        return parts.joined(separator: "\n")
+    /// True when the End keyframe has an image, meaning the provider bridges
+    /// start→end (interpolation) and fixes the clip duration itself.
+    private var hasEndFrame: Bool {
+        keyframes.contains { $0.position == 1.0 && $0.imagePath != nil }
     }
 
-    private func resolveCharacterNames(from scene: DCScene) -> [String] {
-        var names = Set<String>()
-        for dialogue in scene.dialogues { names.insert(dialogue.character) }
-        for action in scene.actions {
-            for char in action.characters { names.insert(char) }
+    // MARK: - Collapsed-card summaries
+
+    private var keyframeSummary: String {
+        ShotViewSummaries.keyframes(
+            withImages: keyframes.filter { $0.imagePath != nil }.count,
+            total: keyframes.count
+        )
+    }
+
+    /// The look this shot renders in: shot override → scene override → project
+    /// default, from user styles first and built-in presets second.
+    private var resolvedFilmStyle: FilmStyle? {
+        ShotPromptBuilder.resolveFilmStyle(shot: shot, scene: scene,
+                                           projectStyles: filmStyles,
+                                           defaultStyleId: defaultFilmStyleId)
+    }
+
+    /// Camera motion phrase including the chosen speed ("slow dolly in").
+    private var effectiveCameraMotion: String {
+        motionSpeed == "Normal" ? cameraMotion : "\(motionSpeed.lowercased()) \(cameraMotion.lowercased())"
+    }
+
+    // Prompt construction lives in ShotPromptBuilder (WS6.2) so it is pure and
+    // unit-tested. Duration is omitted while interpolating — the provider
+    // ignores it in that mode.
+    private func buildAutoPrompt() -> String {
+        ShotPromptBuilder.videoPrompt(
+            shot: shot, scene: scene, characters: characters, locations: locations,
+            cameraMotion: effectiveCameraMotion,
+            duration: hasEndFrame ? nil : duration,
+            filmStyle: resolvedFilmStyle,
+            lightingStyle: lightingStyle.isEmpty ? nil : lightingStyle
+        )
+    }
+
+    // MARK: - Reference Candidates
+
+    /// Veo's 3-slot reference discipline: slot 1 = one collage of every
+    /// character in the shot (faces + this scene's wardrobe), slot 2 = one
+    /// collage of the location (+ props once they have imagery), slot 3 = an
+    /// optional director-supplied extra (mid keyframes or the shot's
+    /// reference media).
+    private func collectReferenceCandidates() -> [VideoReferenceCandidate] {
+        var candidates: [VideoReferenceCandidate] = []
+
+        // Slot 1 & 2 — story-design collages
+        if let currentScene = scene, let basePath = projectBasePath {
+            var characterImages: [NSImage] = []
+            var includedNames: [String] = []
+            for name in ShotPromptBuilder.characterNames(in: currentScene) {
+                guard let character = characters.first(where: { $0.name == name }) else { continue }
+                if let face = CharacterReferenceHelper.loadCharacterImage(character, projectDirectory: basePath) {
+                    characterImages.append(face)
+                    includedNames.append(name)
+                }
+                if let costume = CharacterReferenceHelper.loadCostumeImage(character, scene: currentScene,
+                                                                           projectDirectory: basePath) {
+                    characterImages.append(costume)
+                }
+            }
+            if let collage = ReferenceCollageBuilder.collage(characterImages),
+               let base64 = ReferenceCollageBuilder.encodePNG(collage) {
+                candidates.append(VideoReferenceCandidate(
+                    id: "collage:characters",
+                    source: .characterCollage,
+                    displayName: includedNames.joined(separator: ", "),
+                    reference: ReferenceImage(base64: base64, label: "characters:\(includedNames.joined(separator: ","))")
+                ))
+            }
+
+            // Location + the scene's props that have prop-shop imagery
+            var locationImages: [NSImage] = []
+            if let locationImage = CharacterReferenceHelper.loadLocationImage(forScene: currentScene,
+                                                                              locations: locations,
+                                                                              projectDirectory: basePath) {
+                locationImages.append(locationImage)
+            }
+            var propNamesInCollage: [String] = []
+            for prop in PropShopView.propsNamed(currentScene.props, in: props) {
+                guard let path = prop.thumbnail,
+                      let image = NSImage(contentsOf: basePath.appendingPathComponent(path))
+                else { continue }
+                locationImages.append(image)
+                propNamesInCollage.append(prop.name)
+            }
+            if let collage = ReferenceCollageBuilder.collage(locationImages),
+               let base64 = ReferenceCollageBuilder.encodePNG(collage) {
+                let locationName = currentScene.location ?? "Location"
+                let propsSuffix = propNamesInCollage.isEmpty ? "" : " + " + propNamesInCollage.joined(separator: ", ")
+                candidates.append(VideoReferenceCandidate(
+                    id: "collage:location",
+                    source: .locationCollage,
+                    displayName: locationName + propsSuffix,
+                    reference: ReferenceImage(base64: base64, label: "location:\(locationName)")
+                ))
+            }
         }
-        return Array(names).sorted()
+
+        // Slot 3 pool — mid keyframes and the shot's own reference media
+        if let basePath = projectBasePath {
+            let midKeyframes = keyframes
+                .filter { $0.position > 0.0 && $0.position < 1.0 }
+                .sorted { $0.position < $1.position }
+            for kf in midKeyframes {
+                guard let imagePath = kf.imagePath,
+                      let data = try? Data(contentsOf: basePath.appendingPathComponent(imagePath))
+                else { continue }
+                candidates.append(VideoReferenceCandidate(
+                    id: "keyframe:\(kf.id)",
+                    source: .keyframe,
+                    displayName: kf.label.isEmpty ? "Keyframe" : kf.label,
+                    reference: ReferenceImage(base64: data.base64EncodedString(), label: kf.label)
+                ))
+            }
+
+            for media in shot.referenceMedia where media.type == .image {
+                guard let data = try? Data(contentsOf: basePath.appendingPathComponent(media.path))
+                else { continue }
+                candidates.append(VideoReferenceCandidate(
+                    id: "media:\(media.id)",
+                    source: .custom,
+                    displayName: media.caption.isEmpty ? "Reference media" : media.caption,
+                    reference: ReferenceImage(base64: data.base64EncodedString(),
+                                              label: "custom:\(media.caption)")
+                ))
+            }
+        }
+
+        return candidates
+    }
+
+    /// Rebuild the tray, keeping any still-valid manual selection; fall back
+    /// to the priority default when nothing (valid) is selected.
+    private func refreshReferenceCandidates() {
+        let fresh = collectReferenceCandidates()
+        referenceCandidates = fresh
+        let validIds = Set(fresh.map(\.id))
+        selectedReferenceIds.removeAll { !validIds.contains($0) }
+        if selectedReferenceIds.isEmpty {
+            selectedReferenceIds = VideoReferenceCandidate.defaultSelection(from: fresh)
+        }
     }
 
     // MARK: - Generation
 
     private func startGeneration() {
-        // Clamp duration to provider's valid range before submitting
+        // Clamp duration to provider's valid range (and discrete set) before submitting
         duration = max(selectedProvider.minDuration, min(selectedProvider.maxDuration, duration))
+        duration = selectedProvider.snappedDuration(duration)
         let prompt = useCustomPrompt ? editablePrompt : buildAutoPrompt()
         isGenerating = true
         generationProgress = 0
@@ -706,6 +937,8 @@ struct ShotVideoGenerationSection: View {
         updated.videoDuration = duration
         updated.videoProvider = selectedProvider.rawValue
         updated.videoQuality = quality
+        updated.videoResolution = resolution
+        updated.lightingStyle = lightingStyle.isEmpty ? nil : lightingStyle
         updated.videoKeyframes = keyframes
         onShotUpdated(updated)
 
@@ -723,18 +956,42 @@ struct ShotVideoGenerationSection: View {
                 endFrameBase64 = data.base64EncodedString()
             }
         }
+        // The director-selected consistency references (tray order = send
+        // order, ≤3): the characters collage, the location+props collage, and
+        // an optional extra. Re-collected at submit so regenerated imagery is
+        // never sent stale.
+        let freshCandidates = collectReferenceCandidates()
+        let selectedCandidates: [VideoReferenceCandidate] = Array(
+            selectedReferenceIds
+                .compactMap { id in freshCandidates.first { $0.id == id } }
+                .prefix(3)
+        )
+        let referenceFrames: [ReferenceImage] = selectedCandidates.map(\.reference)
+        // Tell the model what each reference image IS (send-order preamble).
+        // The preamble is transport-level: the stored shot prompt stays clean.
+        let referencePreamble = VideoReferenceCandidate.promptPreamble(for: selectedCandidates)
+        let requestPrompt = referencePreamble.isEmpty ? prompt : referencePreamble + "\n\n" + prompt
+        // With an end frame the provider interpolates and fixes the length
+        // itself; bill/estimate at that length, not the slider value.
+        let bridging = endFrameBase64 != nil
+        let effectiveDuration = selectedProvider.effectiveDuration(requested: duration,
+                                                                   bridgesEndFrame: bridging)
+        let trimmedNegative = negativePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let request = VideoGenerationRequest(
-            prompt: prompt,
+            prompt: requestPrompt,
             provider: selectedProvider.aiProvider,
-            durationSeconds: duration,
+            durationSeconds: effectiveDuration,
             quality: quality,
             aspectRatio: aspectRatio,
             fps: 24,
             cameraMotion: cameraMotion,
-            subjectMotion: "Static",
+            subjectMotion: subjectMotion,
+            negativePrompt: trimmedNegative.isEmpty ? nil : trimmedNegative,
             startFrameBase64: startFrameBase64,
             endFrameBase64: endFrameBase64,
+            referenceFrames: referenceFrames.isEmpty ? nil : referenceFrames,
+            resolution: resolution,
             shotId: shot.id,
             projectId: nil
         )
@@ -761,7 +1018,10 @@ struct ShotVideoGenerationSection: View {
             providerRawValue: selectedProvider.rawValue,
             providerDisplayName: selectedProvider.displayName,
             basePath: basePath,
-            duration: duration,
+            // Usage tracking bills interpolation jobs at the provider-fixed
+            // length, not the slider value.
+            duration: selectedProvider.effectiveDuration(requested: duration,
+                                                         bridgesEndFrame: hasEndFrame),
             quality: quality
         )
     }

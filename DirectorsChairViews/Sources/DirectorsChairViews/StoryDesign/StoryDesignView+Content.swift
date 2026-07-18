@@ -333,12 +333,14 @@ extension StoryDesignView {
                 }
             )
         case .costume:
-            CostumeTab(
+            // Costume DESIGN moved to the Costumes department tab; this tab is
+            // the character's wardrobe plot (scene → costume mapping).
+            WardrobePlotTab(
                 character: character,
+                project: $project,
                 projectBasePath: projectBasePath,
-                project: project,
-                onGenerateImage: { angle, prompt, progressHandler in
-                    onGenerateImage?(character.wrappedValue, angle, prompt, progressHandler)
+                onOpenCostumeDepartment: {
+                    selectedMode = .costumes
                 }
             )
         case .traits:

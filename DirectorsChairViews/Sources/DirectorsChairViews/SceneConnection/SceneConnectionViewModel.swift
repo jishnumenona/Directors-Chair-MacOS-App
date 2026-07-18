@@ -28,23 +28,42 @@ public class SceneConnectionViewModel: ObservableObject {
     @Published public var selectedConnection: ScriptConnection?
 
     /// Filter toggles for item types
-    @Published public var showDialogues: Bool = true
-    @Published public var showActions: Bool = true
-    @Published public var showNarrations: Bool = true
+    @Published public var showDialogues: Bool = true { didSet { rebuildGrouped() } }
+    @Published public var showActions: Bool = true { didSet { rebuildGrouped() } }
+    @Published public var showNarrations: Bool = true { didSet { rebuildGrouped() } }
 
     /// Drag state for connection creation
     @Published public var isDragging: Bool = false
     @Published public var dragSourceId: String?
     @Published public var dragSourceType: ScriptItemType?
     @Published public var dragCurrentPosition: CGPoint = .zero
+    /// The shot the drag currently hovers (drop target) — scopes highlight to
+    /// one card instead of invalidating every shot card per drag tick.
+    @Published public var dragHoverShotId: String?
 
     /// Port positions (updated via PreferenceKey)
     @Published public var portPositions: [String: CGPoint] = [:]
+
+    /// Shot CARD frames (drop anywhere on the card, not just the 24pt port)
+    public var cardFrames: [String: CGRect] = [:]
+
+    /// All connections derived from shots — CACHED, rebuilt only on mutation
+    /// (previously a computed property re-scanned per render).
+    @Published public private(set) var connections: [ScriptConnection] = []
+
+    // MARK: - Derived caches (rebuilt on mutation, O(1) at render time)
+
+    private var shotIdsByItem: [String: Set<String>] = [:]
+    private var shotsById: [String: Shot] = [:]
+    private var groupedCache: [ScriptListEntry] = []
 
     // MARK: - Callbacks
 
     /// Callback when shots change (for persistence)
     public var onShotsChanged: (([Shot]) -> Void)?
+
+    /// Window undo manager (wired by the hosting view) — link edits are undoable.
+    public weak var undoManager: UndoManager?
 
     // MARK: - Computed Properties
 
@@ -59,8 +78,11 @@ public class SceneConnectionViewModel: ObservableObject {
         }
     }
 
-    /// Grouped script entries: dialogues with their child sub-bubbles, and standalone items
-    public var groupedScriptEntries: [ScriptListEntry] {
+    /// Grouped script entries — served from cache; rebuilt only when items or
+    /// filters change (previously O(n log n) on every render).
+    public var groupedScriptEntries: [ScriptListEntry] { groupedCache }
+
+    private func rebuildGrouped() {
         let filtered = filteredScriptItems
 
         // Collect IDs of all dialogues present in filtered list
@@ -115,7 +137,7 @@ public class SceneConnectionViewModel: ObservableObject {
             return chronA < chronB
         }
 
-        return entries
+        groupedCache = entries
     }
 
     /// Get child items for a given dialogue ID
@@ -124,56 +146,48 @@ public class SceneConnectionViewModel: ObservableObject {
             .sorted { $0.chronologyNumber < $1.chronologyNumber }
     }
 
-    /// All connections derived from shots
-    public var connections: [ScriptConnection] {
+    /// Rebuild every shot-derived cache. Called on any shots mutation —
+    /// render-time lookups are then O(1).
+    private func rebuildDerived() {
         var result: [ScriptConnection] = []
+        var byItem: [String: Set<String>] = [:]
+        var byId: [String: Shot] = [:]
 
         for shot in shots {
-            // Dialogue connections
+            byId[shot.id] = shot
             for dialogueId in shot.linkedDialogueIds {
-                result.append(ScriptConnection(
-                    scriptItemId: dialogueId,
-                    shotId: shot.id,
-                    itemType: .dialogue
-                ))
+                result.append(ScriptConnection(scriptItemId: dialogueId, shotId: shot.id, itemType: .dialogue))
+                byItem[dialogueId, default: []].insert(shot.id)
             }
-
-            // Action connections
             for actionId in shot.linkedActionIds {
-                result.append(ScriptConnection(
-                    scriptItemId: actionId,
-                    shotId: shot.id,
-                    itemType: .action
-                ))
+                result.append(ScriptConnection(scriptItemId: actionId, shotId: shot.id, itemType: .action))
+                byItem[actionId, default: []].insert(shot.id)
             }
-
-            // Narration connections
             for narrationId in shot.linkedNarrationIds {
-                result.append(ScriptConnection(
-                    scriptItemId: narrationId,
-                    shotId: shot.id,
-                    itemType: .narration
-                ))
+                result.append(ScriptConnection(scriptItemId: narrationId, shotId: shot.id, itemType: .narration))
+                byItem[narrationId, default: []].insert(shot.id)
             }
         }
 
-        return result
+        connections = result
+        shotIdsByItem = byItem
+        shotsById = byId
     }
 
-    /// Get connected shot IDs for a script item
+    /// Get connected shot IDs for a script item — O(1)
     public func connectedShotIds(for scriptItemId: String) -> Set<String> {
-        Set(connections.filter { $0.scriptItemId == scriptItemId }.map { $0.shotId })
+        shotIdsByItem[scriptItemId] ?? []
     }
 
-    /// Check if a shot is connected to the currently selected script item
+    /// Check if a shot is connected to the currently selected script item — O(1)
     public func isShotConnectedToSelectedItem(_ shotId: String) -> Bool {
         guard let selectedId = selectedScriptItemId else { return false }
-        return connections.contains { $0.scriptItemId == selectedId && $0.shotId == shotId }
+        return shotIdsByItem[selectedId]?.contains(shotId) ?? false
     }
 
-    /// Get connection counts for a shot
+    /// Get connection counts for a shot — O(1)
     public func connectionCounts(for shotId: String) -> (dialogues: Int, actions: Int, narrations: Int) {
-        guard let shot = shots.first(where: { $0.id == shotId }) else {
+        guard let shot = shotsById[shotId] else {
             return (0, 0, 0)
         }
         return (
@@ -183,9 +197,9 @@ public class SceneConnectionViewModel: ObservableObject {
         )
     }
 
-    /// Check if a connection exists
+    /// Check if a connection exists — O(1) shot lookup
     public func connectionExists(scriptItemId: String, shotId: String, itemType: ScriptItemType) -> Bool {
-        guard let shot = shots.first(where: { $0.id == shotId }) else { return false }
+        guard let shot = shotsById[shotId] else { return false }
 
         switch itemType {
         case .dialogue:
@@ -194,6 +208,15 @@ public class SceneConnectionViewModel: ObservableObject {
             return shot.linkedActionIds.contains(scriptItemId)
         case .narration:
             return shot.linkedNarrationIds.contains(scriptItemId)
+        }
+    }
+
+    /// Menu-driven linking (keyboard/pointer-accessible alternative to drag).
+    public func toggleConnection(scriptItemId: String, shotId: String, itemType: ScriptItemType) {
+        if connectionExists(scriptItemId: scriptItemId, shotId: shotId, itemType: itemType) {
+            removeConnection(scriptItemId: scriptItemId, shotId: shotId, itemType: itemType)
+        } else {
+            createConnection(scriptItemId: scriptItemId, shotId: shotId, itemType: itemType)
         }
     }
 
@@ -207,6 +230,7 @@ public class SceneConnectionViewModel: ObservableObject {
     ) {
         self.shots = shots.sorted { $0.shotId < $1.shotId }
         updateScriptItems(dialogues: dialogues, actions: actions, narrations: narrations)
+        rebuildDerived()
     }
 
     // MARK: - Data Updates
@@ -223,11 +247,36 @@ public class SceneConnectionViewModel: ObservableObject {
         items.append(contentsOf: narrations.map { .narration($0) })
 
         scriptItems = items.sorted { $0.chronologyNumber < $1.chronologyNumber }
+        rebuildGrouped()
     }
 
     /// Update shots
     public func updateShots(_ newShots: [Shot]) {
         shots = newShots.sorted { $0.shotId < $1.shotId }
+        rebuildDerived()
+    }
+
+    /// Refresh everything from the hosting scene (keeps still-valid selection
+    /// and drag state). Called by the view when scene content changes
+    /// externally — Bubble/Shots edits now propagate into an open canvas.
+    public func refresh(
+        dialogues: [Dialogue],
+        actions: [Action],
+        narrations: [Narration],
+        shots newShots: [Shot]
+    ) {
+        updateScriptItems(dialogues: dialogues, actions: actions, narrations: narrations)
+        updateShots(newShots)
+        if let selected = selectedScriptItemId, !scriptItems.contains(where: { $0.id == selected }) {
+            selectedScriptItemId = nil
+        }
+        if let selected = selectedShotId, shotsById[selected] == nil {
+            selectedShotId = nil
+        }
+        if let connection = selectedConnection,
+           !connections.contains(where: { $0.id == connection.id }) {
+            selectedConnection = nil
+        }
     }
 
     // MARK: - Connection CRUD
@@ -240,6 +289,8 @@ public class SceneConnectionViewModel: ObservableObject {
         if connectionExists(scriptItemId: scriptItemId, shotId: shotId, itemType: itemType) {
             return
         }
+
+        let before = shots
 
         // Add connection
         switch itemType {
@@ -267,12 +318,14 @@ public class SceneConnectionViewModel: ObservableObject {
             shots[shotIndex].linkedNarrationIds.append(scriptItemId)
         }
 
-        notifyChange()
+        notifyChange(undoing: before, actionName: "Connect")
     }
 
     /// Remove a connection
     public func removeConnection(_ connection: ScriptConnection) {
         guard let shotIndex = shots.firstIndex(where: { $0.id == connection.shotId }) else { return }
+
+        let before = shots
 
         switch connection.itemType {
         case .dialogue:
@@ -299,7 +352,7 @@ public class SceneConnectionViewModel: ObservableObject {
             selectedConnection = nil
         }
 
-        notifyChange()
+        notifyChange(undoing: before, actionName: "Remove Connection")
     }
 
     /// Remove connection by IDs
@@ -310,23 +363,25 @@ public class SceneConnectionViewModel: ObservableObject {
 
     /// Remove all connections for a script item
     public func removeAllConnections(for scriptItemId: String) {
+        let before = shots
         for index in shots.indices {
             shots[index].linkedDialogueIds.removeAll { $0 == scriptItemId }
             shots[index].linkedActionIds.removeAll { $0 == scriptItemId }
             shots[index].linkedNarrationIds.removeAll { $0 == scriptItemId }
         }
-        notifyChange()
+        notifyChange(undoing: before, actionName: "Remove Connections")
     }
 
     /// Remove all connections for a shot
     public func removeAllConnections(forShot shotId: String) {
         guard let shotIndex = shots.firstIndex(where: { $0.id == shotId }) else { return }
 
+        let before = shots
         shots[shotIndex].linkedDialogueIds.removeAll()
         shots[shotIndex].linkedActionIds.removeAll()
         shots[shotIndex].linkedNarrationIds.removeAll()
 
-        notifyChange()
+        notifyChange(undoing: before, actionName: "Remove Connections")
     }
 
     // MARK: - Drag & Drop
@@ -339,9 +394,11 @@ public class SceneConnectionViewModel: ObservableObject {
         selectedScriptItemId = scriptItemId
     }
 
-    /// Update drag position
+    /// Update drag position and resolve the hovered drop target.
     public func updateDragPosition(_ position: CGPoint) {
         dragCurrentPosition = position
+        let hovered = shotId(at: position)
+        if hovered != dragHoverShotId { dragHoverShotId = hovered }
     }
 
     /// End drag and attempt connection
@@ -350,13 +407,13 @@ public class SceneConnectionViewModel: ObservableObject {
             isDragging = false
             dragSourceId = nil
             dragSourceType = nil
+            dragHoverShotId = nil
         }
 
         guard let sourceId = dragSourceId,
               let sourceType = dragSourceType else { return }
 
-        // Find which shot port we're over
-        if let targetShotId = findShotAtPosition(position, forType: sourceType) {
+        if let targetShotId = shotId(at: position) {
             createConnection(scriptItemId: sourceId, shotId: targetShotId, itemType: sourceType)
         }
     }
@@ -366,6 +423,17 @@ public class SceneConnectionViewModel: ObservableObject {
         isDragging = false
         dragSourceId = nil
         dragSourceType = nil
+        dragHoverShotId = nil
+    }
+
+    /// The shot at a canvas position: port proximity first (24pt forgiveness),
+    /// then anywhere on the shot card — dropping on the card body now works.
+    private func shotId(at position: CGPoint) -> String? {
+        if let sourceType = dragSourceType,
+           let byPort = findShotAtPosition(position, forType: sourceType) {
+            return byPort
+        }
+        return cardFrames.first { $0.value.contains(position) }?.key
     }
 
     /// Find shot at position (checking port positions)
@@ -430,9 +498,35 @@ public class SceneConnectionViewModel: ObservableObject {
         portPositions = positions
     }
 
+    /// Update shot-card frames (non-published: only drag resolution reads them,
+    /// so scroll ticks don't trigger extra render passes).
+    public func updateCardFrames(_ frames: [String: CGRect]) {
+        cardFrames = frames
+    }
+
     // MARK: - Private Helpers
 
-    private func notifyChange() {
+    /// Rebuild caches, register undo (snapshot-based, symmetric for cascades),
+    /// and notify the host. Every shots mutation funnels through here via
+    /// `notifyChange(undoing:)`.
+    private func notifyChange(undoing before: [Shot]? = nil, actionName: String = "Edit Connection") {
+        rebuildDerived()
+        if let before, let undoManager {
+            undoManager.registerUndo(withTarget: self) { viewModel in
+                MainActor.assumeIsolated {
+                    viewModel.applySnapshot(before, actionName: actionName)
+                }
+            }
+            undoManager.setActionName(actionName)
+        }
         onShotsChanged?(shots)
+    }
+
+    /// Undo/redo application: restore a shots snapshot, registering the
+    /// inverse so redo works (UndoManager flips registrations made during undo).
+    private func applySnapshot(_ snapshot: [Shot], actionName: String) {
+        let current = shots
+        shots = snapshot
+        notifyChange(undoing: current, actionName: actionName)
     }
 }

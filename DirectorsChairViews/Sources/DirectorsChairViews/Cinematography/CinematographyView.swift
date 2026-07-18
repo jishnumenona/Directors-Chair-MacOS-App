@@ -28,6 +28,14 @@ public struct CinematographyView: View {
     let locations: [Location]
     let projectBasePath: URL?
 
+    /// Project look bible: user-defined FilmStyles + the project default,
+    /// resolved per shot (shot → scene → default) for AI generation.
+    let filmStyles: [FilmStyle]
+    let defaultFilmStyleId: String?
+
+    /// Prop-shop registry (prop imagery joins the video reference collages).
+    let props: [Prop]
+
     /// Callback when shots change (for persistence)
     public var onShotsChanged: (([Shot]) -> Void)?
 
@@ -45,6 +53,10 @@ public struct CinematographyView: View {
 
     /// Callback when scene data is updated (props, sounds, etc.)
     public var onSceneUpdated: ((DCScene) -> Void)?
+
+    /// Deep-link to Scene Connections for a shot (optionally targeting a
+    /// specific script item) — the app hub where bubbles link to shots.
+    public var onOpenConnections: ((Shot, String?) -> Void)?
 
     /// Initial shot ID to select when view appears or changes
     public var initialSelectedShotId: Int?
@@ -67,6 +79,9 @@ public struct CinematographyView: View {
         characters: [Character] = [],
         locations: [Location] = [],
         projectBasePath: URL? = nil,
+        filmStyles: [FilmStyle] = [],
+        defaultFilmStyleId: String? = nil,
+        props: [Prop] = [],
         initialSelectedShotId: Int? = nil,
         scrollToShotSection: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
@@ -76,6 +91,7 @@ public struct CinematographyView: View {
         onNavigateToLocation: ((Location) -> Void)? = nil,
         onNavigateToStoryDesign: (() -> Void)? = nil,
         onNavigateToCuration: ((Shot) -> Void)? = nil,
+        onOpenConnections: ((Shot, String?) -> Void)? = nil,
         onSceneUpdated: ((DCScene) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: CinematographyViewModel(shots: shots))
@@ -84,6 +100,9 @@ public struct CinematographyView: View {
         self.characters = characters
         self.locations = locations
         self.projectBasePath = projectBasePath
+        self.filmStyles = filmStyles
+        self.defaultFilmStyleId = defaultFilmStyleId
+        self.props = props
         self.initialSelectedShotId = initialSelectedShotId
         self._scrollToShotSection = scrollToShotSection
         self.onShotsChanged = onShotsChanged
@@ -94,6 +113,7 @@ public struct CinematographyView: View {
         self.onNavigateToStoryDesign = onNavigateToStoryDesign
         self.onNavigateToCuration = onNavigateToCuration
         self.onSceneUpdated = onSceneUpdated
+        self.onOpenConnections = onOpenConnections
     }
 
     /// Find the parent scene for a given shot
@@ -483,16 +503,46 @@ public struct CinematographyView: View {
                         }
                     )
 
+                    // Shot Context — who/where/what of this shot's scene, plus
+                    // the scene's script bubbles. Shot-level truth, so it lives
+                    // here rather than inside video generation.
+                    CollapsibleCard(icon: "text.book.closed.fill",
+                                    title: "Shot Context",
+                                    summary: contextSummary(for: shot),
+                                    storageKey: "shotContext") {
+                        ShotContextCard(
+                            shot: shot,
+                            scene: sceneForShot(shot),
+                            characters: characters,
+                            locations: locations,
+                            projectBasePath: projectBasePath?.deletingLastPathComponent(),
+                            showsHeader: false,
+                            onNavigateToCharacter: onNavigateToCharacter,
+                            onNavigateToLocation: onNavigateToLocation,
+                            onNavigateToStoryDesign: onNavigateToStoryDesign,
+                            onSceneUpdated: onSceneUpdated,
+                            onOpenConnections: onOpenConnections.map { open in
+                                { itemId in open(shot, itemId) }
+                            }
+                        )
+                    }
+
                     // Linked Script Elements
                     if let currentScene = sceneForShot(shot),
                        (!shot.linkedDialogueIds.isEmpty || !shot.linkedActionIds.isEmpty || !shot.linkedNarrationIds.isEmpty) {
-                        LinkedScriptElementsSection(
-                            shot: shot,
-                            scene: currentScene,
-                            onJumpToScript: { itemId, itemType in
-                                onJumpToScriptElement?(itemId, itemType)
-                            }
-                        )
+                        CollapsibleCard(icon: "link",
+                                        iconColor: .cyan,
+                                        title: "Linked Script",
+                                        summary: linkedScriptSummary(shot),
+                                        storageKey: "linkedScript") {
+                            LinkedScriptElementsSection(
+                                shot: shot,
+                                scene: currentScene,
+                                onJumpToScript: { itemId, itemType in
+                                    onJumpToScriptElement?(itemId, itemType)
+                                }
+                            )
+                        }
                     }
 
                     // Takes Section (visible when shooting or has takes)
@@ -511,28 +561,41 @@ public struct CinematographyView: View {
                         Divider()
                     }
 
-                    // Camera settings grid
-                    shotCameraSettings(shot)
+                    // Camera settings — expanded by default (the craft core of a
+                    // shot), collapsible to one summary line when not needed.
+                    CollapsibleCard(icon: "camera.fill",
+                                    iconColor: .white,
+                                    title: "Camera",
+                                    summary: ShotViewSummaries.camera(for: shot),
+                                    storageKey: "camera",
+                                    defaultExpanded: true) {
+                        shotCameraSettings(shot)
+                            .padding(.top, 4)
+                    }
 
-                    Divider()
-
-                    // Reference Media
-                    ReferenceMediaSection(
-                        media: shot.referenceMedia,
-                        shotId: shot.shotId,
-                        projectBasePath: projectBasePath,
-                        onMediaAdded: { newMedia in
-                            updateShotField(shot) { $0.referenceMedia.append(newMedia) }
-                        },
-                        onMediaRemoved: { mediaId in
-                            updateShotField(shot) { $0.referenceMedia.removeAll { $0.id == mediaId } }
-                        },
-                        onUseAsPreview: { imagePath in
-                            updateShotField(shot) { $0.previewImage = imagePath }
-                        }
-                    )
-
-                    Divider()
+                    // Reference Media — collapsed; summary shows the count
+                    CollapsibleCard(icon: "photo.on.rectangle.angled",
+                                    iconColor: .orange,
+                                    title: "Reference Media",
+                                    summary: shot.referenceMedia.isEmpty
+                                        ? "none added"
+                                        : "\(shot.referenceMedia.count) item\(shot.referenceMedia.count == 1 ? "" : "s")",
+                                    storageKey: "referenceMedia") {
+                        ReferenceMediaSection(
+                            media: shot.referenceMedia,
+                            shotId: shot.shotId,
+                            projectBasePath: projectBasePath,
+                            onMediaAdded: { newMedia in
+                                updateShotField(shot) { $0.referenceMedia.append(newMedia) }
+                            },
+                            onMediaRemoved: { mediaId in
+                                updateShotField(shot) { $0.referenceMedia.removeAll { $0.id == mediaId } }
+                            },
+                            onUseAsPreview: { imagePath in
+                                updateShotField(shot) { $0.previewImage = imagePath }
+                            }
+                        )
+                    }
 
                     // Video Generation
                     ShotVideoGenerationSection(
@@ -541,13 +604,15 @@ public struct CinematographyView: View {
                         characters: characters,
                         locations: locations,
                         projectBasePath: projectBasePath?.deletingLastPathComponent(),
+                        filmStyles: filmStyles,
+                        defaultFilmStyleId: defaultFilmStyleId,
+                        props: props,
                         onShotUpdated: { updatedShot in
                             viewModel.updateShot(updatedShot)
                         },
                         onSceneUpdated: onSceneUpdated,
                         onNavigateToCharacter: onNavigateToCharacter,
-                        onNavigateToLocation: onNavigateToLocation,
-                        onNavigateToStoryDesign: onNavigateToStoryDesign
+                        onNavigateToLocation: onNavigateToLocation
                     )
 
                     Spacer()
@@ -727,6 +792,26 @@ public struct CinematographyView: View {
                 )
             }
         }
+    }
+
+    /// Summary for the collapsed Shot Context card.
+    private func contextSummary(for shot: Shot) -> String {
+        guard let scene = sceneForShot(shot) else { return "no scene linked" }
+        return ShotViewSummaries.context(
+            characterCount: ShotPromptBuilder.characterNames(in: scene).count,
+            location: scene.location,
+            propCount: scene.props.count,
+            soundCount: scene.soundNotes.count
+        )
+    }
+
+    /// Summary for the collapsed Linked Script card.
+    private func linkedScriptSummary(_ shot: Shot) -> String {
+        var parts: [String] = []
+        if !shot.linkedDialogueIds.isEmpty { parts.append("\(shot.linkedDialogueIds.count) dialogue") }
+        if !shot.linkedActionIds.isEmpty { parts.append("\(shot.linkedActionIds.count) action\(shot.linkedActionIds.count == 1 ? "" : "s")") }
+        if !shot.linkedNarrationIds.isEmpty { parts.append("\(shot.linkedNarrationIds.count) narration\(shot.linkedNarrationIds.count == 1 ? "" : "s")") }
+        return parts.joined(separator: " · ")
     }
 
     /// Helper to update a single field of a shot

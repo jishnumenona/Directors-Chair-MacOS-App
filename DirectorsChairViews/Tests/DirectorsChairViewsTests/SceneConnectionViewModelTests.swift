@@ -367,4 +367,66 @@ final class SceneConnectionViewModelTests: XCTestCase {
         let children = viewModel.childItems(forDialogueId: parentId)
         XCTAssertEqual(children.count, 1)
     }
+
+    // MARK: - Cached graph, toggle, refresh, undo (perf/UX pass)
+
+    private func makeLinkedFixture() -> (Dialogue, Shot) {
+        let dialogue = Dialogue(uuid: "d1", character: "Alice", text: "Hello!", chronologyNumber: 1)
+        let shot = Shot(uuid: "s1", shotId: 1)
+        viewModel = SceneConnectionViewModel(dialogues: [dialogue], shots: [shot])
+        return (dialogue, shot)
+    }
+
+    func testCachedConnectionsStayInSyncThroughMutations() {
+        let (dialogue, shot) = makeLinkedFixture()
+        XCTAssertTrue(viewModel.connections.isEmpty)
+
+        viewModel.createConnection(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue)
+        XCTAssertEqual(viewModel.connections.count, 1)
+        XCTAssertEqual(viewModel.connectedShotIds(for: dialogue.id), [shot.id])
+        XCTAssertEqual(viewModel.connectionCounts(for: shot.id).dialogues, 1)
+
+        viewModel.removeConnection(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue)
+        XCTAssertTrue(viewModel.connections.isEmpty)
+        XCTAssertTrue(viewModel.connectedShotIds(for: dialogue.id).isEmpty)
+    }
+
+    func testToggleConnectionCreatesThenRemoves() {
+        let (dialogue, shot) = makeLinkedFixture()
+        viewModel.toggleConnection(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue)
+        XCTAssertTrue(viewModel.connectionExists(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue))
+        viewModel.toggleConnection(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue)
+        XCTAssertFalse(viewModel.connectionExists(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue))
+    }
+
+    func testRefreshPropagatesExternalEditsAndPrunesSelection() {
+        let (dialogue, shot) = makeLinkedFixture()
+        viewModel.selectScriptItem(dialogue.id)
+        viewModel.selectShot(shot.id)
+
+        // External edit: dialogue removed, a new shot added
+        let newShot = Shot(uuid: "s2", shotId: 2)
+        viewModel.refresh(dialogues: [], actions: [], narrations: [], shots: [shot, newShot])
+
+        XCTAssertEqual(viewModel.shots.count, 2, "external shot appears without scene switch")
+        XCTAssertNil(viewModel.selectedScriptItemId, "selection of a removed item is pruned")
+        XCTAssertEqual(viewModel.selectedShotId, shot.id, "still-valid selection survives")
+    }
+
+    func testConnectionEditsAreUndoable() {
+        let (dialogue, shot) = makeLinkedFixture()
+        let undoManager = UndoManager()
+        viewModel.undoManager = undoManager
+
+        viewModel.createConnection(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue)
+        XCTAssertTrue(undoManager.canUndo)
+
+        undoManager.undo()
+        XCTAssertFalse(viewModel.connectionExists(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue),
+                       "undo restores the pre-connect snapshot")
+
+        undoManager.redo()
+        XCTAssertTrue(viewModel.connectionExists(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue),
+                      "redo re-applies the connection")
+    }
 }

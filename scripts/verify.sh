@@ -48,7 +48,10 @@ for p in $PACKAGES; do
   out=$(cd "$p" && swift test 2>&1)
   # Reliable signals: per-failure "error: -[" markers, per-build-error markers,
   # and the grand-total test count (max of all "Executed N tests" lines).
-  builderr=$(echo "$out" | grep -cE "error: (cannot|couldn't|no such|missing)|Compilation failed")
+  # Build errors = ANY compiler "error:" line that is not an XCTest failure
+  # marker ("error: -["). The old keyword allowlist missed messages like
+  # "error: type 'X' has no member 'y'" and reported a false green.
+  builderr=$(echo "$out" | grep -E " error: |^error: |Compilation failed" | grep -cv "error: -\[")
   testfail=$(echo "$out" | grep -c "error: -\[")
   tests=$(echo "$out" | grep -oE "Executed [0-9]+ tests" | grep -oE "[0-9]+" | sort -rn | head -1)
   if [ "$builderr" -gt 0 ]; then

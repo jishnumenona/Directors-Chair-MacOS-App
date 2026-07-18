@@ -10,15 +10,19 @@ import UniformTypeIdentifiers
 // MARK: - Top-Level Mode
 
 public enum StoryDesignMode: String, CaseIterable {
+    // Lighting design was removed here — it belongs to the Theater edition,
+    // not the cinema version of DirectorsChair.
     case characters
     case locations
-    case lighting
+    case costumes
+    case props
 
     var displayName: String {
         switch self {
         case .characters: return "Characters"
         case .locations: return "Locations"
-        case .lighting: return "Lighting"
+        case .costumes: return "Costumes"
+        case .props: return "Props"
         }
     }
 
@@ -26,7 +30,8 @@ public enum StoryDesignMode: String, CaseIterable {
         switch self {
         case .characters: return "person.fill"
         case .locations: return "map.fill"
-        case .lighting: return "lightbulb.fill"
+        case .costumes: return "tshirt.fill"
+        case .props: return "cube.box.fill"
         }
     }
 }
@@ -128,8 +133,17 @@ public struct StoryDesignView: View {
                 charactersModeContent
             case .locations:
                 locationsModeContent
-            case .lighting:
-                LightingDesignView(project: $project, projectBasePath: projectBasePath, initialLightCueId: initialLightCueId, initialSFXCueId: initialSFXCueId, initialSupportCueId: initialSupportCueId, markers: markers)
+            case .costumes:
+                CostumeDepartmentView(
+                    project: $project,
+                    projectBasePath: projectBasePath,
+                    onGenerateImage: onGenerateImage
+                )
+            case .props:
+                PropShopView(
+                    project: $project,
+                    projectBasePath: projectBasePath
+                )
             }
         }
         .alert("Generate All Attributes", isPresented: $showGenerateAllConfirmation) {
@@ -177,23 +191,6 @@ public struct StoryDesignView: View {
                 selectedMode = .locations
             } else if newMode == "characters" {
                 selectedMode = .characters
-            } else if newMode == "lighting" {
-                selectedMode = .lighting
-            }
-        }
-        .onChange(of: initialLightCueId) { newId in
-            if newId != nil {
-                selectedMode = .lighting
-            }
-        }
-        .onChange(of: initialSFXCueId) { newId in
-            if newId != nil {
-                selectedMode = .lighting
-            }
-        }
-        .onChange(of: initialSupportCueId) { newId in
-            if newId != nil {
-                selectedMode = .lighting
             }
         }
     }

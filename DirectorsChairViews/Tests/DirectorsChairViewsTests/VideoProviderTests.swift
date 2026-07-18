@@ -146,4 +146,68 @@ final class VideoProviderTests: XCTestCase {
             XCTAssertEqual(VideoProvider.fromFolderName(provider.folderName), provider)
         }
     }
+
+    // MARK: - Supported Aspect Ratios / Resolutions
+
+    func testVeoRejectsSquareAspectRatio() {
+        // Veo 400s on 1:1 — the UI must not offer it.
+        XCTAssertEqual(VideoProvider.veo3.supportedAspectRatios, ["16:9", "9:16"])
+        XCTAssertFalse(VideoProvider.veo3.supportedAspectRatios.contains("1:1"))
+    }
+
+    func testOtherProvidersKeepSquareAspectRatio() {
+        XCTAssertTrue(VideoProvider.sora2.supportedAspectRatios.contains("1:1"))
+        XCTAssertTrue(VideoProvider.kling.supportedAspectRatios.contains("1:1"))
+    }
+
+    func testSupportedResolutions() {
+        for provider in VideoProvider.allCases {
+            XCTAssertEqual(provider.supportedResolutions, ["720p", "1080p"])
+        }
+    }
+
+    // MARK: - End-frame interpolation duration
+
+    func testOnlyVeoSupportsEndFrameInterpolation() {
+        XCTAssertTrue(VideoProvider.veo3.supportsEndFrameInterpolation)
+        XCTAssertFalse(VideoProvider.sora2.supportsEndFrameInterpolation)
+        XCTAssertFalse(VideoProvider.kling.supportsEndFrameInterpolation)
+    }
+
+    func testEffectiveDurationFixedWhenVeoBridgesEndFrame() {
+        // Veo interpolation ignores the requested duration and fixes the clip
+        // length itself — billing/estimates must use that length.
+        XCTAssertEqual(VideoProvider.veo3.effectiveDuration(requested: 5.0, bridgesEndFrame: true),
+                       VideoProvider.interpolationDurationSeconds)
+    }
+
+    func testEffectiveDurationHonorsRequestWithoutEndFrame() {
+        XCTAssertEqual(VideoProvider.veo3.effectiveDuration(requested: 6.5, bridgesEndFrame: false), 6.5)
+    }
+
+    func testEffectiveDurationHonorsRequestForNonInterpolatingProviders() {
+        XCTAssertEqual(VideoProvider.sora2.effectiveDuration(requested: 12.0, bridgesEndFrame: true), 12.0)
+        XCTAssertEqual(VideoProvider.kling.effectiveDuration(requested: 7.0, bridgesEndFrame: true), 7.0)
+    }
+
+    // MARK: - Discrete durations (Veo renders fixed clip lengths)
+
+    func testVeoHasDiscreteDurations() {
+        XCTAssertEqual(VideoProvider.veo3.discreteDurations, [4, 6, 8])
+        XCTAssertNil(VideoProvider.sora2.discreteDurations)
+        XCTAssertNil(VideoProvider.kling.discreteDurations)
+    }
+
+    func testSnappedDurationPicksNearestDiscrete() {
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(4.4), 4)
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(5.0), 4, "ties snap to the shorter length")
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(6.9), 6)
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(7.5), 8)
+        XCTAssertEqual(VideoProvider.veo3.snappedDuration(10.0), 8)
+    }
+
+    func testSnappedDurationIdentityForContinuousProviders() {
+        XCTAssertEqual(VideoProvider.sora2.snappedDuration(12.5), 12.5)
+        XCTAssertEqual(VideoProvider.kling.snappedDuration(3.5), 3.5)
+    }
 }
