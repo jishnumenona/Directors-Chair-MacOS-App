@@ -1105,6 +1105,18 @@ public actor AIServiceClient {
         }
 
         let mimeType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "audio/wav"
+
+        // Track usage/cost for the toolbar meter (TTS is billed per character).
+        let speechChars = request.text.count
+        let speechProvider = request.provider.rawValue
+        await MainActor.run {
+            AIUsageTracker.shared.recordSpeechUsage(
+                provider: speechProvider,
+                model: speechProvider,
+                characterCount: speechChars
+            )
+        }
+
         return SpeechGenerationResponse(audioData: data, mimeType: mimeType)
     }
 

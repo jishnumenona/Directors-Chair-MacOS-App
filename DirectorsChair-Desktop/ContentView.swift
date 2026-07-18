@@ -139,8 +139,9 @@ struct ContentView: View {
                 LoadingOverlay()
             }
 
-            // AI Chat overlay
-            if coordinator.showingAIChat {
+            // AI Chat overlay — never while signed out (it needs a token, and its
+            // full-screen backdrop would sit over the login gate / auth sheet).
+            if coordinator.showingAIChat && authManager.isAuthenticated {
                 AIChatOverlayView()
                     .transition(.opacity)
             }
