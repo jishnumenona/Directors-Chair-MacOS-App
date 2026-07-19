@@ -26,6 +26,10 @@ class OnboardingState: ObservableObject {
     }
 }
 
+// Shared sync client: created once, token-wired at launch (same pattern as
+// AIServiceClient.shared).
+private let syncAPIClient = SyncAPIClient()
+
 @main
 struct DirectorsChair_DesktopApp: App {
     @StateObject private var coordinator = AppCoordinator()
@@ -34,6 +38,7 @@ struct DirectorsChair_DesktopApp: App {
     @StateObject private var tourManager = GuidedTourManager()
     @StateObject private var authManager = AuthManager()
     @StateObject private var cloudSyncManager = CloudSyncManager()
+    @StateObject private var syncEngine = SyncEngine(client: syncAPIClient)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
@@ -56,6 +61,7 @@ struct DirectorsChair_DesktopApp: App {
                 .environmentObject(tourManager)
                 .environmentObject(authManager)
                 .environmentObject(cloudSyncManager)
+                .environmentObject(syncEngine)
                 .focusedValue(\.projectViewModel, projectViewModel)
                 .focusedValue(\.appCoordinator, coordinator)
                 .frame(minWidth: 1200, minHeight: 800)
@@ -106,6 +112,13 @@ struct DirectorsChair_DesktopApp: App {
                         await AIServiceClient.shared.setAuthToken(token)
                         await cloudSyncManager.setAuthToken(token)
                     }
+                    // First-party sync API (SyncEngine v1) shares the session.
+                    await syncAPIClient.setTokenProvider(
+                        { capturedAuthManager.currentAccessToken },
+                        refresher: {
+                            try? await capturedAuthManager.forceRefreshToken()
+                            return capturedAuthManager.currentAccessToken
+                        })
                     // Set per-user project directory based on restored session
                     if authManager.isAuthenticated, let username = authManager.currentUser?.username {
                         NSLog("[App] .task: setting user to %@", username)

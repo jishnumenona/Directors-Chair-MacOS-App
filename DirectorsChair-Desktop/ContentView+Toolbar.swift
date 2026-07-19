@@ -23,6 +23,7 @@ struct AppToolbar: View {
     @EnvironmentObject var tourManager: GuidedTourManager
     @EnvironmentObject var captureService: LiveCaptureService
     @EnvironmentObject var cloudSyncManager: CloudSyncManager
+    @EnvironmentObject var syncEngine: SyncEngine
 
     var body: some View {
         HStack(spacing: 0) {
@@ -81,8 +82,8 @@ struct AppToolbar: View {
                 Divider()
                     .frame(height: 20)
 
-                // Cloud sync status
-                SyncStatusView(syncManager: cloudSyncManager)
+                // Cloud sync status (SyncEngine v1, first-party sync API)
+                SyncEngineStatusView(engine: syncEngine)
 
                 // Account menu
                 AccountMenuView()

@@ -11,6 +11,8 @@ public enum ServiceEnvironment {
     public static let giteaBaseURLString = "https://git.directorschair.app"
     /// Production AI proxy.
     public static let aiProxyURLString = "https://directorschair.app/ai"
+    /// First-party sync API (platform-service, server spec §19.8 / Webapp §4.2).
+    public static let syncBaseURLString = "https://directorschair.app"
 
     /// Non-optional URLs for the built-in endpoints. The force-unwrap risk is
     /// confined to this one audited spot: these are compile-time constants that
@@ -18,6 +20,7 @@ public enum ServiceEnvironment {
     /// immediately if a literal above were ever malformed.
     public static let giteaBaseURL = requireURL(giteaBaseURLString)
     public static let aiProxyURL = requireURL(aiProxyURLString)
+    public static let syncBaseURL = requireURL(syncBaseURLString)
 
     /// Parse a trusted, non-user-supplied URL string. Use ONLY for built-in
     /// constants — never for user or network input (use `URL(string:)` + guard
