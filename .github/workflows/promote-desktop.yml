@@ -34,6 +34,7 @@ jobs:
     name: Publish ${{ inputs.tag }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Guard — confirm matches
         if: ${{ inputs.confirm != inputs.tag }}
         run: |
@@ -91,12 +92,17 @@ jobs:
                      "latest": entry, "history": history}, open("manifest.json", "w"), indent=2)
           PY
           put manifest.json "desktop/manifest.json" 600 "public, max-age=300"
+          # Sparkle feed: pure transform of the manifest (unsigned entries excluded).
+          python3 ../scripts/generate_appcast.py --self-test
+          python3 ../scripts/generate_appcast.py manifest.json appcast.xml
+          put appcast.xml "desktop/appcast.xml" 600 "public, max-age=300"
       - name: Job summary
         run: |
           {
             echo "## Published ${{ inputs.tag }}"
             echo "- https://directorschair.app/downloads — page should show ${{ inputs.tag }} within ~10 min (CDN TTL)"
             echo "- https://directorschair.app/download/latest — new dmg"
+            echo "- https://directorschair.app/downloads/appcast.xml — Sparkle feed (apps prompt within ~24 h)"
             echo '```'
             cat assets/SHA-256SUMS
             echo '```'

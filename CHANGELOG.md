@@ -9,6 +9,11 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+### Added
+- Automatic updates via Sparkle: the app checks directorschair.app daily and
+  offers new versions in-app ("DirectorsChair → Check for Updates…" to check
+  manually). Updates are EdDSA-signature-verified end to end.
+
 ## [3.4.0] — 2026-07-19
 
 The first publicly downloadable release of DirectorsChair Desktop — available
