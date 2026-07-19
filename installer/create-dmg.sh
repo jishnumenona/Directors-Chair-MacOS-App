@@ -37,7 +37,15 @@ rm -f "$DMG_OUTPUT"
 
 # Create DMG with create-dmg
 # Install create-dmg if not available: npm install -g create-dmg
-if command -v create-dmg &>/dev/null; then
+# DMG_FORCE_HDIUTIL=1 skips the npm paths entirely (CI sets it so a release
+# never downloads an unpinned npm package at build time; local use unchanged).
+if [ "${DMG_FORCE_HDIUTIL:-0}" = "1" ]; then
+    echo "DMG_FORCE_HDIUTIL=1 — using hdiutil directly"
+    hdiutil create -volname "${APP_NAME}" \
+        -srcfolder "$DMG_DIR" \
+        -ov -format UDZO \
+        "$DMG_OUTPUT"
+elif command -v create-dmg &>/dev/null; then
     create-dmg \
         --volname "${APP_NAME}" \
         --window-pos 200 120 \

@@ -153,19 +153,25 @@ project-format changes (schema bumps).
 ```bash
 git switch main && git pull --ff-only
 ./scripts/verify.sh --clean            # authoritative clean-build run
-# 1. Update CHANGELOG.md (Keep-a-Changelog style, from the conventional
-#    commits since the last tag: git log v3.3..main --oneline)
-# 2. Commit via the normal PR loop (chore/release-v3.4.0)
+# 1. Release PR (chore/release-v3.4.0) MUST contain BOTH:
+#      - CHANGELOG.md section "## [3.4.0]" (Keep-a-Changelog style, from the
+#        conventional commits since the last tag: git log v3.3..main --oneline)
+#      - MARKETING_VERSION bump to 3.4.0 in project.pbxproj
+#    (release.yml verifies tag == MARKETING_VERSION and fails the build if not)
+# 2. Merge it via the normal PR loop
 # 3. Tag — ANNOTATED, on main, after the release PR merges:
 git tag -a v3.4.0 -m "v3.4.0 — <one-line theme>"
 git push origin v3.4.0
-# 4. Build + GitHub release:
-./scripts/build-release.sh
-gh release create v3.4.0 --title "v3.4.0" --notes-file <notes> <artifact>
+# 4. CI (release.yml) builds the versioned dmg/zip + SHA-256SUMS and creates a
+#    DRAFT GitHub Release automatically. Publishing to users is a deliberate
+#    second step: dispatch promote-desktop.yml (see docs/release-pipeline.md).
 ```
 
 Release tags are permanent — never delete or move a pushed release tag. A
-bad release gets a new PATCH release, not a rewritten tag.
+bad release gets a new PATCH release, not a rewritten tag. (Pre-release
+dry-run tags like `v3.4.0-rc.1` are exempt: their drafts may be deleted.)
+`./scripts/build-release.sh` remains the local, signed-path build for when
+the Apple Developer account exists; CI is the canonical release builder.
 
 ---
 
