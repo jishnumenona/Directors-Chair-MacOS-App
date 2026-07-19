@@ -96,6 +96,23 @@ jobs:
             mv "build/DirectorsChair-${BASE}.dmg" "build/DirectorsChair-${VER}.dmg"
           fi
           cd build && shasum -a 256 "DirectorsChair-${VER}.dmg" "DirectorsChair-${VER}.zip" > SHA-256SUMS
+      - name: EdDSA-sign update archives (Sparkle)
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          # Sparkle updates are EdDSA-verified by the app (SUPublicEDKey) — an
+          # unsigned archive is undeliverable, so fail loudly, not silently.
+          [ -n "$SPARKLE_ED_PRIVATE_KEY" ] || { echo "::error::SPARKLE_ED_PRIVATE_KEY secret missing"; exit 1; }
+          SPARKLE_VER=2.9.4
+          SPARKLE_SHA256=ce89daf967db1e1893ed3ebd67575ed82d3902563e3191ca92aaec9164fbdef9
+          curl -sL -o sparkle.tar.xz "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VER}/Sparkle-${SPARKLE_VER}.tar.xz"
+          echo "${SPARKLE_SHA256}  sparkle.tar.xz" | shasum -a 256 -c -
+          mkdir -p sparkle-dist && tar -xf sparkle.tar.xz -C sparkle-dist
+          VER="${{ needs.verify-version.outputs.version }}"
+          sign() { printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | ./sparkle-dist/bin/sign_update --ed-key-file - "$1" | sed -E 's/.*edSignature="([^"]+)".*/\1/'; }
+          sign "build/DirectorsChair-${VER}.zip" > build/zip.edsig
+          sign "build/DirectorsChair-${VER}.dmg" > build/dmg.edsig
+          [ -s build/zip.edsig ] && [ -s build/dmg.edsig ]
       - name: Manifest entry
         run: |
           VER="${{ needs.verify-version.outputs.version }}"
@@ -111,6 +128,7 @@ jobs:
           if m: notes = m.group(1).strip()
           released = subprocess.run(["date","-u","+%Y-%m-%dT%H:%M:%SZ"],
                                     capture_output=True, text=True).stdout.strip()
+          edsig = lambda p: (open(p).read().strip() or None) if os.path.exists(p) else None
           entry = {
             "version": ver,
             "build": int(os.environ["BUILD_NUM"]),
@@ -120,9 +138,9 @@ jobs:
             "releaseNotes": notes,
             "artifacts": {
               "dmg": {"url": f"https://directorschair.app/download/v{ver}/DirectorsChair-{ver}.dmg",
-                      "sha256": sha(dmg), "size": os.path.getsize(dmg), "edSignature": None},
+                      "sha256": sha(dmg), "size": os.path.getsize(dmg), "edSignature": edsig("build/dmg.edsig")},
               "zip": {"url": f"https://directorschair.app/download/v{ver}/DirectorsChair-{ver}.zip",
-                      "sha256": sha(zipf), "size": os.path.getsize(zipf), "edSignature": None},
+                      "sha256": sha(zipf), "size": os.path.getsize(zipf), "edSignature": edsig("build/zip.edsig")},
             },
           }
           json.dump(entry, open("build/manifest-entry.json","w"), indent=2)

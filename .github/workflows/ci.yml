@@ -26,6 +26,13 @@ jobs:
       - name: Lint
         run: swiftlint lint --strict --reporter github-actions-logging
 
+  appcast-generator:
+    name: Appcast generator self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: python3 scripts/generate_appcast.py --self-test
+
   package-tests:
     name: SPM package tests
     runs-on: macos-15

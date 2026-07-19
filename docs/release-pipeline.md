@@ -41,6 +41,35 @@ CHANGELOG section not required, draft may be deleted afterwards.
 - Rollback target identified: the previous version stays at its versioned URL;
   re-promoting the previous tag restores `latest/`.
 
+## Sparkle auto-updates (live since v3.5.0)
+
+Users on v3.5.0+ get in-app updates; no Apple account involved (EdDSA):
+
+- **App side:** Sparkle 2 (SPM, pinned ≥2.9.4) starts at launch
+  (`UpdateCommands.swift`; harness runs — `--uitesting` etc. — never start it).
+  `Info.plist` carries `SUFeedURL` (`https://directorschair.app/downloads/appcast.xml`),
+  `SUPublicEDKey`, and `SUEnableAutomaticChecks` (daily check).
+- **Key custody:** the EdDSA private key lives in the owner's login Keychain
+  ("Private key for signing Sparkle updates") AND as the
+  `SPARKLE_ED_PRIVATE_KEY` repo secret (exported copy at
+  `~/.directorschair/sparkle_ed25519_private.key`, mode 600). Losing BOTH means
+  shipping a new public key — an update users must fetch manually. Guard it.
+- **release.yml** downloads the pinned Sparkle dist (sha256-verified),
+  EdDSA-signs the zip + dmg with the secret, and writes the signatures into
+  `manifest-entry.json` (`artifacts.*.edSignature`). A missing secret FAILS the
+  release — an unsigned archive is undeliverable to Sparkle clients anyway.
+- **promote-desktop.yml** regenerates `desktop/appcast.xml` from the rebuilt
+  manifest via `scripts/generate_appcast.py` (pure transform; entries without
+  `edSignature` — e.g. v3.4.0 — are excluded; `sparkle:version` is the BUILD
+  number, `CFBundleVersion`) and uploads it beside the manifest (10-min edge
+  TTL). The server serves it same-origin at `/downloads/appcast.xml` (nginx
+  proxy to the CDN, same pattern as `manifest.json`).
+- **Verification path:** the app accepts an update only if the archive's EdDSA
+  signature verifies against `SUPublicEDKey` — a compromised bucket/CDN cannot
+  ship a malicious update without the private key.
+- **v3.4.0 cohort:** has no Sparkle; those users update once more by hand
+  (downloads page). Every later cohort auto-updates.
+
 ## Unsigned-build reality (until the Apple Developer account exists)
 
 Builds are **ad-hoc signed, not notarized**. On macOS 15, downloaded builds hit

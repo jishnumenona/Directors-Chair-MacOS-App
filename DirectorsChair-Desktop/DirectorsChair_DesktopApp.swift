@@ -39,6 +39,7 @@ struct DirectorsChair_DesktopApp: App {
     @StateObject private var authManager = AuthManager()
     @StateObject private var cloudSyncManager = CloudSyncManager()
     @StateObject private var syncEngine = SyncEngine(client: syncAPIClient)
+    @StateObject private var updaterViewModel = UpdaterViewModel()
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
@@ -171,6 +172,7 @@ struct DirectorsChair_DesktopApp: App {
             FileCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
             ViewCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
             ExportCommands(projectViewModelRef: projectViewModel)
+            UpdateCommands(updater: updaterViewModel)
         }
 
         #if os(macOS)
