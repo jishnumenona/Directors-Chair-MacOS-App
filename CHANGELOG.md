@@ -9,17 +9,16 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
-### Added
-- Tag-driven release pipeline: pushing `vX.Y.Z` builds a versioned, checksummed
-  `.dmg`/`.zip` as a draft GitHub Release; a dispatched promotion publishes it to
-  the directorschair.app downloads page.
+## [3.4.0] — 2026-07-19
 
-## [3.3] — 2026-07-18
-
-Baseline for the changelog (versions before 3.3 predate it). Highlights of the
-3.3 line, shipped across PRs #18–#19:
+The first publicly downloadable release of DirectorsChair Desktop — available
+directly from [directorschair.app/downloads](https://directorschair.app/downloads).
 
 ### Added
+- Direct-download distribution: versioned, checksummed `.dmg`/`.zip` builds
+  published to directorschair.app with SHA-256 verification. Builds are not yet
+  notarized (Apple Developer enrollment pending) — the downloads page walks
+  through the macOS first-launch steps.
 - Director-grade video generation: resolution and duration controls honest to
   Veo's capabilities, mid-keyframe reference frames, end-frame bridging, aspect-
   aware preview player, and prompt visibility ("Show Prompt").
@@ -35,3 +34,9 @@ Baseline for the changelog (versions before 3.3 predate it). Highlights of the
 ### Fixed
 - AI cost meter reflects Veo's real $0.40/s video pricing; speech usage tracked.
 - AI assistant overlay no longer auto-opens over the login screen.
+
+## [3.3] — 2026-07-18
+
+Internal baseline (never shipped as a downloadable artifact; versions before
+3.3 predate this changelog). The 3.3 line's work — PRs #18–#19 — ships to
+users as part of 3.4.0 above.
