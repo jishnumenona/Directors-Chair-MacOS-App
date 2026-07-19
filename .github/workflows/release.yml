@@ -1,0 +1,169 @@
+# Release build on vX.Y.Z tags (release pipeline; docs/release-pipeline.md).
+# Produces a DRAFT GitHub Release with unsigned (ad-hoc) dmg + zip + SHA-256SUMS +
+# manifest-entry.json. Publishing to users is a separate human-dispatched promotion
+# (promote-desktop.yml) — a tag builds and stores; a person ships.
+#
+# Signing/notarization is designed in but dormant behind vars.SIGNING_ENABLED
+# (no Apple Developer account yet). Ad-hoc signing is mandatory meanwhile:
+# Apple Silicon refuses to execute wholly-unsigned native code.
+name: Release build
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the draft release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-version:
+    name: Tag ↔ version ↔ changelog
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      base: ${{ steps.v.outputs.base }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - id: v
+        name: Verify (fail before spending macOS minutes)
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"                # 3.4.0 or 3.4.0-rc.1
+          BASE="${TAG%%-*}"                         # 3.4.0
+          PRERELEASE=$([ "$TAG" = "$BASE" ] && echo false || echo true)
+          MV=$(grep -m1 -oE 'MARKETING_VERSION = [^;]+' DirectorsChair-Desktop.xcodeproj/project.pbxproj | awk '{print $3}')
+          # Policy: verify-and-fail, never derive — the pbxproj is what Xcode and
+          # local builds use; the bump belongs in the release PR (git-workflow §6).
+          if [ "$MV" != "$BASE" ]; then
+            echo "::error::tag v${TAG} does not match MARKETING_VERSION ${MV} — bump the pbxproj in the release PR first"
+            exit 1
+          fi
+          if [ "$PRERELEASE" = "false" ] && ! grep -q "^## \[${BASE}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${BASE}]' section — releases ship with notes"
+            exit 1
+          fi
+          {
+            echo "version=$TAG"
+            echo "base=$BASE"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+
+  build-package:
+    name: Archive, package, draft release
+    needs: verify-version
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # commit count = build number
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app || true
+      - name: Archive (Release, unsigned)
+        run: |
+          BUILD_NUM=$(git rev-list --count HEAD)
+          echo "BUILD_NUM=$BUILD_NUM" >> "$GITHUB_ENV"
+          xcodebuild archive \
+            -scheme DirectorsChair-Desktop \
+            -destination 'generic/platform=macOS' \
+            -archivePath build/DirectorsChair.xcarchive \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION="$BUILD_NUM" \
+            -quiet
+      - name: Stage app + ad-hoc sign
+        run: |
+          APP_SRC=$(ls -d build/DirectorsChair.xcarchive/Products/Applications/*.app | head -1)
+          [ -n "$APP_SRC" ] || { echo "::error::no .app in archive"; exit 1; }
+          cp -R "$APP_SRC" build/DirectorsChair.app
+          # Ad-hoc signature: minimum for the binary to execute on Apple Silicon.
+          codesign --force --deep -s - build/DirectorsChair.app
+          codesign --verify --deep build/DirectorsChair.app
+      - name: Package zip + dmg + checksums
+        env:
+          DMG_FORCE_HDIUTIL: "1" # never fetch unpinned npm tooling in a release build
+        run: |
+          VER="${{ needs.verify-version.outputs.version }}"
+          ditto -c -k --sequesterRsrc --keepParent build/DirectorsChair.app "build/DirectorsChair-${VER}.zip"
+          ./installer/create-dmg.sh
+          # create-dmg.sh names by the app's CFBundleShortVersionString (the base
+          # version); normalize to the full tag so rc artifacts are distinguishable.
+          BASE="${{ needs.verify-version.outputs.base }}"
+          if [ "$VER" != "$BASE" ] && [ -f "build/DirectorsChair-${BASE}.dmg" ]; then
+            mv "build/DirectorsChair-${BASE}.dmg" "build/DirectorsChair-${VER}.dmg"
+          fi
+          cd build && shasum -a 256 "DirectorsChair-${VER}.dmg" "DirectorsChair-${VER}.zip" > SHA-256SUMS
+      - name: Manifest entry
+        run: |
+          VER="${{ needs.verify-version.outputs.version }}"
+          DMG="build/DirectorsChair-${VER}.dmg"; ZIP="build/DirectorsChair-${VER}.zip"
+          python3 - "$VER" "$DMG" "$ZIP" <<'PY'
+          import hashlib, json, os, re, subprocess, sys
+          ver, dmg, zipf = sys.argv[1:4]
+          def sha(p): return hashlib.sha256(open(p,'rb').read()).hexdigest()
+          notes = ""
+          base = ver.split('-')[0]
+          m = re.search(rf"^## \[{re.escape(base)}\].*?$(.*?)(?=^## \[|\Z)",
+                        open("CHANGELOG.md").read(), re.M | re.S)
+          if m: notes = m.group(1).strip()
+          released = subprocess.run(["date","-u","+%Y-%m-%dT%H:%M:%SZ"],
+                                    capture_output=True, text=True).stdout.strip()
+          entry = {
+            "version": ver,
+            "build": int(os.environ["BUILD_NUM"]),
+            "released": released,
+            "minOS": "15.0",
+            "signed": False,
+            "releaseNotes": notes,
+            "artifacts": {
+              "dmg": {"url": f"https://directorschair.app/download/v{ver}/DirectorsChair-{ver}.dmg",
+                      "sha256": sha(dmg), "size": os.path.getsize(dmg), "edSignature": None},
+              "zip": {"url": f"https://directorschair.app/download/v{ver}/DirectorsChair-{ver}.zip",
+                      "sha256": sha(zipf), "size": os.path.getsize(zipf), "edSignature": None},
+            },
+          }
+          json.dump(entry, open("build/manifest-entry.json","w"), indent=2)
+          print(json.dumps(entry, indent=2))
+          PY
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER="${{ needs.verify-version.outputs.version }}"
+          BASE="${{ needs.verify-version.outputs.base }}"
+          NOTES_FILE=$(mktemp)
+          awk "/^## \[${BASE}\]/{flag=1;next} /^## \[/{flag=0} flag" CHANGELOG.md > "$NOTES_FILE" || true
+          [ -s "$NOTES_FILE" ] || echo "Pre-release build ${VER}." > "$NOTES_FILE"
+          gh release create "v${VER}" \
+            --draft \
+            $([ "${{ needs.verify-version.outputs.prerelease }}" = "true" ] && echo --prerelease) \
+            --title "v${VER}" \
+            --notes-file "$NOTES_FILE" \
+            "build/DirectorsChair-${VER}.dmg" \
+            "build/DirectorsChair-${VER}.zip" \
+            build/SHA-256SUMS \
+            build/manifest-entry.json
+          {
+            echo "### Draft release v${VER}"
+            echo '```'
+            cat build/SHA-256SUMS
+            echo '```'
+            echo "Promote with **promote-desktop.yml** (dispatch, tag=v${VER})."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Designed-in, dormant until the Apple Developer account exists (Phase 5 checklist:
+  # set vars.SIGNING_ENABLED=true + secrets APPLE_ID/APPLE_TEAM_ID/APPLE_APP_PASSWORD/
+  # DEVELOPER_ID_P12/P12_PASSWORD, then this job replaces the ad-hoc artifacts with
+  # Developer ID-signed, notarized, stapled ones before promotion).
+  sign-notarize:
+    name: Developer ID sign + notarize (dormant)
+    needs: build-package
+    if: vars.SIGNING_ENABLED == 'true'
+    runs-on: macos-15
+    steps:
+      - run: |
+          echo "::error::SIGNING_ENABLED is true but the signing job is not yet implemented — see docs/release-pipeline.md enablement checklist"
+          exit 1

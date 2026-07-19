@@ -1,0 +1,104 @@
+# Publish a drafted release build to users (docs/release-pipeline.md).
+# Human-dispatched — the dispatch IS the approval (confirm must repeat the tag).
+# Publishes the GitHub Release, then uploads dmg/zip/SUMS to the public Spaces
+# downloads bucket (versioned prefix + latest/ aliases) and rebuilds
+# desktop/manifest.json — which directorschair.app/downloads renders.
+#
+# Spaces CDN note: edge TTL is set per-object via x-amz-meta-max-age (60/600/
+# 3600/86400/604800); Cache-Control headers only steer browsers.
+name: Promote desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (vX.Y.Z)"
+        required: true
+      confirm:
+        description: "Type the same tag again to confirm publishing to users"
+        required: true
+
+permissions:
+  contents: write # publish the release
+
+concurrency:
+  group: promote-desktop
+  cancel-in-progress: false
+
+env:
+  SPACES_BUCKET: ${{ vars.SPACES_BUCKET_DOWNLOADS }}
+  SPACES_REGION: ${{ vars.SPACES_REGION }}
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard — confirm matches
+        if: ${{ inputs.confirm != inputs.tag }}
+        run: |
+          echo "::error::confirm input does not match tag — aborting"
+          exit 1
+      - name: Download draft assets + verify checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft | grep -qx true \
+            || { echo "::error::${{ inputs.tag }} is not a draft release"; exit 1; }
+          mkdir assets && cd assets
+          gh release download "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY"
+          sha256sum -c SHA-256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+      - name: Upload to Spaces (versioned + latest + manifest)
+        env:
+          SPACES_KEY: ${{ secrets.SPACES_KEY }}
+          SPACES_SECRET: ${{ secrets.SPACES_SECRET }}
+        run: |
+          set -euo pipefail
+          cd assets
+          VER="${{ inputs.tag }}"                      # vX.Y.Z
+          BASE_URL="https://${SPACES_BUCKET}.${SPACES_REGION}.digitaloceanspaces.com"
+          SIGV4=(--aws-sigv4 "aws:amz:${SPACES_REGION}:s3" --user "${SPACES_KEY}:${SPACES_SECRET}")
+          put() { # put <file> <key> <edge-ttl-seconds> <browser-cache-control>
+            curl -fsS -X PUT "${BASE_URL}/$2" "${SIGV4[@]}" \
+              -H "x-amz-acl: public-read" \
+              -H "x-amz-meta-max-age: $3" \
+              -H "Cache-Control: $4" \
+              --upload-file "$1"
+            echo "uploaded $2"
+          }
+          DMG="DirectorsChair-${VER#v}.dmg"; ZIP="DirectorsChair-${VER#v}.zip"
+          put "$DMG" "desktop/${VER}/${DMG}" 604800 "public, max-age=31536000, immutable"
+          put "$ZIP" "desktop/${VER}/${ZIP}" 604800 "public, max-age=31536000, immutable"
+          put SHA-256SUMS "desktop/${VER}/SHA-256SUMS" 604800 "public, max-age=31536000, immutable"
+          put "$DMG" "desktop/latest/DirectorsChair.dmg" 600 "public, max-age=300"
+          put "$ZIP" "desktop/latest/DirectorsChair.zip" 600 "public, max-age=300"
+          # Rebuild manifest: new entry becomes latest, previous latest joins history.
+          curl -fsS "${BASE_URL}/desktop/manifest.json" "${SIGV4[@]}" -o manifest.json \
+            || echo '{"schemaVersion":1,"product":"DirectorsChair","channel":"stable","latest":null,"history":[]}' > manifest.json
+          python3 - <<'PY'
+          import json
+          entry = json.load(open("manifest-entry.json"))
+          m = json.load(open("manifest.json"))
+          history = m.get("history", [])
+          if m.get("latest") and m["latest"]["version"] != entry["version"]:
+              history.insert(0, m["latest"])
+          history = [h for h in history if h["version"] != entry["version"]]
+          json.dump({"schemaVersion": 1, "product": "DirectorsChair", "channel": "stable",
+                     "latest": entry, "history": history}, open("manifest.json", "w"), indent=2)
+          PY
+          put manifest.json "desktop/manifest.json" 600 "public, max-age=300"
+      - name: Job summary
+        run: |
+          {
+            echo "## Published ${{ inputs.tag }}"
+            echo "- https://directorschair.app/downloads — page should show ${{ inputs.tag }} within ~10 min (CDN TTL)"
+            echo "- https://directorschair.app/download/latest — new dmg"
+            echo '```'
+            cat assets/SHA-256SUMS
+            echo '```'
+            echo "**Verify per the promotion checklist, then update PROGRESS/HANDOFF (server repo).**"
+          } >> "$GITHUB_STEP_SUMMARY"
