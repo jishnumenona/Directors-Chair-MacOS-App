@@ -20,7 +20,7 @@ jobs:
     # file_length no longer errors, then it becomes a required check.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install SwiftLint
         run: brew install swiftlint
       - name: Lint
@@ -30,7 +30,7 @@ jobs:
     name: Appcast generator self-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: python3 scripts/generate_appcast.py --self-test
 
   package-tests:
@@ -46,7 +46,7 @@ jobs:
           - DirectorsChairProduction
           - DirectorsChairViews
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app || true
       - name: Test ${{ matrix.package }}
@@ -90,7 +90,7 @@ jobs:
     name: App target tests
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app || true
       - name: Install xcbeautify
@@ -106,7 +106,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO | xcbeautify
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-test-results
           path: TestResults.xcresult
@@ -117,7 +117,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app || true
       - name: Install xcbeautify
@@ -145,7 +145,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO | xcbeautify
       - name: Upload UI test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ui-e2e-results
           path: UITestResults.xcresult
@@ -159,7 +159,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app || true
       - name: Build Release configuration
@@ -175,7 +175,7 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0   # full history so a secret can't hide in an old commit
       - name: Install gitleaks
