@@ -640,6 +640,9 @@ extension PhysicalAppearanceTab {
                     },
                     onEditAnnotate: {
                         openAnnotationEditor(angle: "front", label: "Front", imageType: .front)
+                    },
+                    onUpload: {
+                        uploadAngleImage(angle: "front", label: "Front")
                     }
                 )
                 AngleThumbnail(
@@ -662,6 +665,9 @@ extension PhysicalAppearanceTab {
                     },
                     onEditAnnotate: {
                         openAnnotationEditor(angle: "three_quarter_left", label: "3/4 Left", imageType: .threeQuarterLeft)
+                    },
+                    onUpload: {
+                        uploadAngleImage(angle: "three_quarter_left", label: "3/4 Left")
                     }
                 )
                 AngleThumbnail(
@@ -684,6 +690,9 @@ extension PhysicalAppearanceTab {
                     },
                     onEditAnnotate: {
                         openAnnotationEditor(angle: "three_quarter_right", label: "3/4 Right", imageType: .threeQuarterRight)
+                    },
+                    onUpload: {
+                        uploadAngleImage(angle: "three_quarter_right", label: "3/4 Right")
                     }
                 )
                 AngleThumbnail(
@@ -706,6 +715,9 @@ extension PhysicalAppearanceTab {
                     },
                     onEditAnnotate: {
                         openAnnotationEditor(angle: "profile_left", label: "Profile Left", imageType: .profileLeft)
+                    },
+                    onUpload: {
+                        uploadAngleImage(angle: "profile_left", label: "Profile Left")
                     }
                 )
                 AngleThumbnail(
@@ -728,6 +740,9 @@ extension PhysicalAppearanceTab {
                     },
                     onEditAnnotate: {
                         openAnnotationEditor(angle: "profile_right", label: "Profile Right", imageType: .profileRight)
+                    },
+                    onUpload: {
+                        uploadAngleImage(angle: "profile_right", label: "Profile Right")
                     }
                 )
                 AngleThumbnail(
@@ -750,6 +765,9 @@ extension PhysicalAppearanceTab {
                     },
                     onEditAnnotate: {
                         openAnnotationEditor(angle: "back", label: "Back", imageType: .back)
+                    },
+                    onUpload: {
+                        uploadAngleImage(angle: "back", label: "Back")
                     }
                 )
             }

@@ -96,8 +96,36 @@ extension LocationDetailView {
                 } else {
                     openPromptEditor(variation: variation, defaultPrompt: buildVariationPrompt(override: override))
                 }
-            }
+            },
+            onUpload: { uploadVariationImage(variation: variation, label: label) }
         )
+    }
+
+    // MARK: - Custom Upload
+
+    func uploadVariationImage(variation: String, label: String) {
+        guard let basePath = projectBasePath,
+              let data = UploadedImage.pickData(message: "Choose an image for \(location.name) — \(label)"),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+        do {
+            let sanitizedName = DiscoveredLocationImages.sanitizeName(location.name)
+            let relativePath = try UploadedImage.writePNG(
+                png, projectBasePath: basePath,
+                relativeDirectory: "assets/locations/\(sanitizedName)",
+                filename: "\(variation).png")
+            // Mirror generateLocationImage's model update (binding → autosave).
+            if variation == "primary" {
+                location.primaryImage = relativePath
+            }
+            if !location.images.contains(relativePath) {
+                location.images.append(relativePath)
+            }
+            imageRefreshIds[variation] = UUID()
+            discoveredImages = DiscoveredLocationImages.discover(
+                for: location.name, basePath: projectBasePath)
+        } catch {
+            debugLog("LocationDetailView: custom image upload failed: \(error)")
+        }
     }
 
     // MARK: - Open Prompt Editor
