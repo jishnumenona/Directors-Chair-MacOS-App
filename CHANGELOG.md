@@ -9,6 +9,15 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.6.0] — 2026-07-19
+
+### Added
+- Upload your own images anywhere the app shows a preview: scene overviews,
+  shot previews, every location variation, and all character angle views now
+  have an "Upload custom image" option next to Generate — use photos,
+  storyboards, or concept art from your own library instead of (or alongside)
+  AI-generated images.
+
 ## [3.5.0] — 2026-07-19
 
 ### Added
