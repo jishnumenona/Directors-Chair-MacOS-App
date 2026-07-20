@@ -238,6 +238,49 @@ extension PhysicalAppearanceTab {
         handleImageUpload(data: data)
     }
 
+    /// Upload a custom image for a specific angle card. Disk layout and the
+    /// model-field mapping mirror the generation path in
+    /// ContentView+CentralStack (getAssetPath / angle switch) exactly.
+    func uploadAngleImage(angle: String, label: String) {
+        guard let basePath = projectBasePath,
+              let data = UploadedImage.pickData(message: "Choose a \(label) image for \(character.name)"),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+
+        let (subfolder, filename): (String, String) = {
+            switch angle {
+            case "three_quarter_left": return ("face", "three_quarter_left")
+            case "three_quarter_right": return ("face", "three_quarter_right")
+            case "profile_left": return ("face", "profile")
+            case "profile_right": return ("face", "profile_right")
+            case "back": return ("body", "back")
+            default: return ("face", "front")
+            }
+        }()
+
+        let sanitizedName = DiscoveredCharacterImages.sanitizedName(for: character.name)
+        do {
+            let relativePath = try UploadedImage.writePNG(
+                png, projectBasePath: basePath,
+                relativeDirectory: "assets/characters/\(sanitizedName)/\(subfolder)",
+                filename: "\(filename).png")
+            switch angle {
+            case "front": character.imageFront = relativePath
+            case "three_quarter_left": character.imageThreeQuarterLeft = relativePath
+            case "three_quarter_right": character.imageThreeQuarterRight = relativePath
+            case "profile_left": character.imageProfileLeft = relativePath
+            case "profile_right": character.imageProfileRight = relativePath
+            case "back": character.imageBack = relativePath
+            default: character.baseImage = relativePath
+            }
+            imageRefreshIds[angle] = UUID()
+            discoveredImages = DiscoveredCharacterImages.discover(
+                for: character.name, basePath: projectBasePath)
+        } catch {
+            debugLog("PhysicalAppearanceTab: custom angle image upload failed: \(error)")
+            ErrorPresenter.shared.present(error, context: "Saving uploaded image")
+        }
+    }
+
     func handleImageUpload(data: Data) {
         guard let basePath = projectBasePath else { return }
 

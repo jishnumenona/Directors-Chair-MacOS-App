@@ -165,6 +165,9 @@ struct SceneCardView: View {
             imageControlButton(icon: "arrow.down.circle", help: "Download image") {
                 downloadImage()
             }
+            imageControlButton(icon: "photo.badge.plus", help: "Upload custom image") {
+                uploadOverviewImage()
+            }
             imageControlButton(icon: "arrow.clockwise", help: "Regenerate") {
                 generateOverviewImage()
             }
@@ -384,6 +387,32 @@ struct SceneCardView: View {
             } catch {
                 await MainActor.run { isGenerating = false }
             }
+        }
+    }
+
+    // MARK: - Custom upload
+
+    private func uploadOverviewImage() {
+        guard let basePath = projectBasePath,
+              let data = UploadedImage.pickData(message: "Choose an image for \(scene.name)"),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+        do {
+            let sanitizedName = SceneCardHelpers.sanitizeFilename(scene.name)
+            let sceneDir = "assets/scenes/\(sanitizedName)"
+            // Same history convention as generation: timestamped copy + latest.
+            try UploadedImage.writePNG(png, projectBasePath: basePath,
+                                       relativeDirectory: sceneDir,
+                                       filename: "overview_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(png, projectBasePath: basePath,
+                                                          relativeDirectory: sceneDir,
+                                                          filename: "overview_latest.png")
+            if let image = NSImage(data: png) {
+                overviewImage = image
+                SceneImageCache.shared.setImage(image, forKey: basePath.appendingPathComponent(relativePath).path)
+            }
+            onImageGenerated?(relativePath)
+        } catch {
+            debugLog("SceneCardView: custom image upload failed: \(error)")
         }
     }
 

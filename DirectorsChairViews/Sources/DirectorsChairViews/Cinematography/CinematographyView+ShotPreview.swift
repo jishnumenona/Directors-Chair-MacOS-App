@@ -122,6 +122,22 @@ struct ShotPreviewSection: View {
                                 .cornerRadius(8)
                             }
                             .buttonStyle(.plain)
+
+                            Button(action: { uploadPreviewImage() }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "photo.badge.plus")
+                                        .font(.system(size: 12))
+                                    Text("Upload")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: "#2A2A2A"))
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Upload a custom image as the shot preview")
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -181,6 +197,18 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Download image")
+
+                                // Upload custom image button
+                                Button(action: { uploadPreviewImage() }) {
+                                    Image(systemName: "photo.badge.plus")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.6))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Upload custom image")
                             }
 
                             // Regenerate button (shows spinner when generating)
@@ -510,6 +538,30 @@ struct ShotPreviewSection: View {
     }
 
     // MARK: - Image History
+
+    private func uploadPreviewImage() {
+        guard let basePath = projectBasePath,
+              let data = UploadedImage.pickData(message: "Choose a preview image for this shot"),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+        do {
+            let shotDir = "assets/shots/shot_\(shot.shotId)"
+            // Same history convention as generation: timestamped copy + latest.
+            try UploadedImage.writePNG(png, projectBasePath: basePath,
+                                       relativeDirectory: shotDir,
+                                       filename: "preview_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(png, projectBasePath: basePath,
+                                                          relativeDirectory: shotDir,
+                                                          filename: "latest.png")
+            if let image = NSImage(data: png) {
+                previewImage = image
+            }
+            onPreviewGenerated(relativePath)
+            discoverPreviewImages()
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
+    }
 
     private func discoverPreviewImages() {
         guard let basePath = projectBasePath else { return }

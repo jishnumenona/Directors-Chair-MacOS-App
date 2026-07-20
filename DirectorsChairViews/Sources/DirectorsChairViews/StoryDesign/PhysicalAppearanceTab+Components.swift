@@ -271,6 +271,7 @@ struct AngleThumbnail: View {
     var onDownload: ((URL) -> Void)?
     var onGenerate: (() -> Void)?
     var onEditAnnotate: (() -> Void)?
+    var onUpload: (() -> Void)?
 
     @State var isHovering = false
 
@@ -363,6 +364,18 @@ struct AngleThumbnail: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Regenerate this angle")
+
+                                Button {
+                                    onUpload?()
+                                } label: {
+                                    Image(systemName: "photo.badge.plus")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.white)
+                                        .padding(4)
+                                        .background(Circle().fill(Color.white.opacity(0.25)))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Upload custom image")
                             }
                         }
                     }
@@ -385,6 +398,9 @@ struct AngleThumbnail: View {
                     }
                     .buttonStyle(.plain)
                     .help("Generate \(label) image")
+                    .contextMenu {
+                        Button("Upload Custom Image…") { onUpload?() }
+                    }
                 }
 
                 // Generation progress overlay

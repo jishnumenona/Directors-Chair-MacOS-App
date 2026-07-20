@@ -178,6 +178,9 @@ extension SceneDetailView {
                 heroControlButton(icon: "arrow.down.circle", help: "Download image") {
                     downloadImage()
                 }
+                heroControlButton(icon: "photo.badge.plus", help: "Upload custom image") {
+                    uploadHeroImage()
+                }
             }
 
             // Regenerate button with spinner during generation
@@ -264,6 +267,30 @@ extension SceneDetailView {
         .padding(.vertical, 6)
         .background(Color.black.opacity(0.6))
         .cornerRadius(20)
+    }
+
+    func uploadHeroImage() {
+        guard let basePath = projectBasePath,
+              let data = UploadedImage.pickData(message: "Choose an image for \(scene.name)"),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+        do {
+            let sanitizedName = SceneCardHelpers.sanitizeFilename(scene.name)
+            let sceneDir = "assets/scenes/\(sanitizedName)"
+            try UploadedImage.writePNG(png, projectBasePath: basePath,
+                                       relativeDirectory: sceneDir,
+                                       filename: "overview_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(png, projectBasePath: basePath,
+                                                          relativeDirectory: sceneDir,
+                                                          filename: "overview_latest.png")
+            if let image = NSImage(data: png) {
+                SceneImageCache.shared.setImage(image, forKey: basePath.appendingPathComponent(relativePath).path)
+                heroImage = image
+            }
+            discoverOverviewImages()
+            onImageGenerated?(relativePath)
+        } catch {
+            debugLog("SceneDetailView: custom image upload failed: \(error)")
+        }
     }
 
     func discoverOverviewImages() {

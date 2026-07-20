@@ -167,6 +167,7 @@ struct LocationVariationThumbnail: View {
     var onDownload: ((URL) -> Void)?
     var onGenerate: (() -> Void)?
     var onEditGenerate: (() -> Void)?
+    var onUpload: (() -> Void)?
 
     @State var isHovering = false
 
@@ -264,6 +265,23 @@ struct LocationVariationThumbnail: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Annotate & edit image")
+
+                                Button {
+                                    onUpload?()
+                                } label: {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "photo.badge.plus")
+                                            .font(.system(size: 7))
+                                        Text("Upload")
+                                            .font(.system(size: 7, weight: .medium))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Capsule().fill(Color.white.opacity(0.25)))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Upload custom image")
                             }
                         }
                     }
