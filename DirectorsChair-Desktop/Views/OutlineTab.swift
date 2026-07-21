@@ -166,9 +166,19 @@ struct SequenceRow: View {
     @State private var isAddingScene = false
     @State private var newSceneName = ""
     @State private var showDeleteConfirmation = false
+    @State private var showMovePrompt = false
+    @State private var movePositionText = ""
     @FocusState private var isSceneFieldFocused: Bool
 
     private var isExpanded: Bool { !collapsedSequenceIds.contains(sequence.id) }
+
+    private var sequenceIndex: Int { projectViewModel.project.sequences.firstIndex { $0.id == sequence.id } ?? 0 }
+    private var sequenceCount: Int { projectViewModel.project.sequences.count }
+    private func moveSequenceTo(_ target: Int) {
+        if projectViewModel.moveSequence(id: sequence.id, toIndex: target) {
+            coordinator.notifyProjectChanged(.structure)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -239,11 +249,26 @@ struct SequenceRow: View {
 
                 Divider()
 
+                reorderMenuSection(
+                    position: sequenceIndex + 1, count: sequenceCount,
+                    moveUp: { moveSequenceTo(sequenceIndex - 1) },
+                    moveDown: { moveSequenceTo(sequenceIndex + 1) },
+                    moveToTop: { moveSequenceTo(0) },
+                    moveToBottom: { moveSequenceTo(sequenceCount - 1) },
+                    moveToPosition: { movePositionText = "\(sequenceIndex + 1)"; showMovePrompt = true }
+                )
+
+                Divider()
+
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
                     Label("Delete Sequence", systemImage: "trash")
                 }
+            }
+            .moveToPositionAlert(isPresented: $showMovePrompt, text: $movePositionText,
+                                 count: sequenceCount, noun: "sequence") { idx in
+                moveSequenceTo(idx)
             }
 
             // Scenes and inline add (collapsible)
@@ -362,10 +387,29 @@ struct SceneRow: View {
     @State private var newShotName = ""
     @State private var isRenaming = false
     @State private var renameText = ""
+    @State private var showMovePrompt = false
+    @State private var movePositionText = ""
     @FocusState private var isShotFieldFocused: Bool
     @FocusState private var isRenameFieldFocused: Bool
 
     private var isExpanded: Bool { expandedSceneIds.contains(scene.id) }
+
+    private var siblingScenes: [DirectorsChairCore.Scene] {
+        projectViewModel.project.sequences.first { $0.id == sequenceId }?.scenes ?? []
+    }
+    private var sceneIndex: Int { siblingScenes.firstIndex { $0.id == scene.id } ?? 0 }
+    private var sceneCount: Int { siblingScenes.count }
+    private func moveSceneTo(_ target: Int) {
+        if projectViewModel.moveScene(id: scene.id, toIndex: target) {
+            coordinator.notifyProjectChanged(.structure)
+        }
+    }
+    private func moveSceneToSequence(_ targetSequenceId: String) {
+        let destCount = projectViewModel.project.sequences.first { $0.id == targetSequenceId }?.scenes.count ?? 0
+        if projectViewModel.moveScene(id: scene.id, toSequenceId: targetSequenceId, atIndex: destCount) {
+            coordinator.notifyProjectChanged(.structure)
+        }
+    }
 
     /// Parse location string like "INT. KITCHEN - DAY" into (location, time)
     private var locationParts: (location: String, time: String?) {
@@ -567,11 +611,38 @@ struct SceneRow: View {
 
                     Divider()
 
+                    reorderMenuSection(
+                        position: sceneIndex + 1, count: sceneCount,
+                        moveUp: { moveSceneTo(sceneIndex - 1) },
+                        moveDown: { moveSceneTo(sceneIndex + 1) },
+                        moveToTop: { moveSceneTo(0) },
+                        moveToBottom: { moveSceneTo(sceneCount - 1) },
+                        moveToPosition: { movePositionText = "\(sceneIndex + 1)"; showMovePrompt = true }
+                    )
+
+                    // Cross-sequence move: send this scene to another sequence.
+                    let otherSequences = projectViewModel.project.sequences.filter { $0.id != sequenceId }
+                    if !otherSequences.isEmpty {
+                        Menu {
+                            ForEach(otherSequences) { seq in
+                                Button(seq.name) { moveSceneToSequence(seq.id) }
+                            }
+                        } label: {
+                            Label("Move to Sequence", systemImage: "arrow.right.to.line")
+                        }
+                    }
+
+                    Divider()
+
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
                     } label: {
                         Label("Delete Scene", systemImage: "trash")
                     }
+                }
+                .moveToPositionAlert(isPresented: $showMovePrompt, text: $movePositionText,
+                                     count: sceneCount, noun: "scene") { idx in
+                    moveSceneTo(idx)
                 }
             }
 
@@ -692,6 +763,20 @@ struct ShotRow: View {
     let sceneId: String
     let sequenceId: String
     @State private var showDeleteConfirmation = false
+    @State private var showMovePrompt = false
+    @State private var movePositionText = ""
+
+    private var siblingShots: [Shot] {
+        projectViewModel.project.sequences.first { $0.id == sequenceId }?
+            .scenes.first { $0.id == sceneId }?.shots ?? []
+    }
+    private var shotIndex: Int { siblingShots.firstIndex { $0.id == shot.id } ?? 0 }
+    private var shotCount: Int { siblingShots.count }
+    private func moveShotTo(_ target: Int) {
+        if projectViewModel.moveShot(id: shot.id, toIndex: target) {
+            coordinator.notifyProjectChanged(.shots)
+        }
+    }
 
     /// Resolve the shot's status string to a ShotStatus enum for icon/color
     private var shotStatus: ShotStatus {
@@ -778,11 +863,26 @@ struct ShotRow: View {
 
             Divider()
 
+            reorderMenuSection(
+                position: shotIndex + 1, count: shotCount,
+                moveUp: { moveShotTo(shotIndex - 1) },
+                moveDown: { moveShotTo(shotIndex + 1) },
+                moveToTop: { moveShotTo(0) },
+                moveToBottom: { moveShotTo(shotCount - 1) },
+                moveToPosition: { movePositionText = "\(shotIndex + 1)"; showMovePrompt = true }
+            )
+
+            Divider()
+
             Button(role: .destructive) {
                 showDeleteConfirmation = true
             } label: {
                 Label("Delete Shot", systemImage: "trash")
             }
+        }
+        .moveToPositionAlert(isPresented: $showMovePrompt, text: $movePositionText,
+                             count: shotCount, noun: "shot") { idx in
+            moveShotTo(idx)
         }
         .alert("Delete Shot \(shot.shotId)?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}

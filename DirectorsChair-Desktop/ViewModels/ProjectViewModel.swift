@@ -371,6 +371,48 @@ class ProjectViewModel: ObservableObject {
         isDirty = true
     }
 
+    // MARK: - Reorder (navigator)
+    //
+    // All order is array position (Project+Reorder), and every derived view —
+    // screenplay, timeline, bubble — reads that order, so a mutation here plus a
+    // `.structure` event from the caller propagates the rearrangement app-wide.
+    // Copy-and-reassign guarantees @Published fires for nested-struct changes.
+
+    @discardableResult
+    func moveSequence(id: String, toIndex index: Int) -> Bool {
+        var updated = project
+        guard updated.moveSequence(id: id, toIndex: index) else { return false }
+        project = updated; isDirty = true; return true
+    }
+
+    @discardableResult
+    func moveScene(id sceneId: String, toIndex index: Int) -> Bool {
+        var updated = project
+        guard updated.moveScene(id: sceneId, toIndex: index) else { return false }
+        project = updated; isDirty = true; return true
+    }
+
+    @discardableResult
+    func moveScene(id sceneId: String, toSequenceId sequenceId: String, atIndex index: Int) -> Bool {
+        var updated = project
+        guard updated.moveScene(id: sceneId, toSequenceId: sequenceId, atIndex: index) else { return false }
+        project = updated; isDirty = true; return true
+    }
+
+    @discardableResult
+    func moveShot(id shotId: String, toIndex index: Int) -> Bool {
+        var updated = project
+        guard updated.moveShot(id: shotId, toIndex: index) else { return false }
+        project = updated; isDirty = true; return true
+    }
+
+    @discardableResult
+    func moveShot(id shotId: String, toSceneId sceneId: String, atIndex index: Int) -> Bool {
+        var updated = project
+        guard updated.moveShot(id: shotId, toSceneId: sceneId, atIndex: index) else { return false }
+        project = updated; isDirty = true; return true
+    }
+
     /// Add a character to the project
     func addCharacter(_ character: Character) {
         project.characters.append(character)
