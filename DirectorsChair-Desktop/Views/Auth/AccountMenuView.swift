@@ -26,9 +26,7 @@ struct AccountMenuView: View {
 
                 Section {
                     Button {
-                        if let url = URL(string: "https://directorschair.app/dashboard") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        Task { await openWebDashboard() }
                     } label: {
                         Label("Open Web Dashboard", systemImage: "globe")
                     }
@@ -129,5 +127,21 @@ struct AccountMenuView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
         }
+    }
+
+    /// Opens the web dashboard signed in: mint a one-time handoff ticket with
+    /// the desktop's auth, then open the browser to the platform's handoff URL
+    /// (which redeems it into a web session). Falls back to the hosted login
+    /// if the mint fails (offline / expired session).
+    @MainActor
+    private func openWebDashboard() async {
+        let webBase = "https://directorschair.app"
+        var target = URL(string: "\(webBase)/app/")!   // fallback: hosted login
+        if let ticket = try? await authManager.createWebHandoffTicket(),
+           let encoded = ticket.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "\(webBase)/api/v1/session/handoff?ticket=\(encoded)") {
+            target = url
+        }
+        NSWorkspace.shared.open(target)
     }
 }
