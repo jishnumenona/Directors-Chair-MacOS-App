@@ -101,7 +101,14 @@ class AIChatViewModel: ObservableObject {
         featureReference = Self.loadFeatureReference()
 
         loadConversations()
-        startNewConversation()
+        // Resume the most recent conversation so closing the widget never
+        // "loses" the thread; New Chat in the sidebar starts fresh.
+        if let latest = conversations.first {
+            currentConversationId = latest.id
+            messages = latest.messages
+        } else {
+            startNewConversation()
+        }
     }
 
     // MARK: - Public API
@@ -195,6 +202,7 @@ class AIChatViewModel: ObservableObject {
     /// Injects a welcome message for first-time users
     func addWelcomeMessageIfNeeded() {
         let key = "hasShownAIChatWelcome"
+        guard messages.isEmpty else { return }   // never inject mid-history
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         UserDefaults.standard.set(true, forKey: key)
 

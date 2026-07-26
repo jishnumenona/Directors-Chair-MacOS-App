@@ -13,6 +13,8 @@ struct AIChatOverlayView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @StateObject private var viewModel = AIChatViewModel()
+    @StateObject private var dictation = SpeechDictationController()
+    @State private var dictationPrefix = ""
     @FocusState private var isInputFocused: Bool
     @AppStorage(PrefKey.showAssistantOnLaunch) private var showAssistantOnLaunch: Bool = false
 
@@ -80,6 +82,10 @@ struct AIChatOverlayView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isInputFocused = true
             }
+        }
+        .onDisappear {
+            if dictation.isRecording { dictation.stop() }
+            viewModel.saveCurrentConversation()
         }
         .onExitCommand {
             dismiss()
@@ -415,9 +421,28 @@ struct AIChatOverlayView: View {
 
     // MARK: - Input Area
 
+    /// Starts/stops voice input; the text typed before dictation began is
+    /// preserved and the live transcript streams in after it.
+    private func toggleDictation() {
+        if dictation.isRecording {
+            dictation.stop()
+        } else {
+            dictationPrefix = viewModel.inputText
+            dictation.start()
+        }
+    }
+
+    /// Sending while dictating stops the mic first so the final phrase is
+    /// what actually goes out.
+    private func sendStoppingDictation() {
+        if dictation.isRecording { dictation.stop() }
+        viewModel.sendMessage()
+    }
+
     private var inputArea: some View {
         HStack(spacing: 10) {
-            TextField("Ask about your project...", text: $viewModel.inputText)
+            TextField(dictation.isRecording ? "Listening…" : "Ask about your project...",
+                      text: $viewModel.inputText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .padding(.horizontal, 12)
@@ -425,15 +450,42 @@ struct AIChatOverlayView: View {
                 .background(Color.white.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                        .stroke(dictation.isRecording
+                                ? Color.red.opacity(0.5)
+                                : Color.white.opacity(0.1), lineWidth: 0.5)
                 )
                 .cornerRadius(10)
                 .focused($isInputFocused)
                 .onSubmit {
-                    viewModel.sendMessage()
+                    sendStoppingDictation()
                 }
 
-            Button(action: { viewModel.sendMessage() }) {
+            // Voice input: on-device dictation streams into the field.
+            Button(action: { toggleDictation() }) {
+                Image(systemName: dictation.isRecording ? "mic.fill" : "mic")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(dictation.isRecording
+                                     ? .red : Color(nsColor: .secondaryLabelColor))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isGenerating)
+            .help(dictation.isRecording ? "Stop dictation" : "Dictate your message")
+            .onChange(of: dictation.transcript) { _, transcript in
+                guard dictation.isRecording else { return }
+                viewModel.inputText = SpeechDictationController.mergedInput(
+                    typedPrefix: dictationPrefix, transcript: transcript)
+            }
+            .onChange(of: dictation.state) { _, state in
+                if case .recording = state { return }
+                if let message = dictation.problemMessage {
+                    viewModel.messages.append(ChatMessage(role: .system,
+                                                          content: message))
+                }
+            }
+
+            Button(action: { sendStoppingDictation() }) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 24))
                     .foregroundColor(viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color(nsColor: .tertiaryLabelColor) : .accentColor)
