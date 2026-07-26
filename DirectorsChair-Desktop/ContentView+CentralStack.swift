@@ -140,6 +140,9 @@ struct CentralViewStack: View {
                 onCardsChanged: { cards in
                     projectViewModel.project.beats = cards
                     projectViewModel.isDirty = true
+                },
+                onGenerateImage: { prompt, completion in
+                    generateVisionBoardImage(prompt: prompt, completion: completion)
                 }
             )
             .onAppear { debugLog("📱 VisionBoardView appeared") }
@@ -224,6 +227,52 @@ struct CentralViewStack: View {
     }
 
     // MARK: - AI Integration Methods
+
+    // A0.5: executor for the Vision Board's AI card generation — the editor's
+    // Generate button existed but was never wired to an executor. Saves under
+    // assets/visionboard/ and hands the file URL back to the editor.
+    private func generateVisionBoardImage(prompt: String,
+                                          completion: @escaping (URL?) -> Void) {
+        guard let projectFile = projectViewModel.projectPath else {
+            completion(nil)
+            return
+        }
+        let projectDir = projectFile.deletingLastPathComponent()
+        Task {
+            let client = AIServiceClient.shared
+            guard await client.testConnection() else {
+                await MainActor.run { completion(nil) }
+                return
+            }
+            do {
+                let request = ImageGenerationRequest(
+                    prompt: "Cinematic mood-board reference image: \(prompt). "
+                          + "Evocative, high production value, no text, no watermarks.",
+                    provider: .googleImagen,
+                    aspectRatio: "16:9"
+                )
+                let response = try await client.generateImage(request)
+                guard let data = response.images.first else {
+                    await MainActor.run { completion(nil) }
+                    return
+                }
+                let directory = projectDir.appendingPathComponent("assets/visionboard",
+                                                                  isDirectory: true)
+                try FileManager.default.createDirectory(at: directory,
+                                                        withIntermediateDirectories: true)
+                let fileURL = directory.appendingPathComponent(
+                    "vision_\(Int(Date().timeIntervalSince1970)).png")
+                try data.write(to: fileURL)
+                await MainActor.run {
+                    projectViewModel.isDirty = true
+                    completion(fileURL)
+                }
+            } catch {
+                debugLog("📱 Vision board image generation failed: \(error)")
+                await MainActor.run { completion(nil) }
+            }
+        }
+    }
 
     private func generateCharacterImage(character: Character, angle: String, prompt: String, progressHandler: @escaping @MainActor (Double) -> Void) async {
         let aiClient = AIServiceClient.shared

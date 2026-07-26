@@ -195,16 +195,31 @@ class AIChatViewModel: ObservableObject {
         }
 
         // Build prompt
-        let systemPrompt = buildSystemPrompt(query: query)
+        var systemPrompt = buildSystemPrompt(query: query)
         let conversationHistory = buildConversationHistory()
         let fullPrompt = conversationHistory + "\nUser: \(query)"
+
+        // A0.3: attach the selected entity's image (small JPEG) so visual
+        // questions are answered about the actual frame, not a description.
+        var imageBase64: String? = nil
+        if let relativePath = ChatVisionContext.imagePath(for: coordinator?.aiChatContext),
+           let projectFile = projectViewModel?.projectPath {
+            let imageURL = projectFile.deletingLastPathComponent()
+                .appendingPathComponent(relativePath)
+            imageBase64 = ChatVisionContext.downscaledJPEGBase64(at: imageURL)
+            if imageBase64 != nil {
+                systemPrompt += "\n\nAn image of the user's currently selected item is attached to this message."
+            }
+        }
 
         let request = TextGenerationRequest(
             prompt: fullPrompt,
             provider: .google,
             maxTokens: 4000,
             temperature: 0.7,
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            imageBase64: imageBase64,
+            imageMimeType: "image/jpeg"
         )
 
         do {
