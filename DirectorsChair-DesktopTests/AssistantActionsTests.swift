@@ -65,7 +65,7 @@ final class AssistantActionsTests: XCTestCase {
     // MARK: - Factory
 
     func testFactoryRegistersTheFullCatalog() {
-        XCTAssertEqual(registry.count, 19)   // 8 core + 8 read (A3.1) + 3 schedule (A3.2)
+        XCTAssertEqual(registry.count, 22)   // 8 core + 8 read + 3 schedule + 3 gantt
         for name in ["web_search", "navigate", "update_character_trait",
                      "update_character_bio", "update_scene_description",
                      "update_dialogue", "update_project_metadata",

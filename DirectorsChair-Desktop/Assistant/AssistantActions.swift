@@ -536,6 +536,8 @@ enum AssistantActionFactory {
                              coordinator: coordinator)   // A3.1
         actions += scheduleActions(projectViewModel: projectViewModel,
                                    coordinator: coordinator)   // A3.2
+        actions += ganttActions(projectViewModel: projectViewModel,
+                                coordinator: coordinator)      // A3.3
         for action in actions {
             do {
                 try registry.register(action)
