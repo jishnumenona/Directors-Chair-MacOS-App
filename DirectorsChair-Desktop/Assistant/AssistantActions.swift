@@ -548,6 +548,8 @@ enum AssistantActionFactory {
                                 coordinator: coordinator)      // A4 slice 2
         actions += scriptActions(projectViewModel: projectViewModel,
                                  coordinator: coordinator)     // A4.2
+        actions += generationActions(projectViewModel: projectViewModel,
+                                     coordinator: coordinator) // A5.1
         for action in actions {
             do {
                 try registry.register(action)
