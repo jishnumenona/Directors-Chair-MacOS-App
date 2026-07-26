@@ -9,6 +9,13 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.7.1] — 2026-07-26
+
+### Added
+- The AI Assistant now has a permanent home in the toolbar: a ✦ button
+  (top right) opens it, and its ⇧⇧ label shows the shortcut — press Shift
+  twice anytime, from anywhere in the app.
+
 ## [3.7.0] — 2026-07-26
 
 ### Added
