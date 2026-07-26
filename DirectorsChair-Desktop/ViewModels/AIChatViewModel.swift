@@ -266,6 +266,14 @@ class AIChatViewModel: ObservableObject {
             case .finished(let fullText, let transcript):
                 if !fullText.isEmpty {
                     messages.append(ChatMessage(role: .assistant, content: fullText))
+                } else if turnPlan == nil,
+                          !messages.contains(where: { $0.role == .system
+                              && $0.timestamp > (messages.last { $0.role == .user }?.timestamp ?? .distantPast) }) {
+                    // A turn that produced no text, no tools, and no plan is a
+                    // protocol failure — say so instead of staying silent.
+                    messages.append(ChatMessage(
+                        role: .assistant,
+                        content: "I didn't receive a response from the assistant service. Please try again."))
                 }
                 // The system prompt is rebuilt fresh each turn — persist the
                 // rest as the model's tool-fidelity memory.

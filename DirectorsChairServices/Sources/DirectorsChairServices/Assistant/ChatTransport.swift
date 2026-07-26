@@ -63,8 +63,15 @@ public struct SSEEventParser: Sendable {
         }
         if trimmed.hasPrefix(":") { return nil }              // SSE comment/keepalive
         if trimmed.hasPrefix("event:") {
+            // A new frame is starting. If a complete frame is pending, flush
+            // it now — some line readers (URLSession's AsyncLineSequence)
+            // drop the blank separator lines, so frame starts must also act
+            // as frame boundaries.
+            let pending = decodeCurrent()
+            dataLines = []          // never let a stale frame pollute the next
             eventName = trimmed.dropFirst("event:".count)
                 .trimmingCharacters(in: .whitespaces)
+            return pending
         } else if trimmed.hasPrefix("data:") {
             dataLines.append(String(trimmed.dropFirst("data:".count))
                 .trimmingCharacters(in: .whitespaces))
@@ -172,14 +179,32 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
             throw ChatTransportError.from(status: status, body: body)
         }
 
+        // NOTE: URLSession's `bytes.lines` DROPS blank lines — and a blank
+        // line is the SSE frame terminator. Split bytes manually so empty
+        // lines survive (the parser also flushes on new `event:` lines as
+        // a second line of defense).
         var parser = SSEEventParser()
-        for try await line in bytes.lines {
-            if let event = parser.feed(line: line) {
-                continuation.yield(event)
-                if case .done = event { return }
-                if case .error = event { return }
+        var lineBuffer = Data()
+        func deliver(_ line: String) -> Bool {   // returns false to stop
+            guard let event = parser.feed(line: line) else { return true }
+            continuation.yield(event)
+            if case .done = event { return false }
+            if case .error = event { return false }
+            return true
+        }
+        for try await byte in bytes {
+            if byte == UInt8(ascii: "\n") {
+                var line = String(decoding: lineBuffer, as: UTF8.self)
+                lineBuffer.removeAll(keepingCapacity: true)
+                if line.hasSuffix("\r") { line.removeLast() }
+                if !deliver(line) { return }
+            } else {
+                lineBuffer.append(byte)
             }
             try Task.checkCancellation()
+        }
+        if !lineBuffer.isEmpty {
+            _ = deliver(String(decoding: lineBuffer, as: UTF8.self))
         }
         if let event = parser.finish() {
             continuation.yield(event)

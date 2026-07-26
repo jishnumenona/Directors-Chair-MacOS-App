@@ -127,6 +127,27 @@ final class AssistantKitTests: XCTestCase {
         XCTAssertEqual(events, [.error("quota")])
     }
 
+    func testParserDecodesStreamWithBlankSeparatorsDropped() {
+        // Regression (live bug 2026-07-26): URLSession's AsyncLineSequence
+        // DROPS blank lines — the SSE frame terminators. The parser must
+        // treat each new `event:` line as the previous frame's boundary.
+        var parser = SSEEventParser()
+        var events: [ChatStreamEvent] = []
+        for line in [
+            "event: message.delta", #"data: {"text": "Hel"}"#,
+            "event: message.delta", #"data: {"text": "lo"}"#,
+            "event: usage", #"data: {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}"#,
+            "event: done", #"data: {"finish_reason": "stop", "model": "m"}"#,
+        ] {
+            if let event = parser.feed(line: line) { events.append(event) }
+        }
+        if let last = parser.finish() { events.append(last) }
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events[0], .delta("Hel"))
+        XCTAssertEqual(events[1], .delta("lo"))
+        XCTAssertEqual(events[3], .done(finishReason: "stop", model: "m"))
+    }
+
     func testParserFlushesUnterminatedTrailingFrame() {
         var parser = SSEEventParser()
         XCTAssertNil(parser.feed(line: "event: done"))
