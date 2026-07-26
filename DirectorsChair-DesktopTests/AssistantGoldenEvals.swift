@@ -401,6 +401,43 @@ final class AssistantGoldenEvals: XCTestCase {
                                "Approved")
             }),
 
+        // ---- Script items + whole-scene drafting (A4.2) --------------
+        GoldenScenario(
+            name: "script.move_dialogue reorders by [n]",
+            scripts: toolTurn("move_dialogue",
+                #"{"scene": "Opening", "from_index": 1, "to_index": 0}"#),
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences[0].scenes[0].dialogues.map(\.text),
+                               ["Second line", "First line"])
+            }),
+        GoldenScenario(
+            name: "script.whole-scene draft is one composed TurnPlan",
+            scripts: [[call("add_scene",
+                            #"{"name": "Chase", "sequence": "Act 1", "time_of_day": "Night"}"#,
+                            id: "c1"),
+                       call("add_scene_action",
+                            #"{"scene": "Opening", "text": "Rain hammers the skylight."}"#,
+                            id: "c2"),
+                       call("add_narration",
+                            #"{"scene": "Opening", "text": "It began with rain."}"#,
+                            id: "c3"),
+                       call("add_dialogue",
+                            #"{"scene": "Opening", "character": "Mara", "text": "Run."}"#,
+                            id: "c4"),
+                       .done(finishReason: "tool_calls", model: "m")],
+                      [.delta("Drafted the scene."),
+                       .done(finishReason: "stop", model: "m")]],
+            expectPlanItems: 4,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences[0].scenes.count, 3)
+                let opening = pvm.project.sequences[0].scenes[0]
+                XCTAssertEqual(opening.actions.last?.description,
+                               "Rain hammers the skylight.")
+                XCTAssertEqual(opening.narrations.last?.text, "It began with rain.")
+                XCTAssertEqual(opening.dialogues.last?.text, "Run.")
+            }),
+
         // ---- Navigation, recovery, and composition -------------------
         GoldenScenario(
             name: "navigate.executes immediately (read-only)",
