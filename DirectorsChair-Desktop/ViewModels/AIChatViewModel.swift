@@ -10,6 +10,10 @@ import SwiftUI
 import DirectorsChairCore
 import DirectorsChairServices
 
+/// The AssistantKit wire message (distinct from this file's display-side
+/// `ChatMessage`, which persists conversations and drives the bubbles).
+private typealias KitMessage = DirectorsChairServices.ChatMessage
+
 // MARK: - Chat Message
 
 struct ChatMessage: Identifiable, Codable, Equatable {
@@ -35,18 +39,6 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id
     }
-}
-
-// MARK: - Project Modification
-
-struct ProjectModification: Identifiable {
-    let id = UUID()
-    let type: String
-    let description: String
-    let oldValue: String
-    let newValue: String
-    let reason: String
-    let parameters: [String: Any]
 }
 
 // MARK: - Conversation
@@ -75,14 +67,23 @@ class AIChatViewModel: ObservableObject {
     @Published var inputText: String = ""
     @Published var isGenerating: Bool = false
     @Published var showHistory: Bool = false
-    /// Modification proposals awaiting review, in arrival order. A single reply
-    /// may propose several edits (A0.1); each is approved or declined in turn.
-    @Published var pendingModifications: [ProjectModification] = []
     @Published var conversations: [ChatConversation] = []
-    @Published var searchResults: [SearchResult] = []
 
-    /// The proposal currently presented for review — the head of the queue.
-    var pendingModification: ProjectModification? { pendingModifications.first }
+    // AssistantKit turn state (A2.4/A2.5)
+    /// Live streamed assistant text for the in-flight turn.
+    @Published var streamingText: String = ""
+    /// Transient tool-activity chip ("Running get_scene…").
+    @Published var toolActivity: String? = nil
+    /// Mutating proposals awaiting review (AD5) — drives the TurnPlan card.
+    @Published var turnPlan: TurnPlan? = nil
+    /// Whether the last applied plan can still be reverted.
+    @Published var canUndoAssistantChanges: Bool = false
+
+    /// Whole-project snapshot captured before applying a TurnPlan (AD5).
+    private var undoProject: Project?
+    /// Tool-fidelity transcript (wire messages, system excluded) — the
+    /// model's memory across turns; display `messages` stay human-readable.
+    private var kitHistory: [KitMessage] = []
 
     weak var coordinator: AppCoordinator?
     weak var projectViewModel: ProjectViewModel?
@@ -115,28 +116,71 @@ class AIChatViewModel: ObservableObject {
         isGenerating = true
 
         Task {
-            await generateResponse(for: text)
+            await runAssistantTurn(for: text)
         }
     }
 
-    /// Applies the proposal at the head of the queue; the next one (if any)
-    /// becomes the presented card.
-    func applyModification() {
-        guard !pendingModifications.isEmpty else { return }
-        let mod = pendingModifications.removeFirst()
-        guard let project = projectViewModel else { return }
+    /// Applies the selected TurnPlan items (AD5): one whole-project snapshot
+    /// before, one "Undo" for the whole assistant turn after.
+    func applyTurnPlan(selectedIds: Set<String>) {
+        guard let plan = turnPlan else { return }
+        turnPlan = nil
+        let items = plan.items.filter { selectedIds.contains($0.id) }
+        guard !items.isEmpty, let pvm = projectViewModel else { return }
+        undoProject = pvm.project
+        canUndoAssistantChanges = true
+        let registry = AssistantActionFactory.makeRegistry(
+            projectViewModel: pvm, coordinator: coordinator)
+        Task { @MainActor in
+            var applied = 0
+            for item in items {
+                guard let action = registry.action(named: item.actionName) else { continue }
+                do {
+                    _ = try await action.execute(argumentsData: item.argumentsData)
+                    applied += 1
+                } catch {
+                    messages.append(ChatMessage(
+                        role: .system,
+                        content: "Couldn't apply “\(item.plan.summary)”: \(error.localizedDescription)"))
+                }
+            }
+            messages.append(ChatMessage(
+                role: .system,
+                content: "Applied \(applied) change\(applied == 1 ? "" : "s") — Undo available"))
+            saveCurrentConversation()
+        }
+    }
 
-        applyProjectChange(mod, projectVM: project)
-        messages.append(ChatMessage(role: .system, content: "Applied: \(mod.description)"))
+    /// Declines every remaining proposal in the plan.
+    func discardTurnPlan() {
+        if let plan = turnPlan {
+            messages.append(ChatMessage(
+                role: .system,
+                content: "Declined \(plan.items.count) proposed change\(plan.items.count == 1 ? "" : "s")"))
+        }
+        turnPlan = nil
         saveCurrentConversation()
     }
 
-    /// Declines the proposal at the head of the queue.
-    func rejectModification() {
-        guard !pendingModifications.isEmpty else { return }
-        let mod = pendingModifications.removeFirst()
-        messages.append(ChatMessage(role: .system, content: "Declined: \(mod.description)"))
+    /// One-tap revert of the last applied assistant turn (AD5).
+    func undoAssistantChanges() {
+        guard let previous = undoProject, let pvm = projectViewModel else { return }
+        pvm.project = previous
+        pvm.isDirty = true
+        coordinator?.notifyProjectChanged(.general)
+        undoProject = nil
+        canUndoAssistantChanges = false
+        messages.append(ChatMessage(role: .system, content: "Assistant changes reverted"))
         saveCurrentConversation()
+    }
+
+    private func resetTurnState() {
+        streamingText = ""
+        toolActivity = nil
+        turnPlan = nil
+        kitHistory = []
+        undoProject = nil
+        canUndoAssistantChanges = false
     }
 
     func startNewConversation() {
@@ -145,7 +189,7 @@ class AIChatViewModel: ObservableObject {
         conversations.insert(conv, at: 0)
         currentConversationId = conv.id
         messages = []
-        pendingModifications = []
+        resetTurnState()
     }
 
     /// Injects a welcome message for first-time users
@@ -167,7 +211,7 @@ class AIChatViewModel: ObservableObject {
         saveCurrentConversation()
         currentConversationId = conversation.id
         messages = conversation.messages
-        pendingModifications = []
+        resetTurnState()
         showHistory = false
     }
 
@@ -182,400 +226,60 @@ class AIChatViewModel: ObservableObject {
 
     // MARK: - AI Response Generation
 
-    private func generateResponse(for query: String) async {
-        let aiClient = AIServiceClient.shared
+    /// One assistant turn through the AssistantKit engine (A2.5): native
+    /// tools via /generate/chat, streamed deltas into `streamingText`,
+    /// read-only tools auto-executed, mutating proposals surfaced as a
+    /// TurnPlan for approval. The engine and gateway both cap the loop.
+    private func runAssistantTurn(for query: String) async {
+        let registry = AssistantActionFactory.makeRegistry(
+            projectViewModel: projectViewModel, coordinator: coordinator)
+        let engine = AssistantRuntime.shared.makeEngine(registry: registry)
 
-        // Check connection
-        guard await aiClient.testConnection() else {
-            await MainActor.run {
-                messages.append(ChatMessage(role: .assistant, content: "Unable to connect to AI service. Please check that the AI proxy server is running."))
-                isGenerating = false
-            }
-            return
-        }
-
-        // Build prompt
+        // Vision context (A0.3): the selected entity's image rides as a
+        // native image part on the user message.
+        var parts: [DirectorsChairServices.ChatContentPart] = [.text(query)]
         var systemPrompt = buildSystemPrompt(query: query)
-        let conversationHistory = buildConversationHistory()
-        let fullPrompt = conversationHistory + "\nUser: \(query)"
-
-        // A0.3: attach the selected entity's image (small JPEG) so visual
-        // questions are answered about the actual frame, not a description.
-        var imageBase64: String? = nil
         if let relativePath = ChatVisionContext.imagePath(for: coordinator?.aiChatContext),
-           let projectFile = projectViewModel?.projectPath {
-            let imageURL = projectFile.deletingLastPathComponent()
-                .appendingPathComponent(relativePath)
-            imageBase64 = ChatVisionContext.downscaledJPEGBase64(at: imageURL)
-            if imageBase64 != nil {
-                systemPrompt += "\n\nAn image of the user's currently selected item is attached to this message."
-            }
+           let projectFile = projectViewModel?.projectPath,
+           let imageBase64 = ChatVisionContext.downscaledJPEGBase64(
+               at: projectFile.deletingLastPathComponent()
+                   .appendingPathComponent(relativePath)) {
+            parts.append(.image(base64: imageBase64, mimeType: "image/jpeg"))
+            systemPrompt += "\n\nAn image of the user's currently selected item is attached to this message."
         }
 
-        let request = TextGenerationRequest(
-            prompt: fullPrompt,
-            provider: .google,
-            maxTokens: 4000,
-            temperature: 0.7,
-            systemPrompt: systemPrompt,
-            imageBase64: imageBase64,
-            imageMimeType: "image/jpeg"
-        )
+        streamingText = ""
+        let history = [KitMessage.system(systemPrompt)] + kitHistory
 
-        do {
-            let response = try await aiClient.generateText(request)
-            await handleAIResponse(response.text, originalQuery: query)
-        } catch {
-            await MainActor.run {
-                messages.append(ChatMessage(role: .assistant, content: "Error: \(error.localizedDescription)"))
-                isGenerating = false
-                saveCurrentConversation()
-            }
-        }
-    }
-
-    // Internal (not private) so the test target can drive the full
-    // parse-and-dispatch path without a network round-trip.
-    func handleAIResponse(_ text: String, originalQuery: String) async {
-        let parsed = ChatToolParser.parse(text)
-
-        // Process tools
-        for tool in parsed.tools {
-            switch tool.name {
-            case "web_search":
-                await handleWebSearch(tool, displayText: parsed.displayText, originalQuery: originalQuery)
-                return // Web search re-sends to AI with results
-
-            case "modify_project":
-                await MainActor.run {
-                    handleModifyProject(tool)
+        for await event in await engine.runTurn(history: history,
+                                                userMessage: .user(parts)) {
+            switch event {
+            case .assistantText(let fragment):
+                streamingText += fragment
+            case .toolStarted(let name):
+                toolActivity = "Running \(name)…"
+            case .toolFinished(_, let summary):
+                toolActivity = nil
+                messages.append(ChatMessage(role: .system, content: summary))
+            case .turnPlan(let plan):
+                turnPlan = plan
+            case .finished(let fullText, let transcript):
+                if !fullText.isEmpty {
+                    messages.append(ChatMessage(role: .assistant, content: fullText))
                 }
-
-            case "navigate":
-                await MainActor.run {
-                    handleNavigate(tool)
-                }
-
-            default:
-                break
+                // The system prompt is rebuilt fresh each turn — persist the
+                // rest as the model's tool-fidelity memory.
+                kitHistory = Array(transcript.dropFirst())
+            case .failed(let message):
+                messages.append(ChatMessage(role: .assistant,
+                                            content: "Error: \(message)"))
             }
         }
 
-        // Add assistant message
-        await MainActor.run {
-            if !parsed.displayText.isEmpty {
-                messages.append(ChatMessage(role: .assistant, content: parsed.displayText))
-            }
-            isGenerating = false
-            saveCurrentConversation()
-        }
-    }
-
-    // MARK: - Tool Handlers
-
-    private func handleWebSearch(_ tool: ToolInvocation, displayText: String, originalQuery: String) async {
-        let query = tool.parameters["query"] as? String ?? originalQuery
-
-        await MainActor.run {
-            if !displayText.isEmpty {
-                messages.append(ChatMessage(role: .assistant, content: displayText))
-            }
-            messages.append(ChatMessage(role: .system, content: "Searching: \(query)..."))
-        }
-
-        let results = await WebSearchClient.shared.search(query: query)
-
-        await MainActor.run {
-            self.searchResults = results
-        }
-
-        // Format results for AI
-        var resultText = "Web search results for \"\(query)\":\n"
-        for (i, result) in results.enumerated() {
-            resultText += "\(i + 1). \(result.title)\n   \(result.url)\n   \(result.snippet)\n\n"
-        }
-
-        await MainActor.run {
-            messages.append(ChatMessage(role: .toolResult, content: resultText))
-        }
-
-        // Re-send to AI with search results
-        let followUpPrompt = """
-        The user asked: \(originalQuery)
-
-        Here are the web search results:
-        \(resultText)
-
-        Please synthesize these search results into a helpful answer for the user. Be concise and cite relevant sources.
-        """
-
-        let request = TextGenerationRequest(
-            prompt: followUpPrompt,
-            provider: .google,
-            maxTokens: 4000,
-            temperature: 0.7,
-            systemPrompt: buildSystemPrompt(query: originalQuery)
-        )
-
-        do {
-            let response = try await AIServiceClient.shared.generateText(request)
-            let cleanText = ChatToolParser.parse(response.text).displayText
-            await MainActor.run {
-                messages.append(ChatMessage(role: .assistant, content: cleanText))
-                isGenerating = false
-                saveCurrentConversation()
-            }
-        } catch {
-            await MainActor.run {
-                messages.append(ChatMessage(role: .assistant, content: "Could not process search results: \(error.localizedDescription)"))
-                isGenerating = false
-                saveCurrentConversation()
-            }
-        }
-    }
-
-    func handleModifyProject(_ tool: ToolInvocation) {
-        let type = tool.parameters["type"] as? String ?? "unknown"
-        let reason = tool.parameters["reason"] as? String ?? ""
-        let field = tool.parameters["field"] as? String ?? ""
-        let character = tool.parameters["character"] as? String
-        let scene = tool.parameters["scene"] as? String
-
-        // Build description
-        var desc = type.replacingOccurrences(of: "_", with: " ").capitalized
-        if let char = character { desc += " for \(char)" }
-        if let sc = scene { desc += " in \(sc)" }
-        if !field.isEmpty { desc += ": \(field)" }
-
-        // Get old value
-        let oldValue = getCurrentValue(type: type, params: tool.parameters)
-        let newValue: String
-        if let val = tool.parameters["value"] {
-            newValue = "\(val)"
-        } else {
-            newValue = tool.parameters["text"] as? String ?? "—"
-        }
-
-        pendingModifications.append(ProjectModification(
-            type: type,
-            description: desc,
-            oldValue: oldValue,
-            newValue: newValue,
-            reason: reason,
-            parameters: tool.parameters
-        ))
-    }
-
-    func handleNavigate(_ tool: ToolInvocation) {
-        guard let viewName = tool.parameters["view"] as? String else { return }
-
-        // A0.2: the complete section map (all 13 AppView destinations).
-        let viewMap: [String: AppView] = [
-            "overview": .overview, "script": .script, "bubble": .bubble,
-            "scenes": .scenes, "assets": .assets, "visionBoard": .visionBoard,
-            "shotList": .shotList, "production": .production,
-            "storyDesign": .storyDesign, "curation": .curation,
-            "playback": .playback, "settings": .settings, "projects": .projects
-        ]
-
-        if let view = viewMap[viewName] {
-            coordinator?.navigateTo(view)
-
-            // Production sub-tab (accepts common aliases, maps to canonical).
-            if let tab = tool.parameters["production_tab"] as? String {
-                let canonical: [String: String] = [
-                    "schedule": "Schedule", "gantt": "Gantt",
-                    "cast & crew": "Cast & Crew", "cast and crew": "Cast & Crew",
-                    "cast": "Cast & Crew", "crew": "Cast & Crew",
-                    "accounting": "Accounting", "budget": "Accounting",
-                    "equipment": "Equipment"
-                ]
-                if let resolved = canonical[tab.lowercased()] {
-                    coordinator?.selectedProductionTab = resolved
-                }
-            }
-
-            // Entity sub-selection. Unknown names are a silent no-op — the
-            // view switch above still happened, which is the safe outcome.
-            if let charName = tool.parameters["character"] as? String,
-               let char = projectViewModel?.project.characters.first(where: { $0.name == charName }) {
-                coordinator?.selectCharacter(char)
-            }
-            let allScenes = projectViewModel?.project.sequences.flatMap(\.scenes) ?? []
-            if let sceneName = tool.parameters["scene"] as? String,
-               let scene = allScenes.first(where: { $0.name == sceneName }) {
-                coordinator?.selectScene(scene)
-            }
-            if let sequenceName = tool.parameters["sequence"] as? String,
-               let sequence = projectViewModel?.project.sequences.first(where: { $0.name == sequenceName }) {
-                coordinator?.selectSequence(sequence)
-            }
-            if let locationName = tool.parameters["location"] as? String,
-               let location = projectViewModel?.project.locations.first(where: { $0.name == locationName }) {
-                coordinator?.selectLocation(location)
-            }
-            if let shotNumber = tool.parameters["shot"] as? Int,
-               let shot = allScenes.flatMap(\.shots).first(where: { $0.shotId == shotNumber }) {
-                coordinator?.selectShot(shot)
-            }
-        }
-    }
-
-    // MARK: - Project Modification Application
-
-    func applyProjectChange(_ mod: ProjectModification, projectVM: ProjectViewModel) {
-        switch mod.type {
-        case "update_character_trait":
-            guard let charName = mod.parameters["character"] as? String,
-                  let field = mod.parameters["field"] as? String,
-                  let value = mod.parameters["value"] as? Double,
-                  let idx = projectVM.project.characters.firstIndex(where: { $0.name == charName }) else { return }
-            projectVM.project.characters[idx].traits[field] = value
-            projectVM.isDirty = true
-
-        case "update_character_bio":
-            guard let charName = mod.parameters["character"] as? String,
-                  let field = mod.parameters["field"] as? String,
-                  let value = mod.parameters["value"] as? String ?? mod.parameters["text"] as? String,
-                  let idx = projectVM.project.characters.firstIndex(where: { $0.name == charName }) else { return }
-            switch field {
-            case "occupation": projectVM.project.characters[idx].occupation = value
-            case "primaryGoal", "goal": projectVM.project.characters[idx].primaryGoal = value
-            case "primaryFear", "fear": projectVM.project.characters[idx].primaryFear = value
-            case "backstory", "backgroundStory": projectVM.project.characters[idx].backgroundStory = value
-            case "about": projectVM.project.characters[idx].about = value
-            default: break
-            }
-            projectVM.isDirty = true
-
-        case "update_scene_description":
-            guard let sceneName = mod.parameters["scene"] as? String,
-                  let text = mod.parameters["text"] as? String ?? mod.parameters["value"] as? String else { return }
-            for seqIdx in projectVM.project.sequences.indices {
-                if let scIdx = projectVM.project.sequences[seqIdx].scenes.firstIndex(where: { $0.name == sceneName }) {
-                    projectVM.project.sequences[seqIdx].scenes[scIdx].description = text
-                    projectVM.isDirty = true
-                    return
-                }
-            }
-
-        case "update_dialogue":
-            guard let text = mod.parameters["text"] as? String else { return }
-            // Preferred addressing: scene name + the [index] shown beside each
-            // dialogue in PROJECT DATA (A0.1 — the model never sees UUIDs).
-            if let sceneName = mod.parameters["scene"] as? String,
-               let index = mod.parameters["index"] as? Int {
-                for seqIdx in projectVM.project.sequences.indices {
-                    if let scIdx = projectVM.project.sequences[seqIdx].scenes.firstIndex(where: { $0.name == sceneName }) {
-                        guard projectVM.project.sequences[seqIdx].scenes[scIdx].dialogues.indices.contains(index) else { return }
-                        projectVM.project.sequences[seqIdx].scenes[scIdx].dialogues[index].text = text
-                        projectVM.isDirty = true
-                        return
-                    }
-                }
-                return
-            }
-            // Legacy addressing by dialogue UUID (kept for compatibility).
-            guard let dialogueId = mod.parameters["dialogueId"] as? String else { return }
-            for seqIdx in projectVM.project.sequences.indices {
-                for scIdx in projectVM.project.sequences[seqIdx].scenes.indices {
-                    if let dlgIdx = projectVM.project.sequences[seqIdx].scenes[scIdx].dialogues.firstIndex(where: { $0.uuid == dialogueId }) {
-                        projectVM.project.sequences[seqIdx].scenes[scIdx].dialogues[dlgIdx].text = text
-                        projectVM.isDirty = true
-                        return
-                    }
-                }
-            }
-
-        case "update_project_metadata":
-            guard let field = mod.parameters["field"] as? String,
-                  let value = mod.parameters["value"] as? String else { return }
-            switch field {
-            case "genre": projectVM.project.genre = value
-            case "status": projectVM.project.status = value
-            case "tagline": projectVM.project.overviewTagline = value
-            case "logline": projectVM.project.overviewLogline = value
-            case "description": projectVM.project.description = value
-            default: break
-            }
-            projectVM.isDirty = true
-
-        case "add_relationship":
-            guard let charName = mod.parameters["character"] as? String,
-                  let targetChar = mod.parameters["target"] as? String,
-                  let relationship = mod.parameters["relationship"] as? String,
-                  let idx = projectVM.project.characters.firstIndex(where: { $0.name == charName }) else { return }
-            if projectVM.project.characters[idx].relationships == nil {
-                projectVM.project.characters[idx].relationships = [:]
-            }
-            projectVM.project.characters[idx].relationships?[targetChar] = relationship
-            projectVM.isDirty = true
-
-        default:
-            break
-        }
-    }
-
-    func getCurrentValue(type: String, params: [String: Any]) -> String {
-        guard let project = projectViewModel?.project else { return "—" }
-
-        switch type {
-        case "update_scene_description":
-            if let sceneName = params["scene"] as? String,
-               let scene = project.sequences.flatMap(\.scenes).first(where: { $0.name == sceneName }) {
-                return String(scene.description.prefix(100))
-            }
-        case "update_dialogue":
-            if let sceneName = params["scene"] as? String,
-               let index = params["index"] as? Int,
-               let scene = project.sequences.flatMap(\.scenes).first(where: { $0.name == sceneName }),
-               scene.dialogues.indices.contains(index) {
-                return String(scene.dialogues[index].text.prefix(100))
-            }
-            if let dialogueId = params["dialogueId"] as? String,
-               let dialogue = project.sequences.flatMap(\.scenes).flatMap(\.dialogues)
-                   .first(where: { $0.uuid == dialogueId }) {
-                return String(dialogue.text.prefix(100))
-            }
-        case "add_relationship":
-            if let charName = params["character"] as? String,
-               let target = params["target"] as? String,
-               let char = project.characters.first(where: { $0.name == charName }) {
-                return char.relationships?[target] ?? "—"
-            }
-        case "update_character_trait":
-            if let charName = params["character"] as? String,
-               let field = params["field"] as? String,
-               let char = project.characters.first(where: { $0.name == charName }) {
-                return "\(Int(char.traits[field] ?? 0))"
-            }
-        case "update_character_bio":
-            if let charName = params["character"] as? String,
-               let field = params["field"] as? String,
-               let char = project.characters.first(where: { $0.name == charName }) {
-                switch field {
-                case "occupation": return char.occupation ?? "—"
-                case "primaryGoal", "goal": return char.primaryGoal ?? "—"
-                case "primaryFear", "fear": return char.primaryFear ?? "—"
-                case "backstory", "backgroundStory": return String((char.backgroundStory ?? "—").prefix(100))
-                case "about": return String(char.about.prefix(100))
-                default: return "—"
-                }
-            }
-        case "update_project_metadata":
-            if let field = params["field"] as? String {
-                switch field {
-                case "genre": return project.genre
-                case "status": return project.status
-                case "tagline": return project.overviewTagline
-                case "logline": return project.overviewLogline
-                default: return "—"
-                }
-            }
-        default:
-            break
-        }
-        return "—"
+        streamingText = ""
+        toolActivity = nil
+        isGenerating = false
+        saveCurrentConversation()
     }
 
     // MARK: - System Prompt
@@ -588,28 +292,16 @@ class AIChatViewModel: ObservableObject {
         CAPABILITIES:
         - Answer questions about the project's characters, scenes, shots, budget, schedule
         - Answer questions about the Director's Chair app features
-        - Search the web for filmmaking knowledge
-        - Suggest project modifications (changes require user approval)
-        - Navigate the app and select scenes, shots, characters, sequences, or locations
+        - Search the web, navigate the app, and select scenes/shots/characters
+        - Propose project edits through tools (every change requires user approval)
 
-        TOOL FORMAT (use when needed):
-        [TOOL:web_search]{"query": "search terms"}[/TOOL]
-        [TOOL:modify_project]{"type": "update_character_trait", "character": "Name", "field": "confidence", "value": 75, "reason": "..."}[/TOOL]
-        [TOOL:modify_project]{"type": "update_character_bio", "character": "Name", "field": "occupation", "value": "Detective", "reason": "..."}[/TOOL]
-        [TOOL:modify_project]{"type": "update_scene_description", "scene": "Scene Name", "text": "New description", "reason": "..."}[/TOOL]
-        [TOOL:modify_project]{"type": "update_dialogue", "scene": "Scene Name", "index": 0, "text": "New line", "reason": "..."}[/TOOL]
-        [TOOL:modify_project]{"type": "update_project_metadata", "field": "genre", "value": "Neo-Noir", "reason": "..."}[/TOOL]
-        [TOOL:modify_project]{"type": "add_relationship", "character": "Name", "target": "Other Character", "relationship": "Estranged mentor", "reason": "..."}[/TOOL]
-        [TOOL:navigate]{"view": "shotList", "shot": 12}[/TOOL]
-
-        Tool notes:
-        - update_dialogue "index" is the [n] shown beside that dialogue in PROJECT DATA.
-        - You may propose SEVERAL modify_project tools in one reply; the user approves each in turn.
-        - navigate "view" is one of: overview, script, bubble, scenes, assets, visionBoard,
-          shotList, production, storyDesign, curation, playback, settings, projects.
-          Optional selectors: "scene", "character", "sequence", "location" (names),
-          "shot" (the shot number), and "production_tab"
-          (Schedule | Gantt | Cast & Crew | Accounting | Equipment).
+        TOOLS:
+        - Use the provided tools — never write tool syntax as plain text.
+        - Read-only tools (web_search, navigate) run immediately; edit tools
+          create PROPOSALS the user reviews and approves — after proposing,
+          briefly summarize what you proposed and stop.
+        - For update_dialogue, "index" is the [n] shown beside the dialogue
+          in PROJECT DATA. You may propose several edits in one reply.
 
         Rules:
         - Only reference data that appears in the PROJECT DATA section below
@@ -634,24 +326,6 @@ class AIChatViewModel: ObservableObject {
         prompt += "\n\n--- FEATURE GUIDE ---\n" + featureReference
 
         return prompt
-    }
-
-    private func buildConversationHistory() -> String {
-        let recentMessages = messages.suffix(10)
-        var history = ""
-        for msg in recentMessages {
-            switch msg.role {
-            case .user:
-                history += "User: \(msg.content)\n"
-            case .assistant:
-                history += "Assistant: \(msg.content)\n"
-            case .system:
-                history += "[System: \(msg.content)]\n"
-            case .toolResult:
-                history += "[Tool Result: \(String(msg.content.prefix(200)))]\n"
-            }
-        }
-        return history
     }
 
     // MARK: - Persistence

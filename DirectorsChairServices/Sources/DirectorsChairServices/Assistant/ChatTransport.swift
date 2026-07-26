@@ -128,9 +128,9 @@ public protocol ChatTransporting: Sendable {
 public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
     private let endpoint: URL
     private let session: URLSession
-    /// Mirrors AIServiceClient: the current access token, and an async
-    /// refresher tried once on 401.
-    public var tokenProvider: (@Sendable () -> String?)?
+    /// Mirrors AIServiceClient's token conventions, but async so callers can
+    /// hop to the main actor for auth state (AuthManager is @MainActor).
+    public var tokenProvider: (@Sendable () async -> String?)?
     public var tokenRefresher: (@Sendable () async -> String?)?
 
     public init(endpoint: URL = ServiceEnvironment.aiProxyURL
@@ -156,7 +156,7 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
 
     private func run(_ request: ChatRequestBody,
                      continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation) async throws {
-        var attempt = try makeURLRequest(request, token: tokenProvider?())
+        var attempt = try makeURLRequest(request, token: await tokenProvider?())
         var (bytes, response) = try await session.bytes(for: attempt)
         var status = (response as? HTTPURLResponse)?.statusCode ?? 0
 

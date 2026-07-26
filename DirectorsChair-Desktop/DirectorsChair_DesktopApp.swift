@@ -109,6 +109,8 @@ struct DirectorsChair_DesktopApp: App {
                         try? await capturedAuthManager.forceRefreshToken()
                         return capturedAuthManager.currentAccessToken
                     }
+                    // AssistantKit chat transport shares the same session (A2.5)
+                    AssistantRuntime.shared.configure(authManager: capturedAuthManager)
                     if let token = authManager.currentAccessToken {
                         await AIServiceClient.shared.setAuthToken(token)
                         await cloudSyncManager.setAuthToken(token)

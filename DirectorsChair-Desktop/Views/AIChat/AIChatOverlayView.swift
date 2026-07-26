@@ -182,13 +182,8 @@ struct AIChatOverlayView: View {
                     }
 
                     ForEach(viewModel.messages) { message in
-                        AIChatMessageView(
-                            message: message,
-                            pendingModification: message == viewModel.messages.last ? viewModel.pendingModification : nil,
-                            onApply: { viewModel.applyModification() },
-                            onDecline: { viewModel.rejectModification() }
-                        )
-                        .id(message.id)
+                        AIChatMessageView(message: message)
+                            .id(message.id)
                     }
 
                     // Show suggestions after the welcome message (no user messages yet)
@@ -196,9 +191,39 @@ struct AIChatOverlayView: View {
                         suggestionsList
                     }
 
-                    if viewModel.isGenerating {
+                    // Live streamed reply (A2.4)
+                    if !viewModel.streamingText.isEmpty {
+                        StreamingAssistantBubble(text: viewModel.streamingText)
+                            .id("streaming")
+                    }
+
+                    // Tool-activity chip
+                    if let activity = viewModel.toolActivity {
+                        ToolActivityChip(text: activity)
+                            .id("activity")
+                    }
+
+                    if viewModel.isGenerating && viewModel.streamingText.isEmpty {
                         TypingIndicator()
                             .id("typing")
+                    }
+
+                    // TurnPlan review card (AD5): approve/decline proposals
+                    if let plan = viewModel.turnPlan {
+                        TurnPlanCardView(
+                            plan: plan,
+                            onApply: { selectedIds in
+                                viewModel.applyTurnPlan(selectedIds: selectedIds)
+                            },
+                            onDismiss: { viewModel.discardTurnPlan() }
+                        )
+                        .id("turnplan")
+                    }
+
+                    if viewModel.canUndoAssistantChanges {
+                        UndoAssistantChangesRow {
+                            viewModel.undoAssistantChanges()
+                        }
                     }
                 }
                 .padding(.vertical, 12)
@@ -208,6 +233,16 @@ struct AIChatOverlayView: View {
                     if let lastId = viewModel.messages.last?.id {
                         proxy.scrollTo(lastId, anchor: .bottom)
                     }
+                }
+            }
+            .onChange(of: viewModel.streamingText) { _, text in
+                if !text.isEmpty {
+                    proxy.scrollTo("streaming", anchor: .bottom)
+                }
+            }
+            .onChange(of: viewModel.turnPlan != nil) { _, hasPlan in
+                if hasPlan {
+                    withAnimation { proxy.scrollTo("turnplan", anchor: .bottom) }
                 }
             }
             .onChange(of: viewModel.isGenerating) { _, generating in
