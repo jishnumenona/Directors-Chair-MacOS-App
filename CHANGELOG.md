@@ -9,6 +9,27 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.7.0] — 2026-07-26
+
+### Added
+- AI Assistant, rebuilt end-to-end. Ask about your project and the assistant
+  reads live data — schedule conflicts, budget figures, scenes, cast — instead
+  of guessing. It can draft scenes and dialogue, schedule shoots, plan
+  production tasks, record expenses, staff cast and crew, and generate
+  character reference images. Every change arrives as a reviewable proposal
+  with before→after previews and warnings (double-bookings, budget overruns,
+  dependency cycles), one-click Apply, and whole-turn Undo.
+- Voice input: click the mic — or tap ⌘ while the assistant is open — and
+  speak; on-device transcription streams into the input field as you talk.
+- Assistant replies stream in live, with activity chips while it checks your
+  project.
+- Conversations persist: reopening the assistant resumes where you left off,
+  and the history sidebar lists every past chat.
+
+### Fixed
+- The assistant could show no reply even though the service had responded;
+  responses are now reliable, and any failure is shown instead of silence.
+
 ## [3.6.0] — 2026-07-19
 
 ### Added
