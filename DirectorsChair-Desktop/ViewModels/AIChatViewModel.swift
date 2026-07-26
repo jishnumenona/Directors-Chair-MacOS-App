@@ -75,9 +75,14 @@ class AIChatViewModel: ObservableObject {
     @Published var inputText: String = ""
     @Published var isGenerating: Bool = false
     @Published var showHistory: Bool = false
-    @Published var pendingModification: ProjectModification? = nil
+    /// Modification proposals awaiting review, in arrival order. A single reply
+    /// may propose several edits (A0.1); each is approved or declined in turn.
+    @Published var pendingModifications: [ProjectModification] = []
     @Published var conversations: [ChatConversation] = []
     @Published var searchResults: [SearchResult] = []
+
+    /// The proposal currently presented for review — the head of the queue.
+    var pendingModification: ProjectModification? { pendingModifications.first }
 
     weak var coordinator: AppCoordinator?
     weak var projectViewModel: ProjectViewModel?
@@ -114,24 +119,23 @@ class AIChatViewModel: ObservableObject {
         }
     }
 
+    /// Applies the proposal at the head of the queue; the next one (if any)
+    /// becomes the presented card.
     func applyModification() {
-        guard let mod = pendingModification,
-              let project = projectViewModel else {
-            pendingModification = nil
-            return
-        }
+        guard !pendingModifications.isEmpty else { return }
+        let mod = pendingModifications.removeFirst()
+        guard let project = projectViewModel else { return }
 
         applyProjectChange(mod, projectVM: project)
         messages.append(ChatMessage(role: .system, content: "Applied: \(mod.description)"))
-        pendingModification = nil
         saveCurrentConversation()
     }
 
+    /// Declines the proposal at the head of the queue.
     func rejectModification() {
-        if let mod = pendingModification {
-            messages.append(ChatMessage(role: .system, content: "Declined: \(mod.description)"))
-        }
-        pendingModification = nil
+        guard !pendingModifications.isEmpty else { return }
+        let mod = pendingModifications.removeFirst()
+        messages.append(ChatMessage(role: .system, content: "Declined: \(mod.description)"))
         saveCurrentConversation()
     }
 
@@ -141,6 +145,7 @@ class AIChatViewModel: ObservableObject {
         conversations.insert(conv, at: 0)
         currentConversationId = conv.id
         messages = []
+        pendingModifications = []
     }
 
     /// Injects a welcome message for first-time users
@@ -162,6 +167,7 @@ class AIChatViewModel: ObservableObject {
         saveCurrentConversation()
         currentConversationId = conversation.id
         messages = conversation.messages
+        pendingModifications = []
         showHistory = false
     }
 
@@ -213,7 +219,9 @@ class AIChatViewModel: ObservableObject {
         }
     }
 
-    private func handleAIResponse(_ text: String, originalQuery: String) async {
+    // Internal (not private) so the test target can drive the full
+    // parse-and-dispatch path without a network round-trip.
+    func handleAIResponse(_ text: String, originalQuery: String) async {
         let parsed = ChatToolParser.parse(text)
 
         // Process tools
@@ -311,7 +319,7 @@ class AIChatViewModel: ObservableObject {
         }
     }
 
-    private func handleModifyProject(_ tool: ToolInvocation) {
+    func handleModifyProject(_ tool: ToolInvocation) {
         let type = tool.parameters["type"] as? String ?? "unknown"
         let reason = tool.parameters["reason"] as? String ?? ""
         let field = tool.parameters["field"] as? String ?? ""
@@ -333,46 +341,74 @@ class AIChatViewModel: ObservableObject {
             newValue = tool.parameters["text"] as? String ?? "—"
         }
 
-        pendingModification = ProjectModification(
+        pendingModifications.append(ProjectModification(
             type: type,
             description: desc,
             oldValue: oldValue,
             newValue: newValue,
             reason: reason,
             parameters: tool.parameters
-        )
+        ))
     }
 
-    private func handleNavigate(_ tool: ToolInvocation) {
+    func handleNavigate(_ tool: ToolInvocation) {
         guard let viewName = tool.parameters["view"] as? String else { return }
 
+        // A0.2: the complete section map (all 13 AppView destinations).
         let viewMap: [String: AppView] = [
             "overview": .overview, "script": .script, "bubble": .bubble,
             "scenes": .scenes, "assets": .assets, "visionBoard": .visionBoard,
             "shotList": .shotList, "production": .production,
-            "storyDesign": .storyDesign, "settings": .settings
+            "storyDesign": .storyDesign, "curation": .curation,
+            "playback": .playback, "settings": .settings, "projects": .projects
         ]
 
         if let view = viewMap[viewName] {
             coordinator?.navigateTo(view)
 
-            // Handle sub-navigation
+            // Production sub-tab (accepts common aliases, maps to canonical).
+            if let tab = tool.parameters["production_tab"] as? String {
+                let canonical: [String: String] = [
+                    "schedule": "Schedule", "gantt": "Gantt",
+                    "cast & crew": "Cast & Crew", "cast and crew": "Cast & Crew",
+                    "cast": "Cast & Crew", "crew": "Cast & Crew",
+                    "accounting": "Accounting", "budget": "Accounting",
+                    "equipment": "Equipment"
+                ]
+                if let resolved = canonical[tab.lowercased()] {
+                    coordinator?.selectedProductionTab = resolved
+                }
+            }
+
+            // Entity sub-selection. Unknown names are a silent no-op — the
+            // view switch above still happened, which is the safe outcome.
             if let charName = tool.parameters["character"] as? String,
                let char = projectViewModel?.project.characters.first(where: { $0.name == charName }) {
                 coordinator?.selectCharacter(char)
             }
-            if let sceneName = tool.parameters["scene"] as? String {
-                let allScenes = projectViewModel?.project.sequences.flatMap(\.scenes) ?? []
-                if let scene = allScenes.first(where: { $0.name == sceneName }) {
-                    coordinator?.selectScene(scene)
-                }
+            let allScenes = projectViewModel?.project.sequences.flatMap(\.scenes) ?? []
+            if let sceneName = tool.parameters["scene"] as? String,
+               let scene = allScenes.first(where: { $0.name == sceneName }) {
+                coordinator?.selectScene(scene)
+            }
+            if let sequenceName = tool.parameters["sequence"] as? String,
+               let sequence = projectViewModel?.project.sequences.first(where: { $0.name == sequenceName }) {
+                coordinator?.selectSequence(sequence)
+            }
+            if let locationName = tool.parameters["location"] as? String,
+               let location = projectViewModel?.project.locations.first(where: { $0.name == locationName }) {
+                coordinator?.selectLocation(location)
+            }
+            if let shotNumber = tool.parameters["shot"] as? Int,
+               let shot = allScenes.flatMap(\.shots).first(where: { $0.shotId == shotNumber }) {
+                coordinator?.selectShot(shot)
             }
         }
     }
 
     // MARK: - Project Modification Application
 
-    private func applyProjectChange(_ mod: ProjectModification, projectVM: ProjectViewModel) {
+    func applyProjectChange(_ mod: ProjectModification, projectVM: ProjectViewModel) {
         switch mod.type {
         case "update_character_trait":
             guard let charName = mod.parameters["character"] as? String,
@@ -409,8 +445,23 @@ class AIChatViewModel: ObservableObject {
             }
 
         case "update_dialogue":
-            guard let dialogueId = mod.parameters["dialogueId"] as? String,
-                  let text = mod.parameters["text"] as? String else { return }
+            guard let text = mod.parameters["text"] as? String else { return }
+            // Preferred addressing: scene name + the [index] shown beside each
+            // dialogue in PROJECT DATA (A0.1 — the model never sees UUIDs).
+            if let sceneName = mod.parameters["scene"] as? String,
+               let index = mod.parameters["index"] as? Int {
+                for seqIdx in projectVM.project.sequences.indices {
+                    if let scIdx = projectVM.project.sequences[seqIdx].scenes.firstIndex(where: { $0.name == sceneName }) {
+                        guard projectVM.project.sequences[seqIdx].scenes[scIdx].dialogues.indices.contains(index) else { return }
+                        projectVM.project.sequences[seqIdx].scenes[scIdx].dialogues[index].text = text
+                        projectVM.isDirty = true
+                        return
+                    }
+                }
+                return
+            }
+            // Legacy addressing by dialogue UUID (kept for compatibility).
+            guard let dialogueId = mod.parameters["dialogueId"] as? String else { return }
             for seqIdx in projectVM.project.sequences.indices {
                 for scIdx in projectVM.project.sequences[seqIdx].scenes.indices {
                     if let dlgIdx = projectVM.project.sequences[seqIdx].scenes[scIdx].dialogues.firstIndex(where: { $0.uuid == dialogueId }) {
@@ -450,10 +501,33 @@ class AIChatViewModel: ObservableObject {
         }
     }
 
-    private func getCurrentValue(type: String, params: [String: Any]) -> String {
+    func getCurrentValue(type: String, params: [String: Any]) -> String {
         guard let project = projectViewModel?.project else { return "—" }
 
         switch type {
+        case "update_scene_description":
+            if let sceneName = params["scene"] as? String,
+               let scene = project.sequences.flatMap(\.scenes).first(where: { $0.name == sceneName }) {
+                return String(scene.description.prefix(100))
+            }
+        case "update_dialogue":
+            if let sceneName = params["scene"] as? String,
+               let index = params["index"] as? Int,
+               let scene = project.sequences.flatMap(\.scenes).first(where: { $0.name == sceneName }),
+               scene.dialogues.indices.contains(index) {
+                return String(scene.dialogues[index].text.prefix(100))
+            }
+            if let dialogueId = params["dialogueId"] as? String,
+               let dialogue = project.sequences.flatMap(\.scenes).flatMap(\.dialogues)
+                   .first(where: { $0.uuid == dialogueId }) {
+                return String(dialogue.text.prefix(100))
+            }
+        case "add_relationship":
+            if let charName = params["character"] as? String,
+               let target = params["target"] as? String,
+               let char = project.characters.first(where: { $0.name == charName }) {
+                return char.relationships?[target] ?? "—"
+            }
         case "update_character_trait":
             if let charName = params["character"] as? String,
                let field = params["field"] as? String,
@@ -491,7 +565,7 @@ class AIChatViewModel: ObservableObject {
 
     // MARK: - System Prompt
 
-    private func buildSystemPrompt(query: String) -> String {
+    func buildSystemPrompt(query: String) -> String {
         var prompt = """
         You are the Director's Chair AI Assistant — a knowledgeable filmmaking companion.
         You have full access to the user's project data shown below.
@@ -501,14 +575,26 @@ class AIChatViewModel: ObservableObject {
         - Answer questions about the Director's Chair app features
         - Search the web for filmmaking knowledge
         - Suggest project modifications (changes require user approval)
+        - Navigate the app and select scenes, shots, characters, sequences, or locations
 
         TOOL FORMAT (use when needed):
         [TOOL:web_search]{"query": "search terms"}[/TOOL]
         [TOOL:modify_project]{"type": "update_character_trait", "character": "Name", "field": "confidence", "value": 75, "reason": "..."}[/TOOL]
         [TOOL:modify_project]{"type": "update_character_bio", "character": "Name", "field": "occupation", "value": "Detective", "reason": "..."}[/TOOL]
         [TOOL:modify_project]{"type": "update_scene_description", "scene": "Scene Name", "text": "New description", "reason": "..."}[/TOOL]
+        [TOOL:modify_project]{"type": "update_dialogue", "scene": "Scene Name", "index": 0, "text": "New line", "reason": "..."}[/TOOL]
         [TOOL:modify_project]{"type": "update_project_metadata", "field": "genre", "value": "Neo-Noir", "reason": "..."}[/TOOL]
-        [TOOL:navigate]{"view": "storyDesign", "character": "Name"}[/TOOL]
+        [TOOL:modify_project]{"type": "add_relationship", "character": "Name", "target": "Other Character", "relationship": "Estranged mentor", "reason": "..."}[/TOOL]
+        [TOOL:navigate]{"view": "shotList", "shot": 12}[/TOOL]
+
+        Tool notes:
+        - update_dialogue "index" is the [n] shown beside that dialogue in PROJECT DATA.
+        - You may propose SEVERAL modify_project tools in one reply; the user approves each in turn.
+        - navigate "view" is one of: overview, script, bubble, scenes, assets, visionBoard,
+          shotList, production, storyDesign, curation, playback, settings, projects.
+          Optional selectors: "scene", "character", "sequence", "location" (names),
+          "shot" (the shot number), and "production_tab"
+          (Schedule | Gantt | Cast & Crew | Accounting | Equipment).
 
         Rules:
         - Only reference data that appears in the PROJECT DATA section below

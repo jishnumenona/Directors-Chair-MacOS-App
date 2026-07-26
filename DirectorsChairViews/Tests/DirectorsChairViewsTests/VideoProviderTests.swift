@@ -94,15 +94,16 @@ final class VideoProviderTests: XCTestCase {
         }
     }
 
-    func testSpecificCosts() {
-        XCTAssertEqual(VideoProvider.veo3.costPerSecond, 0.02)
-        XCTAssertEqual(VideoProvider.sora2.costPerSecond, 0.02)
-        XCTAssertEqual(VideoProvider.kling.costPerSecond, 0.01)
-    }
-
-    func testKlingCheaperThanOthers() {
-        XCTAssertLessThan(VideoProvider.kling.costPerSecond, VideoProvider.veo3.costPerSecond)
-        XCTAssertLessThan(VideoProvider.kling.costPerSecond, VideoProvider.sora2.costPerSecond)
+    /// A0.4: the UI estimate must match the metered rate. The server's
+    /// ai-gateway cost table (app/services/cost.py) bills video at $0.40/s —
+    /// the same figure AIUsageTracker records. These stay in lockstep with
+    /// that table; per-provider rates return only when the gateway meters
+    /// providers separately.
+    func testCostsMatchServerMeteringTable() {
+        for provider in VideoProvider.allCases {
+            XCTAssertEqual(provider.costPerSecond, 0.40,
+                           "\(provider) UI estimate must match the gateway metering rate")
+        }
     }
 
     // MARK: - Folder Names

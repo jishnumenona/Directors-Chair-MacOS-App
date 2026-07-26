@@ -49,11 +49,16 @@ enum VideoProvider: String, CaseIterable {
         }
     }
 
+    // A0.4: the server's metering table (ai-gateway app/services/cost.py) is
+    // the single authority — video bills at $0.40/second there, and that is
+    // what AIUsageTracker records. The UI estimate must match what the user
+    // is actually charged; per-provider rates return only when the gateway
+    // meters them separately.
     var costPerSecond: Double {
         switch self {
-        case .veo3: return 0.02
-        case .sora2: return 0.02
-        case .kling: return 0.01
+        case .veo3: return 0.40
+        case .sora2: return 0.40
+        case .kling: return 0.40
         }
     }
 
