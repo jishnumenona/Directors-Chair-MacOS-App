@@ -367,6 +367,40 @@ final class AssistantGoldenEvals: XCTestCase {
             scripts: toolTurn("add_character", #"{"name": "Mara"}"#),
             expectToolResults: [(1, "already exists")], expectPlanItems: 0),
 
+        // ---- World-building (A4 slice 2) -----------------------------
+        GoldenScenario(
+            name: "world.add_location",
+            scripts: toolTurn("add_location", #"{"name": "Metro Station"}"#),
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.locations.last?.name, "Metro Station")
+            }),
+        GoldenScenario(
+            name: "world.add_prop",
+            scripts: toolTurn("add_prop",
+                #"{"name": "Brass key", "category": "Document"}"#),
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.props.last?.category, "Document")
+            }),
+        GoldenScenario(
+            name: "world.add_costume wardrobe warning",
+            scripts: toolTurn("add_costume",
+                #"{"name": "Disguise", "character": "Stranger"}"#),
+            expectPlanItems: 1, expectWarnings: true,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.costumes.last?.character, "Stranger")
+            }),
+        GoldenScenario(
+            name: "world.update_shot canonical status by number",
+            scripts: toolTurn("update_shot",
+                #"{"shot": 12, "new_status": "approved"}"#),
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences[0].scenes[0].shots[0].status,
+                               "Approved")
+            }),
+
         // ---- Navigation, recovery, and composition -------------------
         GoldenScenario(
             name: "navigate.executes immediately (read-only)",

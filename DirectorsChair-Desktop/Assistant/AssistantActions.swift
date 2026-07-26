@@ -543,7 +543,9 @@ enum AssistantActionFactory {
         actions += peopleActions(projectViewModel: projectViewModel,
                                  coordinator: coordinator)     // A3.5
         actions += creativeActions(projectViewModel: projectViewModel,
-                                   coordinator: coordinator)   // A4
+                                   coordinator: coordinator)   // A4 slice 1
+        actions += worldActions(projectViewModel: projectViewModel,
+                                coordinator: coordinator)      // A4 slice 2
         for action in actions {
             do {
                 try registry.register(action)
