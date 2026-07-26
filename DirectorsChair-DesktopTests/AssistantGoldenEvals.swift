@@ -316,6 +316,57 @@ final class AssistantGoldenEvals: XCTestCase {
                 XCTAssertEqual(pvm.project.equipmentLibrary.last?.quantityOwned, 3)
             }),
 
+        // ---- Creative structure (A4) ---------------------------------
+        GoldenScenario(
+            name: "create.add_scene after an existing one",
+            scripts: toolTurn("add_scene", #"""
+                {"name": "Chase", "sequence": "Act 1", "after": "Opening",
+                 "time_of_day": "Night"}
+                """#),
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences[0].scenes.map(\.name),
+                               ["Opening", "Chase", "Finale"])
+            }),
+        GoldenScenario(
+            name: "create.add_sequence",
+            scripts: toolTurn("add_sequence", #"{"name": "Act 2"}"#),
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences.count, 2)
+            }),
+        GoldenScenario(
+            name: "create.update_scene_fields canonical status",
+            scripts: toolTurn("update_scene_fields",
+                #"{"scene": "Opening", "status": "ready"}"#),
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences[0].scenes[0].productionStatus,
+                               "Ready")
+            }),
+        GoldenScenario(
+            name: "create.add_dialogue unknown character warns",
+            scripts: toolTurn("add_dialogue",
+                #"{"scene": "Opening", "character": "Stranger", "text": "Hello."}"#),
+            expectPlanItems: 1, expectWarnings: true,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences[0].scenes[0].dialogues.last?.character,
+                               "Stranger")
+            }),
+        GoldenScenario(
+            name: "create.add_shot auto-numbers",
+            scripts: toolTurn("add_shot",
+                #"{"scene": "Finale", "description": "Crane down"}"#),
+            expectToolResults: [(1, "proposed")],
+            expectPlanItems: 1,
+            verify: { pvm, _ in
+                XCTAssertEqual(pvm.project.sequences[0].scenes[1].shots.first?.shotId, 13)
+            }),
+        GoldenScenario(
+            name: "create.add_character duplicate rejected",
+            scripts: toolTurn("add_character", #"{"name": "Mara"}"#),
+            expectToolResults: [(1, "already exists")], expectPlanItems: 0),
+
         // ---- Navigation, recovery, and composition -------------------
         GoldenScenario(
             name: "navigate.executes immediately (read-only)",
