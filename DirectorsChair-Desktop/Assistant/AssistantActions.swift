@@ -522,7 +522,7 @@ enum AssistantActionFactory {
     @MainActor static func makeRegistry(projectViewModel: ProjectViewModel?,
                                         coordinator: AppCoordinator?) -> ActionRegistry {
         var registry = ActionRegistry()
-        let actions: [any AssistantAction] = [
+        var actions: [any AssistantAction] = [
             WebSearchAction(projectViewModel: projectViewModel, coordinator: coordinator),
             NavigateAction(projectViewModel: projectViewModel, coordinator: coordinator),
             UpdateCharacterTraitAction(projectViewModel: projectViewModel, coordinator: coordinator),
@@ -532,6 +532,8 @@ enum AssistantActionFactory {
             UpdateProjectMetadataAction(projectViewModel: projectViewModel, coordinator: coordinator),
             AddRelationshipAction(projectViewModel: projectViewModel, coordinator: coordinator),
         ]
+        actions += readTools(projectViewModel: projectViewModel,
+                             coordinator: coordinator)   // A3.1
         for action in actions {
             do {
                 try registry.register(action)
