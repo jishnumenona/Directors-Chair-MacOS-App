@@ -58,6 +58,32 @@ struct AppToolbar: View {
 
             // Toggle Controls
             HStack(spacing: 8) {
+                // AI Assistant — the permanent affordance for the ⇧⇧ overlay;
+                // the shortcut in the label teaches the keyboard path.
+                Button(action: {
+                    coordinator.toggleAIChat()
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(Color.accentColor)
+                        Text("⇧⇧")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(height: 32)
+                    .padding(.horizontal, 8)
+                }
+                .buttonStyle(ToolbarButtonStyle(
+                    isSelected: coordinator.showingAIChat,
+                    tooltipText: "AI Assistant — press Shift twice anytime"))
+                .accessibilityIdentifier("nav-ai-assistant")
+                .hintDot(id: "hint-ai-assistant",
+                         title: "AI Assistant",
+                         description: "Ask about your project, draft scenes, check conflicts — press Shift twice anytime")
+
+                Divider()
+                    .frame(height: 20)
+
                 // Projects folder button (moved from left tab group)
                 Button(action: {
                     coordinator.navigateTo(.projects)
