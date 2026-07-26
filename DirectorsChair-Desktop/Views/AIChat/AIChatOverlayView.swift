@@ -15,6 +15,7 @@ struct AIChatOverlayView: View {
     @StateObject private var viewModel = AIChatViewModel()
     @StateObject private var dictation = SpeechDictationController()
     @State private var dictationPrefix = ""
+    @State private var commandTap = CommandTapMonitor()
     @FocusState private var isInputFocused: Bool
     @AppStorage(PrefKey.showAssistantOnLaunch) private var showAssistantOnLaunch: Bool = false
 
@@ -79,11 +80,16 @@ struct AIChatOverlayView: View {
             viewModel.coordinator = coordinator
             viewModel.projectViewModel = projectViewModel
             viewModel.addWelcomeMessageIfNeeded()
+            // A bare ⌘ tap toggles dictation while the assistant is open
+            // (chords like ⌘C are ignored — see CommandTapMonitor).
+            commandTap.onTap = { toggleDictation() }
+            commandTap.install()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isInputFocused = true
             }
         }
         .onDisappear {
+            commandTap.uninstall()
             if dictation.isRecording { dictation.stop() }
             viewModel.saveCurrentConversation()
         }
@@ -441,7 +447,8 @@ struct AIChatOverlayView: View {
 
     private var inputArea: some View {
         HStack(spacing: 10) {
-            TextField(dictation.isRecording ? "Listening…" : "Ask about your project...",
+            TextField(dictation.isRecording ? "Listening… (⌘ to stop)"
+                                            : "Ask about your project… (⌘ to speak)",
                       text: $viewModel.inputText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
@@ -471,7 +478,7 @@ struct AIChatOverlayView: View {
             }
             .buttonStyle(.plain)
             .disabled(viewModel.isGenerating)
-            .help(dictation.isRecording ? "Stop dictation" : "Dictate your message")
+            .help(dictation.isRecording ? "Stop dictation (⌘)" : "Dictate your message (⌘)")
             .onChange(of: dictation.transcript) { _, transcript in
                 guard dictation.isRecording else { return }
                 viewModel.inputText = SpeechDictationController.mergedInput(

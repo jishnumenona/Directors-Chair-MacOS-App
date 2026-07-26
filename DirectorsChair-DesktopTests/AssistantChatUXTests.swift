@@ -47,6 +47,35 @@ final class AssistantChatUXTests: XCTestCase {
         XCTAssertNil(controller.problemMessage)
     }
 
+    // MARK: - Bare ⌘-tap detection (hands-free dictation toggle)
+
+    func testBareCommandTapFiresOnlyForCleanPressAndRelease() {
+        var detector = BareModifierTapDetector()
+
+        // Clean tap: down → up fires.
+        XCTAssertFalse(detector.handle(.modifierDown))
+        XCTAssertTrue(detector.handle(.modifierUp))
+
+        // A shortcut chord (⌘C): down → key interrupt → up must NOT fire.
+        XCTAssertFalse(detector.handle(.modifierDown))
+        XCTAssertFalse(detector.handle(.interrupted))
+        XCTAssertFalse(detector.handle(.modifierUp))
+
+        // Another modifier joining (⌘⇧) cancels the tap too.
+        XCTAssertFalse(detector.handle(.modifierDown))
+        XCTAssertFalse(detector.handle(.interrupted))
+        XCTAssertFalse(detector.handle(.modifierUp))
+
+        // A release with no prior press never fires.
+        XCTAssertFalse(detector.handle(.modifierUp))
+
+        // The detector re-arms: consecutive clean taps each fire.
+        XCTAssertFalse(detector.handle(.modifierDown))
+        XCTAssertTrue(detector.handle(.modifierUp))
+        XCTAssertFalse(detector.handle(.modifierDown))
+        XCTAssertTrue(detector.handle(.modifierUp))
+    }
+
     // MARK: - Conversation continuity
 
     func testViewModelResumesTheLatestConversationOnInit() throws {
