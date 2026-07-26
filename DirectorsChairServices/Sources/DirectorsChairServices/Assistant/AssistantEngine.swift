@@ -218,7 +218,17 @@ public actor AssistantEngine {
                     argumentsData: argumentsData))
                 continuation.yield(.toolFinished(name: call.name,
                                                  summary: "Proposed: \(plan.summary)"))
-                return #"{"status": "proposed", "note": "queued for user approval — do not call this tool again for the same change; continue or finish your reply"}"#
+                // Validator findings (AD6) go back to the model so it can
+                // reconsider or surface them to the user.
+                var proposal: [String: Any] = [
+                    "status": "proposed",
+                    "note": "queued for user approval — do not call this tool again for the same change; continue or finish your reply",
+                ]
+                if !plan.warnings.isEmpty { proposal["warnings"] = plan.warnings }
+                let data = try? JSONSerialization.data(withJSONObject: proposal,
+                                                       options: [.sortedKeys])
+                return data.flatMap { String(data: $0, encoding: .utf8) }
+                    ?? #"{"status": "proposed"}"#
             }
         } catch {
             let message = (error as? ActionError)?.message

@@ -36,10 +36,16 @@ public struct ActionPlan: Sendable, Equatable {
     /// One sentence: what applying this will do.
     public var summary: String
     public var previews: [ActionPreview]
+    /// Validator findings (AD6): consequences the change would introduce
+    /// (e.g. new schedule conflicts). Shown on the review card AND returned
+    /// to the model so it can reconsider or flag them — never a silent block.
+    public var warnings: [String]
 
-    public init(summary: String, previews: [ActionPreview] = []) {
+    public init(summary: String, previews: [ActionPreview] = [],
+                warnings: [String] = []) {
         self.summary = summary
         self.previews = previews
+        self.warnings = warnings
     }
 }
 

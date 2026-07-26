@@ -116,6 +116,18 @@ struct TurnPlanCardView: View {
             ForEach(Array(item.plan.previews.enumerated()), id: \.offset) { _, preview in
                 previewRow(preview)
             }
+
+            // Validator findings (AD6) — shown, never silently blocking
+            ForEach(Array(item.plan.warnings.enumerated()), id: \.offset) { _, warning in
+                Label {
+                    Text(warning)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(.system(size: 11))
+                .foregroundColor(.orange)
+                .padding(.leading, 22)
+            }
         }
         .padding(8)
         .background(Color.white.opacity(isSelected ? 0.05 : 0.02))

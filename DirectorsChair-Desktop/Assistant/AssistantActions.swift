@@ -534,6 +534,8 @@ enum AssistantActionFactory {
         ]
         actions += readTools(projectViewModel: projectViewModel,
                              coordinator: coordinator)   // A3.1
+        actions += scheduleActions(projectViewModel: projectViewModel,
+                                   coordinator: coordinator)   // A3.2
         for action in actions {
             do {
                 try registry.register(action)

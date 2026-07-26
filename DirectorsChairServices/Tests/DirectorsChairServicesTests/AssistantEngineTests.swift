@@ -69,7 +69,8 @@ private struct MutatingAction: AssistantAction {
     func validate(argumentsData: Data) throws -> ActionPlan {
         ActionPlan(summary: "Update Opening's description",
                    previews: [ActionPreview(title: "Description",
-                                            oldValue: "Old", newValue: "New")])
+                                            oldValue: "Old", newValue: "New")],
+                   warnings: ["would clash with the Finale shoot"])
     }
 
     func execute(argumentsData: Data) async throws -> ActionOutcome {
@@ -189,11 +190,14 @@ final class AssistantEngineTests: XCTestCase {
         XCTAssertEqual(plan.items.count, 1)
         XCTAssertEqual(plan.items[0].actionName, "update_scene")
         XCTAssertEqual(plan.items[0].plan.previews[0].newValue, "New")
-        // the model was told it's queued, not applied
+        // the model was told it's queued, not applied — and sees the
+        // validator's warnings (AD6)
         let toolResult = transport.requests[1].messages.last {
             $0.role == .tool
         }
         XCTAssertTrue(toolResult?.textContent.contains("proposed") == true)
+        XCTAssertTrue(toolResult?.textContent
+            .contains("would clash with the Finale shoot") == true)
     }
 
     func testUnknownToolFeedsErrorBackAndLoopContinues() async throws {

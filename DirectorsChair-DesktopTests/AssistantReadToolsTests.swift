@@ -88,7 +88,7 @@ final class AssistantReadToolsTests: XCTestCase {
             XCTAssertNotNil(action, name)
             XCTAssertEqual(action?.risk, .readOnly, name)
         }
-        XCTAssertEqual(registry.count, 16)   // 8 core + 8 read-tools
+        XCTAssertEqual(registry.count, 19)   // 8 core + 8 read + 3 schedule
     }
 
     // MARK: - Scenes
