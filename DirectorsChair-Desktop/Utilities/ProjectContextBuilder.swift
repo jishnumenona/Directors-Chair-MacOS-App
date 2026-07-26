@@ -151,9 +151,11 @@ enum ProjectContextBuilder {
             "  Location: \(scene.location ?? "—") | Status: \(scene.productionStatus)"
         ]
         if !scene.dialogues.isEmpty {
+            // The [n] index is the handle the assistant uses to address a
+            // dialogue in update_dialogue tool calls (scene name + index).
             lines.append("  Dialogues (\(scene.dialogues.count)):")
-            for dlg in scene.dialogues.prefix(20) {
-                lines.append("    \(dlg.character): \"\(String(dlg.text.prefix(100)))\"")
+            for (index, dlg) in scene.dialogues.prefix(20).enumerated() {
+                lines.append("    [\(index)] \(dlg.character): \"\(String(dlg.text.prefix(100)))\"")
             }
         }
         if !scene.actions.isEmpty {

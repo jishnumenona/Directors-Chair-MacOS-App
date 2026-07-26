@@ -9,9 +9,6 @@ import SwiftUI
 
 struct AIChatMessageView: View {
     let message: ChatMessage
-    let pendingModification: ProjectModification?
-    let onApply: () -> Void
-    let onDecline: () -> Void
 
     var body: some View {
         switch message.role {
@@ -61,10 +58,6 @@ struct AIChatMessageView: View {
 
                 MarkdownTextView(text: message.content)
 
-                // Show modification card if pending
-                if let mod = pendingModification {
-                    modificationCard(mod)
-                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -141,91 +134,6 @@ struct AIChatMessageView: View {
 
     // MARK: - Modification Confirmation Card
 
-    private func modificationCard(_ mod: ProjectModification) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "pencil.circle.fill")
-                    .foregroundColor(.orange)
-                Text("SUGGESTED CHANGE")
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundColor(.orange)
-            }
-
-            Text(mod.description)
-                .font(.system(size: 12, weight: .medium))
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("WAS")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.secondary)
-                    Text(mod.oldValue)
-                        .font(.system(size: 11))
-                        .foregroundColor(.red)
-                        .lineLimit(3)
-                }
-
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("NEW")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.secondary)
-                    Text(mod.newValue)
-                        .font(.system(size: 11))
-                        .foregroundColor(.green)
-                        .lineLimit(3)
-                }
-            }
-
-            if !mod.reason.isEmpty {
-                Text(mod.reason)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .italic()
-            }
-
-            HStack(spacing: 10) {
-                Button(action: onApply) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark")
-                        Text("Apply")
-                    }
-                    .font(.system(size: 11, weight: .semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: onDecline) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "xmark")
-                        Text("Decline")
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.08))
-                    .foregroundColor(Color(nsColor: .labelColor))
-                    .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(12)
-        .background(Color.white.opacity(0.04))
-        .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.orange.opacity(0.2), lineWidth: 0.5)
-        )
-    }
 }
 
 // MARK: - Markdown Text View
