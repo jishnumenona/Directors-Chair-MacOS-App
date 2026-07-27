@@ -9,6 +9,7 @@
 
 import Foundation
 import DirectorsChairServices
+import DirectorsChairViews
 
 @MainActor
 final class AssistantRuntime {
@@ -16,6 +17,11 @@ final class AssistantRuntime {
 
     /// The SSE transport for the gateway's /generate/chat.
     let transport = GatewayChatTransport()
+
+    /// The app-scoped video-job coordinator (owned by CentralViewStack,
+    /// registered on appear) — lets assistant actions submit shot videos
+    /// through the SAME lifecycle the Cinematography view uses.
+    weak var videoJobs: VideoJobCoordinator?
 
     /// Mirrors the app's AIServiceClient token wiring (single 401 refresh);
     /// AuthManager is @MainActor, so both closures hop for its state.

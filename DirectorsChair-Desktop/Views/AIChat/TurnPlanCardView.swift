@@ -20,6 +20,15 @@ struct TurnPlanCardView: View {
 
     @State private var selectedIds: Set<String>
 
+    /// Advisory per-batch spend guideline (A5.5); quotas are the hard wall.
+    static let batchGuidelineUSD = 5.0
+
+    /// Total estimated spend across the currently selected items.
+    private var selectedTotal: Double {
+        plan.items.filter { selectedIds.contains($0.id) }
+            .reduce(0) { $0 + $1.plan.estimatedCost }
+    }
+
     init(plan: TurnPlan, onApply: @escaping (Set<String>) -> Void,
          onDismiss: @escaping () -> Void) {
         self.plan = plan
@@ -38,9 +47,26 @@ struct TurnPlanCardView: View {
                     .tracking(1.2)
                     .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                 Spacer()
+                if selectedTotal > 0 {
+                    Text("≈ $\(String(format: "%.2f", selectedTotal))")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.orange)
+                }
                 Text("\(selectedIds.count) of \(plan.items.count) selected")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
+            }
+
+            // Batch budget guideline (A5.5): totals above the advisory cap
+            // get a prominent flag — server quotas remain the hard wall.
+            if selectedTotal > Self.batchGuidelineUSD {
+                Label {
+                    Text("This batch is ≈ $\(String(format: "%.2f", selectedTotal)) — above the $\(String(format: "%.0f", Self.batchGuidelineUSD)) guideline. Deselect items to trim it, or apply if intended.")
+                } icon: {
+                    Image(systemName: "dollarsign.circle.fill")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.orange)
             }
 
             ForEach(plan.items) { item in
@@ -53,8 +79,10 @@ struct TurnPlanCardView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark")
-                        Text(selectedIds.count == plan.items.count
-                             ? "Apply all" : "Apply selected")
+                        Text((selectedIds.count == plan.items.count
+                              ? "Apply all" : "Apply selected")
+                             + (selectedTotal > 0
+                                ? " (~$\(String(format: "%.2f", selectedTotal)))" : ""))
                     }
                     .font(.system(size: 11, weight: .medium))
                     .padding(.horizontal, 14)

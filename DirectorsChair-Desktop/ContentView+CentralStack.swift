@@ -72,6 +72,9 @@ struct CentralViewStack: View {
         }
         .onAppear {
             aliveViews = [currentView]
+            // Assistant actions submit shot videos through this same
+            // app-scoped coordinator (A5.4).
+            AssistantRuntime.shared.videoJobs = videoJobCoordinator
             // Persist video-job results into the project (app-scoped, so a job
             // completes even after the generation view is gone).
             videoJobCoordinator.onEvent = { event in

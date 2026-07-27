@@ -76,7 +76,8 @@ final class GenerateSceneImageAction: ProjectAssistantAction, AssistantAction {
             previews: [ActionPreview(
                 title: "\(args.scene) · overview image",
                 oldValue: existing == nil ? "none" : "existing image",
-                newValue: "generate 16:9 (~\(money(1)))")])
+                newValue: "generate 16:9 (~\(money(1)))")],
+            estimatedCost: CharacterImagePipeline.estimatedCostPerImage)
     }
 
     @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
@@ -178,7 +179,8 @@ final class GenerateLocationImagesAction: ProjectAssistantAction, AssistantActio
                               oldValue: nil,
                               newValue: "generate (~\(money(1)))")
             },
-            warnings: warnings)
+            warnings: warnings,
+            estimatedCost: Double(variations.count) * CharacterImagePipeline.estimatedCostPerImage)
     }
 
     @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
@@ -270,7 +272,8 @@ final class GenerateVisionBoardImageAction: ProjectAssistantAction, AssistantAct
             previews: [ActionPreview(
                 title: "vision board",
                 oldValue: nil,
-                newValue: String(args.prompt.prefix(120)) + " (~\(money(1)))")])
+                newValue: String(args.prompt.prefix(120)) + " (~\(money(1)))")],
+            estimatedCost: CharacterImagePipeline.estimatedCostPerImage)
     }
 
     @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {

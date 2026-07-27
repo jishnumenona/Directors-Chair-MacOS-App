@@ -120,7 +120,8 @@ final class GenerateDialogueAudioAction: ProjectAssistantAction, AssistantAction
                     oldValue: line.audioFilePath == nil ? "no audio" : "existing audio",
                     newValue: "\(String(Self.plainText(line.text).prefix(60)))…"
                         + " (~$\(String(format: "%.3f", Self.estimate(characters: Self.plainText(line.text).count))))")
-            })
+            },
+            estimatedCost: total)
     }
 
     @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {

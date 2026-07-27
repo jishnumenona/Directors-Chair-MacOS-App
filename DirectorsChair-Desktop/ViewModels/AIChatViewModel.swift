@@ -145,6 +145,12 @@ class AIChatViewModel: ObservableObject {
                 do {
                     _ = try await action.execute(argumentsData: item.argumentsData)
                     applied += 1
+                    // Async video jobs get in-chat progress (A5.4).
+                    if item.actionName == "generate_shot_video",
+                       let shotNumber = try? JSONDecoder().decode(
+                           ShotRef.self, from: item.argumentsData).shot {
+                        startVideoJobMonitor(shotNumber: shotNumber)
+                    }
                 } catch {
                     messages.append(ChatMessage(
                         role: .system,
@@ -155,6 +161,56 @@ class AIChatViewModel: ObservableObject {
                 role: .system,
                 content: "Applied \(applied) change\(applied == 1 ? "" : "s") — Undo available"))
             saveCurrentConversation()
+        }
+    }
+
+    // MARK: - Video job progress (A5.4)
+
+    private struct ShotRef: Decodable { let shot: Int }
+
+    /// Looks up a shot's video-job phase + message; injectable for tests.
+    /// Default reads the app-scoped VideoJobCoordinator.
+    var videoJobStateLookup: (@MainActor (String) -> (phase: String, message: String)?) = { shotUUID in
+        guard let state = AssistantRuntime.shared.videoJobs?.state(forShot: shotUUID) else {
+            return nil
+        }
+        return ("\(state.phase)", state.message)
+    }
+    /// Poll cadence; shortened by tests.
+    var videoMonitorInterval: TimeInterval = 3
+
+    /// Follows a submitted video job and narrates phase changes into the
+    /// conversation until it completes, fails, or 20 minutes pass.
+    func startVideoJobMonitor(shotNumber: Int) {
+        guard let shotUUID = projectViewModel?.project.sequences
+            .flatMap(\.scenes).flatMap(\.shots)
+            .first(where: { $0.shotId == shotNumber })?.id else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var lastPhase = ""
+            let deadline = Date().addingTimeInterval(20 * 60)
+            while Date() < deadline {
+                try? await Task.sleep(nanoseconds:
+                    UInt64(self.videoMonitorInterval * 1_000_000_000))
+                guard let state = self.videoJobStateLookup(shotUUID) else { continue }
+                if state.phase != lastPhase {
+                    lastPhase = state.phase
+                    self.messages.append(ChatMessage(
+                        role: .system,
+                        content: "🎬 Shot #\(shotNumber): \(state.message)"))
+                    if state.phase == "completed" {
+                        self.messages.append(ChatMessage(
+                            role: .system,
+                            content: "Shot #\(shotNumber) video is ready — open Cinematography to play it"))
+                        self.saveCurrentConversation()
+                        return
+                    }
+                    if state.phase == "failed" {
+                        self.saveCurrentConversation()
+                        return
+                    }
+                }
+            }
         }
     }
 
