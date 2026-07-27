@@ -236,6 +236,42 @@ final class AssistantEngineTests: XCTestCase {
         XCTAssertTrue(toolResult?.textContent.contains("does not exist") == true)
     }
 
+    func testEmptyModelCallRetriesOnceThenSucceeds() async throws {
+        // Regression (live 2026-07-27): Gemini's malformed-function-call
+        // mode yields a 200 stream with no text and no tool calls — the
+        // engine must retry once, invisibly.
+        let transport = ScriptedTransport(scripts: [
+            [.done(finishReason: "MALFORMED_FUNCTION_CALL", model: "m")],
+            [.delta("Recovered."), .done(finishReason: "stop", model: "m")],
+        ])
+        let engine = AssistantEngine(transport: transport, registry: ActionRegistry())
+
+        let events = await collect(engine)
+
+        XCTAssertEqual(transport.requests.count, 2, "one silent retry")
+        guard case .finished(let text, _)? = events.last else {
+            return XCTFail("expected finished")
+        }
+        XCTAssertEqual(text, "Recovered.")
+        XCTAssertFalse(events.contains { if case .failed = $0 { return true }; return false })
+    }
+
+    func testDoubleEmptyModelCallFailsWithFinishReason() async throws {
+        let transport = ScriptedTransport(scripts: [
+            [.done(finishReason: "MALFORMED_FUNCTION_CALL", model: "m")],
+            [.done(finishReason: "MALFORMED_FUNCTION_CALL", model: "m")],
+        ])
+        let engine = AssistantEngine(transport: transport, registry: ActionRegistry())
+
+        let events = await collect(engine)
+
+        guard case .failed(let message)? = events.last else {
+            return XCTFail("expected failed, got \(events)")
+        }
+        XCTAssertTrue(message.contains("MALFORMED_FUNCTION_CALL"),
+                      "the finish reason must surface for diagnosis")
+    }
+
     func testCallBudgetStopsRunawayLoop() async throws {
         // Every scripted response demands another tool call — more scripts
         // than the budget allows, so only the cap can stop the loop.

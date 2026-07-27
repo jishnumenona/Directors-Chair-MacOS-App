@@ -109,6 +109,7 @@ public actor AssistantEngine {
         var fullText = ""
         var planItems: [ProposedActionItem] = []
         var modelCalls = 0
+        var emptyRetries = 0
 
         func finish() {
             if !planItems.isEmpty {
@@ -139,6 +140,7 @@ public actor AssistantEngine {
 
             var callText = ""
             var toolCalls: [AssistantToolCall] = []
+            var finishReason: String?
             do {
                 for try await event in transport.stream(request) {
                     switch event {
@@ -153,7 +155,9 @@ public actor AssistantEngine {
                         }
                         continuation.yield(.failed(message: message))
                         return
-                    case .usage, .done:
+                    case .done(let reason, _):
+                        finishReason = reason
+                    case .usage:
                         break
                     }
                     try Task.checkCancellation()
@@ -167,6 +171,25 @@ public actor AssistantEngine {
                 continuation.yield(.failed(
                     message: (error as? LocalizedError)?.errorDescription
                         ?? "The assistant request failed."))
+                return
+            }
+
+            // An empty model call (no text, no tool calls) is a provider
+            // anomaly — Gemini's malformed-function-call mode, safety trims.
+            // Retry once silently; a second empty response surfaces the
+            // finish reason instead of an empty turn.
+            if callText.isEmpty && toolCalls.isEmpty {
+                if emptyRetries < 1 {
+                    emptyRetries += 1
+                    continue
+                }
+                if !planItems.isEmpty {
+                    continuation.yield(.turnPlan(TurnPlan(items: planItems)))
+                }
+                continuation.yield(.failed(message:
+                    "The model returned an empty response"
+                    + (finishReason.map { " (\($0))" } ?? "")
+                    + " — please try again."))
                 return
             }
 

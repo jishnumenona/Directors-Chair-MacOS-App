@@ -1,0 +1,329 @@
+//
+//  AssistantImageActions.swift
+//  DirectorsChair-Desktop
+//
+//  AI Assistant program, Phase A5.2: image generation from chat for scenes,
+//  locations, and the vision board — the remaining image surfaces after
+//  A5.1's character pipeline. Same contract: spending-risk proposals with
+//  explicit per-image cost previews, approval before any spend (AD5), the
+//  exact file/field conventions of the app's own generation paths, and the
+//  provider call injected so tests run offline.
+//
+
+import Foundation
+import DirectorsChairCore
+import DirectorsChairServices
+
+private let stringProp = JSONValue.object(["type": .string("string")])
+private let stringArrayProp = JSONValue.object(
+    ["type": .string("array"), "items": .object(["type": .string("string")])])
+
+private func objectSchema(_ properties: [String: JSONValue],
+                          required: [String]) -> JSONValue {
+    .object(["type": .string("object"),
+             "properties": .object(properties),
+             "required": .array(required.map(JSONValue.string))])
+}
+
+/// (prompt, aspectRatio, referencePNGBase64?) → PNG data.
+typealias AssistantImageGenerate =
+    @Sendable (String, String, String?) async throws -> Data
+
+private func money(_ count: Int) -> String {
+    String(format: "$%.2f",
+           Double(count) * CharacterImagePipeline.estimatedCostPerImage)
+}
+
+// MARK: - generate_scene_image
+
+final class GenerateSceneImageAction: ProjectAssistantAction, AssistantAction {
+    let name = "generate_scene_image"
+    let summary = """
+    Generate a scene's overview image (16:9 cinematic keyframe) from its \
+    script content, or from a custom prompt. SPENDS ~$0.04; runs only \
+    after the user approves. Overwrites the scene's existing overview.
+    """
+    let risk = ActionRisk.spending
+    var parameterSchema: JSONValue {
+        objectSchema(["scene": stringProp, "custom_prompt": stringProp],
+                     required: ["scene"])
+    }
+
+    private let makeGenerate: @MainActor () -> AssistantImageGenerate
+
+    init(projectViewModel: ProjectViewModel?, coordinator: AppCoordinator?,
+         makeGenerate: @escaping @MainActor () -> AssistantImageGenerate) {
+        self.makeGenerate = makeGenerate
+        super.init(projectViewModel: projectViewModel, coordinator: coordinator)
+    }
+
+    private struct Arguments: Decodable {
+        let scene: String
+        let customPrompt: String?
+        enum CodingKeys: String, CodingKey {
+            case scene
+            case customPrompt = "custom_prompt"
+        }
+    }
+
+    @MainActor func validate(argumentsData: Data) throws -> ActionPlan {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        let pvm = try requireProject()
+        let (seq, sc) = try sceneIndices(named: args.scene, in: pvm)
+        let existing = pvm.project.sequences[seq].scenes[sc].sceneOverviewImage
+        return ActionPlan(
+            summary: "Generate the “\(args.scene)” overview image (~\(money(1)))",
+            previews: [ActionPreview(
+                title: "\(args.scene) · overview image",
+                oldValue: existing == nil ? "none" : "existing image",
+                newValue: "generate 16:9 (~\(money(1)))")])
+    }
+
+    @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        let pvm = try requireProject()
+        let (seq, sc) = try sceneIndices(named: args.scene, in: pvm)
+        guard let projectFile = pvm.projectPath else {
+            throw ActionError("the project has not been saved yet")
+        }
+        let scene = pvm.project.sequences[seq].scenes[sc]
+        let prompt = args.customPrompt
+            ?? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene)
+        let imageData = try await makeGenerate()(prompt, "16:9", nil)
+
+        // Mirrors SceneDetailView+Generation: assets/scenes/<name>/overview_latest.png
+        let sanitized = SceneCardHelpers.sanitizeFilename(scene.name)
+        let directory = projectFile.deletingLastPathComponent()
+            .appendingPathComponent("assets")
+            .appendingPathComponent("scenes")
+            .appendingPathComponent(sanitized)
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        try imageData.write(to: directory.appendingPathComponent("overview_latest.png"))
+        try? prompt.write(to: directory.appendingPathComponent("prompt.txt"),
+                          atomically: true, encoding: .utf8)
+
+        let relativePath = "assets/scenes/\(sanitized)/overview_latest.png"
+        pvm.project.sequences[seq].scenes[sc].sceneOverviewImage = relativePath
+        didMutate(.script)
+        return ActionOutcome(resultForModel: #"{"status": "applied"}"#,
+                             userSummary: "Generated the “\(args.scene)” overview image")
+    }
+}
+
+// MARK: - generate_location_images
+
+final class GenerateLocationImagesAction: ProjectAssistantAction, AssistantAction {
+    let name = "generate_location_images"
+    let summary = """
+    Generate a location's images: the primary establishing view and/or named \
+    variations (e.g. night, rain, golden_hour), each ~$0.04, generated only \
+    after the user approves. Variations use the primary image as reference.
+    """
+    let risk = ActionRisk.spending
+    var parameterSchema: JSONValue {
+        objectSchema(["location": stringProp, "variations": stringArrayProp],
+                     required: ["location"])
+    }
+
+    private let makeGenerate: @MainActor () -> AssistantImageGenerate
+
+    init(projectViewModel: ProjectViewModel?, coordinator: AppCoordinator?,
+         makeGenerate: @escaping @MainActor () -> AssistantImageGenerate) {
+        self.makeGenerate = makeGenerate
+        super.init(projectViewModel: projectViewModel, coordinator: coordinator)
+    }
+
+    private struct Arguments: Decodable {
+        let location: String
+        let variations: [String]?
+    }
+
+    @MainActor private func check(_ args: Arguments) throws
+    -> (ProjectViewModel, Int, [String]) {
+        let pvm = try requireProject()
+        guard let index = pvm.project.locations.firstIndex(where: {
+            $0.name.lowercased() == args.location.lowercased()
+        }) else {
+            let known = pvm.project.locations.map(\.name).joined(separator: ", ")
+            throw ActionError("no location '\(args.location)'"
+                + (known.isEmpty ? "" : " (locations: \(known))"))
+        }
+        var variations = (args.variations ?? ["primary"]).map {
+            $0.lowercased().replacingOccurrences(of: " ", with: "_")
+        }
+        if let bad = variations.first(where: {
+            $0.range(of: #"^[a-z0-9_]{1,40}$"#, options: .regularExpression) == nil
+        }) {
+            throw ActionError("variation names must be short words, got '\(bad)'")
+        }
+        // Primary anchors the variations — generate it first when included.
+        variations.sort { $0 == "primary" && $1 != "primary" }
+        return (pvm, index, variations)
+    }
+
+    @MainActor func validate(argumentsData: Data) throws -> ActionPlan {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        let (pvm, index, variations) = try check(args)
+        let location = pvm.project.locations[index]
+        var warnings: [String] = []
+        if !variations.contains("primary") && location.primaryImage == nil {
+            warnings.append("“\(location.name)” has no primary image to reference — consider including \"primary\"")
+        }
+        return ActionPlan(
+            summary: "Generate \(variations.count) image\(variations.count == 1 ? "" : "s") "
+                + "for \(location.name) (~\(money(variations.count)))",
+            previews: variations.map { variation in
+                ActionPreview(title: "\(location.name) · \(variation)",
+                              oldValue: nil,
+                              newValue: "generate (~\(money(1)))")
+            },
+            warnings: warnings)
+    }
+
+    @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        let (pvm, index, variations) = try check(args)
+        guard let projectFile = pvm.projectPath else {
+            throw ActionError("the project has not been saved yet")
+        }
+        let location = pvm.project.locations[index]
+        let sanitized = CharacterImagePipeline.sanitizeAssetName(location.name)
+        let directory = projectFile.deletingLastPathComponent()
+            .appendingPathComponent("assets")
+            .appendingPathComponent("locations")
+            .appendingPathComponent(sanitized)
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+
+        func referenceBase64() -> String? {
+            guard let primary = pvm.project.locations[index].primaryImage else { return nil }
+            let url = projectFile.deletingLastPathComponent()
+                .appendingPathComponent(primary)
+            return (try? Data(contentsOf: url))?.base64EncodedString()
+        }
+
+        var generated = 0
+        for variation in variations {
+            let prompt: String
+            if variation == "primary" {
+                prompt = "Cinematic establishing shot of \(location.name). "
+                    + location.description
+            } else {
+                prompt = "The same location as the reference image — "
+                    + "\(location.name) — now at/with \(variation.replacingOccurrences(of: "_", with: " ")), "
+                    + "identical framing and geography. " + location.description
+            }
+            let reference = variation == "primary" ? nil : referenceBase64()
+            let imageData = try await makeGenerate()(prompt, "16:9", reference)
+            try imageData.write(to: directory.appendingPathComponent("\(variation).png"))
+
+            // Mirrors ContentView+CentralStack: primary sets primaryImage;
+            // every generated path joins images[] once.
+            let relativePath = "assets/locations/\(sanitized)/\(variation).png"
+            if variation == "primary" {
+                pvm.project.locations[index].primaryImage = relativePath
+            }
+            if !pvm.project.locations[index].images.contains(relativePath) {
+                pvm.project.locations[index].images.append(relativePath)
+            }
+            generated += 1
+        }
+        didMutate(.general)
+        return ActionOutcome(
+            resultForModel: #"{"status": "applied", "generated": \#(generated)}"#,
+            userSummary: "Generated \(generated) image\(generated == 1 ? "" : "s") for \(location.name)")
+    }
+}
+
+// MARK: - generate_vision_board_image
+
+final class GenerateVisionBoardImageAction: ProjectAssistantAction, AssistantAction {
+    let name = "generate_vision_board_image"
+    let summary = """
+    Generate a cinematic mood-board image for the vision board from a text \
+    description. SPENDS ~$0.04; runs only after the user approves.
+    """
+    let risk = ActionRisk.spending
+    var parameterSchema: JSONValue {
+        objectSchema(["prompt": stringProp], required: ["prompt"])
+    }
+
+    private let makeGenerate: @MainActor () -> AssistantImageGenerate
+
+    init(projectViewModel: ProjectViewModel?, coordinator: AppCoordinator?,
+         makeGenerate: @escaping @MainActor () -> AssistantImageGenerate) {
+        self.makeGenerate = makeGenerate
+        super.init(projectViewModel: projectViewModel, coordinator: coordinator)
+    }
+
+    private struct Arguments: Decodable { let prompt: String }
+
+    @MainActor func validate(argumentsData: Data) throws -> ActionPlan {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        guard !args.prompt.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw ActionError("prompt must not be empty")
+        }
+        _ = try requireProject()
+        return ActionPlan(
+            summary: "Add a vision-board image (~\(money(1)))",
+            previews: [ActionPreview(
+                title: "vision board",
+                oldValue: nil,
+                newValue: String(args.prompt.prefix(120)) + " (~\(money(1)))")])
+    }
+
+    @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        let pvm = try requireProject()
+        guard let projectFile = pvm.projectPath else {
+            throw ActionError("the project has not been saved yet")
+        }
+        // Mirrors the A0 vision-board executor: prompt prefix, 16:9,
+        // assets/visionboard/vision_<epoch>.png.
+        let prompt = "Cinematic mood-board reference image: \(args.prompt). "
+        let imageData = try await makeGenerate()(prompt, "16:9", nil)
+        let directory = projectFile.deletingLastPathComponent()
+            .appendingPathComponent("assets/visionboard", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        let filename = "vision_\(Int(Date().timeIntervalSince1970)).png"
+        try imageData.write(to: directory.appendingPathComponent(filename))
+        pvm.isDirty = true
+        didMutate(.general)
+        return ActionOutcome(resultForModel: #"{"status": "applied"}"#,
+                             userSummary: "Added a vision-board image")
+    }
+}
+
+// MARK: - Factory extension
+
+extension AssistantActionFactory {
+    @MainActor static func imageActions(projectViewModel: ProjectViewModel?,
+                                        coordinator: AppCoordinator?) -> [any AssistantAction] {
+        let makeGenerate: @MainActor () -> AssistantImageGenerate = {
+            { prompt, aspectRatio, referenceBase64 in
+                let request = ImageGenerationRequest(
+                    prompt: prompt,
+                    provider: .googleImagen,
+                    aspectRatio: aspectRatio,
+                    numberOfImages: 1,
+                    referenceImageBase64: referenceBase64,
+                    referenceMimeType: referenceBase64 != nil ? "image/png" : nil)
+                let response = try await AIServiceClient.shared.generateImage(request)
+                guard let data = response.images.first else {
+                    throw ActionError("the image service returned no image")
+                }
+                return data
+            }
+        }
+        return [
+            GenerateSceneImageAction(projectViewModel: projectViewModel,
+                                     coordinator: coordinator, makeGenerate: makeGenerate),
+            GenerateLocationImagesAction(projectViewModel: projectViewModel,
+                                         coordinator: coordinator, makeGenerate: makeGenerate),
+            GenerateVisionBoardImageAction(projectViewModel: projectViewModel,
+                                           coordinator: coordinator, makeGenerate: makeGenerate),
+        ]
+    }
+}

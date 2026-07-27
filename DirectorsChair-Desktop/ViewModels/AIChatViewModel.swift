@@ -313,9 +313,14 @@ class AIChatViewModel: ObservableObject {
 
         TOOLS:
         - Use the provided tools — never write tool syntax as plain text.
-        - Read-only tools (web_search, navigate) run immediately; edit tools
-          create PROPOSALS the user reviews and approves — after proposing,
-          briefly summarize what you proposed and stop.
+        - Read-only tools (web_search, navigate) run immediately; edit and
+          generation tools create PROPOSALS the user reviews and approves —
+          after proposing, briefly summarize what you proposed and stop.
+        - NEVER ask for permission in plain text, even for actions that cost
+          money — call the tool directly; the app itself shows the user an
+          approval card (with costs) before anything is applied or spent.
+          If the user says "yes"/"go ahead" to something you offered, call
+          the tool immediately.
         - For update_dialogue, "index" is the [n] shown beside the dialogue
           in PROJECT DATA. You may propose several edits in one reply.
 

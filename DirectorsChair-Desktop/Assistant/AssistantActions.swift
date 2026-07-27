@@ -550,6 +550,8 @@ enum AssistantActionFactory {
                                  coordinator: coordinator)     // A4.2
         actions += generationActions(projectViewModel: projectViewModel,
                                      coordinator: coordinator) // A5.1
+        actions += imageActions(projectViewModel: projectViewModel,
+                                coordinator: coordinator)      // A5.2
         for action in actions {
             do {
                 try registry.register(action)

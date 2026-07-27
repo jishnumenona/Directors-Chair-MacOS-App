@@ -65,7 +65,7 @@ final class AssistantActionsTests: XCTestCase {
     // MARK: - Factory
 
     func testFactoryRegistersTheFullCatalog() {
-        XCTAssertEqual(registry.count, 42)   // + creative 6 + world 4 + script 3 + generation 1
+        XCTAssertEqual(registry.count, 45)   // + creative 6 + world 4 + script 3 + generation 4
         for name in ["web_search", "navigate", "update_character_trait",
                      "update_character_bio", "update_scene_description",
                      "update_dialogue", "update_project_metadata",
