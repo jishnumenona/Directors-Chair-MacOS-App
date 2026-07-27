@@ -181,4 +181,39 @@ final class AssistantChatUXTests: XCTestCase {
         XCTAssertEqual(added.count, 1, "one heads-up per open, never repeated")
         XCTAssertTrue(added[0].contains("schedule conflict"), added[0])
     }
+
+    // MARK: - A6.5: routing table (Preferences → engine configuration)
+
+    func testRoutedConfigurationValidatesProviderAndClampsTemperature() {
+        let defaults = UserDefaults.standard
+        let prevProvider = defaults.object(forKey: PrefKey.aiChatProvider)
+        let prevTemp = defaults.object(forKey: PrefKey.aiTemperature)
+        defer {
+            defaults.removeObject(forKey: PrefKey.aiChatProvider)
+            defaults.removeObject(forKey: PrefKey.aiTemperature)
+            if let prevProvider { defaults.set(prevProvider, forKey: PrefKey.aiChatProvider) }
+            if let prevTemp { defaults.set(prevTemp, forKey: PrefKey.aiTemperature) }
+        }
+
+        // Defaults: google, 0.7.
+        defaults.removeObject(forKey: PrefKey.aiChatProvider)
+        defaults.removeObject(forKey: PrefKey.aiTemperature)
+        var config = AssistantRuntime.routedConfiguration()
+        XCTAssertEqual(config.provider, "google")
+        XCTAssertEqual(config.temperature, 0.7, accuracy: 0.001)
+
+        // A valid choice routes through.
+        defaults.set("anthropic", forKey: PrefKey.aiChatProvider)
+        defaults.set(0.3, forKey: PrefKey.aiTemperature)
+        config = AssistantRuntime.routedConfiguration()
+        XCTAssertEqual(config.provider, "anthropic")
+        XCTAssertEqual(config.temperature, 0.3, accuracy: 0.001)
+
+        // Junk falls back safely; temperature clamps.
+        defaults.set("skynet", forKey: PrefKey.aiChatProvider)
+        defaults.set(9.0, forKey: PrefKey.aiTemperature)
+        config = AssistantRuntime.routedConfiguration()
+        XCTAssertEqual(config.provider, "google", "unknown provider → default")
+        XCTAssertEqual(config.temperature, 1.0, "temperature clamped to 0…1")
+    }
 }

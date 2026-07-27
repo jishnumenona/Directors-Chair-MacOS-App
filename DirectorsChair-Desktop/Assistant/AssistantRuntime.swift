@@ -36,12 +36,29 @@ final class AssistantRuntime {
         }
     }
 
+    /// A6.5 routing table: the chat-capable providers the gateway serves.
+    /// Anything else stored in preferences falls back to the default.
+    static let chatProviders: Set<String> = ["google", "anthropic", "deepseek"]
+
+    /// Resolves the assistant's engine configuration from Preferences —
+    /// the wired half of the "DEFAULT PROVIDERS" pickers (A6.5).
+    static func routedConfiguration() -> EngineConfiguration {
+        let stored = UserDefaults.standard.string(forKey: PrefKey.aiChatProvider)
+            ?? "google"
+        let provider = chatProviders.contains(stored) ? stored : "google"
+        var temperature = UserDefaults.standard.object(forKey: PrefKey.aiTemperature)
+            .flatMap { $0 as? Double } ?? 0.7
+        temperature = min(max(temperature, 0), 1)
+        return EngineConfiguration(provider: provider, temperature: temperature)
+    }
+
     /// A fresh engine per turn: the registry is rebuilt so its weak seams
-    /// track the live view models, and configuration stays current.
+    /// track the live view models, and configuration follows the routing
+    /// table (Preferences → provider/temperature).
     func makeEngine(registry: ActionRegistry) -> AssistantEngine {
         AssistantEngine(
             transport: transport,
             registry: registry,
-            configuration: EngineConfiguration(provider: "google"))
+            configuration: Self.routedConfiguration())
     }
 }
