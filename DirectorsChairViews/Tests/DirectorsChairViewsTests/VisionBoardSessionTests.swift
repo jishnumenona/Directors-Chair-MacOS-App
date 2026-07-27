@@ -124,6 +124,77 @@ final class VisionBoardSessionTests: XCTestCase {
         XCTAssertFalse(viewModel.interactionInProgress)
     }
 
+    // MARK: - External reconciliation (Slice 3)
+
+    /// An external snapshot differing from local state: card "b" deleted,
+    /// card "c" added.
+    private func externalSnapshot(of viewModel: VisionBoardViewModel) -> [VisionCard] {
+        var next = viewModel.cards.filter { $0.id != "b" }
+        next.append(VisionCard(id: "c", canvasX: 700, canvasY: 100,
+                               canvasWidth: 200, canvasHeight: 200))
+        return next
+    }
+
+    func testReconcileSuppressesEchoOfOwnCommit() {
+        let (viewModel, changes) = makeViewModel()
+        viewModel.reconcileExternalCards(viewModel.cards)
+        XCTAssertEqual(changes(), 0)
+        XCTAssertEqual(viewModel.cards.map(\.id), ["a", "b"])
+    }
+
+    func testReconcileAppliesWhenIdleAndPrunesSelection() {
+        let (viewModel, changes) = makeViewModel()
+        viewModel.selectedCardIds = ["a", "b"]
+
+        viewModel.reconcileExternalCards(externalSnapshot(of: viewModel))
+
+        XCTAssertEqual(viewModel.cards.map(\.id), ["a", "c"])
+        XCTAssertEqual(viewModel.selectedCardIds, ["a"],
+                       "selection pruned to surviving cards")
+        XCTAssertEqual(changes(), 0,
+                       "adopting external state must not echo a commit back")
+    }
+
+    func testReconcileDefersDuringPanThenAppliesAtSessionEnd() {
+        let (viewModel, _) = makeViewModel()
+        let snapshot = externalSnapshot(of: viewModel)
+
+        viewModel.beginPan()
+        viewModel.reconcileExternalCards(snapshot)
+        XCTAssertEqual(viewModel.cards.map(\.id), ["a", "b"], "deferred mid-gesture")
+
+        viewModel.endPan()
+        XCTAssertEqual(viewModel.cards.map(\.id), ["a", "c"],
+                       "pending snapshot applied at session end")
+    }
+
+    func testLocalCommitSupersedesPendingSnapshot() {
+        let (viewModel, changes) = makeViewModel()
+        viewModel.gridSnapEnabled = false
+        let snapshot = externalSnapshot(of: viewModel)
+
+        viewModel.beginCardDrag(anchor: "a")
+        viewModel.reconcileExternalCards(snapshot)  // arrives mid-drag
+        viewModel.endCardDrag(translation: CGSize(width: 50, height: 0))
+
+        XCTAssertEqual(viewModel.cards.map(\.id), ["a", "b"],
+                       "the local commit wins; the stale snapshot is dropped")
+        XCTAssertEqual(viewModel.cards[0].canvasX, 150)
+        XCTAssertEqual(changes(), 1)
+    }
+
+    func testReconcileDefersDuringEditorThenAppliesOnCancel() {
+        let (viewModel, _) = makeViewModel()
+        let snapshot = externalSnapshot(of: viewModel)
+
+        viewModel.editCard(viewModel.cards[0])
+        viewModel.reconcileExternalCards(snapshot)
+        XCTAssertEqual(viewModel.cards.map(\.id), ["a", "b"], "deferred while editing")
+
+        viewModel.cancelEditing()
+        XCTAssertEqual(viewModel.cards.map(\.id), ["a", "c"])
+    }
+
     func testCreateNewCardLandsInVisibleWorld() {
         let (viewModel, _) = makeViewModel()
         viewModel.viewportSize = CGSize(width: 800, height: 600)

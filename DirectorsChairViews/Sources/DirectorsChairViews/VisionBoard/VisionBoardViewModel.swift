@@ -370,6 +370,7 @@ public class VisionBoardViewModel: ObservableObject {
 
     public func endPan() {
         panSessionStartOffset = nil
+        applyPendingExternalCards()
     }
 
     /// Anchored pinch: magnification is relative to the gesture start.
@@ -383,6 +384,7 @@ public class VisionBoardViewModel: ObservableObject {
 
     public func endPinch() {
         pinchSessionStart = nil
+        applyPendingExternalCards()
     }
 
     /// Captures the whole selection's origins so multi-drag stays rigid.
@@ -626,6 +628,7 @@ public class VisionBoardViewModel: ObservableObject {
     public func cancelEditing() {
         editingCard = nil
         showingCardEditor = false
+        applyPendingExternalCards()
     }
 
     /// The editor sheet's onDismiss. It fires after Save too — by then
@@ -636,6 +639,31 @@ public class VisionBoardViewModel: ObservableObject {
         guard editingCard != nil else { return }
         cancelEditing()
         assetStore?.discardStaging()
+    }
+
+    // MARK: - External Reconciliation (Slice 3)
+
+    /// Snapshot deferred while a gesture or the editor session is active.
+    private var pendingExternalCards: [VisionCard]?
+
+    /// Adopts a cards snapshot that changed OUTSIDE the board (assistant
+    /// actions, project reload). Echoes of our own commits are suppressed;
+    /// snapshots arriving mid-gesture or mid-edit apply at session end; a
+    /// local commit drops any pending snapshot (last writer wins — this is
+    /// a single-user app).
+    public func reconcileExternalCards(_ newCards: [VisionCard]) {
+        guard newCards != cards else { return }
+        guard !interactionInProgress else {
+            pendingExternalCards = newCards
+            return
+        }
+        setCards(newCards)
+    }
+
+    private func applyPendingExternalCards() {
+        guard let pending = pendingExternalCards, !interactionInProgress else { return }
+        pendingExternalCards = nil
+        if pending != cards { setCards(pending) }
     }
 
     // MARK: - Bulk Operations
@@ -659,6 +687,8 @@ public class VisionBoardViewModel: ObservableObject {
     // MARK: - Private Helpers
 
     private func notifyChange() {
+        // A local commit supersedes any snapshot that arrived mid-session.
+        pendingExternalCards = nil
         onCardsChanged?(cards)
     }
 }

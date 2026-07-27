@@ -13,6 +13,11 @@ public struct VisionBoardView: View {
 
     @StateObject private var viewModel: VisionBoardViewModel
 
+    /// The project's cards as the host currently knows them (Slice 3):
+    /// seeds the view model once, then feeds external reconciliation so
+    /// assistant actions and project reloads show up on an open board.
+    public var cards: [VisionCard]
+
     /// Callback when vision cards change (for persistence)
     public var onCardsChanged: (([VisionCard]) -> Void)?
 
@@ -41,6 +46,7 @@ public struct VisionBoardView: View {
         projectBasePath: URL? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(cards: cards))
+        self.cards = cards
         self.onCardsChanged = onCardsChanged
         self.onGenerateImage = onGenerateImage
         self.projectBasePath = projectBasePath
@@ -108,6 +114,9 @@ public struct VisionBoardView: View {
         }
         .onChange(of: projectBasePath) { _, newBase in
             viewModel.configureAssetStore(projectBase: newBase)
+        }
+        .onChange(of: cards) { _, newCards in
+            viewModel.reconcileExternalCards(newCards)
         }
         .alert("New Board", isPresented: $showingNewBoardAlert) {
             TextField("Board name", text: $newBoardName)

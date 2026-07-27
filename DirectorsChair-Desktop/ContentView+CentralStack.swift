@@ -143,6 +143,7 @@ struct CentralViewStack: View {
                 onCardsChanged: { cards in
                     projectViewModel.project.beats = cards
                     projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
                 },
                 onGenerateImage: { prompt, completion in
                     generateVisionBoardImage(prompt: prompt, completion: completion)

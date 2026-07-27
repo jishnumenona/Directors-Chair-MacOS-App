@@ -13,6 +13,7 @@
 import Foundation
 import DirectorsChairCore
 import DirectorsChairServices
+import DirectorsChairViews
 
 private let stringProp = JSONValue.object(["type": .string("string")])
 private let stringArrayProp = JSONValue.object(
@@ -282,20 +283,42 @@ final class GenerateVisionBoardImageAction: ProjectAssistantAction, AssistantAct
         guard let projectFile = pvm.projectPath else {
             throw ActionError("the project has not been saved yet")
         }
-        // Mirrors the A0 vision-board executor: prompt prefix, 16:9,
-        // assets/visionboard/vision_<epoch>.png.
+        // Mirrors the A0 vision-board executor: prompt prefix, 16:9.
         let prompt = "Cinematic mood-board reference image: \(args.prompt). "
         let imageData = try await makeGenerate()(prompt, "16:9", nil)
-        let directory = projectFile.deletingLastPathComponent()
-            .appendingPathComponent("assets/visionboard", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory,
-                                                withIntermediateDirectories: true)
-        let filename = "vision_\(Int(Date().timeIntervalSince1970)).png"
-        try imageData.write(to: directory.appendingPathComponent(filename))
+
+        // Collision-safe write through the Slice-2 store — epoch filenames
+        // collide when two generations land in the same second.
+        let store = VisionBoardAssetStore(
+            projectBase: projectFile.deletingLastPathComponent())
+        let staged = try store.stage(
+            imageData, fileName: "vision_\(Int(Date().timeIntervalSince1970)).png")
+        let relativePath = try store.finalize(staged)
+        store.discardStaging()
+
+        // A real card on the master board (Slice 3) — the file used to be
+        // orphaned on disk while the board showed nothing. Deterministic
+        // grid placement: consecutive generations land on adjacent slots.
+        var card = VisionCard(title: String(args.prompt.prefix(60)),
+                              imagePath: relativePath)
+        let boardCards = pvm.project.beats.filter { $0.boardId == card.boardId }
+        let slot = VisionCanvasGeometry.nextFreeGridSlot(
+            cardSize: CGSize(width: 200, height: 200),
+            existing: boardCards.map {
+                CGRect(x: $0.canvasX ?? 0, y: $0.canvasY ?? 0,
+                       width: $0.canvasWidth ?? 200, height: $0.canvasHeight ?? 200)
+            })
+        card.canvasX = slot.x
+        card.canvasY = slot.y
+        card.canvasWidth = 200
+        card.canvasHeight = 200
+        card.zOrder = (pvm.project.beats.map(\.zOrder).max() ?? 0) + 1
+        pvm.project.beats.append(card)
+
         pvm.isDirty = true
         didMutate(.general)
         return ActionOutcome(resultForModel: #"{"status": "applied"}"#,
-                             userSummary: "Added a vision-board image")
+                             userSummary: "Added a vision-board card")
     }
 }
 
