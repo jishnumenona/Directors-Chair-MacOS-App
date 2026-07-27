@@ -9,7 +9,7 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
-## [3.8.0] — 2026-07-27
+## [3.8.1] — 2026-07-27
 
 ### Added
 - The AI Assistant now creates, not just edits. Ask it to generate scene
