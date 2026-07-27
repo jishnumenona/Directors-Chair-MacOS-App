@@ -125,7 +125,8 @@ final class GenerateShotVideoAction: ProjectAssistantAction, AssistantAction {
                 title: "shot #\(args.shot) · \(shot.shotType) / \(shot.cameraAngle)",
                 oldValue: shot.videoPath == nil ? "no video" : "existing take kept",
                 newValue: "new \(Int(duration))s take (~$\(String(format: "%.2f", cost)))")],
-            warnings: warnings)
+            warnings: warnings,
+            estimatedCost: cost)
     }
 
     @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {

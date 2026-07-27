@@ -40,12 +40,16 @@ public struct ActionPlan: Sendable, Equatable {
     /// (e.g. new schedule conflicts). Shown on the review card AND returned
     /// to the model so it can reconsider or flag them — never a silent block.
     public var warnings: [String]
+    /// Estimated spend in USD for spending actions (0 for free actions).
+    /// The review card sums these across a TurnPlan for the batch total.
+    public var estimatedCost: Double
 
     public init(summary: String, previews: [ActionPreview] = [],
-                warnings: [String] = []) {
+                warnings: [String] = [], estimatedCost: Double = 0) {
         self.summary = summary
         self.previews = previews
         self.warnings = warnings
+        self.estimatedCost = estimatedCost
     }
 }
 

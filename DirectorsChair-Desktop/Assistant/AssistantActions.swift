@@ -556,6 +556,15 @@ enum AssistantActionFactory {
                                 coordinator: coordinator)      // A5.3
         actions += videoActions(projectViewModel: projectViewModel,
                                 coordinator: coordinator)      // A5.4
+        // A5.5: the batch sweep reuses the per-entity generation actions
+        // registered above (same pipelines, same injected providers).
+        if let characterAction = actions.compactMap({ $0 as? GenerateCharacterImagesAction }).first,
+           let locationAction = actions.compactMap({ $0 as? GenerateLocationImagesAction }).first {
+            actions += batchActions(projectViewModel: projectViewModel,
+                                    coordinator: coordinator,
+                                    characterAction: characterAction,
+                                    locationAction: locationAction)
+        }
         for action in actions {
             do {
                 try registry.register(action)

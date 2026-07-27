@@ -248,7 +248,8 @@ final class GenerateCharacterImagesAction: ProjectAssistantAction, AssistantActi
                     title: "\(args.character) · \(angle.replacingOccurrences(of: "_", with: " "))",
                     oldValue: nil,
                     newValue: "generate (~$\(String(format: "%.2f", CharacterImagePipeline.estimatedCostPerImage)))")
-            })
+            },
+            estimatedCost: cost)
     }
 
     @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {

@@ -57,6 +57,11 @@ public struct ProposedActionItem: Sendable, Equatable, Identifiable {
 public struct TurnPlan: Sendable, Equatable {
     public var items: [ProposedActionItem]
     public init(items: [ProposedActionItem]) { self.items = items }
+
+    /// Total estimated spend across the plan (A5.5 batch budget surface).
+    public var totalEstimatedCost: Double {
+        items.reduce(0) { $0 + $1.plan.estimatedCost }
+    }
 }
 
 // MARK: - Events
