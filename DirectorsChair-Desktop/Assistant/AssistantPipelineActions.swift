@@ -120,6 +120,70 @@ final class ImportScreenplayAction: ProjectAssistantAction, AssistantAction {
     }
 }
 
+
+// MARK: - write_character_biography
+
+final class WriteCharacterBiographyAction: ProjectAssistantAction, AssistantAction {
+    typealias GenerateBackstory = @Sendable (
+        _ name: String, _ age: String, _ occupation: String,
+        _ keyTraits: [String], _ storyContext: String) async throws -> String
+
+    let name = "write_character_biography"
+    let summary = """
+    Write a character's background story with AI, from their name, age, \
+    occupation, top personality traits, and the project's story context — \
+    the same generator as Story Design's Biography button. Replaces the \
+    existing backstory (undoable). Runs on approval (~$0.01).
+    """
+    let risk = ActionRisk.spending
+    var parameterSchema: JSONValue {
+        objectSchema(["character": stringProp], required: ["character"])
+    }
+
+    private let generateBackstory: GenerateBackstory
+
+    init(projectViewModel: ProjectViewModel?, coordinator: AppCoordinator?,
+         generateBackstory: @escaping GenerateBackstory) {
+        self.generateBackstory = generateBackstory
+        super.init(projectViewModel: projectViewModel, coordinator: coordinator)
+    }
+
+    private struct Arguments: Decodable { let character: String }
+
+    @MainActor func validate(argumentsData: Data) throws -> ActionPlan {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        let pvm = try requireProject()
+        let index = try character(named: args.character, in: pvm)
+        let existing = pvm.project.characters[index].backgroundStory
+        return ActionPlan(
+            summary: "Write \(args.character)'s biography (~$0.01)",
+            previews: [ActionPreview(
+                title: "\(args.character) · backstory",
+                oldValue: (existing?.isEmpty ?? true) ? "none"
+                    : String(existing!.prefix(120)),
+                newValue: "AI-written biography (generated on apply)")],
+            estimatedCost: 0.01)
+    }
+
+    @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
+        let args = try JSONDecoder().decode(Arguments.self, from: argumentsData)
+        let pvm = try requireProject()
+        let index = try character(named: args.character, in: pvm)
+        let subject = pvm.project.characters[index]
+        // Same inputs as the Story Design seam: top-5 traits + story context.
+        let keyTraits = subject.traits.sorted { $0.value > $1.value }
+            .prefix(5).map(\.key)
+        let backstory = try await generateBackstory(
+            subject.name, "\(subject.age)", subject.occupation ?? "",
+            Array(keyTraits), pvm.project.overviewSummary)
+        pvm.project.characters[index].backgroundStory = backstory
+        didMutate(.general)
+        return ActionOutcome(
+            resultForModel: #"{"status": "applied"}"#,
+            userSummary: "Wrote \(args.character)'s biography")
+    }
+}
+
 // MARK: - Factory extension
 
 extension AssistantActionFactory {
@@ -131,6 +195,13 @@ extension AssistantActionFactory {
                 runImport: { url, name in
                     try await ScreenplayImporter.importFromPDF(
                         url: url, projectName: name, progress: nil)
+                }),
+            WriteCharacterBiographyAction(
+                projectViewModel: projectViewModel, coordinator: coordinator,
+                generateBackstory: { name, age, occupation, traits, context in
+                    try await AIServiceClient.shared.generateCharacterBackstory(
+                        characterName: name, age: age, occupation: occupation,
+                        keyTraits: traits, storyContext: context)
                 }),
         ]
     }

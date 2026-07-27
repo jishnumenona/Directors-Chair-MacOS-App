@@ -107,4 +107,30 @@ final class AssistantPipelineActionsTests: XCTestCase {
         XCTAssertTrue(outcome.userSummary.contains("2 scenes"), outcome.userSummary)
         XCTAssertTrue(outcome.userSummary.contains("1 characters"))
     }
+
+    func testWriteCharacterBiographyGeneratesFromTraitsAndPersists() async throws {
+        projectVM.project.characters = [Character(name: "Mara")]
+        projectVM.project.characters[0].traits = ["Grit": 90, "Wit": 70]
+        var receivedTraits: [String] = []
+        let action = WriteCharacterBiographyAction(
+            projectViewModel: projectVM, coordinator: nil,
+            generateBackstory: { name, _, _, traits, _ in
+                await MainActor.run { receivedTraits = traits }
+                return "Born in the rain, \(name) never stopped running."
+            })
+        XCTAssertEqual(action.risk, .spending)
+
+        let plan = try action.validate(argumentsData:
+            args(#"{"character": "Mara"}"#))
+        XCTAssertEqual(plan.previews[0].oldValue, "none")
+        XCTAssertEqual(plan.estimatedCost, 0.01)
+        XCTAssertThrowsError(try action.validate(argumentsData:
+            args(#"{"character": "Ghost"}"#)))
+
+        _ = try await action.execute(argumentsData: args(#"{"character": "Mara"}"#))
+        XCTAssertTrue(projectVM.project.characters[0].backgroundStory?
+            .contains("never stopped running") ?? false)
+        XCTAssertEqual(receivedTraits.first, "Grit", "top traits by value")
+        XCTAssertTrue(projectVM.isDirty)
+    }
 }
