@@ -31,6 +31,8 @@ enum PrefKey {
 
     // General > AI Assistant
     static let showAssistantOnLaunch = "pref.general.showAssistantOnLaunch"
+    /// A6.3: opt-in proactive conflict checks when the assistant opens.
+    static let assistantProactiveChecks = "pref.general.assistantProactiveChecks"
 
     // Editor > Typography
     static let editorFontFamily = "pref.editor.fontFamily"        // "Courier Prime" etc.

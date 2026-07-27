@@ -9,6 +9,7 @@ import Foundation
 import SwiftUI
 import DirectorsChairCore
 import DirectorsChairServices
+import DirectorsChairProduction
 
 /// The AssistantKit wire message (distinct from this file's display-side
 /// `ChatMessage`, which persists conversations and drives the bubbles).
@@ -235,6 +236,42 @@ class AIChatViewModel: ObservableObject {
         canUndoAssistantChanges = false
         messages.append(ChatMessage(role: .system, content: "Assistant changes reverted"))
         saveCurrentConversation()
+    }
+
+    // MARK: - Proactive checks (A6.3, opt-in)
+
+    /// Once per widget-open guard so reopening doesn't repeat findings.
+    private var proactiveChecksRan = false
+
+    /// Runs the DETERMINISTIC checkers (no AI, no cost) and posts one
+    /// compact heads-up when something needs attention. Opt-in via the
+    /// bell in the chat header.
+    func runProactiveChecksIfEnabled() {
+        guard UserDefaults.standard.bool(forKey: PrefKey.assistantProactiveChecks),
+              !proactiveChecksRan,
+              let project = projectViewModel?.project else { return }
+        proactiveChecksRan = true
+
+        var findings: [String] = []
+        if !project.scheduleItems.isEmpty {
+            let checker = ScheduleViewModel(scheduleItems: project.scheduleItems)
+            checker.detectConflicts()
+            if !checker.conflicts.isEmpty {
+                findings.append("\(checker.conflicts.count) schedule conflict\(checker.conflicts.count == 1 ? "" : "s")")
+            }
+        }
+        if !project.ganttTasks.isEmpty {
+            let checker = GanttViewModel()
+            checker.setTasks(project.ganttTasks)
+            let problems = checker.validateDependencies()
+            if !problems.isEmpty {
+                findings.append("\(problems.count) plan dependency problem\(problems.count == 1 ? "" : "s")")
+            }
+        }
+        guard !findings.isEmpty else { return }
+        messages.append(ChatMessage(
+            role: .system,
+            content: "⚠ Heads up: \(findings.joined(separator: " and ")) — ask me for details or fixes."))
     }
 
     private func resetTurnState() {

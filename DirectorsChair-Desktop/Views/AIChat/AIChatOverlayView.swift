@@ -18,6 +18,7 @@ struct AIChatOverlayView: View {
     @State private var commandTap = CommandTapMonitor()
     @FocusState private var isInputFocused: Bool
     @AppStorage(PrefKey.showAssistantOnLaunch) private var showAssistantOnLaunch: Bool = false
+    @AppStorage(PrefKey.assistantProactiveChecks) private var proactiveChecks: Bool = false
 
     var body: some View {
         ZStack {
@@ -80,6 +81,7 @@ struct AIChatOverlayView: View {
             viewModel.coordinator = coordinator
             viewModel.projectViewModel = projectViewModel
             viewModel.addWelcomeMessageIfNeeded()
+            viewModel.runProactiveChecksIfEnabled()
             // A bare ⌘ tap toggles dictation while the assistant is open
             // (chords like ⌘C are ignored — see CommandTapMonitor).
             commandTap.onTap = { toggleDictation() }
@@ -104,6 +106,20 @@ struct AIChatOverlayView: View {
     private var chatHeader: some View {
         HStack(spacing: 10) {
             // History toggle
+            Button(action: {
+                proactiveChecks.toggle()
+                if proactiveChecks { viewModel.runProactiveChecksIfEnabled() }
+            }) {
+                Image(systemName: proactiveChecks ? "bell.badge.fill" : "bell.slash")
+                    .font(.system(size: 12))
+                    .foregroundColor(proactiveChecks ? .accentColor
+                                     : Color(nsColor: .tertiaryLabelColor))
+            }
+            .buttonStyle(.plain)
+            .help(proactiveChecks
+                  ? "Proactive checks on — conflicts are flagged when you open the assistant"
+                  : "Proactive checks off — click to flag schedule/plan problems on open")
+
             Button(action: { viewModel.showHistory.toggle() }) {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 14))

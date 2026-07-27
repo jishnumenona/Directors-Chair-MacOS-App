@@ -140,4 +140,45 @@ final class AssistantChatUXTests: XCTestCase {
                           "the index stays small even for large projects (was ~25k-token dumps)")
         XCTAssertTrue(index.contains("fetch content with the read tools"))
     }
+
+    // MARK: - A6.3: proactive checks (opt-in, deterministic, zero-cost)
+
+    func testProactiveChecksFlagConflictsOnceWhenEnabled() {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: PrefKey.assistantProactiveChecks)
+        defer {
+            if let previous { defaults.set(previous, forKey: PrefKey.assistantProactiveChecks) }
+            else { defaults.removeObject(forKey: PrefKey.assistantProactiveChecks) }
+        }
+
+        var project = Project(name: "Fixture Film")
+        project.scheduleItems = [
+            ScheduleItem(sceneName: "Opening", shootDate: "2026-08-01",
+                         timeSlot: "Morning", status: "Planned",
+                         location: "Stage 4", requiredActors: ["Ada Vale"]),
+            ScheduleItem(sceneName: "Finale", shootDate: "2026-08-01",
+                         timeSlot: "Morning", status: "Planned",
+                         location: "Rooftop", requiredActors: ["Ada Vale"]),
+        ]
+        let pvm = ProjectViewModel(project: project)
+
+        // Off (default): silent.
+        defaults.set(false, forKey: PrefKey.assistantProactiveChecks)
+        let quiet = AIChatViewModel()
+        quiet.projectViewModel = pvm
+        let quietBefore = quiet.messages.count
+        quiet.runProactiveChecksIfEnabled()
+        XCTAssertEqual(quiet.messages.count, quietBefore, "opt-in means silent by default")
+
+        // On: exactly one heads-up, and only once per open.
+        defaults.set(true, forKey: PrefKey.assistantProactiveChecks)
+        let vocal = AIChatViewModel()
+        vocal.projectViewModel = pvm
+        let before = vocal.messages.count
+        vocal.runProactiveChecksIfEnabled()
+        vocal.runProactiveChecksIfEnabled()
+        let added = vocal.messages.suffix(from: before).map(\.content)
+        XCTAssertEqual(added.count, 1, "one heads-up per open, never repeated")
+        XCTAssertTrue(added[0].contains("schedule conflict"), added[0])
+    }
 }
