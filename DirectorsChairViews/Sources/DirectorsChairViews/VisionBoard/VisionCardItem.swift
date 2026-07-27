@@ -15,20 +15,26 @@ public struct VisionCardItem: View {
     public let isSelected: Bool
     public let zoomLevel: CGFloat
     public let showLabel: Bool
+    /// Named coordinate space of the canvas container — drag translations
+    /// arrive in unscaled screen points so the VM's `translation / zoom`
+    /// math is exact (Slice 1).
+    public var canvasSpaceName: String = "visionCanvas"
 
-    // Callbacks
+    // Callbacks — raw gesture phases; ALL math lives in the view model's
+    // anchored sessions (Slice 1).
     public var onSelect: ((Bool) -> Void)?  // Bool = add to selection (shift-click)
     public var onDoubleClick: (() -> Void)?
-    public var onDrag: ((CGPoint) -> Void)?
-    public var onDragEnd: (() -> Void)?
-    public var onResize: ((CGSize) -> Void)?
-    public var onResizeEnd: (() -> Void)?
+    public var onDragBegan: (() -> Void)?
+    public var onDragChanged: ((CGSize) -> Void)?
+    public var onDragEnded: ((CGSize) -> Void)?
+    public var onResizeBegan: ((ResizeCorner) -> Void)?
+    public var onResizeChanged: ((CGSize) -> Void)?
+    public var onResizeEnded: ((CGSize) -> Void)?
 
     // MARK: - State
 
     @State private var isDragging: Bool = false
     @State private var isResizing: Bool = false
-    @State private var resizeCorner: ResizeCorner?
     @State private var isHovering: Bool = false
     @State private var loadedImage: NSImage?
 
@@ -60,23 +66,29 @@ public struct VisionCardItem: View {
         isSelected: Bool = false,
         zoomLevel: CGFloat = 1.0,
         showLabel: Bool = true,
+        canvasSpaceName: String = "visionCanvas",
         onSelect: ((Bool) -> Void)? = nil,
         onDoubleClick: (() -> Void)? = nil,
-        onDrag: ((CGPoint) -> Void)? = nil,
-        onDragEnd: (() -> Void)? = nil,
-        onResize: ((CGSize) -> Void)? = nil,
-        onResizeEnd: (() -> Void)? = nil
+        onDragBegan: (() -> Void)? = nil,
+        onDragChanged: ((CGSize) -> Void)? = nil,
+        onDragEnded: ((CGSize) -> Void)? = nil,
+        onResizeBegan: ((ResizeCorner) -> Void)? = nil,
+        onResizeChanged: ((CGSize) -> Void)? = nil,
+        onResizeEnded: ((CGSize) -> Void)? = nil
     ) {
         self.card = card
         self.isSelected = isSelected
         self.zoomLevel = zoomLevel
         self.showLabel = showLabel
+        self.canvasSpaceName = canvasSpaceName
         self.onSelect = onSelect
         self.onDoubleClick = onDoubleClick
-        self.onDrag = onDrag
-        self.onDragEnd = onDragEnd
-        self.onResize = onResize
-        self.onResizeEnd = onResizeEnd
+        self.onDragBegan = onDragBegan
+        self.onDragChanged = onDragChanged
+        self.onDragEnded = onDragEnded
+        self.onResizeBegan = onResizeBegan
+        self.onResizeChanged = onResizeChanged
+        self.onResizeEnded = onResizeEnded
     }
 
     // MARK: - Body
@@ -117,8 +129,8 @@ public struct VisionCardItem: View {
                 pinnedIndicator
             }
         }
+        // World coordinates only — the cards layer applies zoom+offset once.
         .position(x: cardPosition.x + cardWidth / 2, y: cardPosition.y + cardHeight / 2)
-        .scaleEffect(zoomLevel)
         .onHover { hovering in
             isHovering = hovering
         }
@@ -532,15 +544,23 @@ public struct VisionCardItem: View {
                 Circle()
                     .stroke(Color.white, lineWidth: 2)
             )
-            .position(x: cardPosition.x + offset.x, y: cardPosition.y + offset.y)
+            // Counter-scale so handles stay 12pt on screen at any zoom.
+            .scaleEffect(zoomLevel > 0 ? 1 / zoomLevel : 1)
+            // CARD-LOCAL coordinates — the ZStack is the card's own space.
+            .position(x: offset.x, y: offset.y)
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 1,
+                            coordinateSpace: .named(canvasSpaceName))
                     .onChanged { value in
-                        handleResize(corner: corner, translation: value.translation)
+                        if !isResizing {
+                            isResizing = true
+                            onResizeBegan?(corner)
+                        }
+                        onResizeChanged?(value.translation)
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
                         isResizing = false
-                        onResizeEnd?()
+                        onResizeEnded?(value.translation)
                     }
             )
             .onHover { hovering in
@@ -554,51 +574,24 @@ public struct VisionCardItem: View {
 
     // MARK: - Gestures
 
+    /// Raw phases only; the VM's anchored session does the math. The named
+    /// coordinate space keeps translations in unscaled screen points.
     private var dragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 3,
+                    coordinateSpace: .named(canvasSpaceName))
             .onChanged { value in
-                if !isResizing {
+                guard !isResizing else { return }
+                if !isDragging {
                     isDragging = true
-                    let newPosition = CGPoint(
-                        x: cardPosition.x + value.translation.width / zoomLevel,
-                        y: cardPosition.y + value.translation.height / zoomLevel
-                    )
-                    onDrag?(newPosition)
+                    onDragBegan?()
                 }
+                onDragChanged?(value.translation)
             }
-            .onEnded { _ in
+            .onEnded { value in
+                guard isDragging else { return }
                 isDragging = false
-                onDragEnd?()
+                onDragEnded?(value.translation)
             }
-    }
-
-    // MARK: - Helpers
-
-    private func handleResize(corner: ResizeCorner, translation: CGSize) {
-        isResizing = true
-
-        var newWidth = cardWidth
-        var newHeight = cardHeight
-
-        switch corner {
-        case .topLeft:
-            newWidth -= translation.width / zoomLevel
-            newHeight -= translation.height / zoomLevel
-        case .topRight:
-            newWidth += translation.width / zoomLevel
-            newHeight -= translation.height / zoomLevel
-        case .bottomLeft:
-            newWidth -= translation.width / zoomLevel
-            newHeight += translation.height / zoomLevel
-        case .bottomRight:
-            newWidth += translation.width / zoomLevel
-            newHeight += translation.height / zoomLevel
-        }
-
-        newWidth = max(100, newWidth)
-        newHeight = max(80, newHeight)
-
-        onResize?(CGSize(width: newWidth, height: newHeight))
     }
 
     private func loadImageIfNeeded() {
@@ -634,7 +627,7 @@ public struct VisionCardItem: View {
 
 // MARK: - Resize Corner Enum
 
-enum ResizeCorner: CaseIterable {
+public enum ResizeCorner: CaseIterable, Sendable {
     case topLeft
     case topRight
     case bottomLeft

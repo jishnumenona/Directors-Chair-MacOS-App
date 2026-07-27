@@ -447,6 +447,17 @@ public struct VisionBoardView: View {
             .background(Color(hex: "#2A2A2A"))
             .cornerRadius(4)
             .help("Reset to 100%")
+
+            Button {
+                viewModel.fitToView(viewSize: viewModel.viewportSize)
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .background(Color(hex: "#2A2A2A"))
+            .cornerRadius(4)
+            .help("Fit all cards in view")
         }
         .padding(8)
         .background(

@@ -19,15 +19,12 @@ public struct VisionBoardCanvas: View {
     // MARK: - State
 
     @State private var viewSize: CGSize = .zero
-    @State private var isPanning: Bool = false
-    @State private var lastPanLocation: CGPoint = .zero
-    @State private var magnification: CGFloat = 1.0
 
     // MARK: - Constants
 
-    private static let canvasSize: CGFloat = 10000  // 10000x10000 virtual canvas
     private static let dotGridSpacing: CGFloat = 40
     private static let dotSize: CGFloat = 2
+    private static let canvasSpaceName = "visionCanvas"
 
     // MARK: - Init
 
@@ -40,49 +37,42 @@ public struct VisionBoardCanvas: View {
     }
 
     // MARK: - Body
+    //
+    // Slice 1: one transform owner. The grid draws in SCREEN space on a
+    // viewport-sized Canvas; the cards layer applies zoom+offset exactly
+    // once. Card gestures are attached deeper in the hierarchy, so the
+    // container's plain pan gesture yields to them — dragging a card no
+    // longer pans the canvas.
 
     public var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                // Background with dot grid
+            ZStack(alignment: .topLeading) {
                 canvasBackground
-                    .frame(
-                        width: Self.canvasSize * viewModel.zoomLevel,
-                        height: Self.canvasSize * viewModel.zoomLevel
-                    )
 
-                // Cards layer
                 cardsLayer
-                    .frame(
-                        width: Self.canvasSize * viewModel.zoomLevel,
-                        height: Self.canvasSize * viewModel.zoomLevel
-                    )
+                    .frame(width: geometry.size.width,
+                           height: geometry.size.height,
+                           alignment: .topLeading)
 
-                // Selection rectangle (if multi-selecting)
-                // TODO: Add rubber-band selection
-            }
-            .offset(x: viewModel.canvasOffset.x, y: viewModel.canvasOffset.y)
-            // Use simultaneousGesture to not block other event handlers
-            .simultaneousGesture(panGesture)
-            .simultaneousGesture(magnificationGesture)
-            // Use high priority gesture for tap to not interfere with parent views
-            .onTapGesture {
-                // Click on empty space clears selection
-                viewModel.clearSelection()
+                // TODO: rubber-band selection (tracked flaw, out of scope)
             }
             .clipped()
-            // Limit hit testing to actual visible content
             .contentShape(Rectangle())
+            .coordinateSpace(name: Self.canvasSpaceName)
+            .gesture(panGesture)
+            .gesture(magnificationGesture)
+            .onTapGesture {
+                viewModel.clearSelection()
+            }
             .onAppear {
                 viewSize = geometry.size
-                // Center the canvas initially
-                viewModel.canvasOffset = CGPoint(
-                    x: geometry.size.width / 2 - (Self.canvasSize * viewModel.zoomLevel) / 2,
-                    y: geometry.size.height / 2 - (Self.canvasSize * viewModel.zoomLevel) / 2
-                )
+                viewModel.viewportSize = geometry.size
+                // First appearance: fit the board's content.
+                viewModel.fitToView(viewSize: geometry.size)
             }
             .onChange(of: geometry.size) { _, newSize in
                 viewSize = newSize
+                viewModel.viewportSize = newSize
             }
         }
         .background(Color(hex: "#1A1A1A"))
@@ -92,59 +82,48 @@ public struct VisionBoardCanvas: View {
 
     @ViewBuilder
     private var canvasBackground: some View {
+        // Screen-space grid: dots at world-grid positions projected through
+        // the transform, culled to the viewport. The grid CONSUMES the
+        // transform; it owns none of it.
         Canvas { context, size in
-            // Fill background
             context.fill(
                 Path(CGRect(origin: .zero, size: size)),
                 with: .color(Color(hex: "#1E1E1E"))
             )
 
-            // Draw dot grid
-            let spacing = Self.dotGridSpacing * viewModel.zoomLevel
-            let dotRadius = Self.dotSize * viewModel.zoomLevel / 2
+            let transform = viewModel.transform
+            let spacing = Self.dotGridSpacing * transform.zoom
+            guard spacing >= 6 else { return }   // grid too dense to be useful
+            let dotRadius = max(0.5, Self.dotSize * transform.zoom / 2)
 
-            // Only draw visible dots (viewport culling)
-            let visibleStartX = max(0, -viewModel.canvasOffset.x - spacing)
-            let visibleStartY = max(0, -viewModel.canvasOffset.y - spacing)
-            let visibleEndX = min(size.width, -viewModel.canvasOffset.x + viewSize.width + spacing)
-            let visibleEndY = min(size.height, -viewModel.canvasOffset.y + viewSize.height + spacing)
+            // Screen positions of world grid lines: offset modulo spacing.
+            let phaseX = transform.offset.x.truncatingRemainder(dividingBy: spacing)
+            let phaseY = transform.offset.y.truncatingRemainder(dividingBy: spacing)
 
-            // Align to grid
-            let startX = (visibleStartX / spacing).rounded(.down) * spacing
-            let startY = (visibleStartY / spacing).rounded(.down) * spacing
-
-            for x in stride(from: startX, to: visibleEndX, by: spacing) {
-                for y in stride(from: startY, to: visibleEndY, by: spacing) {
-                    let dotRect = CGRect(
-                        x: x - dotRadius,
-                        y: y - dotRadius,
-                        width: dotRadius * 2,
-                        height: dotRadius * 2
-                    )
+            var x = phaseX - spacing
+            while x < size.width + spacing {
+                var y = phaseY - spacing
+                while y < size.height + spacing {
                     context.fill(
-                        Path(ellipseIn: dotRect),
+                        Path(ellipseIn: CGRect(x: x - dotRadius, y: y - dotRadius,
+                                               width: dotRadius * 2,
+                                               height: dotRadius * 2)),
                         with: .color(Color(hex: "#3A3A3A"))
                     )
+                    y += spacing
                 }
+                x += spacing
             }
 
-            // Draw center crosshair
-            let centerX = size.width / 2
-            let centerY = size.height / 2
-            let crosshairLength: CGFloat = 20 * viewModel.zoomLevel
-
+            // World-origin crosshair (projected).
+            let origin = transform.toScreen(.zero)
+            let arm: CGFloat = 20 * transform.zoom
             context.stroke(
                 Path { path in
-                    path.move(to: CGPoint(x: centerX - crosshairLength, y: centerY))
-                    path.addLine(to: CGPoint(x: centerX + crosshairLength, y: centerY))
-                },
-                with: .color(Color(hex: "#4A4A4A")),
-                lineWidth: 1
-            )
-            context.stroke(
-                Path { path in
-                    path.move(to: CGPoint(x: centerX, y: centerY - crosshairLength))
-                    path.addLine(to: CGPoint(x: centerX, y: centerY + crosshairLength))
+                    path.move(to: CGPoint(x: origin.x - arm, y: origin.y))
+                    path.addLine(to: CGPoint(x: origin.x + arm, y: origin.y))
+                    path.move(to: CGPoint(x: origin.x, y: origin.y - arm))
+                    path.addLine(to: CGPoint(x: origin.x, y: origin.y + arm))
                 },
                 with: .color(Color(hex: "#4A4A4A")),
                 lineWidth: 1
@@ -156,13 +135,14 @@ public struct VisionBoardCanvas: View {
 
     @ViewBuilder
     private var cardsLayer: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             ForEach(viewModel.filteredCards) { card in
                 VisionCardItem(
                     card: card,
                     isSelected: viewModel.selectedCardIds.contains(card.id),
                     zoomLevel: viewModel.zoomLevel,
                     showLabel: viewModel.showLabels,
+                    canvasSpaceName: Self.canvasSpaceName,
                     onSelect: { addToSelection in
                         if addToSelection {
                             viewModel.toggleCardSelection(card.id)
@@ -173,100 +153,55 @@ public struct VisionBoardCanvas: View {
                     onDoubleClick: {
                         onCardEdit?(card)
                     },
-                    onDrag: { newPosition in
-                        // If multiple cards selected, move all of them
-                        if viewModel.selectedCardIds.contains(card.id) && viewModel.selectedCardIds.count > 1 {
-                            let deltaX = Double(newPosition.x) - (card.canvasX ?? 0)
-                            let deltaY = Double(newPosition.y) - (card.canvasY ?? 0)
-                            viewModel.moveSelectedCards(deltaX: deltaX, deltaY: deltaY)
-                        } else {
-                            viewModel.updateCardPosition(
-                                card.id,
-                                x: Double(newPosition.x),
-                                y: Double(newPosition.y)
-                            )
-                        }
+                    onDragBegan: {
+                        viewModel.beginCardDrag(anchor: card.id)
                     },
-                    onDragEnd: {
-                        // Position finalized
+                    onDragChanged: { translation in
+                        viewModel.updateCardDrag(translation: translation)
                     },
-                    onResize: { newSize in
-                        viewModel.updateCardSize(
-                            card.id,
-                            width: Double(newSize.width),
-                            height: Double(newSize.height)
-                        )
+                    onDragEnded: { translation in
+                        viewModel.endCardDrag(translation: translation)
                     },
-                    onResizeEnd: {
-                        // Size finalized
+                    onResizeBegan: { corner in
+                        viewModel.beginResize(cardId: card.id, corner: corner)
+                    },
+                    onResizeChanged: { translation in
+                        viewModel.updateResize(translation: translation)
+                    },
+                    onResizeEnded: { translation in
+                        viewModel.endResize(translation: translation)
                     }
                 )
-                // Position is handled inside VisionCardItem
             }
         }
-        // Offset to account for card positions being from canvas origin (center)
-        .offset(
-            x: Self.canvasSize * viewModel.zoomLevel / 2,
-            y: Self.canvasSize * viewModel.zoomLevel / 2
-        )
+        // The ONE place zoom and offset touch the render tree.
+        .scaleEffect(viewModel.transform.zoom, anchor: .topLeading)
+        .offset(x: viewModel.transform.offset.x, y: viewModel.transform.offset.y)
     }
 
     // MARK: - Gestures
 
+    /// Plain gesture (not simultaneous): card-attached gestures are deeper
+    /// in the hierarchy and win — dragging a card never pans the canvas.
     private var panGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 3)
             .onChanged { value in
-                // Only pan if clicking on empty space (not on a card)
-                if !isPanning {
-                    isPanning = true
-                    lastPanLocation = value.startLocation
-                }
-
-                let delta = CGPoint(
-                    x: value.location.x - lastPanLocation.x,
-                    y: value.location.y - lastPanLocation.y
-                )
-
-                viewModel.canvasOffset = CGPoint(
-                    x: viewModel.canvasOffset.x + delta.x,
-                    y: viewModel.canvasOffset.y + delta.y
-                )
-
-                lastPanLocation = value.location
+                viewModel.beginPanIfNeeded()
+                viewModel.updatePan(translation: value.translation)
             }
             .onEnded { _ in
-                isPanning = false
+                viewModel.endPan()
             }
     }
 
     private var magnificationGesture: some Gesture {
-        MagnificationGesture()
+        MagnifyGesture()
             .onChanged { value in
-                let delta = value / magnification
-                magnification = value
-
-                // Calculate new zoom level
-                let newZoom = viewModel.zoomLevel * delta
-                let clampedZoom = max(
-                    VisionBoardViewModel.minZoom,
-                    min(VisionBoardViewModel.maxZoom, newZoom)
-                )
-
-                // Zoom toward center of view
-                let zoomRatio = clampedZoom / viewModel.zoomLevel
-
-                // Adjust offset to zoom toward center
-                let centerX = viewSize.width / 2
-                let centerY = viewSize.height / 2
-
-                let newOffsetX = centerX - (centerX - viewModel.canvasOffset.x) * zoomRatio
-                let newOffsetY = centerY - (centerY - viewModel.canvasOffset.y) * zoomRatio
-
-                viewModel.zoomLevel = clampedZoom
-                viewModel.canvasOffset = CGPoint(x: newOffsetX, y: newOffsetY)
+                viewModel.pinchZoom(magnification: value.magnification,
+                                    focus: value.startLocation)
             }
             .onEnded { _ in
-                magnification = 1.0
+                viewModel.endPinch()
             }
     }
 }
