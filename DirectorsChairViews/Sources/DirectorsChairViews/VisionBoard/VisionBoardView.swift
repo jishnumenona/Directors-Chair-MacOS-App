@@ -4,6 +4,7 @@
 // Pinterest/Milanote-style mood board for visual pre-production planning.
 
 import SwiftUI
+import UniformTypeIdentifiers
 import DirectorsChairCore
 
 // MARK: - Vision Board View
@@ -39,6 +40,7 @@ public struct VisionBoardView: View {
     @State private var showingNewBoardAlert: Bool = false
     @State private var showingDeleteAlert: Bool = false
     @State private var showingExportOptions: Bool = false
+    @State private var exportError: String?
 
     // MARK: - Init
 
@@ -125,6 +127,13 @@ public struct VisionBoardView: View {
         }
         .onChange(of: cards) { _, newCards in
             viewModel.reconcileExternalCards(newCards)
+        }
+        .alert("Export Failed", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "")
         }
         .alert("New Board", isPresented: $showingNewBoardAlert) {
             TextField("Board name", text: $newBoardName)
@@ -424,6 +433,47 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .foregroundColor(.white)
             .help("Export")
+            .popover(isPresented: $showingExportOptions) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Export Board")
+                        .font(.headline)
+                    Text("Renders every card on this board into one PNG.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Button("Export as PNG…") {
+                        showingExportOptions = false
+                        exportBoardPNG()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+                .frame(width: 240)
+            }
+        }
+    }
+
+    private func exportBoardPNG() {
+        let boardCards = viewModel.cards.filter {
+            $0.boardId == viewModel.currentBoardId
+        }
+        guard !boardCards.isEmpty else {
+            exportError = "This board has no cards to export."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "VisionBoard-\(viewModel.currentBoardId).png"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let data = VisionBoardExporter.renderPNG(
+            cards: boardCards, projectBase: projectBasePath) else {
+            exportError = "Could not render the board."
+            return
+        }
+        do {
+            try data.write(to: url)
+        } catch {
+            exportError = "Could not save the PNG: \(error.localizedDescription)"
         }
     }
 
