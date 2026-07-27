@@ -21,6 +21,9 @@ public struct VisionBoardView: View {
     /// Callback when vision cards change (for persistence)
     public var onCardsChanged: (([VisionCard]) -> Void)?
 
+    /// Callback when the board registry changes (Slice 4 persistence)
+    public var onBoardsChanged: (([VisionBoardMeta]) -> Void)?
+
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
 
@@ -41,13 +44,17 @@ public struct VisionBoardView: View {
 
     public init(
         cards: [VisionCard] = [],
+        boards: [VisionBoardMeta] = [],
         onCardsChanged: (([VisionCard]) -> Void)? = nil,
+        onBoardsChanged: (([VisionBoardMeta]) -> Void)? = nil,
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
         projectBasePath: URL? = nil
     ) {
-        self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(cards: cards))
+        self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
+            cards: cards, boards: boards))
         self.cards = cards
         self.onCardsChanged = onCardsChanged
+        self.onBoardsChanged = onBoardsChanged
         self.onGenerateImage = onGenerateImage
         self.projectBasePath = projectBasePath
     }
@@ -140,6 +147,7 @@ public struct VisionBoardView: View {
         }
         .onAppear {
             viewModel.onCardsChanged = onCardsChanged
+            viewModel.onBoardsChanged = onBoardsChanged
             viewModel.onGenerateImage = onGenerateImage
         }
     }

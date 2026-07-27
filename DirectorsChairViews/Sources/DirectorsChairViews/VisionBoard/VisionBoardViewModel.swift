@@ -69,6 +69,12 @@ public class VisionBoardViewModel: ObservableObject {
     /// unchanged). Not @Published — it never drives rendering.
     public var assetStore: VisionBoardAssetStore?
 
+    /// Slice 4: the persisted board registry (empty boards survive).
+    @Published public var boardRegistry: [VisionBoardMeta]
+
+    /// Persistence callback for the board registry.
+    public var onBoardsChanged: (([VisionBoardMeta]) -> Void)?
+
     @Published public var editingCard: VisionCard?
 
     /// Show card editor sheet
@@ -116,9 +122,13 @@ public class VisionBoardViewModel: ObservableObject {
         return result.sorted { $0.zOrder < $1.zOrder }
     }
 
-    /// Available boards in the project
+    /// Available boards: the persisted registry UNION boards derived from
+    /// cards (legacy projects have no registry), plus the default board —
+    /// an empty board no longer vanishes from the picker (Slice 4).
     public var boardIds: [String] {
         let ids = Set(cards.map { $0.boardId })
+            .union(boardRegistry.map(\.id))
+            .union(["master"])
         return Array(ids).sorted()
     }
 
@@ -145,8 +155,9 @@ public class VisionBoardViewModel: ObservableObject {
 
     // MARK: - Initialization
 
-    public init(cards: [VisionCard] = []) {
+    public init(cards: [VisionCard] = [], boards: [VisionBoardMeta] = []) {
         self.cards = cards
+        self.boardRegistry = boards
         // Note: Don't select cards in init as filteredCards depends on currentBoardId
     }
 
@@ -194,16 +205,32 @@ public class VisionBoardViewModel: ObservableObject {
 
     /// Remove a card by ID
     public func removeCard(_ cardId: String) {
+        let removed = cards.filter { $0.id == cardId }
         cards.removeAll { $0.id == cardId }
         selectedCardIds.remove(cardId)
+        cleanupAssets(for: removed)
         notifyChange()
     }
 
     /// Remove selected cards
     public func removeSelectedCards() {
+        let removed = cards.filter { selectedCardIds.contains($0.id) }
         cards.removeAll { selectedCardIds.contains($0.id) }
         selectedCardIds.removeAll()
+        cleanupAssets(for: removed)
         notifyChange()
+    }
+
+    /// Slice 4: trash-first, ref-counted asset cleanup — only files no
+    /// remaining card references, and only inside assets/visionboard/
+    /// (the store's guard refuses legacy absolute paths that point at the
+    /// user's own files).
+    private func cleanupAssets(for removed: [VisionCard]) {
+        guard let store = assetStore else { return }
+        for path in VisionBoardAssetStore.unreferencedImagePaths(
+            removed: removed, remaining: cards) {
+            try? store.removeAsset(relativePath: path)
+        }
     }
 
     /// Duplicate selected cards
@@ -509,10 +536,19 @@ public class VisionBoardViewModel: ObservableObject {
         fitToView(viewSize: viewportSize)
     }
 
-    /// Create a new board
+    /// Create a new board: slugged id deduped against existing boards,
+    /// PERSISTED via the registry so an empty board survives reload.
     public func createBoard(_ name: String) -> String {
-        let boardId = name.lowercased().replacingOccurrences(of: " ", with: "_")
-        currentBoardId = boardId
+        let base = name.lowercased().replacingOccurrences(of: " ", with: "_")
+        var boardId = base
+        var counter = 2
+        while boardIds.contains(boardId) {
+            boardId = "\(base)-\(counter)"
+            counter += 1
+        }
+        boardRegistry.append(VisionBoardMeta(id: boardId, name: name))
+        onBoardsChanged?(boardRegistry)
+        switchBoard(boardId)
         return boardId
     }
 
@@ -679,8 +715,10 @@ public class VisionBoardViewModel: ObservableObject {
 
     /// Clear all cards
     public func clearAllCards() {
+        let removed = cards
         cards.removeAll()
         selectedCardIds.removeAll()
+        cleanupAssets(for: removed)
         notifyChange()
     }
 

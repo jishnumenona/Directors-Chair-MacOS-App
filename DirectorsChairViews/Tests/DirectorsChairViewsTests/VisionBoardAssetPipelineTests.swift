@@ -264,6 +264,109 @@ final class VisionBoardAssetStoreTests: XCTestCase {
 }
 
 @MainActor
+final class VisionBoardLifecycleTests: XCTestCase {
+
+    private var projectBase: URL!
+
+    override func setUpWithError() throws {
+        projectBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vb-lifecycle-tests-\(UUID().uuidString)",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(at: projectBase,
+                                                withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: projectBase)
+    }
+
+    // MARK: - Ref-count matrix (Slice 4)
+
+    func testUnreferencedImagePathsMatrix() {
+        let a = VisionCard(id: "a", imagePath: "assets/visionboard/shared.png")
+        let b = VisionCard(id: "b", imagePath: "assets/visionboard/shared.png")
+        let c = VisionCard(id: "c", imagePath: "assets/visionboard/solo.png")
+        let d = VisionCard(id: "d")
+
+        XCTAssertEqual(VisionBoardAssetStore.unreferencedImagePaths(
+            removed: [a], remaining: [b, c, d]), [],
+            "a duplicate still references the shared file")
+        XCTAssertEqual(VisionBoardAssetStore.unreferencedImagePaths(
+            removed: [a, b], remaining: [c, d]),
+            ["assets/visionboard/shared.png"],
+            "deletable once the LAST reference goes")
+        XCTAssertEqual(VisionBoardAssetStore.unreferencedImagePaths(
+            removed: [c, d], remaining: [a]),
+            ["assets/visionboard/solo.png"])
+        XCTAssertEqual(VisionBoardAssetStore.unreferencedImagePaths(
+            removed: [d], remaining: []), [])
+    }
+
+    func testRemoveCardDeletesOnlyUnreferencedManagedFiles() throws {
+        let managed = projectBase.appendingPathComponent("assets/visionboard")
+        try FileManager.default.createDirectory(at: managed,
+                                                withIntermediateDirectories: true)
+        try Data("s".utf8).write(to: managed.appendingPathComponent("shared.png"))
+        try Data("o".utf8).write(to: managed.appendingPathComponent("solo.png"))
+        let external = FileManager.default.temporaryDirectory
+            .appendingPathComponent("user-owned-\(UUID().uuidString).png")
+        try Data("mine".utf8).write(to: external)
+        defer { try? FileManager.default.removeItem(at: external) }
+
+        let viewModel = VisionBoardViewModel(cards: [
+            VisionCard(id: "a", imagePath: "assets/visionboard/shared.png"),
+            VisionCard(id: "b", imagePath: "assets/visionboard/shared.png"),
+            VisionCard(id: "c", imagePath: "assets/visionboard/solo.png"),
+            VisionCard(id: "d", imagePath: external.path),
+        ])
+        viewModel.configureAssetStore(projectBase: projectBase)
+        let exists = { (name: String) in
+            FileManager.default.fileExists(
+                atPath: managed.appendingPathComponent(name).path)
+        }
+
+        viewModel.removeCard("a")
+        XCTAssertTrue(exists("shared.png"), "card b still references it")
+
+        viewModel.removeCard("b")
+        XCTAssertFalse(exists("shared.png"), "last reference gone")
+
+        viewModel.removeCard("c")
+        XCTAssertFalse(exists("solo.png"))
+
+        viewModel.removeCard("d")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: external.path),
+                      "legacy absolute paths outside the managed folder are never touched")
+    }
+
+    // MARK: - Persisted boards (Slice 4)
+
+    func testCreateBoardSlugsDedupesAndPersists() {
+        let viewModel = VisionBoardViewModel(cards: [])
+        var persisted: [[VisionBoardMeta]] = []
+        viewModel.onBoardsChanged = { persisted.append($0) }
+
+        let first = viewModel.createBoard("Mood Two")
+        XCTAssertEqual(first, "mood_two")
+        XCTAssertEqual(viewModel.currentBoardId, "mood_two")
+
+        let second = viewModel.createBoard("Mood Two")
+        XCTAssertEqual(second, "mood_two-2", "deduped, not silently merged")
+
+        XCTAssertEqual(persisted.count, 2)
+        XCTAssertEqual(persisted.last?.map(\.id), ["mood_two", "mood_two-2"])
+    }
+
+    func testBoardIdsUnionRegistryCardsAndMaster() {
+        let viewModel = VisionBoardViewModel(
+            cards: [VisionCard(id: "x", boardId: "from_cards")],
+            boards: [VisionBoardMeta(id: "empty_board", name: "Empty Board")])
+        XCTAssertEqual(viewModel.boardIds, ["empty_board", "from_cards", "master"],
+                       "an empty registered board no longer vanishes")
+    }
+}
+
+@MainActor
 final class VisionBoardSavePipelineTests: XCTestCase {
 
     private var projectBase: URL!

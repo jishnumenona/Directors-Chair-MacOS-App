@@ -4,6 +4,21 @@
 
 import Foundation
 
+// MARK: - VisionBoardMeta
+
+/// A vision board's identity. Boards were historically derived from the
+/// cards' boardId values alone, so a board with no cards vanished from the
+/// picker; the project persists this registry so empty boards survive.
+public struct VisionBoardMeta: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 // MARK: - VisionCard
 
 /// Represents a vision card - visual reference for filmmaking pre-production

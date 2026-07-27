@@ -9,6 +9,7 @@
 // vision-board asset folder and trashes rather than removes.
 
 import Foundation
+import DirectorsChairCore
 
 public struct VisionBoardAssetStore: @unchecked Sendable {
     public let projectBase: URL
@@ -146,6 +147,16 @@ public struct VisionBoardAssetStore: @unchecked Sendable {
 
     public enum RemoveError: Error, Equatable {
         case outsideManagedFolder
+    }
+
+    /// Ref-counting for deletion: a removed card's image is deleted only
+    /// when NO remaining card — on any board — still references it
+    /// (duplicated cards share their file).
+    public static func unreferencedImagePaths(removed: [VisionCard],
+                                              remaining: [VisionCard]) -> [String] {
+        let stillReferenced = Set(remaining.compactMap(\.imagePath))
+        return Set(removed.compactMap(\.imagePath))
+            .subtracting(stillReferenced).sorted()
     }
 
     /// Trashes (recoverable) a vision-board asset. REFUSES anything that

@@ -140,8 +140,14 @@ struct CentralViewStack: View {
         case .visionBoard:
             VisionBoardView(
                 cards: projectViewModel.project.beats,
+                boards: projectViewModel.project.visionBoards,
                 onCardsChanged: { cards in
                     projectViewModel.project.beats = cards
+                    projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
+                },
+                onBoardsChanged: { boards in
+                    projectViewModel.project.visionBoards = boards
                     projectViewModel.isDirty = true
                     coordinator.notifyProjectChanged()
                 },
