@@ -31,6 +31,8 @@ enum PrefKey {
 
     // General > AI Assistant
     static let showAssistantOnLaunch = "pref.general.showAssistantOnLaunch"
+    /// A6.3: opt-in proactive conflict checks when the assistant opens.
+    static let assistantProactiveChecks = "pref.general.assistantProactiveChecks"
 
     // Editor > Typography
     static let editorFontFamily = "pref.editor.fontFamily"        // "Courier Prime" etc.
@@ -107,6 +109,8 @@ enum PrefKey {
 
     // AI > Defaults
     static let aiTextProvider = "pref.ai.textProvider"
+    /// A6.5: the assistant agent's chat provider (routing table input).
+    static let aiChatProvider = "pref.ai.chatProvider"
     static let aiImageProvider = "pref.ai.imageProvider"
     static let aiVideoProvider = "pref.ai.videoProvider"
 
@@ -261,6 +265,7 @@ class PreferencesManager: ObservableObject {
     // MARK: - AI > Defaults
 
     @AppStorage(PrefKey.aiTextProvider) var aiTextProvider: String = "google"
+    @AppStorage(PrefKey.aiChatProvider) var aiChatProvider: String = "google"
     @AppStorage(PrefKey.aiImageProvider) var aiImageProvider: String = "google_imagen"
     @AppStorage(PrefKey.aiVideoProvider) var aiVideoProvider: String = "google_veo"
 

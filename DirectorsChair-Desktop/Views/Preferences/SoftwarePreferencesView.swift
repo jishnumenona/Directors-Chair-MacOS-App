@@ -556,6 +556,14 @@ struct SoftwarePreferencesView: View {
             PrefCard(title: "DEFAULT PROVIDERS", icon: "cpu") {
                 VStack(alignment: .leading, spacing: 14) {
                     PrefChipRow(
+                        label: "AI Assistant (chat)",
+                        icon: "sparkles",
+                        options: ["google", "anthropic", "deepseek"],
+                        displayNames: ["Google Gemini", "Anthropic Claude", "DeepSeek"],
+                        selection: $prefs.aiChatProvider
+                    )
+
+                    PrefChipRow(
                         label: "Text Generation",
                         icon: "text.bubble",
                         options: ["deepseek", "google", "openai", "anthropic"],

@@ -107,4 +107,113 @@ final class AssistantChatUXTests: XCTestCase {
             $0.content.contains("Welcome to Director's Chair")
         })
     }
+
+    // MARK: - A6.1: compact project index (context tiers retired)
+
+    func testProjectIndexIsSmallAndContentFree() {
+        var project = Project(name: "Big Film")
+        project.genre = "Epic"
+        // A big project: 40 scenes with long dialogue that must NOT leak in.
+        let secret = "SECRET-DIALOGUE-CONTENT-THAT-MUST-NOT-APPEAR"
+        var scenes: [Scene] = []
+        for i in 1...40 {
+            scenes.append(Scene(
+                name: "Scene \(i)", description: String(repeating: "desc ", count: 200),
+                dialogues: (1...10).map { _ in
+                    Dialogue(character: "Mara", text: secret + String(repeating: "x", count: 500))
+                }))
+        }
+        project.sequences = [Sequence(name: "Act 1", scenes: scenes)]
+        project.characters = [Character(name: "Mara"), Character(name: "Ilya")]
+        project.scheduleItems = [ScheduleItem(sceneName: "Scene 1",
+                                              shootDate: "2026-08-01")]
+
+        let index = ProjectContextBuilder.buildContext(project: project,
+                                                       context: nil)
+
+        XCTAssertFalse(index.contains(secret), "dialogue content must never leak")
+        XCTAssertFalse(index.contains("desc desc"), "descriptions must never leak")
+        XCTAssertTrue(index.contains("Scene 40 (10d/0sh)"), "scene names + counts present")
+        XCTAssertTrue(index.contains("Characters: Mara, Ilya"))
+        XCTAssertTrue(index.contains("1 schedule items"))
+        XCTAssertLessThan(index.count, 4_000,
+                          "the index stays small even for large projects (was ~25k-token dumps)")
+        XCTAssertTrue(index.contains("fetch content with the read tools"))
+    }
+
+    // MARK: - A6.3: proactive checks (opt-in, deterministic, zero-cost)
+
+    func testProactiveChecksFlagConflictsOnceWhenEnabled() {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: PrefKey.assistantProactiveChecks)
+        defer {
+            if let previous { defaults.set(previous, forKey: PrefKey.assistantProactiveChecks) }
+            else { defaults.removeObject(forKey: PrefKey.assistantProactiveChecks) }
+        }
+
+        var project = Project(name: "Fixture Film")
+        project.scheduleItems = [
+            ScheduleItem(sceneName: "Opening", shootDate: "2026-08-01",
+                         timeSlot: "Morning", status: "Planned",
+                         location: "Stage 4", requiredActors: ["Ada Vale"]),
+            ScheduleItem(sceneName: "Finale", shootDate: "2026-08-01",
+                         timeSlot: "Morning", status: "Planned",
+                         location: "Rooftop", requiredActors: ["Ada Vale"]),
+        ]
+        let pvm = ProjectViewModel(project: project)
+
+        // Off (default): silent.
+        defaults.set(false, forKey: PrefKey.assistantProactiveChecks)
+        let quiet = AIChatViewModel()
+        quiet.projectViewModel = pvm
+        let quietBefore = quiet.messages.count
+        quiet.runProactiveChecksIfEnabled()
+        XCTAssertEqual(quiet.messages.count, quietBefore, "opt-in means silent by default")
+
+        // On: exactly one heads-up, and only once per open.
+        defaults.set(true, forKey: PrefKey.assistantProactiveChecks)
+        let vocal = AIChatViewModel()
+        vocal.projectViewModel = pvm
+        let before = vocal.messages.count
+        vocal.runProactiveChecksIfEnabled()
+        vocal.runProactiveChecksIfEnabled()
+        let added = vocal.messages.suffix(from: before).map(\.content)
+        XCTAssertEqual(added.count, 1, "one heads-up per open, never repeated")
+        XCTAssertTrue(added[0].contains("schedule conflict"), added[0])
+    }
+
+    // MARK: - A6.5: routing table (Preferences → engine configuration)
+
+    func testRoutedConfigurationValidatesProviderAndClampsTemperature() {
+        let defaults = UserDefaults.standard
+        let prevProvider = defaults.object(forKey: PrefKey.aiChatProvider)
+        let prevTemp = defaults.object(forKey: PrefKey.aiTemperature)
+        defer {
+            defaults.removeObject(forKey: PrefKey.aiChatProvider)
+            defaults.removeObject(forKey: PrefKey.aiTemperature)
+            if let prevProvider { defaults.set(prevProvider, forKey: PrefKey.aiChatProvider) }
+            if let prevTemp { defaults.set(prevTemp, forKey: PrefKey.aiTemperature) }
+        }
+
+        // Defaults: google, 0.7.
+        defaults.removeObject(forKey: PrefKey.aiChatProvider)
+        defaults.removeObject(forKey: PrefKey.aiTemperature)
+        var config = AssistantRuntime.routedConfiguration()
+        XCTAssertEqual(config.provider, "google")
+        XCTAssertEqual(config.temperature, 0.7, accuracy: 0.001)
+
+        // A valid choice routes through.
+        defaults.set("anthropic", forKey: PrefKey.aiChatProvider)
+        defaults.set(0.3, forKey: PrefKey.aiTemperature)
+        config = AssistantRuntime.routedConfiguration()
+        XCTAssertEqual(config.provider, "anthropic")
+        XCTAssertEqual(config.temperature, 0.3, accuracy: 0.001)
+
+        // Junk falls back safely; temperature clamps.
+        defaults.set("skynet", forKey: PrefKey.aiChatProvider)
+        defaults.set(9.0, forKey: PrefKey.aiTemperature)
+        config = AssistantRuntime.routedConfiguration()
+        XCTAssertEqual(config.provider, "google", "unknown provider → default")
+        XCTAssertEqual(config.temperature, 1.0, "temperature clamped to 0…1")
+    }
 }
