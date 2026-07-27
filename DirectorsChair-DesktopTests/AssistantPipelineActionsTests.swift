@@ -133,4 +133,57 @@ final class AssistantPipelineActionsTests: XCTestCase {
         XCTAssertEqual(receivedTraits.first, "Grit", "top traits by value")
         XCTAssertTrue(projectVM.isDirty)
     }
+
+    func testCalibrateTraitsAppliesScoresConfidenceAndPhysicals() async throws {
+        projectVM.project.characters = [Character(name: "Mara")]
+        let action = CalibrateCharacterTraitsAction(
+            projectViewModel: projectVM, coordinator: nil,
+            analyze: { _, _ in
+                CharacterAnalysisResult(
+                    traitScores: ["Grit": 88, "Empathy": 61],
+                    reasoning: "Determined under pressure.",
+                    confidenceScore: 82,
+                    physicalAttributes: ["build": "wiry", "hair_color": "black"])
+            })
+        let plan = try action.validate(argumentsData: args(#"{"character": "Mara"}"#))
+        XCTAssertTrue(plan.previews[0].oldValue?.contains("50") == true,
+                      "new characters carry default 50-scores")
+        XCTAssertEqual(plan.estimatedCost, 0.02)
+
+        let outcome = try await action.execute(argumentsData:
+            args(#"{"character": "Mara"}"#))
+        let mara = projectVM.project.characters[0]
+        XCTAssertEqual(mara.traits["Grit"], 88)
+        XCTAssertEqual(mara.traitsConfidenceScore, 82)
+        XCTAssertEqual(mara.traitsAiReasoning, "Determined under pressure.")
+        XCTAssertNotNil(mara.traitsLastCalibrated)
+        XCTAssertEqual(mara.build, "wiry")
+        XCTAssertEqual(mara.hairColor, "black")
+        XCTAssertTrue(outcome.userSummary.contains("82% confidence"))
+    }
+
+    func testAnalyzeTimelineEstimatesWithRealCalculatorAndApplies() async throws {
+        var analyzedNames: [String] = []
+        let action = AnalyzeTimelineAction(
+            projectViewModel: projectVM, coordinator: nil,
+            analyze: { scenes in
+                await MainActor.run { analyzedNames = scenes.map(\.sceneName) }
+                return TimelineAnalysisResult()
+            })
+        // Fixture's "Old Scene" has no dialogues/actions → calculator filters
+        // it out and validate must refuse rather than propose a free no-op.
+        XCTAssertThrowsError(try action.validate(argumentsData: args("{}")))
+
+        projectVM.project.sequences[0].scenes[0].dialogues =
+            [Dialogue(character: "Mara", text: "Run.")]
+        let plan = try action.validate(argumentsData: args("{}"))
+        XCTAssertTrue(plan.summary.contains("1 scene"), plan.summary)
+        XCTAssertGreaterThan(plan.estimatedCost, 0)
+
+        _ = try await action.execute(argumentsData: args(#"{"scene": "Old Scene"}"#))
+        XCTAssertEqual(analyzedNames, ["Old Scene"])
+        XCTAssertTrue(projectVM.isDirty)
+        XCTAssertThrowsError(try action.validate(argumentsData:
+            args(#"{"scene": "Ghost"}"#)))
+    }
 }
