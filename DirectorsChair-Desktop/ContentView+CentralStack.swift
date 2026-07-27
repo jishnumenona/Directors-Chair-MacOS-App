@@ -140,13 +140,21 @@ struct CentralViewStack: View {
         case .visionBoard:
             VisionBoardView(
                 cards: projectViewModel.project.beats,
+                boards: projectViewModel.project.visionBoards,
                 onCardsChanged: { cards in
                     projectViewModel.project.beats = cards
                     projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
+                },
+                onBoardsChanged: { boards in
+                    projectViewModel.project.visionBoards = boards
+                    projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
                 },
                 onGenerateImage: { prompt, completion in
                     generateVisionBoardImage(prompt: prompt, completion: completion)
-                }
+                },
+                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent()
             )
             .onAppear { debugLog("📱 VisionBoardView appeared") }
         case .shotList:
@@ -232,19 +240,22 @@ struct CentralViewStack: View {
     // MARK: - AI Integration Methods
 
     // A0.5: executor for the Vision Board's AI card generation — the editor's
-    // Generate button existed but was never wired to an executor. Saves under
-    // assets/visionboard/ and hands the file URL back to the editor.
+    // Generates into the OS temp dir; the editor's Save pipeline imports the
+    // file into assets/visionboard/ (Slice 2). Cancelling the editor thus
+    // orphans nothing in the project, and the project is only dirtied by the
+    // actual card commit — not by generation itself.
     private func generateVisionBoardImage(prompt: String,
                                           completion: @escaping (URL?) -> Void) {
-        guard let projectFile = projectViewModel.projectPath else {
-            completion(nil)
-            return
-        }
-        let projectDir = projectFile.deletingLastPathComponent()
         Task {
             let client = AIServiceClient.shared
             guard await client.testConnection() else {
-                await MainActor.run { completion(nil) }
+                await MainActor.run {
+                    projectViewModel.errorAlert = ErrorAlert(
+                        title: "Image Generation Failed",
+                        message: "The AI service is not reachable. "
+                               + "Check the AI settings and your connection.")
+                    completion(nil)
+                }
                 return
             }
             do {
@@ -256,23 +267,26 @@ struct CentralViewStack: View {
                 )
                 let response = try await client.generateImage(request)
                 guard let data = response.images.first else {
-                    await MainActor.run { completion(nil) }
+                    await MainActor.run {
+                        projectViewModel.errorAlert = ErrorAlert(
+                            title: "Image Generation Failed",
+                            message: "The AI service returned no image.")
+                        completion(nil)
+                    }
                     return
                 }
-                let directory = projectDir.appendingPathComponent("assets/visionboard",
-                                                                  isDirectory: true)
-                try FileManager.default.createDirectory(at: directory,
-                                                        withIntermediateDirectories: true)
-                let fileURL = directory.appendingPathComponent(
-                    "vision_\(Int(Date().timeIntervalSince1970)).png")
+                let fileURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        "vision_\(Int(Date().timeIntervalSince1970)).png")
                 try data.write(to: fileURL)
-                await MainActor.run {
-                    projectViewModel.isDirty = true
-                    completion(fileURL)
-                }
+                await MainActor.run { completion(fileURL) }
             } catch {
                 debugLog("📱 Vision board image generation failed: \(error)")
-                await MainActor.run { completion(nil) }
+                await MainActor.run {
+                    projectViewModel.errorAlert = ErrorAlert(
+                        error: error, title: "Image Generation Failed")
+                    completion(nil)
+                }
             }
         }
     }

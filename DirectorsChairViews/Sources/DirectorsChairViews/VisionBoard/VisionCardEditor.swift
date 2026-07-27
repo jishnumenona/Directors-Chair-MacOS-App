@@ -21,6 +21,15 @@ public struct VisionCardEditor: View {
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
 
+    /// Slice 2: staging + path resolution. Nil when the project has never
+    /// been saved (paste falls back to the OS temp dir; relative paths
+    /// can't be previewed).
+    public var assetStore: VisionBoardAssetStore?
+
+    /// Whether this session creates a card (VisionCard ids are never
+    /// empty, so the old `card.id.isEmpty` check could not distinguish).
+    public var isNew: Bool
+
     // MARK: - State
 
     @State private var selectedTab: EditorTab = .general
@@ -38,12 +47,16 @@ public struct VisionCardEditor: View {
         card: Binding<VisionCard>,
         isPresented: Binding<Bool>,
         onSave: (() -> Void)? = nil,
-        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil
+        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
+        assetStore: VisionBoardAssetStore? = nil,
+        isNew: Bool = false
     ) {
         self._card = card
         self._isPresented = isPresented
         self.onSave = onSave
         self.onGenerateImage = onGenerateImage
+        self.assetStore = assetStore
+        self.isNew = isNew
     }
 
     // MARK: - Body
@@ -86,7 +99,7 @@ public struct VisionCardEditor: View {
     @ViewBuilder
     private var editorHeader: some View {
         HStack {
-            Text(card.id.isEmpty ? "New Vision Card" : "Edit Vision Card")
+            Text(isNew ? "New Vision Card" : "Edit Vision Card")
                 .font(.headline)
                 .foregroundColor(.white)
 
@@ -141,20 +154,6 @@ public struct VisionCardEditor: View {
             }
 
             Divider()
-
-            // Size options
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Size")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-
-                Picker("Size", selection: $card.size) {
-                    Text("Small").tag("small")
-                    Text("Medium").tag("medium")
-                    Text("Large").tag("large")
-                }
-                .pickerStyle(.segmented)
-            }
 
             // Pinned toggle
             Toggle("Pin to Top", isOn: $card.pinned)
@@ -359,7 +358,7 @@ public struct VisionCardEditor: View {
                     Spacer()
                     ColorPicker("", selection: Binding(
                         get: { Color(hex: card.textColor) },
-                        set: { card.textColor = $0.toHex() ?? "#FFFFFF" }
+                        set: { card.textColor = $0.hexString }
                     ))
                     .labelsHidden()
                     Text(card.textColor)
@@ -440,7 +439,7 @@ public struct VisionCardEditor: View {
 
                     ColorPicker("", selection: Binding(
                         get: { Color(hex: newColorHex) },
-                        set: { newColorHex = $0.toHex() ?? "#FFFFFF" }
+                        set: { newColorHex = $0.hexString }
                     ))
                     .labelsHidden()
 
@@ -707,13 +706,17 @@ public struct VisionCardEditor: View {
            let bitmap = NSBitmapImageRep(data: tiffData),
            let pngData = bitmap.representation(using: .png, properties: [:]) {
 
-            // Save to temp location
-            let tempDir = FileManager.default.temporaryDirectory
-            let fileName = "pasted_\(UUID().uuidString).png"
-            let fileURL = tempDir.appendingPathComponent(fileName)
-
+            // Staged (finalized into the project only on Save); OS temp
+            // fallback when the project has never been saved to disk.
             do {
-                try pngData.write(to: fileURL)
+                let fileURL: URL
+                if let store = assetStore {
+                    fileURL = try store.stagePastedPNG(pngData)
+                } else {
+                    fileURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("pasted_\(UUID().uuidString).png")
+                    try pngData.write(to: fileURL)
+                }
                 card.imagePath = fileURL.path
                 loadPreviewImage()
             } catch {
@@ -737,28 +740,38 @@ public struct VisionCardEditor: View {
         isLoadingImage = true
         imageLoadError = nil
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            var image: NSImage?
-
-            if path.hasPrefix("http") {
-                // Load from URL
-                if let url = URL(string: path),
-                   let data = try? Data(contentsOf: url) {
-                    image = NSImage(data: data)
+        switch VisionImageRef.classify(path) {
+        case .none:
+            previewImage = nil
+            isLoadingImage = false
+        case .remote(let url):
+            // Async fetch — the old sync Data(contentsOf:) blocked a
+            // worker thread for the full network timeout.
+            Task {
+                let data = try? await URLSession.shared.data(from: url).0
+                await MainActor.run {
+                    finishPreviewLoad(data.flatMap { NSImage(data: $0) })
+                }
+            }
+        case .legacyAbsolute, .relative:
+            if let url = VisionBoardImagePath.resolveImageURL(
+                path, projectBase: assetStore?.projectBase) {
+                Task.detached(priority: .userInitiated) {
+                    let data = try? Data(contentsOf: url)
+                    await MainActor.run {
+                        finishPreviewLoad(data.flatMap { NSImage(data: $0) })
+                    }
                 }
             } else {
-                // Load from file
-                image = NSImage(contentsOfFile: path)
-            }
-
-            DispatchQueue.main.async {
-                self.previewImage = image
-                self.isLoadingImage = false
-                if image == nil && !path.isEmpty {
-                    self.imageLoadError = "Could not load image"
-                }
+                finishPreviewLoad(nil)
             }
         }
+    }
+
+    private func finishPreviewLoad(_ image: NSImage?) {
+        previewImage = image
+        isLoadingImage = false
+        imageLoadError = image == nil ? "Could not load image" : nil
     }
 
     private func generateAIImage() {
@@ -865,22 +878,6 @@ private struct CardEditorFlowLayout: Layout {
 
             height = y + rowHeight
         }
-    }
-}
-
-// MARK: - Color Extension for Hex Conversion
-
-extension Color {
-    func toHex() -> String? {
-        guard let components = NSColor(self).usingColorSpace(.sRGB)?.cgColor.components else {
-            return nil
-        }
-
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components[2] * 255)
-
-        return String(format: "#%02X%02X%02X", r, g, b)
     }
 }
 

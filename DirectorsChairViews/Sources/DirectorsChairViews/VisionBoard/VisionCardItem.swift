@@ -15,22 +15,33 @@ public struct VisionCardItem: View {
     public let isSelected: Bool
     public let zoomLevel: CGFloat
     public let showLabel: Bool
+    /// Named coordinate space of the canvas container — drag translations
+    /// arrive in unscaled screen points so the VM's `translation / zoom`
+    /// math is exact (Slice 1).
+    public var canvasSpaceName: String = "visionCanvas"
 
-    // Callbacks
+    /// Base for resolving project-relative image paths (Slice 2); nil
+    /// means only legacy absolute paths can load.
+    public var projectBase: URL?
+
+    // Callbacks — raw gesture phases; ALL math lives in the view model's
+    // anchored sessions (Slice 1).
     public var onSelect: ((Bool) -> Void)?  // Bool = add to selection (shift-click)
     public var onDoubleClick: (() -> Void)?
-    public var onDrag: ((CGPoint) -> Void)?
-    public var onDragEnd: (() -> Void)?
-    public var onResize: ((CGSize) -> Void)?
-    public var onResizeEnd: (() -> Void)?
+    public var onDragBegan: (() -> Void)?
+    public var onDragChanged: ((CGSize) -> Void)?
+    public var onDragEnded: ((CGSize) -> Void)?
+    public var onResizeBegan: ((ResizeCorner) -> Void)?
+    public var onResizeChanged: ((CGSize) -> Void)?
+    public var onResizeEnded: ((CGSize) -> Void)?
 
     // MARK: - State
 
     @State private var isDragging: Bool = false
     @State private var isResizing: Bool = false
-    @State private var resizeCorner: ResizeCorner?
     @State private var isHovering: Bool = false
     @State private var loadedImage: NSImage?
+    @State private var imageLoadFailed: Bool = false
 
     // MARK: - Computed Properties
 
@@ -60,23 +71,31 @@ public struct VisionCardItem: View {
         isSelected: Bool = false,
         zoomLevel: CGFloat = 1.0,
         showLabel: Bool = true,
+        canvasSpaceName: String = "visionCanvas",
+        projectBase: URL? = nil,
         onSelect: ((Bool) -> Void)? = nil,
         onDoubleClick: (() -> Void)? = nil,
-        onDrag: ((CGPoint) -> Void)? = nil,
-        onDragEnd: (() -> Void)? = nil,
-        onResize: ((CGSize) -> Void)? = nil,
-        onResizeEnd: (() -> Void)? = nil
+        onDragBegan: (() -> Void)? = nil,
+        onDragChanged: ((CGSize) -> Void)? = nil,
+        onDragEnded: ((CGSize) -> Void)? = nil,
+        onResizeBegan: ((ResizeCorner) -> Void)? = nil,
+        onResizeChanged: ((CGSize) -> Void)? = nil,
+        onResizeEnded: ((CGSize) -> Void)? = nil
     ) {
         self.card = card
         self.isSelected = isSelected
         self.zoomLevel = zoomLevel
         self.showLabel = showLabel
+        self.canvasSpaceName = canvasSpaceName
+        self.projectBase = projectBase
         self.onSelect = onSelect
         self.onDoubleClick = onDoubleClick
-        self.onDrag = onDrag
-        self.onDragEnd = onDragEnd
-        self.onResize = onResize
-        self.onResizeEnd = onResizeEnd
+        self.onDragBegan = onDragBegan
+        self.onDragChanged = onDragChanged
+        self.onDragEnded = onDragEnded
+        self.onResizeBegan = onResizeBegan
+        self.onResizeChanged = onResizeChanged
+        self.onResizeEnded = onResizeEnded
     }
 
     // MARK: - Body
@@ -117,8 +136,8 @@ public struct VisionCardItem: View {
                 pinnedIndicator
             }
         }
+        // World coordinates only — the cards layer applies zoom+offset once.
         .position(x: cardPosition.x + cardWidth / 2, y: cardPosition.y + cardHeight / 2)
-        .scaleEffect(zoomLevel)
         .onHover { hovering in
             isHovering = hovering
         }
@@ -169,6 +188,33 @@ public struct VisionCardItem: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: cardWidth, height: cardHeight)
                 .clipped()
+        } else if case .remote = VisionImageRef.classify(card.imagePath) {
+            // Remote refs are never fetched while rendering (Slice 2) —
+            // static placeholder instead of the old forever-spinner.
+            ZStack {
+                Color(hex: "#2A2A2A")
+                VStack(spacing: 8) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 32))
+                        .foregroundColor(.gray)
+                    Text(urlHost(from: card.imagePath ?? ""))
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                }
+            }
+        } else if imageLoadFailed {
+            ZStack {
+                Color(hex: "#2A2A2A")
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 32))
+                        .foregroundColor(.gray)
+                    Text("Missing Image")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
         } else if let imagePath = card.imagePath, !imagePath.isEmpty {
             // Loading placeholder
             ZStack {
@@ -532,15 +578,23 @@ public struct VisionCardItem: View {
                 Circle()
                     .stroke(Color.white, lineWidth: 2)
             )
-            .position(x: cardPosition.x + offset.x, y: cardPosition.y + offset.y)
+            // Counter-scale so handles stay 12pt on screen at any zoom.
+            .scaleEffect(zoomLevel > 0 ? 1 / zoomLevel : 1)
+            // CARD-LOCAL coordinates — the ZStack is the card's own space.
+            .position(x: offset.x, y: offset.y)
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 1,
+                            coordinateSpace: .named(canvasSpaceName))
                     .onChanged { value in
-                        handleResize(corner: corner, translation: value.translation)
+                        if !isResizing {
+                            isResizing = true
+                            onResizeBegan?(corner)
+                        }
+                        onResizeChanged?(value.translation)
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
                         isResizing = false
-                        onResizeEnd?()
+                        onResizeEnded?(value.translation)
                     }
             )
             .onHover { hovering in
@@ -554,56 +608,37 @@ public struct VisionCardItem: View {
 
     // MARK: - Gestures
 
+    /// Raw phases only; the VM's anchored session does the math. The named
+    /// coordinate space keeps translations in unscaled screen points.
     private var dragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 3,
+                    coordinateSpace: .named(canvasSpaceName))
             .onChanged { value in
-                if !isResizing {
+                guard !isResizing else { return }
+                if !isDragging {
                     isDragging = true
-                    let newPosition = CGPoint(
-                        x: cardPosition.x + value.translation.width / zoomLevel,
-                        y: cardPosition.y + value.translation.height / zoomLevel
-                    )
-                    onDrag?(newPosition)
+                    onDragBegan?()
                 }
+                onDragChanged?(value.translation)
             }
-            .onEnded { _ in
+            .onEnded { value in
+                guard isDragging else { return }
                 isDragging = false
-                onDragEnd?()
+                onDragEnded?(value.translation)
             }
-    }
-
-    // MARK: - Helpers
-
-    private func handleResize(corner: ResizeCorner, translation: CGSize) {
-        isResizing = true
-
-        var newWidth = cardWidth
-        var newHeight = cardHeight
-
-        switch corner {
-        case .topLeft:
-            newWidth -= translation.width / zoomLevel
-            newHeight -= translation.height / zoomLevel
-        case .topRight:
-            newWidth += translation.width / zoomLevel
-            newHeight -= translation.height / zoomLevel
-        case .bottomLeft:
-            newWidth -= translation.width / zoomLevel
-            newHeight += translation.height / zoomLevel
-        case .bottomRight:
-            newWidth += translation.width / zoomLevel
-            newHeight += translation.height / zoomLevel
-        }
-
-        newWidth = max(100, newWidth)
-        newHeight = max(80, newHeight)
-
-        onResize?(CGSize(width: newWidth, height: newHeight))
     }
 
     private func loadImageIfNeeded() {
-        guard let imagePath = card.imagePath, !imagePath.isEmpty else {
+        imageLoadFailed = false
+        // Resolve-on-load (Slice 2): relative paths against the project
+        // base, legacy absolute paths as-is; remote refs return nil and
+        // render a static placeholder (never fetched in the render path).
+        guard let url = VisionBoardImagePath.resolveImageURL(
+            card.imagePath, projectBase: projectBase) else {
             loadedImage = nil
+            if case .relative = VisionImageRef.classify(card.imagePath) {
+                imageLoadFailed = true  // relative path with no project base
+            }
             return
         }
 
@@ -611,7 +646,6 @@ public struct VisionCardItem: View {
         // instead of holding each mood-board card's full-resolution source in
         // memory (many high-res references × per-card full bitmaps was the
         // resident-memory + GPU-rescale-on-zoom cost).
-        let url = URL(fileURLWithPath: imagePath)
         let maxPixel = Int(max(cardWidth, cardHeight) * 2.5)
         if let cached = ThumbnailImageCache.shared.cached(url, maxPixel: maxPixel) {
             loadedImage = cached
@@ -619,7 +653,10 @@ public struct VisionCardItem: View {
         }
         Task {
             let image = await ThumbnailImageCache.shared.thumbnail(url, maxPixel: maxPixel)
-            await MainActor.run { self.loadedImage = image }
+            await MainActor.run {
+                self.loadedImage = image
+                self.imageLoadFailed = image == nil
+            }
         }
     }
 
@@ -634,7 +671,7 @@ public struct VisionCardItem: View {
 
 // MARK: - Resize Corner Enum
 
-enum ResizeCorner: CaseIterable {
+public enum ResizeCorner: CaseIterable, Sendable {
     case topLeft
     case topRight
     case bottomLeft

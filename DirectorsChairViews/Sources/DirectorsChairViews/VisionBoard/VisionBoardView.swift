@@ -4,6 +4,7 @@
 // Pinterest/Milanote-style mood board for visual pre-production planning.
 
 import SwiftUI
+import UniformTypeIdentifiers
 import DirectorsChairCore
 
 // MARK: - Vision Board View
@@ -13,11 +14,24 @@ public struct VisionBoardView: View {
 
     @StateObject private var viewModel: VisionBoardViewModel
 
+    /// The project's cards as the host currently knows them (Slice 3):
+    /// seeds the view model once, then feeds external reconciliation so
+    /// assistant actions and project reloads show up on an open board.
+    public var cards: [VisionCard]
+
     /// Callback when vision cards change (for persistence)
     public var onCardsChanged: (([VisionCard]) -> Void)?
 
+    /// Callback when the board registry changes (Slice 4 persistence)
+    public var onBoardsChanged: (([VisionBoardMeta]) -> Void)?
+
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
+
+    /// The project directory (Slice 2) — base for resolving relative image
+    /// paths and home of the managed assets/visionboard/ folder. Nil when
+    /// the project has never been saved to disk.
+    public var projectBasePath: URL?
 
     // MARK: - State
 
@@ -26,17 +40,25 @@ public struct VisionBoardView: View {
     @State private var showingNewBoardAlert: Bool = false
     @State private var showingDeleteAlert: Bool = false
     @State private var showingExportOptions: Bool = false
+    @State private var exportError: String?
 
     // MARK: - Init
 
     public init(
         cards: [VisionCard] = [],
+        boards: [VisionBoardMeta] = [],
         onCardsChanged: (([VisionCard]) -> Void)? = nil,
-        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil
+        onBoardsChanged: (([VisionBoardMeta]) -> Void)? = nil,
+        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
+        projectBasePath: URL? = nil
     ) {
-        self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(cards: cards))
+        self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
+            cards: cards, boards: boards))
+        self.cards = cards
         self.onCardsChanged = onCardsChanged
+        self.onBoardsChanged = onBoardsChanged
         self.onGenerateImage = onGenerateImage
+        self.projectBasePath = projectBasePath
     }
 
     // MARK: - Body
@@ -79,7 +101,8 @@ public struct VisionBoardView: View {
                 .padding()
             }
         }
-        .sheet(isPresented: $viewModel.showingCardEditor) {
+        .sheet(isPresented: $viewModel.showingCardEditor,
+               onDismiss: { viewModel.editorDismissed() }) {
             if let card = viewModel.editingCard {
                 VisionCardEditor(
                     card: Binding(
@@ -90,9 +113,27 @@ public struct VisionBoardView: View {
                     onSave: {
                         viewModel.saveEditedCard()
                     },
-                    onGenerateImage: onGenerateImage
+                    onGenerateImage: onGenerateImage,
+                    assetStore: viewModel.assetStore,
+                    isNew: !viewModel.cards.contains { $0.id == card.id }
                 )
             }
+        }
+        .onAppear {
+            viewModel.configureAssetStore(projectBase: projectBasePath)
+        }
+        .onChange(of: projectBasePath) { _, newBase in
+            viewModel.configureAssetStore(projectBase: newBase)
+        }
+        .onChange(of: cards) { _, newCards in
+            viewModel.reconcileExternalCards(newCards)
+        }
+        .alert("Export Failed", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "")
         }
         .alert("New Board", isPresented: $showingNewBoardAlert) {
             TextField("Board name", text: $newBoardName)
@@ -116,6 +157,7 @@ public struct VisionBoardView: View {
         }
         .onAppear {
             viewModel.onCardsChanged = onCardsChanged
+            viewModel.onBoardsChanged = onBoardsChanged
             viewModel.onGenerateImage = onGenerateImage
         }
     }
@@ -364,16 +406,6 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .foregroundColor(viewModel.gridSnapEnabled ? .accentColor : .gray)
             .help("Grid Snap")
-
-            // Fullscreen
-            Button {
-                viewModel.isFullscreen.toggle()
-            } label: {
-                Image(systemName: viewModel.isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.white)
-            .help("Toggle Fullscreen")
         }
     }
 
@@ -401,6 +433,47 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .foregroundColor(.white)
             .help("Export")
+            .popover(isPresented: $showingExportOptions) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Export Board")
+                        .font(.headline)
+                    Text("Renders every card on this board into one PNG.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Button("Export as PNG…") {
+                        showingExportOptions = false
+                        exportBoardPNG()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+                .frame(width: 240)
+            }
+        }
+    }
+
+    private func exportBoardPNG() {
+        let boardCards = viewModel.cards.filter {
+            $0.boardId == viewModel.currentBoardId
+        }
+        guard !boardCards.isEmpty else {
+            exportError = "This board has no cards to export."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "VisionBoard-\(viewModel.currentBoardId).png"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let data = VisionBoardExporter.renderPNG(
+            cards: boardCards, projectBase: projectBasePath) else {
+            exportError = "Could not render the board."
+            return
+        }
+        do {
+            try data.write(to: url)
+        } catch {
+            exportError = "Could not save the PNG: \(error.localizedDescription)"
         }
     }
 
@@ -447,6 +520,17 @@ public struct VisionBoardView: View {
             .background(Color(hex: "#2A2A2A"))
             .cornerRadius(4)
             .help("Reset to 100%")
+
+            Button {
+                viewModel.fitToView(viewSize: viewModel.viewportSize)
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .background(Color(hex: "#2A2A2A"))
+            .cornerRadius(4)
+            .help("Fit all cards in view")
         }
         .padding(8)
         .background(

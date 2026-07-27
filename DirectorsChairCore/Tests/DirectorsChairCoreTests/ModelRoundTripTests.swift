@@ -1334,6 +1334,33 @@ final class ModelRoundTripTests: XCTestCase {
     }
 
     // =========================================================================
+    // MARK: - VisionBoardMeta (Slice 4)
+    // =========================================================================
+
+    func testVisionBoardMetaRoundTripInsideProject() throws {
+        var project = Project(name: "Boards")
+        project.visionBoards = [VisionBoardMeta(id: "mood_two", name: "Mood Two")]
+        project.beats = [VisionCard(title: "ref")]
+
+        let data = try encoder.encode(project)
+        let json = String(data: data, encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"vision_boards\""))
+        XCTAssertTrue(json.contains("\"beats\""),
+                      "the legacy beats key is load-bearing — never rename")
+
+        let decoded = try decoder.decode(Project.self, from: data)
+        XCTAssertEqual(decoded.visionBoards,
+                       [VisionBoardMeta(id: "mood_two", name: "Mood Two")])
+        XCTAssertEqual(decoded.beats.count, 1)
+    }
+
+    func testProjectWithoutVisionBoardsKeyDecodesEmpty() throws {
+        let decoded: Project = try decodeJSON(#"{"name": "Old Project"}"#)
+        XCTAssertEqual(decoded.visionBoards, [],
+                       "pre-Slice-4 projects decode with an empty registry")
+    }
+
+    // =========================================================================
     // MARK: - BudgetCategory
     // =========================================================================
 

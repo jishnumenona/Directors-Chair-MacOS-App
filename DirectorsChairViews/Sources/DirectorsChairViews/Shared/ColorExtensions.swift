@@ -32,9 +32,12 @@ extension Color {
         )
     }
 
-    /// Convert Color to hex string
+    /// Convert Color to hex string ("#RRGGBB"). Goes through sRGB so
+    /// catalog/dynamic colors don't yield garbage components.
     var hexString: String {
-        let components = NSColor(self).cgColor.components ?? [0, 0, 0, 1]
+        let nsColor = NSColor(self)
+        let components = (nsColor.usingColorSpace(.sRGB) ?? nsColor)
+            .cgColor.components ?? [0, 0, 0, 1]
         let r = Int((components[0] * 255).rounded())
         let g = Int(((components.count > 1 ? components[1] : components[0]) * 255).rounded())
         let b = Int(((components.count > 2 ? components[2] : components[0]) * 255).rounded())

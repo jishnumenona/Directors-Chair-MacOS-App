@@ -40,6 +40,10 @@ final class VisionCardSnapshotTests: LocalOnlySnapshotTestCase {
         assertViewSnapshot(view, size: CGSize(width: 300, height: 250))
     }
 
+    // Repair slice 1: zoom now lives on the cards LAYER, not the card —
+    // per-card zoomLevel only counter-scales selection handles. Both
+    // renderings below are therefore identical by design; the snapshot
+    // regresses that cards no longer distort with zoom.
     func testSmallVsLargeZoom() {
         let card = TestFixtures.textVisionCard()
         let view = HStack(spacing: 20) {

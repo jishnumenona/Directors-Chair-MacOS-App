@@ -126,20 +126,50 @@ final class AssistantImageActionsTests: XCTestCase {
 
     // MARK: - Vision board
 
-    func testVisionBoardImageWritesTimestampedFile() async throws {
+    func testVisionBoardImageAppendsCardAtFreeSlot() async throws {
         let action = GenerateVisionBoardImageAction(
             projectViewModel: projectVM, coordinator: nil,
             makeGenerate: makeGenerate())
         XCTAssertThrowsError(try action.validate(argumentsData:
             args(#"{"prompt": "  "}"#)))
 
-        _ = try await action.execute(argumentsData:
+        let outcome = try await action.execute(argumentsData:
             args(#"{"prompt": "neon rain reflections"}"#))
         XCTAssertTrue(calls[0].prompt.hasPrefix("Cinematic mood-board reference image:"))
-        let boardDir = tempDir.appendingPathComponent("assets/visionboard")
-        let files = try FileManager.default.contentsOfDirectory(atPath: boardDir.path)
-        XCTAssertEqual(files.count, 1)
-        XCTAssertTrue(files[0].hasPrefix("vision_"))
+        XCTAssertTrue(outcome.userSummary.contains("card"),
+                      "summary reports a visible card, not just a file")
+
+        // The Slice-3 point: a real card on the board, not an orphaned file.
+        XCTAssertEqual(projectVM.project.beats.count, 1)
+        let card = projectVM.project.beats[0]
+        XCTAssertEqual(card.boardId, "master")
+        XCTAssertEqual(card.title, "neon rain reflections")
+        XCTAssertEqual(card.canvasX, 0, "first free grid slot on an empty board")
+        XCTAssertEqual(card.canvasY, 0)
+        XCTAssertEqual(card.canvasWidth, 200)
+        XCTAssertEqual(card.imagePath?.hasPrefix("assets/visionboard/vision_"),
+                       true, "relative path, portable project")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: tempDir.appendingPathComponent(card.imagePath!).path))
         XCTAssertTrue(projectVM.isDirty)
+    }
+
+    func testConsecutiveVisionBoardCardsLandAdjacentWithDistinctFiles() async throws {
+        let action = GenerateVisionBoardImageAction(
+            projectViewModel: projectVM, coordinator: nil,
+            makeGenerate: makeGenerate())
+        _ = try await action.execute(argumentsData: args(#"{"prompt": "first"}"#))
+        _ = try await action.execute(argumentsData: args(#"{"prompt": "second"}"#))
+
+        let cards = projectVM.project.beats
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertEqual(cards[1].canvasX, 220, "next free grid slot — adjacent")
+        XCTAssertEqual(cards[1].canvasY, 0)
+        XCTAssertGreaterThan(cards[1].zOrder, cards[0].zOrder)
+        XCTAssertNotEqual(cards[0].imagePath, cards[1].imagePath,
+                          "same-second epoch names get collision suffixes")
+        let files = try FileManager.default.contentsOfDirectory(
+            atPath: tempDir.appendingPathComponent("assets/visionboard").path)
+        XCTAssertEqual(files.count, 2)
     }
 }
