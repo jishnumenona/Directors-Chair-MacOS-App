@@ -41,9 +41,6 @@ public class VisionBoardViewModel: ObservableObject {
     /// Current board ID being displayed
     @Published public var currentBoardId: String = "master"
 
-    /// Whether the canvas is in fullscreen mode
-    @Published public var isFullscreen: Bool = false
-
     /// Current filter by card type
     @Published public var filterByType: VisionCardType?
 
@@ -118,8 +115,12 @@ public class VisionBoardViewModel: ObservableObject {
             }
         }
 
-        // Sort by z-order (lower values first, higher on top)
-        return result.sorted { $0.zOrder < $1.zOrder }
+        // Draw order: (pinned, zOrder) ascending — pinned cards render
+        // after (above) everything unpinned, honoring "Pin to Top".
+        return result.sorted {
+            if $0.pinned != $1.pinned { return !$0.pinned }
+            return $0.zOrder < $1.zOrder
+        }
     }
 
     /// Available boards: the persisted registry UNION boards derived from

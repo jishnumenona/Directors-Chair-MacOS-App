@@ -2,6 +2,7 @@
 // Tests for VisionBoardViewModel: card CRUD, selection, filtering, zoom, z-order, boards
 
 import XCTest
+import SwiftUI
 @testable import DirectorsChairViews
 @testable import DirectorsChairCore
 
@@ -208,6 +209,26 @@ final class VisionBoardViewModelTests: XCTestCase {
 
         viewModel.selectAllCards()
         XCTAssertEqual(viewModel.selectedCardIds.count, 3)
+    }
+
+    // MARK: - Draw order (Slice 5)
+
+    func testFilteredCardsDrawPinnedAboveEverythingElse() {
+        var low = makeCard(title: "low");     low.zOrder = 1
+        var high = makeCard(title: "high");   high.zOrder = 10
+        var pinned = makeCard(title: "pin");  pinned.zOrder = 2
+        pinned.pinned = true
+        viewModel.setCards([high, pinned, low])
+
+        XCTAssertEqual(viewModel.filteredCards.map(\.title),
+                       ["low", "high", "pin"],
+                       "pinned renders last (on top) despite lower zOrder")
+    }
+
+    func testColorHexRoundTrip() {
+        XCTAssertEqual(Color(hex: "#FF5733").hexString, "#FF5733")
+        XCTAssertEqual(Color(hex: "#000000").hexString, "#000000")
+        XCTAssertEqual(Color(hex: "#FFFFFF").hexString, "#FFFFFF")
     }
 
     // MARK: - Filtering

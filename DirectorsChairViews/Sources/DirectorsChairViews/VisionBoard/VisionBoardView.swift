@@ -112,7 +112,8 @@ public struct VisionBoardView: View {
                         viewModel.saveEditedCard()
                     },
                     onGenerateImage: onGenerateImage,
-                    assetStore: viewModel.assetStore
+                    assetStore: viewModel.assetStore,
+                    isNew: !viewModel.cards.contains { $0.id == card.id }
                 )
             }
         }
@@ -396,16 +397,6 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .foregroundColor(viewModel.gridSnapEnabled ? .accentColor : .gray)
             .help("Grid Snap")
-
-            // Fullscreen
-            Button {
-                viewModel.isFullscreen.toggle()
-            } label: {
-                Image(systemName: viewModel.isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.white)
-            .help("Toggle Fullscreen")
         }
     }
 

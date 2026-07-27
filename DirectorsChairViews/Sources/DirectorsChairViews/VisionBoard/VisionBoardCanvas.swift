@@ -207,62 +207,6 @@ public struct VisionBoardCanvas: View {
     }
 }
 
-// MARK: - Canvas Text Field
-
-/// Resizable text field for the canvas (used for standalone text items)
-public struct CanvasTextField: View {
-    @Binding public var text: String
-    public var font: Font = .body
-    public var textColor: Color = .white
-    public var backgroundColor: Color = .clear
-    public var isEditing: Bool = false
-
-    public var body: some View {
-        if isEditing {
-            TextEditor(text: $text)
-                .font(font)
-                .foregroundColor(textColor)
-                .scrollContentBackground(.hidden)
-                .background(backgroundColor.opacity(0.1))
-                .cornerRadius(4)
-        } else {
-            Text(text)
-                .font(font)
-                .foregroundColor(textColor)
-                .multilineTextAlignment(.leading)
-        }
-    }
-}
-
-// MARK: - Canvas Box
-
-/// Border-only box for grouping items on the canvas
-public struct CanvasBox: View {
-    public var width: CGFloat
-    public var height: CGFloat
-    public var borderColor: Color = .gray
-    public var borderWidth: CGFloat = 2
-    public var label: String?
-
-    public var body: some View {
-        ZStack(alignment: .topLeading) {
-            Rectangle()
-                .stroke(borderColor, lineWidth: borderWidth)
-                .frame(width: width, height: height)
-
-            if let label = label, !label.isEmpty {
-                Text(label)
-                    .font(.caption)
-                    .foregroundColor(borderColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(hex: "#1E1E1E"))
-                    .offset(x: 12, y: -10)
-            }
-        }
-    }
-}
-
 // MARK: - Preview
 
 #if DEBUG

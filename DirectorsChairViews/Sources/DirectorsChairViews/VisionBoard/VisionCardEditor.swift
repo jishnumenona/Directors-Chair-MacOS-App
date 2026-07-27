@@ -26,6 +26,10 @@ public struct VisionCardEditor: View {
     /// can't be previewed).
     public var assetStore: VisionBoardAssetStore?
 
+    /// Whether this session creates a card (VisionCard ids are never
+    /// empty, so the old `card.id.isEmpty` check could not distinguish).
+    public var isNew: Bool
+
     // MARK: - State
 
     @State private var selectedTab: EditorTab = .general
@@ -44,13 +48,15 @@ public struct VisionCardEditor: View {
         isPresented: Binding<Bool>,
         onSave: (() -> Void)? = nil,
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
-        assetStore: VisionBoardAssetStore? = nil
+        assetStore: VisionBoardAssetStore? = nil,
+        isNew: Bool = false
     ) {
         self._card = card
         self._isPresented = isPresented
         self.onSave = onSave
         self.onGenerateImage = onGenerateImage
         self.assetStore = assetStore
+        self.isNew = isNew
     }
 
     // MARK: - Body
@@ -93,7 +99,7 @@ public struct VisionCardEditor: View {
     @ViewBuilder
     private var editorHeader: some View {
         HStack {
-            Text(card.id.isEmpty ? "New Vision Card" : "Edit Vision Card")
+            Text(isNew ? "New Vision Card" : "Edit Vision Card")
                 .font(.headline)
                 .foregroundColor(.white)
 
@@ -148,20 +154,6 @@ public struct VisionCardEditor: View {
             }
 
             Divider()
-
-            // Size options
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Size")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-
-                Picker("Size", selection: $card.size) {
-                    Text("Small").tag("small")
-                    Text("Medium").tag("medium")
-                    Text("Large").tag("large")
-                }
-                .pickerStyle(.segmented)
-            }
 
             // Pinned toggle
             Toggle("Pin to Top", isOn: $card.pinned)
@@ -366,7 +358,7 @@ public struct VisionCardEditor: View {
                     Spacer()
                     ColorPicker("", selection: Binding(
                         get: { Color(hex: card.textColor) },
-                        set: { card.textColor = $0.toHex() ?? "#FFFFFF" }
+                        set: { card.textColor = $0.hexString }
                     ))
                     .labelsHidden()
                     Text(card.textColor)
@@ -447,7 +439,7 @@ public struct VisionCardEditor: View {
 
                     ColorPicker("", selection: Binding(
                         get: { Color(hex: newColorHex) },
-                        set: { newColorHex = $0.toHex() ?? "#FFFFFF" }
+                        set: { newColorHex = $0.hexString }
                     ))
                     .labelsHidden()
 
@@ -886,22 +878,6 @@ private struct CardEditorFlowLayout: Layout {
 
             height = y + rowHeight
         }
-    }
-}
-
-// MARK: - Color Extension for Hex Conversion
-
-extension Color {
-    func toHex() -> String? {
-        guard let components = NSColor(self).usingColorSpace(.sRGB)?.cgColor.components else {
-            return nil
-        }
-
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components[2] * 255)
-
-        return String(format: "#%02X%02X%02X", r, g, b)
     }
 }
 
