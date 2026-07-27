@@ -9,6 +9,39 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.8.0] — 2026-07-27
+
+### Added
+- The AI Assistant now creates, not just edits. Ask it to generate scene
+  keyframes, location shots with weather/time variations, mood-board images,
+  and character reference sets — or say "generate images for everything
+  that's missing" and review one card with the per-item costs and the batch
+  total before anything is spent.
+- Voice your scenes: the assistant renders dialogue in each character's cast
+  voice (text-to-speech), line by line or a whole scene at once, with
+  per-line cost estimates up front.
+- Render shots from chat: "render shot 12 as a 4-second clip" submits a Veo
+  video job — cost shown before you approve, progress narrated right in the
+  conversation, and the finished clip lands as a new take in Cinematography.
+- Build your project from a screenplay: give the assistant a PDF and it runs
+  the full AI import — scenes, dialogue, characters, locations, props — as
+  one undoable step, with a clear warning before replacing anything.
+- New character tools: AI-written biographies and script-wide personality
+  trait calibration (with the AI's confidence and reasoning saved), plus
+  full timeline analysis on demand.
+- Optional proactive checks: flip the bell in the assistant's header and it
+  flags schedule conflicts and plan problems the moment you open it — no AI
+  cost, instant.
+- Choose your assistant's brain: a new "AI Assistant (chat)" picker in
+  Preferences → AI Services (Google Gemini, Anthropic Claude, or DeepSeek),
+  and the Temperature slider now applies to the assistant too.
+
+### Changed
+- Assistant conversations are faster and cheaper: instead of sending large
+  project excerpts with every message, the assistant now looks up exactly
+  what it needs, when it needs it — answers always reflect your project's
+  live state.
+
 ## [3.7.1] — 2026-07-26
 
 ### Added
