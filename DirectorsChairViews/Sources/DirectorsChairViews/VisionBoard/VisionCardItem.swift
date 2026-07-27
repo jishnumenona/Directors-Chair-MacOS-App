@@ -20,6 +20,10 @@ public struct VisionCardItem: View {
     /// math is exact (Slice 1).
     public var canvasSpaceName: String = "visionCanvas"
 
+    /// Base for resolving project-relative image paths (Slice 2); nil
+    /// means only legacy absolute paths can load.
+    public var projectBase: URL?
+
     // Callbacks — raw gesture phases; ALL math lives in the view model's
     // anchored sessions (Slice 1).
     public var onSelect: ((Bool) -> Void)?  // Bool = add to selection (shift-click)
@@ -37,6 +41,7 @@ public struct VisionCardItem: View {
     @State private var isResizing: Bool = false
     @State private var isHovering: Bool = false
     @State private var loadedImage: NSImage?
+    @State private var imageLoadFailed: Bool = false
 
     // MARK: - Computed Properties
 
@@ -67,6 +72,7 @@ public struct VisionCardItem: View {
         zoomLevel: CGFloat = 1.0,
         showLabel: Bool = true,
         canvasSpaceName: String = "visionCanvas",
+        projectBase: URL? = nil,
         onSelect: ((Bool) -> Void)? = nil,
         onDoubleClick: (() -> Void)? = nil,
         onDragBegan: (() -> Void)? = nil,
@@ -81,6 +87,7 @@ public struct VisionCardItem: View {
         self.zoomLevel = zoomLevel
         self.showLabel = showLabel
         self.canvasSpaceName = canvasSpaceName
+        self.projectBase = projectBase
         self.onSelect = onSelect
         self.onDoubleClick = onDoubleClick
         self.onDragBegan = onDragBegan
@@ -181,6 +188,33 @@ public struct VisionCardItem: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: cardWidth, height: cardHeight)
                 .clipped()
+        } else if case .remote = VisionImageRef.classify(card.imagePath) {
+            // Remote refs are never fetched while rendering (Slice 2) —
+            // static placeholder instead of the old forever-spinner.
+            ZStack {
+                Color(hex: "#2A2A2A")
+                VStack(spacing: 8) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 32))
+                        .foregroundColor(.gray)
+                    Text(urlHost(from: card.imagePath ?? ""))
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                }
+            }
+        } else if imageLoadFailed {
+            ZStack {
+                Color(hex: "#2A2A2A")
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 32))
+                        .foregroundColor(.gray)
+                    Text("Missing Image")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
         } else if let imagePath = card.imagePath, !imagePath.isEmpty {
             // Loading placeholder
             ZStack {
@@ -595,8 +629,16 @@ public struct VisionCardItem: View {
     }
 
     private func loadImageIfNeeded() {
-        guard let imagePath = card.imagePath, !imagePath.isEmpty else {
+        imageLoadFailed = false
+        // Resolve-on-load (Slice 2): relative paths against the project
+        // base, legacy absolute paths as-is; remote refs return nil and
+        // render a static placeholder (never fetched in the render path).
+        guard let url = VisionBoardImagePath.resolveImageURL(
+            card.imagePath, projectBase: projectBase) else {
             loadedImage = nil
+            if case .relative = VisionImageRef.classify(card.imagePath) {
+                imageLoadFailed = true  // relative path with no project base
+            }
             return
         }
 
@@ -604,7 +646,6 @@ public struct VisionCardItem: View {
         // instead of holding each mood-board card's full-resolution source in
         // memory (many high-res references × per-card full bitmaps was the
         // resident-memory + GPU-rescale-on-zoom cost).
-        let url = URL(fileURLWithPath: imagePath)
         let maxPixel = Int(max(cardWidth, cardHeight) * 2.5)
         if let cached = ThumbnailImageCache.shared.cached(url, maxPixel: maxPixel) {
             loadedImage = cached
@@ -612,7 +653,10 @@ public struct VisionCardItem: View {
         }
         Task {
             let image = await ThumbnailImageCache.shared.thumbnail(url, maxPixel: maxPixel)
-            await MainActor.run { self.loadedImage = image }
+            await MainActor.run {
+                self.loadedImage = image
+                self.imageLoadFailed = image == nil
+            }
         }
     }
 

@@ -21,6 +21,11 @@ public struct VisionCardEditor: View {
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
 
+    /// Slice 2: staging + path resolution. Nil when the project has never
+    /// been saved (paste falls back to the OS temp dir; relative paths
+    /// can't be previewed).
+    public var assetStore: VisionBoardAssetStore?
+
     // MARK: - State
 
     @State private var selectedTab: EditorTab = .general
@@ -38,12 +43,14 @@ public struct VisionCardEditor: View {
         card: Binding<VisionCard>,
         isPresented: Binding<Bool>,
         onSave: (() -> Void)? = nil,
-        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil
+        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
+        assetStore: VisionBoardAssetStore? = nil
     ) {
         self._card = card
         self._isPresented = isPresented
         self.onSave = onSave
         self.onGenerateImage = onGenerateImage
+        self.assetStore = assetStore
     }
 
     // MARK: - Body
@@ -707,13 +714,17 @@ public struct VisionCardEditor: View {
            let bitmap = NSBitmapImageRep(data: tiffData),
            let pngData = bitmap.representation(using: .png, properties: [:]) {
 
-            // Save to temp location
-            let tempDir = FileManager.default.temporaryDirectory
-            let fileName = "pasted_\(UUID().uuidString).png"
-            let fileURL = tempDir.appendingPathComponent(fileName)
-
+            // Staged (finalized into the project only on Save); OS temp
+            // fallback when the project has never been saved to disk.
             do {
-                try pngData.write(to: fileURL)
+                let fileURL: URL
+                if let store = assetStore {
+                    fileURL = try store.stagePastedPNG(pngData)
+                } else {
+                    fileURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("pasted_\(UUID().uuidString).png")
+                    try pngData.write(to: fileURL)
+                }
                 card.imagePath = fileURL.path
                 loadPreviewImage()
             } catch {
@@ -737,28 +748,38 @@ public struct VisionCardEditor: View {
         isLoadingImage = true
         imageLoadError = nil
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            var image: NSImage?
-
-            if path.hasPrefix("http") {
-                // Load from URL
-                if let url = URL(string: path),
-                   let data = try? Data(contentsOf: url) {
-                    image = NSImage(data: data)
+        switch VisionImageRef.classify(path) {
+        case .none:
+            previewImage = nil
+            isLoadingImage = false
+        case .remote(let url):
+            // Async fetch — the old sync Data(contentsOf:) blocked a
+            // worker thread for the full network timeout.
+            Task {
+                let data = try? await URLSession.shared.data(from: url).0
+                await MainActor.run {
+                    finishPreviewLoad(data.flatMap { NSImage(data: $0) })
+                }
+            }
+        case .legacyAbsolute, .relative:
+            if let url = VisionBoardImagePath.resolveImageURL(
+                path, projectBase: assetStore?.projectBase) {
+                Task.detached(priority: .userInitiated) {
+                    let data = try? Data(contentsOf: url)
+                    await MainActor.run {
+                        finishPreviewLoad(data.flatMap { NSImage(data: $0) })
+                    }
                 }
             } else {
-                // Load from file
-                image = NSImage(contentsOfFile: path)
-            }
-
-            DispatchQueue.main.async {
-                self.previewImage = image
-                self.isLoadingImage = false
-                if image == nil && !path.isEmpty {
-                    self.imageLoadError = "Could not load image"
-                }
+                finishPreviewLoad(nil)
             }
         }
+    }
+
+    private func finishPreviewLoad(_ image: NSImage?) {
+        previewImage = image
+        isLoadingImage = false
+        imageLoadError = image == nil ? "Could not load image" : nil
     }
 
     private func generateAIImage() {

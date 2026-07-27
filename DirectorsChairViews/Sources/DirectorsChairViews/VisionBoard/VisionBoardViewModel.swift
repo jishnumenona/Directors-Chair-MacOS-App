@@ -63,6 +63,12 @@ public class VisionBoardViewModel: ObservableObject {
     @Published public var showLabels: Bool = true
 
     /// Card being edited (for editor sheet)
+    /// Slice 2: project-scoped asset store backing the editor's image
+    /// pipeline. Configured by the hosting view whenever the project base
+    /// changes; nil when no project is on disk (saves then commit paths
+    /// unchanged). Not @Published — it never drives rendering.
+    public var assetStore: VisionBoardAssetStore?
+
     @Published public var editingCard: VisionCard?
 
     /// Show card editor sheet
@@ -560,24 +566,76 @@ public class VisionBoardViewModel: ObservableObject {
         showingCardEditor = true
     }
 
-    /// Save edited card
+    /// Creates/replaces the asset store when the project base changes
+    /// (idempotent per base — the staging root must stay stable across a
+    /// single editing session).
+    public func configureAssetStore(projectBase: URL?) {
+        guard let projectBase else {
+            assetStore = nil
+            return
+        }
+        if assetStore?.projectBase != projectBase {
+            assetStore = VisionBoardAssetStore(projectBase: projectBase)
+        }
+    }
+
+    /// Save edited card. With an asset store configured this is the
+    /// Slice-2 pipeline: the image path is normalized (staged→finalized,
+    /// absolute-inside→relativized, outside→imported, remote→downloaded)
+    /// BEFORE the single commit, and leftover staged files are reaped after.
+    /// Only references the SESSION introduced are normalized — an unchanged
+    /// legacy path must not re-import a duplicate copy on every save. The
+    /// exception is relativizing an unchanged in-project absolute path:
+    /// idempotent, no file operations, migrates old projects as they save.
     public func saveEditedCard() {
         guard let card = editingCard else { return }
+        editingCard = nil
+        showingCardEditor = false
 
+        guard let store = assetStore else {
+            commitEditedCard(card)
+            return
+        }
+        let original = cards.first(where: { $0.id == card.id })
+        let imageChanged = original == nil || original?.imagePath != card.imagePath
+
+        Task { @MainActor [weak self] in
+            var card = card
+            if imageChanged {
+                card.imagePath = await store.normalizedForSave(card.imagePath)
+            } else if case .legacyAbsolute(let absolute) =
+                        VisionImageRef.classify(card.imagePath),
+                      let relative = VisionBoardImagePath.relativized(
+                        absolute, projectBase: store.projectBase) {
+                card.imagePath = relative
+            }
+            self?.commitEditedCard(card)
+            store.discardStaging()
+        }
+    }
+
+    private func commitEditedCard(_ card: VisionCard) {
         if cards.contains(where: { $0.id == card.id }) {
             updateCard(card)
         } else {
             addCard(card)
         }
-
-        editingCard = nil
-        showingCardEditor = false
     }
 
     /// Cancel editing
     public func cancelEditing() {
         editingCard = nil
         showingCardEditor = false
+    }
+
+    /// The editor sheet's onDismiss. It fires after Save too — by then
+    /// `editingCard` is already nil and the save Task owns staging — so
+    /// only a true dismissal (Cancel, Esc, window close) discards the
+    /// session and its staged files. Nothing orphans into the project.
+    public func editorDismissed() {
+        guard editingCard != nil else { return }
+        cancelEditing()
+        assetStore?.discardStaging()
     }
 
     // MARK: - Bulk Operations

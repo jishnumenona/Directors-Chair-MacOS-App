@@ -19,6 +19,11 @@ public struct VisionBoardView: View {
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
 
+    /// The project directory (Slice 2) — base for resolving relative image
+    /// paths and home of the managed assets/visionboard/ folder. Nil when
+    /// the project has never been saved to disk.
+    public var projectBasePath: URL?
+
     // MARK: - State
 
     @State private var showingBoardPicker: Bool = false
@@ -32,11 +37,13 @@ public struct VisionBoardView: View {
     public init(
         cards: [VisionCard] = [],
         onCardsChanged: (([VisionCard]) -> Void)? = nil,
-        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil
+        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
+        projectBasePath: URL? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(cards: cards))
         self.onCardsChanged = onCardsChanged
         self.onGenerateImage = onGenerateImage
+        self.projectBasePath = projectBasePath
     }
 
     // MARK: - Body
@@ -79,7 +86,8 @@ public struct VisionBoardView: View {
                 .padding()
             }
         }
-        .sheet(isPresented: $viewModel.showingCardEditor) {
+        .sheet(isPresented: $viewModel.showingCardEditor,
+               onDismiss: { viewModel.editorDismissed() }) {
             if let card = viewModel.editingCard {
                 VisionCardEditor(
                     card: Binding(
@@ -90,9 +98,16 @@ public struct VisionBoardView: View {
                     onSave: {
                         viewModel.saveEditedCard()
                     },
-                    onGenerateImage: onGenerateImage
+                    onGenerateImage: onGenerateImage,
+                    assetStore: viewModel.assetStore
                 )
             }
+        }
+        .onAppear {
+            viewModel.configureAssetStore(projectBase: projectBasePath)
+        }
+        .onChange(of: projectBasePath) { _, newBase in
+            viewModel.configureAssetStore(projectBase: newBase)
         }
         .alert("New Board", isPresented: $showingNewBoardAlert) {
             TextField("Board name", text: $newBoardName)

@@ -143,6 +143,7 @@ public struct VisionBoardCanvas: View {
                     zoomLevel: viewModel.zoomLevel,
                     showLabel: viewModel.showLabels,
                     canvasSpaceName: Self.canvasSpaceName,
+                    projectBase: viewModel.assetStore?.projectBase,
                     onSelect: { addToSelection in
                         if addToSelection {
                             viewModel.toggleCardSelection(card.id)
