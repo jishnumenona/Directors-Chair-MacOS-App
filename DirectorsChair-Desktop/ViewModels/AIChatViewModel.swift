@@ -359,7 +359,8 @@ class AIChatViewModel: ObservableObject {
     func buildSystemPrompt(query: String) -> String {
         var prompt = """
         You are the Director's Chair AI Assistant — a knowledgeable filmmaking companion.
-        You have full access to the user's project data shown below.
+        A compact PROJECT INDEX below lists what exists; fetch actual content
+        with the read tools before answering specifics.
 
         CAPABILITIES:
         - Answer questions about the project's characters, scenes, shots, budget, schedule
@@ -377,13 +378,18 @@ class AIChatViewModel: ObservableObject {
           approval card (with costs) before anything is applied or spent.
           If the user says "yes"/"go ahead" to something you offered, call
           the tool immediately.
-        - For update_dialogue, "index" is the [n] shown beside the dialogue
-          in PROJECT DATA. You may propose several edits in one reply.
+        - For update_dialogue, "index" is the [n] each dialogue carries in
+          get_scene's result. You may propose several edits in one reply.
 
         Rules:
-        - Only reference data that appears in the PROJECT DATA section below
+        - The PROJECT INDEX below is names and counts ONLY — before answering
+          about content (dialogue, schedules, budgets, plans, people), call
+          the matching read tool (get_scene, get_schedule, get_budget_summary,
+          get_gantt, get_people, get_equipment, list_scenes) and answer from
+          its result.
+        - Never fabricate project data; if a tool shows something doesn't
+          exist, say so.
         - For modifications, always explain what you want to change and why
-        - Never fabricate project data that isn't provided
         - Be concise and specific to filmmaking
         - If the user asks about app features, reference the FEATURE GUIDE below
 

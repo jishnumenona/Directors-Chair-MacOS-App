@@ -107,4 +107,37 @@ final class AssistantChatUXTests: XCTestCase {
             $0.content.contains("Welcome to Director's Chair")
         })
     }
+
+    // MARK: - A6.1: compact project index (context tiers retired)
+
+    func testProjectIndexIsSmallAndContentFree() {
+        var project = Project(name: "Big Film")
+        project.genre = "Epic"
+        // A big project: 40 scenes with long dialogue that must NOT leak in.
+        let secret = "SECRET-DIALOGUE-CONTENT-THAT-MUST-NOT-APPEAR"
+        var scenes: [Scene] = []
+        for i in 1...40 {
+            scenes.append(Scene(
+                name: "Scene \(i)", description: String(repeating: "desc ", count: 200),
+                dialogues: (1...10).map { _ in
+                    Dialogue(character: "Mara", text: secret + String(repeating: "x", count: 500))
+                }))
+        }
+        project.sequences = [Sequence(name: "Act 1", scenes: scenes)]
+        project.characters = [Character(name: "Mara"), Character(name: "Ilya")]
+        project.scheduleItems = [ScheduleItem(sceneName: "Scene 1",
+                                              shootDate: "2026-08-01")]
+
+        let index = ProjectContextBuilder.buildContext(project: project,
+                                                       context: nil)
+
+        XCTAssertFalse(index.contains(secret), "dialogue content must never leak")
+        XCTAssertFalse(index.contains("desc desc"), "descriptions must never leak")
+        XCTAssertTrue(index.contains("Scene 40 (10d/0sh)"), "scene names + counts present")
+        XCTAssertTrue(index.contains("Characters: Mara, Ilya"))
+        XCTAssertTrue(index.contains("1 schedule items"))
+        XCTAssertLessThan(index.count, 4_000,
+                          "the index stays small even for large projects (was ~25k-token dumps)")
+        XCTAssertTrue(index.contains("fetch content with the read tools"))
+    }
 }
