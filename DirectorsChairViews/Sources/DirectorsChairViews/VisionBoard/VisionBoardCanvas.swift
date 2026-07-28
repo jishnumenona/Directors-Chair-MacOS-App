@@ -123,6 +123,14 @@ public struct VisionBoardCanvas: View {
         .background(Color(hex: "#1A1A1A"))
     }
 
+    private func cardCenter(_ cardId: String) -> CGPoint? {
+        guard let card = viewModel.cards.first(where: { $0.id == cardId }) else {
+            return nil
+        }
+        return CGPoint(x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
+                       y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
+    }
+
     // MARK: - Canvas Background with Dot Grid
 
     @ViewBuilder
@@ -181,6 +189,22 @@ public struct VisionBoardCanvas: View {
     @ViewBuilder
     private var cardsLayer: some View {
         ZStack(alignment: .topLeading) {
+            // Arrows render under cards; endpoints are card centers, so
+            // the cards themselves occlude the line ends naturally.
+            ForEach(viewModel.boardConnectors) { connector in
+                if let from = cardCenter(connector.fromCardId),
+                   let to = cardCenter(connector.toCardId) {
+                    ConnectorArrow(
+                        from: from, to: to, label: connector.label,
+                        onEditLabel: {
+                            viewModel.editingConnectorId = connector.id
+                        },
+                        onDelete: {
+                            viewModel.removeConnector(connector.id)
+                        })
+                }
+            }
+
             ForEach(viewModel.filteredCards) { card in
                 VisionCardItem(
                     card: card,
@@ -190,7 +214,9 @@ public struct VisionBoardCanvas: View {
                     canvasSpaceName: Self.canvasSpaceName,
                     projectBase: viewModel.projectBase,
                     onSelect: { addToSelection in
-                        if addToSelection {
+                        if viewModel.pendingConnectorSource != nil {
+                            viewModel.completeConnector(to: card.id)
+                        } else if addToSelection {
                             viewModel.toggleCardSelection(card.id)
                         } else {
                             viewModel.selectCard(card.id)
@@ -208,6 +234,9 @@ public struct VisionBoardCanvas: View {
                     },
                     onExtractPalette: {
                         viewModel.extractPalette(fromCardId: card.id)
+                    },
+                    onBeginConnector: {
+                        viewModel.beginConnector(from: card.id)
                     },
                     onDragBegan: {
                         viewModel.beginCardDrag(anchor: card.id)
@@ -259,6 +288,71 @@ public struct VisionBoardCanvas: View {
             .onEnded { _ in
                 viewModel.endPinch()
             }
+    }
+}
+
+// MARK: - Connector Arrow (roadmap #5)
+
+/// A labeled dashed arrow between two world-space points. The label pill
+/// at the midpoint is the interaction target (edit label / delete).
+private struct ConnectorArrow: View {
+    let from: CGPoint
+    let to: CGPoint
+    let label: String
+    var onEditLabel: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        let minX = min(from.x, to.x) - 24
+        let minY = min(from.y, to.y) - 24
+        let width = abs(from.x - to.x) + 48
+        let height = abs(from.y - to.y) + 48
+        let localFrom = CGPoint(x: from.x - minX, y: from.y - minY)
+        let localTo = CGPoint(x: to.x - minX, y: to.y - minY)
+        let angle = atan2(to.y - from.y, to.x - from.x)
+        let mid = CGPoint(x: (localFrom.x + localTo.x) / 2,
+                          y: (localFrom.y + localTo.y) / 2)
+
+        ZStack(alignment: .topLeading) {
+            Path { path in
+                path.move(to: localFrom)
+                path.addLine(to: localTo)
+            }
+            .stroke(Color.white.opacity(0.45),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+
+            Image(systemName: "arrowtriangle.right.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.55))
+                .rotationEffect(.radians(angle))
+                .position(x: localTo.x - cos(angle) * 14,
+                          y: localTo.y - sin(angle) * 14)
+
+            HStack(spacing: 3) {
+                if label.isEmpty {
+                    Image(systemName: "character.cursor.ibeam")
+                        .font(.system(size: 8))
+                } else {
+                    Text(label)
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundColor(.white.opacity(0.85))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color(hex: "#2A2A2A")))
+            .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
+            .position(mid)
+            .onTapGesture(count: 2, perform: onEditLabel)
+            .contextMenu {
+                Button("Edit Label…", action: onEditLabel)
+                Divider()
+                Button("Delete Connector", role: .destructive, action: onDelete)
+            }
+        }
+        .frame(width: width, height: height)
+        .position(x: minX + width / 2, y: minY + height / 2)
     }
 }
 

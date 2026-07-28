@@ -1368,7 +1368,13 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertTrue(json.contains("\"beats\""),
                       "the legacy beats key is load-bearing — never rename")
 
-        let decoded = try decoder.decode(Project.self, from: data)
+        project.visionConnectors = [VisionConnector(
+            fromCardId: "c1", toCardId: "c2", label: "palette → night")]
+        let data2 = try encoder.encode(project)
+        XCTAssertTrue(String(data: data2, encoding: .utf8)!
+            .contains("\"vision_connectors\""))
+        let decoded = try decoder.decode(Project.self, from: data2)
+        XCTAssertEqual(decoded.visionConnectors.first?.label, "palette → night")
         XCTAssertEqual(decoded.visionBoards,
                        [VisionBoardMeta(id: "mood_two", name: "Mood Two")])
         XCTAssertEqual(decoded.beats.count, 1)
@@ -1378,6 +1384,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded: Project = try decodeJSON(#"{"name": "Old Project"}"#)
         XCTAssertEqual(decoded.visionBoards, [],
                        "pre-Slice-4 projects decode with an empty registry")
+        XCTAssertEqual(decoded.visionConnectors, [])
     }
 
     // =========================================================================

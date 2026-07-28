@@ -284,6 +284,39 @@ final class VisionBoardSessionTests: XCTestCase {
         XCTAssertEqual(viewModel.filteredCards.first?.id, "f")
     }
 
+    func testConnectorSessionCompletesDedupesAndCascades() {
+        let (viewModel, _) = makeViewModel()
+        var connectorLog: [[VisionConnector]] = []
+        viewModel.onConnectorsChanged = { connectorLog.append($0) }
+
+        viewModel.beginConnector(from: "a")
+        XCTAssertEqual(viewModel.pendingConnectorSource, "a")
+        viewModel.completeConnector(to: "b")
+        XCTAssertEqual(viewModel.connectors.count, 1)
+        XCTAssertNil(viewModel.pendingConnectorSource)
+
+        // Self-link and duplicate are ignored (pending clears anyway).
+        viewModel.beginConnector(from: "a")
+        viewModel.completeConnector(to: "a")
+        viewModel.beginConnector(from: "a")
+        viewModel.completeConnector(to: "b")
+        XCTAssertEqual(viewModel.connectors.count, 1)
+
+        // Clicking empty canvas disarms.
+        viewModel.beginConnector(from: "b")
+        viewModel.clearSelection()
+        XCTAssertNil(viewModel.pendingConnectorSource)
+
+        viewModel.setConnectorLabel(viewModel.connectors[0].id,
+                                    label: "palette → night")
+        XCTAssertEqual(viewModel.connectors[0].label, "palette → night")
+
+        // Deleting an endpoint severs the arrow.
+        viewModel.removeCard("b")
+        XCTAssertTrue(viewModel.connectors.isEmpty)
+        XCTAssertEqual(connectorLog.count, 3, "create, relabel, cascade")
+    }
+
     func testTextStyleResolutionAndStickyLastUsed() {
         XCTAssertEqual(VisionTextStyle.resolve(nil), .title,
                        "pre-preset cards render as the poster default")

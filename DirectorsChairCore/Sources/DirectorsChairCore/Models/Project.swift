@@ -58,6 +58,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     /// every saved project on disk uses it. Never rename the key.
     public var beats: [VisionCard]
     public var visionBoards: [VisionBoardMeta]  // Persisted board registry
+    public var visionConnectors: [VisionConnector]  // Labeled arrows between cards
 
     // MARK: - Production Planning
     public var scheduleItems: [ScheduleItem]
@@ -138,6 +139,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         sequences: [Sequence] = [],
         beats: [VisionCard] = [],
         visionBoards: [VisionBoardMeta] = [],
+        visionConnectors: [VisionConnector] = [],
         scheduleItems: [ScheduleItem] = [],
         ganttTasks: [GanttTask] = [],
         filmStyles: [FilmStyle] = [],
@@ -189,6 +191,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         self.sequences = sequences
         self.beats = beats
         self.visionBoards = visionBoards
+        self.visionConnectors = visionConnectors
         self.scheduleItems = scheduleItems
         self.ganttTasks = ganttTasks
         self.filmStyles = filmStyles
@@ -244,6 +247,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         case sequences
         case beats
         case visionBoards = "vision_boards"
+        case visionConnectors = "vision_connectors"
         case scheduleItems = "schedule_items"
         case ganttTasks = "gantt_tasks"
         case filmStyles = "film_styles"
@@ -315,6 +319,8 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         beats = try container.decodeIfPresent([VisionCard].self, forKey: .beats) ?? []
         visionBoards = try container.decodeIfPresent([VisionBoardMeta].self,
                                                      forKey: .visionBoards) ?? []
+        visionConnectors = try container.decodeIfPresent([VisionConnector].self,
+                                                         forKey: .visionConnectors) ?? []
 
         // Production planning
         scheduleItems = try container.decodeIfPresent([ScheduleItem].self, forKey: .scheduleItems) ?? []

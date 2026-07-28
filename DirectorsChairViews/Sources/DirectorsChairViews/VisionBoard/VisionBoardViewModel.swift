@@ -76,6 +76,14 @@ public class VisionBoardViewModel: ObservableObject {
     /// Slice 4: the persisted board registry (empty boards survive).
     @Published public var boardRegistry: [VisionBoardMeta]
 
+    /// Roadmap #5: labeled arrows between cards.
+    @Published public var connectors: [VisionConnector] = []
+    public var onConnectorsChanged: (([VisionConnector]) -> Void)?
+    /// Card armed by "Connect to…" — the next card click completes.
+    @Published public var pendingConnectorSource: String?
+    /// Connector whose label the host view is editing (drives an alert).
+    @Published public var editingConnectorId: String?
+
     /// Persistence callback for the board registry.
     public var onBoardsChanged: (([VisionBoardMeta]) -> Void)?
 
@@ -167,9 +175,11 @@ public class VisionBoardViewModel: ObservableObject {
 
     // MARK: - Initialization
 
-    public init(cards: [VisionCard] = [], boards: [VisionBoardMeta] = []) {
+    public init(cards: [VisionCard] = [], boards: [VisionBoardMeta] = [],
+                connectors: [VisionConnector] = []) {
         self.cards = cards
         self.boardRegistry = boards
+        self.connectors = connectors
         // Note: Don't select cards in init as filteredCards depends on currentBoardId
     }
 
@@ -221,6 +231,7 @@ public class VisionBoardViewModel: ObservableObject {
         cards.removeAll { $0.id == cardId }
         selectedCardIds.remove(cardId)
         cleanupAssets(for: removed)
+        removeConnectors(touching: [cardId])
         notifyChange()
     }
 
@@ -228,8 +239,10 @@ public class VisionBoardViewModel: ObservableObject {
     public func removeSelectedCards() {
         let removed = cards.filter { selectedCardIds.contains($0.id) }
         cards.removeAll { selectedCardIds.contains($0.id) }
+        let removedIds = Set(removed.map(\.id))
         selectedCardIds.removeAll()
         cleanupAssets(for: removed)
+        removeConnectors(touching: removedIds)
         notifyChange()
     }
 
@@ -292,6 +305,8 @@ public class VisionBoardViewModel: ObservableObject {
     /// Clear all selection
     public func clearSelection() {
         selectedCardIds.removeAll()
+        // Clicking empty canvas also disarms a pending connector.
+        pendingConnectorSource = nil
     }
 
     /// Select all cards on current board
@@ -700,6 +715,51 @@ public class VisionBoardViewModel: ObservableObject {
         palette.zOrder = maxZOrder + 1
         cards.append(palette)
         notifyChange()
+    }
+
+    // MARK: - Connectors (roadmap #5)
+
+    public var boardConnectors: [VisionConnector] {
+        connectors.filter { $0.boardId == currentBoardId }
+    }
+
+    public func beginConnector(from cardId: String) {
+        pendingConnectorSource = cardId
+    }
+
+    /// Completes a pending connector. Self-links and duplicates are
+    /// silently ignored; either way the pending state clears.
+    public func completeConnector(to cardId: String) {
+        guard let source = pendingConnectorSource else { return }
+        pendingConnectorSource = nil
+        guard source != cardId,
+              cards.contains(where: { $0.id == cardId }),
+              !connectors.contains(where: {
+                  $0.boardId == currentBoardId
+                      && $0.fromCardId == source && $0.toCardId == cardId
+              }) else { return }
+        connectors.append(VisionConnector(boardId: currentBoardId,
+                                          fromCardId: source,
+                                          toCardId: cardId))
+        onConnectorsChanged?(connectors)
+    }
+
+    public func removeConnector(_ id: String) {
+        connectors.removeAll { $0.id == id }
+        onConnectorsChanged?(connectors)
+    }
+
+    public func setConnectorLabel(_ id: String, label: String) {
+        guard let index = connectors.firstIndex(where: { $0.id == id }) else { return }
+        connectors[index].label = label
+        onConnectorsChanged?(connectors)
+    }
+
+    /// Deleting cards severs their arrows.
+    private func removeConnectors(touching ids: Set<String>) {
+        let before = connectors.count
+        connectors.removeAll { ids.contains($0.fromCardId) || ids.contains($0.toCardId) }
+        if connectors.count != before { onConnectorsChanged?(connectors) }
     }
 
     // MARK: - Right-Click Context Menu

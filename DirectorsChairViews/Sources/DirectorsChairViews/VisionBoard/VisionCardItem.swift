@@ -31,6 +31,7 @@ public struct VisionCardItem: View {
     public var onDuplicate: (() -> Void)?
     public var onDelete: (() -> Void)?
     public var onExtractPalette: (() -> Void)?
+    public var onBeginConnector: (() -> Void)?
     public var onDragBegan: (() -> Void)?
     public var onDragChanged: ((CGSize) -> Void)?
     public var onDragEnded: ((CGSize) -> Void)?
@@ -81,6 +82,7 @@ public struct VisionCardItem: View {
         onDuplicate: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
         onExtractPalette: (() -> Void)? = nil,
+        onBeginConnector: (() -> Void)? = nil,
         onDragBegan: (() -> Void)? = nil,
         onDragChanged: ((CGSize) -> Void)? = nil,
         onDragEnded: ((CGSize) -> Void)? = nil,
@@ -99,6 +101,7 @@ public struct VisionCardItem: View {
         self.onDuplicate = onDuplicate
         self.onDelete = onDelete
         self.onExtractPalette = onExtractPalette
+        self.onBeginConnector = onBeginConnector
         self.onDragBegan = onDragBegan
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -135,6 +138,11 @@ public struct VisionCardItem: View {
                             Label("Extract Color Palette",
                                   systemImage: "eyedropper.halffull")
                         }
+                    }
+                    Button {
+                        onBeginConnector?()
+                    } label: {
+                        Label("Connect to…", systemImage: "arrow.right")
                     }
                     Divider()
                     Button(role: .destructive) {

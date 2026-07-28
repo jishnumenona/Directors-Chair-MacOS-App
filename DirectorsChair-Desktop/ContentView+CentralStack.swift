@@ -141,6 +141,7 @@ struct CentralViewStack: View {
             VisionBoardView(
                 cards: projectViewModel.project.beats,
                 boards: projectViewModel.project.visionBoards,
+                connectors: projectViewModel.project.visionConnectors,
                 onCardsChanged: { cards in
                     projectViewModel.project.beats = cards
                     projectViewModel.isDirty = true
@@ -148,6 +149,11 @@ struct CentralViewStack: View {
                 },
                 onBoardsChanged: { boards in
                     projectViewModel.project.visionBoards = boards
+                    projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
+                },
+                onConnectorsChanged: { connectors in
+                    projectViewModel.project.visionConnectors = connectors
                     projectViewModel.isDirty = true
                     coordinator.notifyProjectChanged()
                 },

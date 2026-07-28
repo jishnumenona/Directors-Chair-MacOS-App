@@ -25,6 +25,9 @@ public struct VisionBoardView: View {
     /// Callback when the board registry changes (Slice 4 persistence)
     public var onBoardsChanged: (([VisionBoardMeta]) -> Void)?
 
+    /// Callback when connectors change (roadmap #5 persistence)
+    public var onConnectorsChanged: (([VisionConnector]) -> Void)?
+
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
 
@@ -41,22 +44,27 @@ public struct VisionBoardView: View {
     @State private var showingDeleteAlert: Bool = false
     @State private var showingExportOptions: Bool = false
     @State private var exportError: String?
+    @State private var connectorLabelDraft: String = ""
+
 
     // MARK: - Init
 
     public init(
         cards: [VisionCard] = [],
         boards: [VisionBoardMeta] = [],
+        connectors: [VisionConnector] = [],
         onCardsChanged: (([VisionCard]) -> Void)? = nil,
         onBoardsChanged: (([VisionBoardMeta]) -> Void)? = nil,
+        onConnectorsChanged: (([VisionConnector]) -> Void)? = nil,
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
         projectBasePath: URL? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
-            cards: cards, boards: boards))
+            cards: cards, boards: boards, connectors: connectors))
         self.cards = cards
         self.onCardsChanged = onCardsChanged
         self.onBoardsChanged = onBoardsChanged
+        self.onConnectorsChanged = onConnectorsChanged
         self.onGenerateImage = onGenerateImage
         self.projectBasePath = projectBasePath
     }
@@ -128,6 +136,28 @@ public struct VisionBoardView: View {
         .onChange(of: cards) { _, newCards in
             viewModel.reconcileExternalCards(newCards)
         }
+        .alert("Connector Label", isPresented: Binding(
+            get: { viewModel.editingConnectorId != nil },
+            set: { if !$0 { viewModel.editingConnectorId = nil } })) {
+            TextField("Label", text: $connectorLabelDraft)
+            Button("Save") {
+                if let id = viewModel.editingConnectorId {
+                    viewModel.setConnectorLabel(id, label: connectorLabelDraft)
+                }
+                viewModel.editingConnectorId = nil
+                connectorLabelDraft = ""
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.editingConnectorId = nil
+                connectorLabelDraft = ""
+            }
+        } message: {
+            Text("Name the relationship, e.g. \"this palette → night exteriors\"")
+        }
+        .onChange(of: viewModel.editingConnectorId) { _, id in
+            connectorLabelDraft = viewModel.connectors
+                .first { $0.id == id }?.label ?? ""
+        }
         .alert("Export Failed", isPresented: Binding(
             get: { exportError != nil },
             set: { if !$0 { exportError = nil } })) {
@@ -158,6 +188,7 @@ public struct VisionBoardView: View {
         .onAppear {
             viewModel.onCardsChanged = onCardsChanged
             viewModel.onBoardsChanged = onBoardsChanged
+            viewModel.onConnectorsChanged = onConnectorsChanged
             viewModel.onGenerateImage = onGenerateImage
         }
     }

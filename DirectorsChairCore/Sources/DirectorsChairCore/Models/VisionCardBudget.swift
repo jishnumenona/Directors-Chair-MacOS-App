@@ -19,6 +19,39 @@ public struct VisionBoardMeta: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - VisionConnector
+
+/// A labeled arrow between two vision cards ("this palette → night
+/// exteriors"). Endpoints are card ids; connectors live on the project
+/// beside the board registry.
+public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var boardId: String
+    public var fromCardId: String
+    public var toCardId: String
+    public var label: String
+
+    public init(id: String = UUID().uuidString,
+                boardId: String = "master",
+                fromCardId: String,
+                toCardId: String,
+                label: String = "") {
+        self.id = id
+        self.boardId = boardId
+        self.fromCardId = fromCardId
+        self.toCardId = toCardId
+        self.label = label
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case boardId = "board_id"
+        case fromCardId = "from_card_id"
+        case toCardId = "to_card_id"
+        case label
+    }
+}
+
 // MARK: - VisionCard
 
 /// Represents a vision card - visual reference for filmmaking pre-production
