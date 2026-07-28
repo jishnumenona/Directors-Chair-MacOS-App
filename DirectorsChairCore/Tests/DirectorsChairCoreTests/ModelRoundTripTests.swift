@@ -1331,6 +1331,16 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertFalse(decoded.pinned)
         XCTAssertEqual(decoded.size, "medium")
         XCTAssertNil(decoded.canvasX)
+        XCTAssertNil(decoded.textStyle, "pre-preset cards have no style")
+    }
+
+    func testVisionCardTextStyleRoundTrip() throws {
+        var card = VisionCard(title: "Big idea")
+        card.textStyle = "headline"
+        let decoded = try roundTrip(card)
+        XCTAssertEqual(decoded.textStyle, "headline")
+        let json = String(data: try encoder.encode(card), encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"text_style\""))
     }
 
     // =========================================================================

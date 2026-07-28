@@ -258,6 +258,29 @@ final class VisionBoardSessionTests: XCTestCase {
         XCTAssertEqual(viewModel.editingCard?.canvasY, 440)
     }
 
+    func testTextStyleResolutionAndStickyLastUsed() {
+        XCTAssertEqual(VisionTextStyle.resolve(nil), .title,
+                       "pre-preset cards render as the poster default")
+        XCTAssertEqual(VisionTextStyle.resolve("garbage"), .title)
+        XCTAssertEqual(VisionTextStyle.resolve("tag"), .tag)
+
+        let defaults = UserDefaults.standard
+        defer { defaults.removeObject(
+            forKey: VisionBoardViewModel.lastTextStyleKey) }
+        let (viewModel, _) = makeViewModel()
+
+        viewModel.createNewCard(type: .text, textStyle: "section")
+        XCTAssertEqual(viewModel.editingCard?.textStyle, "section")
+
+        // Next text card with no explicit style reuses the last one.
+        viewModel.createNewCard(type: .text)
+        XCTAssertEqual(viewModel.editingCard?.textStyle, "section")
+
+        // Non-text cards never carry a text style.
+        viewModel.createNewCard(type: .image)
+        XCTAssertNil(viewModel.editingCard?.textStyle)
+    }
+
     func testCreateNewCardLandsInVisibleWorld() {
         let (viewModel, _) = makeViewModel()
         viewModel.viewportSize = CGSize(width: 800, height: 600)

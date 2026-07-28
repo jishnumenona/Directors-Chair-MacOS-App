@@ -302,8 +302,9 @@ public struct VisionCardEditor: View {
                     VStack(alignment: .leading, spacing: 6) {
                         FieldLabel("Text", icon: "text.alignleft")
                         EditorTextEditor(placeholder: "The words on the card…",
-                                         text: $card.text, height: 150)
+                                         text: $card.text, height: 120)
                     }
+                    textStylePicker
                     HStack {
                         FieldLabel("Color")
                         Spacer()
@@ -347,6 +348,49 @@ public struct VisionCardEditor: View {
             }
             .padding(20)
         }
+    }
+
+    /// Six semantic presets, each chip rendered IN its own style —
+    /// recognition over recall (research 2026-07). Whole-card styling;
+    /// size always comes from resizing the card.
+    private var textStylePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel("Style", icon: "textformat")
+            HStack(spacing: 6) {
+                ForEach(VisionTextStyle.allCases) { style in
+                    textStyleChip(style)
+                }
+            }
+        }
+    }
+
+    private func textStyleChip(_ style: VisionTextStyle) -> some View {
+        let selected = VisionTextStyle.resolve(card.textStyle) == style
+        return Button {
+            card.textStyle = style.rawValue
+            UserDefaults.standard.set(
+                style.rawValue, forKey: VisionBoardViewModel.lastTextStyleKey)
+        } label: {
+            VStack(spacing: 4) {
+                VisionTextCardFace(content: "Aa", style: style,
+                                   colorHex: card.textColor)
+                    .frame(height: 34)
+                Text(style.displayName)
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundColor(selected ? .accentColor
+                                             : EditorTheme.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? Color.accentColor.opacity(0.14)
+                               : EditorTheme.field))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(selected ? Color.accentColor.opacity(0.85)
+                                 : EditorTheme.stroke, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help(style.displayName)
     }
 
     private var simpleTitleField: some View {
@@ -517,7 +561,7 @@ public struct VisionCardEditor: View {
 
         case .text:
             // Mirrors the canvas card, including its text→description→
-            // title fallback.
+            // title fallback and the semantic style preset.
             let posterText = [card.text, card.description, card.title]
                 .first { !$0.isEmpty } ?? ""
             if posterText.isEmpty {
@@ -525,12 +569,10 @@ public struct VisionCardEditor: View {
                     .font(.system(size: 11))
                     .foregroundColor(EditorTheme.secondary)
             } else {
-                Text(posterText)
-                    .font(.system(size: 80, weight: .bold))
-                    .minimumScaleFactor(0.05)
-                    .foregroundColor(Color(hex: card.textColor))
-                    .multilineTextAlignment(.center)
-                    .padding(10)
+                VisionTextCardFace(
+                    content: posterText,
+                    style: VisionTextStyle.resolve(card.textStyle),
+                    colorHex: card.textColor)
             }
 
         case .video:
@@ -625,6 +667,8 @@ public struct VisionCardEditor: View {
                     EditorTextEditor(placeholder: "The words on the card…",
                                      text: $card.text, height: 110)
                 }
+
+                textStylePicker
 
                 HStack {
                     FieldLabel("Text Color")

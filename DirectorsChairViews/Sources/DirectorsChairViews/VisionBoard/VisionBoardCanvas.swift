@@ -80,13 +80,31 @@ public struct VisionBoardCanvas: View {
             .contextMenu {
                 Section("Add to board") {
                     ForEach(VisionCardType.allCases) { type in
-                        Button {
-                            viewModel.createNewCard(
-                                type: type,
-                                at: viewModel.consumeRightClickPoint())
-                        } label: {
-                            Label(type.displayName,
-                                  systemImage: type.systemImage)
+                        if type == .text {
+                            // Presets discoverable at creation time
+                            // (research 2026-07).
+                            Menu {
+                                ForEach(VisionTextStyle.allCases) { style in
+                                    Button(style.displayName) {
+                                        viewModel.createNewCard(
+                                            type: .text,
+                                            at: viewModel.consumeRightClickPoint(),
+                                            textStyle: style.rawValue)
+                                    }
+                                }
+                            } label: {
+                                Label(type.displayName,
+                                      systemImage: type.systemImage)
+                            }
+                        } else {
+                            Button {
+                                viewModel.createNewCard(
+                                    type: type,
+                                    at: viewModel.consumeRightClickPoint())
+                            } label: {
+                                Label(type.displayName,
+                                      systemImage: type.systemImage)
+                            }
                         }
                     }
                 }

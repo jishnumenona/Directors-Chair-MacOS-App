@@ -610,14 +610,28 @@ public class VisionBoardViewModel: ObservableObject {
     }
 
     /// Open editor for a new card
+    /// Sticky last-used text preset (research: tldraw's pattern — serial
+    /// creation stays fast).
+    static let lastTextStyleKey = "visionBoardLastTextStyle"
+
     /// Opens the editor for a fresh card. `origin` (world space) places
     /// it under a right-click; nil falls back to the visible-center
-    /// cascade placement.
+    /// cascade placement. `textStyle` picks a preset for text cards
+    /// (nil = last used).
     public func createNewCard(type: VisionCardType = .image,
-                              at origin: CGPoint? = nil) {
+                              at origin: CGPoint? = nil,
+                              textStyle: String? = nil) {
         var card = VisionCard()
         card.cardType = type.rawValue
         card.boardId = currentBoardId
+        if type == .text {
+            let style = textStyle
+                ?? UserDefaults.standard.string(forKey: Self.lastTextStyleKey)
+            card.textStyle = style
+            if let style {
+                UserDefaults.standard.set(style, forKey: Self.lastTextStyleKey)
+            }
+        }
         var placement = origin ?? defaultPlacement(
             for: CGSize(width: Self.defaultCardWidth, height: Self.defaultCardHeight))
         if origin != nil, gridSnapEnabled {

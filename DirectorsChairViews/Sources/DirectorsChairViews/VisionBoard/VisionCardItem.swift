@@ -270,30 +270,29 @@ public struct VisionCardItem: View {
 
     // MARK: - Text Card
 
-    /// Poster-style title text (owner request): bold display type that
-    /// fills the card and scales as the card is resized. No inner scroll
-    /// (it hijacked canvas gestures) and no zoom font math — the cards
-    /// layer already applies the one true zoom.
+    /// Semantic preset text (Title/Section/Quote/Caption/Note/Tag):
+    /// display type that fills the card and scales as the card is
+    /// resized. No inner scroll (it hijacked canvas gestures) and no
+    /// zoom font math — the cards layer already applies the one true
+    /// zoom.
     @ViewBuilder
     private var textCardContent: some View {
-        // Whatever the user typed shows as the poster — text first, but a
+        // Whatever the user typed shows on the face — text first, but a
         // card that only has a title still displays it large.
         let content = [card.text, card.description, card.title]
             .first { !$0.isEmpty } ?? ""
         ZStack {
-            Color(hex: card.textColor).opacity(0.06)
+            Color(hex: card.textColor).opacity(0.04)
 
             if content.isEmpty {
                 Text("Double-click to edit")
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
             } else {
-                Text(content)
-                    .font(.system(size: 400, weight: .bold))
-                    .minimumScaleFactor(0.01)
-                    .foregroundColor(Color(hex: card.textColor))
-                    .multilineTextAlignment(.center)
-                    .padding(12)
+                VisionTextCardFace(
+                    content: content,
+                    style: VisionTextStyle.resolve(card.textStyle),
+                    colorHex: card.textColor)
             }
         }
     }
