@@ -30,6 +30,7 @@ public struct VisionCardItem: View {
     public var onDoubleClick: (() -> Void)?
     public var onDuplicate: (() -> Void)?
     public var onDelete: (() -> Void)?
+    public var onExtractPalette: (() -> Void)?
     public var onDragBegan: (() -> Void)?
     public var onDragChanged: ((CGSize) -> Void)?
     public var onDragEnded: ((CGSize) -> Void)?
@@ -79,6 +80,7 @@ public struct VisionCardItem: View {
         onDoubleClick: (() -> Void)? = nil,
         onDuplicate: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
+        onExtractPalette: (() -> Void)? = nil,
         onDragBegan: (() -> Void)? = nil,
         onDragChanged: ((CGSize) -> Void)? = nil,
         onDragEnded: ((CGSize) -> Void)? = nil,
@@ -96,6 +98,7 @@ public struct VisionCardItem: View {
         self.onDoubleClick = onDoubleClick
         self.onDuplicate = onDuplicate
         self.onDelete = onDelete
+        self.onExtractPalette = onExtractPalette
         self.onDragBegan = onDragBegan
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -123,6 +126,15 @@ public struct VisionCardItem: View {
                         onDuplicate?()
                     } label: {
                         Label("Duplicate", systemImage: "plus.square.on.square")
+                    }
+                    if [.image, .texture, .lighting, .location].contains(cardType),
+                       !(card.imagePath ?? "").isEmpty {
+                        Button {
+                            onExtractPalette?()
+                        } label: {
+                            Label("Extract Color Palette",
+                                  systemImage: "eyedropper.halffull")
+                        }
                     }
                     Divider()
                     Button(role: .destructive) {

@@ -674,6 +674,30 @@ public class VisionBoardViewModel: ObservableObject {
         showingCardEditor = true
     }
 
+    /// Roadmap #2: one-click palette from an image card. Places the
+    /// palette card immediately to the source card's right, top z.
+    public func extractPalette(fromCardId cardId: String) {
+        guard let source = cards.first(where: { $0.id == cardId }),
+              let url = VisionBoardImagePath.resolveImageURL(
+                source.imagePath, projectBase: projectBase),
+              let image = NSImage(contentsOf: url) else { return }
+        let colors = VisionPaletteExtractor.extract(from: image, count: 5)
+        guard !colors.isEmpty else { return }
+
+        var palette = VisionCard(
+            title: source.title.isEmpty ? "Palette" : "\(source.title) palette")
+        palette.cardType = VisionCardType.colorPalette.rawValue
+        palette.boardId = source.boardId
+        palette.colorPalette = colors
+        palette.canvasX = (source.canvasX ?? 0) + (source.canvasWidth ?? 200) + 24
+        palette.canvasY = source.canvasY
+        palette.canvasWidth = 200
+        palette.canvasHeight = 100
+        palette.zOrder = maxZOrder + 1
+        cards.append(palette)
+        notifyChange()
+    }
+
     // MARK: - Right-Click Context Menu
 
     /// World position of the last right-click on empty canvas, captured

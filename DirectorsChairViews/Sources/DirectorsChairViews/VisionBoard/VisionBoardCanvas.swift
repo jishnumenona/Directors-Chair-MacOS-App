@@ -206,6 +206,9 @@ public struct VisionBoardCanvas: View {
                     onDelete: {
                         viewModel.removeCard(card.id)
                     },
+                    onExtractPalette: {
+                        viewModel.extractPalette(fromCardId: card.id)
+                    },
                     onDragBegan: {
                         viewModel.beginCardDrag(anchor: card.id)
                     },
