@@ -56,6 +56,7 @@ public final class SyncEngine: ObservableObject {
             let manifest = try SyncManifestBuilder.build(projectDir: projectDir,
                                                          previous: syncState.lastManifest)
             if manifest == syncState.lastManifest, syncState.lastRevision > 0 {
+                await pushOverview(projectDir: projectDir, projectID: projectID)
                 state = .synced(Date())
                 pendingChanges = 0
                 return true
@@ -70,6 +71,7 @@ public final class SyncEngine: ObservableObject {
                 syncState.lastRevision = result.revision
                 syncState.lastManifest = manifest
                 try syncState.save(projectDir: projectDir)
+                await pushOverview(projectDir: projectDir, projectID: projectID)
                 pendingChanges = 0
                 state = .synced(Date())
                 return true
@@ -83,6 +85,23 @@ public final class SyncEngine: ObservableObject {
         } catch {
             state = .error(Self.describe(error))
             return false
+        }
+    }
+
+    /// §12A projection: best-effort pitch-deck push after a successful
+    /// sync. Never fails the sync — the portal simply keeps its empty
+    /// state until a later push lands.
+    private func pushOverview(projectDir: URL, projectID: String) async {
+        do {
+            let data = try Data(contentsOf:
+                projectDir.appendingPathComponent("project.json"))
+            let project = try JSONDecoder().decode(Project.self, from: data)
+            let deck = ProjectOverviewBuilder.deck(project: project,
+                                                   projectDir: projectDir,
+                                                   projectID: projectID)
+            try await client.putOverview(projectID: projectID, deck: deck)
+        } catch {
+            // Best effort by design.
         }
     }
 
