@@ -108,8 +108,9 @@ struct ExportCardView: View {
             Color(hex: "#2A2A2A")
             switch type {
             case .text:
-                // Poster type, matching the live canvas card.
-                Text(card.text.isEmpty ? card.title : card.text)
+                // Poster type, matching the live canvas card's fallback.
+                Text([card.text, card.description, card.title]
+                    .first { !$0.isEmpty } ?? "")
                     .font(.system(size: 200, weight: .bold))
                     .minimumScaleFactor(0.02)
                     .foregroundColor(Color(hex: card.textColor))

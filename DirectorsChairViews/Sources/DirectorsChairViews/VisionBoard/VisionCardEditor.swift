@@ -371,14 +371,16 @@ public struct VisionCardEditor: View {
             }
 
         case .text:
-            if card.text.isEmpty {
+            // Mirrors the canvas card, including its text→description→
+            // title fallback.
+            let posterText = [card.text, card.description, card.title]
+                .first { !$0.isEmpty } ?? ""
+            if posterText.isEmpty {
                 Text("Enter text…")
                     .font(.system(size: 11))
                     .foregroundColor(EditorTheme.secondary)
             } else {
-                // Mirrors the canvas card: bold poster type fitted to
-                // the frame.
-                Text(card.text)
+                Text(posterText)
                     .font(.system(size: 80, weight: .bold))
                     .minimumScaleFactor(0.05)
                     .foregroundColor(Color(hex: card.textColor))
@@ -469,6 +471,31 @@ public struct VisionCardEditor: View {
 
     @ViewBuilder
     private var generalTab: some View {
+        // A text card IS its text — that field leads, everything else
+        // follows.
+        if cardType == .text {
+            EditorGroup {
+                VStack(alignment: .leading, spacing: 6) {
+                    FieldLabel("Text Content", icon: "text.alignleft")
+                    EditorTextEditor(placeholder: "The words on the card…",
+                                     text: $card.text, height: 110)
+                }
+
+                HStack {
+                    FieldLabel("Text Color")
+                    Spacer()
+                    Text(card.textColor)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(EditorTheme.secondary)
+                    ColorPicker("", selection: Binding(
+                        get: { Color(hex: card.textColor) },
+                        set: { card.textColor = $0.hexString }
+                    ))
+                    .labelsHidden()
+                }
+            }
+        }
+
         EditorGroup {
             VStack(alignment: .leading, spacing: 6) {
                 FieldLabel("Title")
@@ -502,29 +529,6 @@ public struct VisionCardEditor: View {
                     FieldLabel("Credit / Source")
                     EditorTextField(placeholder: "Photographer or artist credit",
                                     text: optionalBinding(\.credit))
-                }
-            }
-        }
-
-        if cardType == .text {
-            EditorGroup {
-                VStack(alignment: .leading, spacing: 6) {
-                    FieldLabel("Text Content", icon: "text.alignleft")
-                    EditorTextEditor(placeholder: "The note itself…",
-                                     text: $card.text, height: 110)
-                }
-
-                HStack {
-                    FieldLabel("Text Color")
-                    Spacer()
-                    Text(card.textColor)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(EditorTheme.secondary)
-                    ColorPicker("", selection: Binding(
-                        get: { Color(hex: card.textColor) },
-                        set: { card.textColor = $0.hexString }
-                    ))
-                    .labelsHidden()
                 }
             }
         }

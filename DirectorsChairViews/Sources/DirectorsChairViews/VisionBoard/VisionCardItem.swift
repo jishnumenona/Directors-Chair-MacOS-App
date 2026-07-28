@@ -126,8 +126,9 @@ public struct VisionCardItem: View {
                 resizeHandles
             }
 
-            // Label overlay at bottom
-            if showLabel && !card.title.isEmpty {
+            // Label overlay at bottom. Text cards ARE their text — the
+            // poster face already shows it, so no duplicate footer label.
+            if showLabel && !card.title.isEmpty && cardType != .text {
                 labelOverlay
             }
 
@@ -251,7 +252,10 @@ public struct VisionCardItem: View {
     /// layer already applies the one true zoom.
     @ViewBuilder
     private var textCardContent: some View {
-        let content = card.text.isEmpty ? card.description : card.text
+        // Whatever the user typed shows as the poster — text first, but a
+        // card that only has a title still displays it large.
+        let content = [card.text, card.description, card.title]
+            .first { !$0.isEmpty } ?? ""
         ZStack {
             Color(hex: card.textColor).opacity(0.06)
 
