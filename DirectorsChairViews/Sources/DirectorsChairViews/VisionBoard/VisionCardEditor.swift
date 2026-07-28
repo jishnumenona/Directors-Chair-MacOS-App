@@ -148,6 +148,14 @@ public struct VisionCardEditor: View {
 
     // MARK: - State
 
+    /// Progressive disclosure (owner request): the editor opens in a
+    /// simple single-column mode with only the essentials for the card's
+    /// type; Advanced reveals the full sidebar+tabs UI. Sticky across
+    /// sessions so power users stay where they like.
+    @State private var showAdvanced: Bool =
+        UserDefaults.standard.bool(forKey: Self.advancedModeKey)
+    static let advancedModeKey = "visionCardEditorAdvancedMode"
+
     @State private var selectedTab: EditorTab = .general
     @State private var isLoadingImage: Bool = false
     @State private var imageLoadError: String?
@@ -184,23 +192,31 @@ public struct VisionCardEditor: View {
 
             Divider().overlay(EditorTheme.stroke)
 
-            HStack(spacing: 0) {
-                leftSidebar
-                    .frame(width: 224)
+            if showAdvanced {
+                HStack(spacing: 0) {
+                    leftSidebar
+                        .frame(width: 224)
 
-                Divider().overlay(EditorTheme.stroke)
+                    Divider().overlay(EditorTheme.stroke)
 
-                mainEditorArea
-                    .frame(maxWidth: .infinity)
+                    mainEditorArea
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(maxHeight: .infinity)
+            } else {
+                simpleEditor
+                    .frame(maxHeight: .infinity)
             }
-            .frame(maxHeight: .infinity)
 
             Divider().overlay(EditorTheme.stroke)
 
             editorFooter
         }
-        .frame(width: 760, height: 600)
+        .frame(width: showAdvanced ? 760 : 540,
+               height: showAdvanced ? 600 : 560)
         .background(EditorTheme.window)
+        .animation(.spring(response: 0.3, dampingFraction: 0.9),
+                   value: showAdvanced)
         .onAppear {
             loadPreviewImage()
         }
@@ -240,10 +256,139 @@ public struct VisionCardEditor: View {
                     .padding(.vertical, 4)
                     .background(Capsule().fill(Color.accentColor.opacity(0.15)))
             }
+
+            Button {
+                showAdvanced.toggle()
+                UserDefaults.standard.set(showAdvanced,
+                                          forKey: Self.advancedModeKey)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(showAdvanced ? "Simple" : "Advanced")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(EditorTheme.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(EditorTheme.field))
+                .overlay(Capsule().stroke(EditorTheme.stroke, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help(showAdvanced
+                  ? "Back to the essentials"
+                  : "Tags, scene links, department, and every option")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(EditorTheme.panel)
+    }
+
+    // MARK: - Simple Mode
+
+    /// The essentials only: pick a type (when creating), then the one
+    /// input that type actually needs. Everything else lives behind
+    /// Advanced.
+    @ViewBuilder
+    private var simpleEditor: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if isNew {
+                    simpleTypePicker
+                }
+
+                switch cardType {
+                case .text:
+                    VStack(alignment: .leading, spacing: 6) {
+                        FieldLabel("Text", icon: "text.alignleft")
+                        EditorTextEditor(placeholder: "The words on the card…",
+                                         text: $card.text, height: 150)
+                    }
+                    HStack {
+                        FieldLabel("Color")
+                        Spacer()
+                        ColorPicker("", selection: Binding(
+                            get: { Color(hex: card.textColor) },
+                            set: { card.textColor = $0.hexString }
+                        ))
+                        .labelsHidden()
+                    }
+
+                case .colorPalette:
+                    colorPaletteEditor
+
+                case .video:
+                    VStack(alignment: .leading, spacing: 6) {
+                        FieldLabel("Video URL", icon: "video")
+                        EditorTextField(placeholder: "YouTube or video URL",
+                                        text: optionalBinding(\.videoUrl))
+                    }
+                    simpleTitleField
+
+                default:  // image, texture, lighting, location
+                    imageWell
+                    HStack(spacing: 8) {
+                        mediaButton("Browse…", icon: "folder") {
+                            browseForImage()
+                        }
+                        mediaButton("Paste", icon: "doc.on.clipboard") {
+                            pasteFromClipboard()
+                        }
+                        Spacer()
+                    }
+                    if let error = imageLoadError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.orange)
+                    }
+                    aiGenerateRow
+                    simpleTitleField
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    private var simpleTitleField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel("Title")
+            EditorTextField(placeholder: "Optional caption", text: $card.title)
+        }
+    }
+
+    /// Compact one-row type chooser for new cards.
+    private var simpleTypePicker: some View {
+        HStack(spacing: 6) {
+            ForEach(VisionCardType.allCases) { type in
+                let selected = cardType == type
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        card.cardType = type.rawValue
+                    }
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: type.systemImage)
+                            .font(.system(size: 13, weight: .medium))
+                        Text(type.displayName)
+                            .font(.system(size: 8, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 8)
+                        .fill(selected ? Color.accentColor.opacity(0.16)
+                                       : EditorTheme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(selected ? Color.accentColor.opacity(0.85)
+                                         : EditorTheme.stroke, lineWidth: 1))
+                    .foregroundColor(selected ? .accentColor
+                                             : EditorTheme.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(type.displayName)
+            }
+        }
     }
 
     // MARK: - Left Sidebar
@@ -650,41 +795,7 @@ public struct VisionCardEditor: View {
 
             EditorGroup {
                 FieldLabel("Generate with AI", icon: "sparkles")
-
-                HStack(spacing: 8) {
-                    EditorTextField(placeholder: "Describe the image…",
-                                    text: $aiPrompt)
-
-                    Button {
-                        generateAIImage()
-                    } label: {
-                        HStack(spacing: 5) {
-                            if isGeneratingImage {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 11, weight: .semibold))
-                            }
-                            Text(isGeneratingImage ? "Generating…" : "Generate")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(EditorTheme.accentGradient)
-                            .opacity(aiPrompt.isEmpty || isGeneratingImage
-                                     || onGenerateImage == nil ? 0.4 : 1))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(aiPrompt.isEmpty || isGeneratingImage
-                              || onGenerateImage == nil)
-                }
-
-                Text("Renders a cinematic 16:9 reference straight onto this card.")
-                    .font(.system(size: 10))
-                    .foregroundColor(EditorTheme.secondary)
+                aiGenerateRow
             }
         }
 
@@ -704,6 +815,45 @@ public struct VisionCardEditor: View {
             EditorTextField(placeholder: "Original source URL",
                             text: optionalBinding(\.sourceUrl))
         }
+    }
+
+    /// Prompt + Generate button; shared by simple mode and the Media tab.
+    @ViewBuilder
+    private var aiGenerateRow: some View {
+        HStack(spacing: 8) {
+            EditorTextField(placeholder: "Describe an image to generate…",
+                            text: $aiPrompt)
+
+            Button {
+                generateAIImage()
+            } label: {
+                HStack(spacing: 5) {
+                    if isGeneratingImage {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    Text(isGeneratingImage ? "Generating…" : "Generate")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8)
+                    .fill(EditorTheme.accentGradient)
+                    .opacity(aiPrompt.isEmpty || isGeneratingImage
+                             || onGenerateImage == nil ? 0.4 : 1))
+            }
+            .buttonStyle(.plain)
+            .disabled(aiPrompt.isEmpty || isGeneratingImage
+                      || onGenerateImage == nil)
+        }
+
+        Text("Renders a cinematic 16:9 reference straight onto this card.")
+            .font(.system(size: 10))
+            .foregroundColor(EditorTheme.secondary)
     }
 
     private var imageWell: some View {
