@@ -160,7 +160,8 @@ struct CentralViewStack: View {
                 onGenerateImage: { prompt, completion in
                     generateVisionBoardImage(prompt: prompt, completion: completion)
                 },
-                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent()
+                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                locations: projectViewModel.project.locations
             )
             .onAppear { debugLog("📱 VisionBoardView appeared") }
         case .shotList:

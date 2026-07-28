@@ -31,6 +31,9 @@ public struct VisionBoardView: View {
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
 
+    /// Project locations for the Location-card picker.
+    public var locations: [Location]
+
     /// The project directory (Slice 2) — base for resolving relative image
     /// paths and home of the managed assets/visionboard/ folder. Nil when
     /// the project has never been saved to disk.
@@ -57,7 +60,8 @@ public struct VisionBoardView: View {
         onBoardsChanged: (([VisionBoardMeta]) -> Void)? = nil,
         onConnectorsChanged: (([VisionConnector]) -> Void)? = nil,
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
-        projectBasePath: URL? = nil
+        projectBasePath: URL? = nil,
+        locations: [Location] = []
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
             cards: cards, boards: boards, connectors: connectors))
@@ -67,6 +71,7 @@ public struct VisionBoardView: View {
         self.onConnectorsChanged = onConnectorsChanged
         self.onGenerateImage = onGenerateImage
         self.projectBasePath = projectBasePath
+        self.locations = locations
     }
 
     // MARK: - Body
@@ -123,7 +128,8 @@ public struct VisionBoardView: View {
                     },
                     onGenerateImage: onGenerateImage,
                     assetStore: viewModel.assetStore,
-                    isNew: !viewModel.cards.contains { $0.id == card.id }
+                    isNew: !viewModel.cards.contains { $0.id == card.id },
+                    locations: locations
                 )
             }
         }

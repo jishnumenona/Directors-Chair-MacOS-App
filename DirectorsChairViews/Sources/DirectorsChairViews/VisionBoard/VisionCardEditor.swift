@@ -146,6 +146,10 @@ public struct VisionCardEditor: View {
     /// empty, so the old `card.id.isEmpty` check could not distinguish).
     public var isNew: Bool
 
+    /// Project locations — lets a Location card link to a real entity
+    /// (name, primary image, description) instead of starting blank.
+    public var locations: [Location]
+
     // MARK: - State
 
     /// Progressive disclosure (owner request): the editor opens in a
@@ -177,7 +181,8 @@ public struct VisionCardEditor: View {
         onSave: (() -> Void)? = nil,
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
         assetStore: VisionBoardAssetStore? = nil,
-        isNew: Bool = false
+        isNew: Bool = false,
+        locations: [Location] = []
     ) {
         self._card = card
         self._isPresented = isPresented
@@ -185,6 +190,7 @@ public struct VisionCardEditor: View {
         self.onGenerateImage = onGenerateImage
         self.assetStore = assetStore
         self.isNew = isNew
+        self.locations = locations
     }
 
     // MARK: - Body
@@ -400,6 +406,9 @@ public struct VisionCardEditor: View {
                     simpleTitleField
 
                 default:  // image, texture, lighting, location
+                    if cardType == .location && !locations.isEmpty {
+                        locationPicker
+                    }
                     imageWell
                     HStack(spacing: 8) {
                         mediaButton("Browse…", icon: "folder") {
@@ -840,6 +849,10 @@ public struct VisionCardEditor: View {
                 .frame(width: 220)
             }
 
+            if cardType == .location && !locations.isEmpty {
+                locationPicker
+            }
+
             if cardType == .image || cardType == .texture || cardType == .lighting {
                 VStack(alignment: .leading, spacing: 6) {
                     FieldLabel("Credit / Source")
@@ -1225,6 +1238,40 @@ public struct VisionCardEditor: View {
     }
 
     // MARK: - Actions
+
+    /// Owner request: pick an existing project location — fills title,
+    /// primary image, and description in one step.
+    private var locationPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel("Project location", icon: "mappin")
+            Picker("", selection: Binding(
+                get: { locations.first { $0.name == card.title }?.name ?? "" },
+                set: { name in applyLocation(named: name) }
+            )) {
+                Text("Choose a location…").tag("")
+                ForEach(locations, id: \.name) { location in
+                    Text(location.name).tag(location.name)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 240)
+        }
+    }
+
+    private func applyLocation(named name: String) {
+        guard let location = locations.first(where: { $0.name == name }) else {
+            return
+        }
+        card.title = location.name
+        if let image = location.primaryImage, !image.isEmpty {
+            card.imagePath = image
+        }
+        if card.description.isEmpty {
+            card.description = location.description
+        }
+        loadPreviewImage()
+    }
 
     /// Roadmap #4: multi-select add for shot-strip frames. Files are
     /// imported into the project immediately when a store exists so the
