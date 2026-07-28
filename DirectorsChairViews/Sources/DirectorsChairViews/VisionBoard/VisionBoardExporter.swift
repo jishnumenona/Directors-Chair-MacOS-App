@@ -146,14 +146,25 @@ struct ExportCardView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if !card.title.isEmpty {
-                Text(card.title)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 3)
-                    .background(Color.black.opacity(0.55))
+            if !card.title.isEmpty || !(card.referenceNote ?? "").isEmpty {
+                VStack(spacing: 1) {
+                    if !card.title.isEmpty {
+                        Text(card.title)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                    }
+                    if let note = card.referenceNote, !note.isEmpty {
+                        Text(note.uppercased())
+                            .font(.system(size: 8, weight: .medium))
+                            .tracking(0.8)
+                            .foregroundColor(.white.opacity(0.72))
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
+                .background(Color.black.opacity(0.55))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))

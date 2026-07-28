@@ -1337,10 +1337,16 @@ final class ModelRoundTripTests: XCTestCase {
     func testVisionCardTextStyleRoundTrip() throws {
         var card = VisionCard(title: "Big idea")
         card.textStyle = "headline"
+        card.referenceNote = "35mm anamorphic · dusk"
         let decoded = try roundTrip(card)
         XCTAssertEqual(decoded.textStyle, "headline")
+        XCTAssertEqual(decoded.referenceNote, "35mm anamorphic · dusk")
         let json = String(data: try encoder.encode(card), encoding: .utf8)!
         XCTAssertTrue(json.contains("\"text_style\""))
+        XCTAssertTrue(json.contains("\"reference_note\""))
+        // Legacy cards decode with no note.
+        let legacy: VisionCard = try decodeJSON("{}")
+        XCTAssertNil(legacy.referenceNote)
     }
 
     // =========================================================================

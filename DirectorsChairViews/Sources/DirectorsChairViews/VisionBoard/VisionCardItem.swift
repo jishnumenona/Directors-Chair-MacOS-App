@@ -164,7 +164,8 @@ public struct VisionCardItem: View {
 
             // Label overlay at bottom. Text cards ARE their text — the
             // poster face already shows it, so no duplicate footer label.
-            if showLabel && !card.title.isEmpty && cardType != .text && cardType != .frame {
+            if showLabel && cardType != .text && cardType != .frame
+                && (!card.title.isEmpty || !(card.referenceNote ?? "").isEmpty) {
                 labelOverlay
             }
 
@@ -583,10 +584,22 @@ public struct VisionCardItem: View {
         VStack {
             Spacer()
             HStack {
-                Text(card.title)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundColor(.white)
+                VStack(alignment: .leading, spacing: 1) {
+                    if !card.title.isEmpty {
+                        Text(card.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .foregroundColor(.white)
+                    }
+                    // ShotDeck-style reference caption (roadmap #3).
+                    if let note = card.referenceNote, !note.isEmpty {
+                        Text(note.uppercased())
+                            .font(.system(size: 8, weight: .medium))
+                            .tracking(0.8)
+                            .lineLimit(1)
+                            .foregroundColor(.white.opacity(0.72))
+                    }
+                }
                 Spacer()
                 if let dept = card.department, !dept.isEmpty {
                     Text(dept)

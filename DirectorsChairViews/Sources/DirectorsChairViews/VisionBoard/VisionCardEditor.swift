@@ -364,6 +364,12 @@ public struct VisionCardEditor: View {
                     }
                     aiGenerateRow
                     simpleTitleField
+                    VStack(alignment: .leading, spacing: 6) {
+                        FieldLabel("Reference note", icon: "camera.metering.spot")
+                        EditorTextField(
+                            placeholder: "35mm anamorphic · backlit · dusk",
+                            text: optionalBinding(\.referenceNote))
+                    }
                 }
             }
             .padding(20)
@@ -776,6 +782,13 @@ public struct VisionCardEditor: View {
                     FieldLabel("Credit / Source")
                     EditorTextField(placeholder: "Photographer or artist credit",
                                     text: optionalBinding(\.credit))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    FieldLabel("Reference note", icon: "camera.metering.spot")
+                    EditorTextField(
+                        placeholder: "35mm anamorphic · backlit · dusk",
+                        text: optionalBinding(\.referenceNote))
                 }
             }
         }

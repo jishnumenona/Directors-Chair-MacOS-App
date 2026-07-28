@@ -66,6 +66,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
     // Text Card Specific
     public var textColor: String  // Hex color code for text cards
     public var textStyle: String?  // Preset name (headline, label, …); nil = default poster
+    public var referenceNote: String?  // ShotDeck-style caption: "35mm anamorphic · backlit · dusk"
 
     public init(
         id: String = UUID().uuidString,
@@ -96,7 +97,8 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         canvasWidth: Double? = nil,
         canvasHeight: Double? = nil,
         textColor: String = "#FFFFFF",
-        textStyle: String? = nil
+        textStyle: String? = nil,
+        referenceNote: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -127,6 +129,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         self.canvasHeight = canvasHeight
         self.textColor = textColor
         self.textStyle = textStyle
+        self.referenceNote = referenceNote
     }
 
     enum CodingKeys: String, CodingKey {
@@ -149,6 +152,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         case canvasHeight = "canvas_height"
         case textColor = "text_color"
         case textStyle = "text_style"
+        case referenceNote = "reference_note"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -201,6 +205,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         // Text card specific
         textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"
         textStyle = try container.decodeIfPresent(String.self, forKey: .textStyle)
+        referenceNote = try container.decodeIfPresent(String.self, forKey: .referenceNote)
     }
 }
 
