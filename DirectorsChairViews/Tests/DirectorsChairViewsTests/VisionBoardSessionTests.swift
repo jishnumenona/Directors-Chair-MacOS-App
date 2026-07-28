@@ -124,6 +124,42 @@ final class VisionBoardSessionTests: XCTestCase {
         XCTAssertFalse(viewModel.interactionInProgress)
     }
 
+    // MARK: - Trackpad scroll
+
+    func testScrollPanMovesOffsetByDeltaAndPersistsNothing() {
+        let (viewModel, changes) = makeViewModel()
+        viewModel.transform = CanvasTransform(zoom: 1, offset: .zero)
+
+        viewModel.scrollPan(deltaX: 30, deltaY: -12)
+        viewModel.scrollPan(deltaX: 5, deltaY: 2)
+
+        XCTAssertEqual(viewModel.transform.offset.x, 35)
+        XCTAssertEqual(viewModel.transform.offset.y, -10)
+        XCTAssertEqual(changes(), 0, "panning is view state, not a commit")
+    }
+
+    func testScrollZoomAnchorsAtCursorAndClamps() {
+        let (viewModel, _) = makeViewModel()
+        viewModel.transform = CanvasTransform(zoom: 1, offset: .zero)
+        let focus = CGPoint(x: 200, y: 150)
+        let worldBefore = viewModel.transform.toWorld(focus)
+
+        viewModel.scrollZoom(deltaY: -120, focus: focus)  // scroll up → in
+
+        XCTAssertGreaterThan(viewModel.transform.zoom, 1)
+        let worldAfter = viewModel.transform.toWorld(focus)
+        XCTAssertEqual(worldAfter.x, worldBefore.x, accuracy: 0.001,
+                       "the point under the cursor stays fixed")
+        XCTAssertEqual(worldAfter.y, worldBefore.y, accuracy: 0.001)
+
+        viewModel.scrollZoom(deltaY: -100_000, focus: focus)
+        XCTAssertLessThanOrEqual(viewModel.transform.zoom,
+                                 VisionBoardViewModel.maxZoom)
+        viewModel.scrollZoom(deltaY: 100_000, focus: focus)
+        XCTAssertGreaterThanOrEqual(viewModel.transform.zoom,
+                                    VisionBoardViewModel.minZoom)
+    }
+
     // MARK: - External reconciliation (Slice 3)
 
     /// An external snapshot differing from local state: card "b" deleted,

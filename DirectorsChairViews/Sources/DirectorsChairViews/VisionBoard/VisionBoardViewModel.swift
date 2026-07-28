@@ -415,6 +415,26 @@ public class VisionBoardViewModel: ObservableObject {
         applyPendingExternalCards()
     }
 
+    /// Trackpad two-finger scroll pans the canvas directly — each event
+    /// already carries a delta, so no anchored session is needed.
+    /// Natural-scrolling deltas move content with the fingers (the
+    /// NSScrollView convention).
+    public func scrollPan(deltaX: CGFloat, deltaY: CGFloat) {
+        transform.offset.x += deltaX
+        transform.offset.y += deltaY
+    }
+
+    /// ⌘-scroll zooms about the cursor (the Audacity/Figma convention:
+    /// scroll up zooms in). Exponential, so zoom speed feels constant at
+    /// any level; clamped like every other zoom path.
+    public func scrollZoom(deltaY: CGFloat, focus: CGPoint) {
+        guard deltaY != 0 else { return }
+        let factor = pow(1.0035, -deltaY)
+        transform = VisionCanvasGeometry.zoomed(
+            transform, toZoom: transform.zoom * factor, about: focus,
+            minZoom: Self.minZoom, maxZoom: Self.maxZoom)
+    }
+
     /// Captures the whole selection's origins so multi-drag stays rigid.
     public func beginCardDrag(anchor cardId: String) {
         dragSessionAnchorId = cardId

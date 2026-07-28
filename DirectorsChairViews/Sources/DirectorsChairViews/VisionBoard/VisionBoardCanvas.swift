@@ -59,6 +59,16 @@ public struct VisionBoardCanvas: View {
             .clipped()
             .contentShape(Rectangle())
             .coordinateSpace(name: Self.canvasSpaceName)
+            .background(
+                TrackpadScrollCatcher(
+                    onPan: { deltaX, deltaY in
+                        viewModel.scrollPan(deltaX: deltaX, deltaY: deltaY)
+                    },
+                    onZoom: { deltaY, focus in
+                        viewModel.scrollZoom(deltaY: deltaY, focus: focus)
+                    }
+                )
+            )
             .gesture(panGesture)
             .gesture(magnificationGesture)
             .onTapGesture {
@@ -204,6 +214,94 @@ public struct VisionBoardCanvas: View {
             .onEnded { _ in
                 viewModel.endPinch()
             }
+    }
+}
+
+// MARK: - Trackpad Scroll Capture
+
+/// SwiftUI has no scroll-wheel gesture on macOS, so this transparent
+/// background view installs a local NSEvent monitor and forwards
+/// two-finger scroll deltas that land over the canvas: plain scroll pans,
+/// ⌘-scroll zooms about the cursor. Events over scrollable content (a
+/// text card's inner ScrollView) pass through untouched so the canvas
+/// never fights a card's own scrolling.
+private struct TrackpadScrollCatcher: NSViewRepresentable {
+    let onPan: (CGFloat, CGFloat) -> Void
+    let onZoom: (CGFloat, CGPoint) -> Void
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.onPan = onPan
+        view.onZoom = onZoom
+        view.installMonitor()
+        return view
+    }
+
+    func updateNSView(_ view: CatcherView, context: Context) {
+        view.onPan = onPan
+        view.onZoom = onZoom
+    }
+
+    static func dismantleNSView(_ view: CatcherView, coordinator: ()) {
+        view.removeMonitor()
+    }
+
+    final class CatcherView: NSView {
+        var onPan: ((CGFloat, CGFloat) -> Void)?
+        var onZoom: ((CGFloat, CGPoint) -> Void)?
+        private var monitor: Any?
+
+        // Flipped so converted points share SwiftUI's top-left origin —
+        // the same space the zoom focus math expects.
+        override var isFlipped: Bool { true }
+
+        func installMonitor() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+                [weak self] event in
+                self?.handle(event) ?? event
+            }
+        }
+
+        func removeMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        deinit {
+            removeMonitor()
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard let window, event.window === window else { return event }
+            let point = convert(event.locationInWindow, from: nil)
+            guard bounds.contains(point) else { return event }
+            guard !isOverScrollableContent(event) else { return event }
+
+            // Physical mouse wheels deliver line-based deltas; scale them
+            // to feel like points.
+            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
+            if event.modifierFlags.contains(.command) {
+                onZoom?(event.scrollingDeltaY * scale, point)
+            } else {
+                onPan?(event.scrollingDeltaX * scale,
+                       event.scrollingDeltaY * scale)
+            }
+            return event
+        }
+
+        /// True when the event lands on content that scrolls by itself
+        /// (SwiftUI ScrollViews are NSScrollView-backed).
+        private func isOverScrollableContent(_ event: NSEvent) -> Bool {
+            guard let contentView = window?.contentView else { return false }
+            var view = contentView.hitTest(
+                contentView.convert(event.locationInWindow, from: nil))
+            while let current = view {
+                if current is NSScrollView { return true }
+                view = current.superview
+            }
+            return false
+        }
     }
 }
 
