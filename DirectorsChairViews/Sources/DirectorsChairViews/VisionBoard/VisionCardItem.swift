@@ -245,18 +245,27 @@ public struct VisionCardItem: View {
 
     // MARK: - Text Card
 
+    /// Poster-style title text (owner request): bold display type that
+    /// fills the card and scales as the card is resized. No inner scroll
+    /// (it hijacked canvas gestures) and no zoom font math — the cards
+    /// layer already applies the one true zoom.
     @ViewBuilder
     private var textCardContent: some View {
+        let content = card.text.isEmpty ? card.description : card.text
         ZStack {
-            Color(hex: card.textColor).opacity(0.1)
+            Color(hex: card.textColor).opacity(0.06)
 
-            ScrollView {
-                Text(card.text.isEmpty ? card.description : card.text)
-                    .font(.system(size: max(11, 14 * zoomLevel)))
+            if content.isEmpty {
+                Text("Double-click to edit")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            } else {
+                Text(content)
+                    .font(.system(size: 400, weight: .bold))
+                    .minimumScaleFactor(0.01)
                     .foregroundColor(Color(hex: card.textColor))
-                    .multilineTextAlignment(.leading)
+                    .multilineTextAlignment(.center)
                     .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

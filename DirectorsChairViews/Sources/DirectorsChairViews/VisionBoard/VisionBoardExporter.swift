@@ -108,12 +108,13 @@ struct ExportCardView: View {
             Color(hex: "#2A2A2A")
             switch type {
             case .text:
+                // Poster type, matching the live canvas card.
                 Text(card.text.isEmpty ? card.title : card.text)
-                    .font(.system(size: 13))
+                    .font(.system(size: 200, weight: .bold))
+                    .minimumScaleFactor(0.02)
                     .foregroundColor(Color(hex: card.textColor))
+                    .multilineTextAlignment(.center)
                     .padding(8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: .topLeading)
             case .colorPalette:
                 HStack(spacing: 0) {
                     ForEach(Array(card.colorPalette.enumerated()),

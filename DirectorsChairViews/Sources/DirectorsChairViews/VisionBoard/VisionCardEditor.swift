@@ -371,14 +371,20 @@ public struct VisionCardEditor: View {
             }
 
         case .text:
-            Text(card.text.isEmpty ? "Enter text…" : card.text)
-                .font(.system(size: 11))
-                .foregroundColor(card.text.isEmpty ? EditorTheme.secondary
-                                                   : Color(hex: card.textColor))
-                .lineLimit(6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity,
-                       alignment: .topLeading)
-                .padding(10)
+            if card.text.isEmpty {
+                Text("Enter text…")
+                    .font(.system(size: 11))
+                    .foregroundColor(EditorTheme.secondary)
+            } else {
+                // Mirrors the canvas card: bold poster type fitted to
+                // the frame.
+                Text(card.text)
+                    .font(.system(size: 80, weight: .bold))
+                    .minimumScaleFactor(0.05)
+                    .foregroundColor(Color(hex: card.textColor))
+                    .multilineTextAlignment(.center)
+                    .padding(10)
+            }
 
         case .video:
             VStack(spacing: 6) {
