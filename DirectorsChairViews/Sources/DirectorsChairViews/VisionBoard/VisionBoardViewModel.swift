@@ -717,6 +717,23 @@ public class VisionBoardViewModel: ObservableObject {
         notifyChange()
     }
 
+    /// True while at least one of the current board's cards intersects
+    /// the visible world (or there is nothing/nowhere to show). The
+    /// infinite canvas is unbounded by design — this drives the
+    /// "Back to content" rescue when the user scrolls into empty space.
+    public var contentVisible: Bool {
+        guard viewportSize != .zero else { return true }
+        let board = cards.filter { $0.boardId == currentBoardId }
+        guard !board.isEmpty else { return true }
+        let visible = transform.visibleWorldRect(viewport: viewportSize)
+        return board.contains { card in
+            visible.intersects(CGRect(
+                x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                width: card.canvasWidth ?? 200,
+                height: card.canvasHeight ?? 200))
+        }
+    }
+
     // MARK: - Connectors (roadmap #5)
 
     public var boardConnectors: [VisionConnector] {

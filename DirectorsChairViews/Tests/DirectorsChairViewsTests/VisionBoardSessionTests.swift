@@ -284,6 +284,26 @@ final class VisionBoardSessionTests: XCTestCase {
         XCTAssertEqual(viewModel.filteredCards.first?.id, "f")
     }
 
+    func testContentVisibleTracksViewportAgainstCards() {
+        let (viewModel, _) = makeViewModel()
+        XCTAssertTrue(viewModel.contentVisible,
+                      "zero viewport (tests, first frame) never nags")
+
+        viewModel.viewportSize = CGSize(width: 800, height: 600)
+        viewModel.transform = CanvasTransform(zoom: 1, offset: .zero)
+        XCTAssertTrue(viewModel.contentVisible, "cards a/b are on screen")
+
+        viewModel.scrollPan(deltaX: -10_000, deltaY: -10_000)
+        XCTAssertFalse(viewModel.contentVisible, "scrolled into empty space")
+
+        viewModel.fitToView(viewSize: viewModel.viewportSize)
+        XCTAssertTrue(viewModel.contentVisible, "fit rescues")
+
+        viewModel.setCards([])
+        viewModel.scrollPan(deltaX: -10_000, deltaY: 0)
+        XCTAssertTrue(viewModel.contentVisible, "empty boards never nag")
+    }
+
     func testConnectorSessionCompletesDedupesAndCascades() {
         let (viewModel, _) = makeViewModel()
         var connectorLog: [[VisionConnector]] = []

@@ -102,6 +102,33 @@ public struct VisionBoardView: View {
             }
             .padding()
 
+            // Infinite-canvas rescue: appears when every card is
+            // off-screen and jumps back to the content.
+            if !viewModel.contentVisible {
+                VStack {
+                    Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.35,
+                                              dampingFraction: 0.85)) {
+                            viewModel.fitToView(viewSize: viewModel.viewportSize)
+                        }
+                    } label: {
+                        Label("Back to content",
+                              systemImage: "arrow.uturn.backward.circle.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.accentColor))
+                            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 56)
+                }
+                .frame(maxWidth: .infinity)
+                .transition(.opacity)
+            }
+
             // Selection info at bottom left
             if !viewModel.selectedCardIds.isEmpty {
                 VStack {
