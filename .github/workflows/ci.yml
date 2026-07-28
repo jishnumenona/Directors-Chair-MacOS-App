@@ -1,8 +1,11 @@
 name: CI
 
+# One run per PR push (the PR-scoped run branch protection requires) —
+# the old branch-push trigger duplicated every CI run, doubling macOS
+# minute burn (10x metered) for zero extra signal.
 on:
   push:
-    branches: [main, "chore/**", "feature/**", "fix/**", "perf/**"]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
