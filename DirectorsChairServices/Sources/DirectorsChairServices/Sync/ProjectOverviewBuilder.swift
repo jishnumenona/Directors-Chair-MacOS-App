@@ -24,8 +24,10 @@ public enum ProjectOverviewBuilder {
                 ? URL(fileURLWithPath: path)
                 : projectDir.appendingPathComponent(path)
             guard let data = try? Data(contentsOf: url) else { return nil }
+            // /raw redirects to the presigned object so <img src> works;
+            // the bare blob endpoint returns JSON for the sync engine.
             return "/api/v1/projects/\(projectID)/blobs/"
-                + SyncHashing.sha256Hex(data)
+                + SyncHashing.sha256Hex(data) + "/raw"
         }
 
         var deck: [String: Any] = [:]

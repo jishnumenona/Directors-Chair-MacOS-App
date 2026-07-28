@@ -43,8 +43,8 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         let characters = deck["characters"] as? [[String: Any]]
         XCTAssertEqual(characters?.count, 2)
         XCTAssertEqual(characters?[0]["portrait"] as? String,
-                       "/api/v1/projects/p-123/blobs/\(sha)",
-                       "images become same-origin blob URLs by content sha")
+                       "/api/v1/projects/p-123/blobs/\(sha)/raw",
+                       "same-origin browser-fetchable blob URLs by content sha")
         XCTAssertNil(characters?[1]["portrait"], "missing artwork omitted")
 
         let scenes = deck["scenes"] as? [[String: Any]]
