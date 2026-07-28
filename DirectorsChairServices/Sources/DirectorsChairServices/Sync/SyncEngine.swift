@@ -44,6 +44,10 @@ public final class SyncEngine: ObservableObject {
 
     /// Push the project directory. Returns true when the server accepted a new
     /// revision (or everything was already up to date).
+    /// Why the last overview push failed, if it did (sync itself stays
+    /// green — the projection is best-effort).
+    public private(set) var lastOverviewPushProblem: String?
+
     @discardableResult
     public func push(projectDir: URL, projectID: String, name: String) async -> Bool {
         state = .syncing("Preparing…")
@@ -95,14 +99,27 @@ public final class SyncEngine: ObservableObject {
         do {
             let data = try Data(contentsOf:
                 projectDir.appendingPathComponent("project.json"))
-            let project = try JSONDecoder().decode(Project.self, from: data)
+            let project = try Self.decodeProject(data)
             let deck = ProjectOverviewBuilder.deck(project: project,
                                                    projectDir: projectDir,
                                                    projectID: projectID)
             try await client.putOverview(projectID: projectID, deck: deck)
+            lastOverviewPushProblem = nil
         } catch {
-            // Best effort by design.
+            // Best effort by design — but never invisible again: the
+            // original silent catch hid an ISO-8601 decode failure that
+            // suppressed every overview push.
+            lastOverviewPushProblem = Self.describe(error)
         }
+    }
+
+    /// Decodes a persisted project the way ProjectPersistence wrote it —
+    /// dates are ISO-8601 strings; a bare JSONDecoder throws on any
+    /// project whose characters carry calibration/created dates.
+    nonisolated static func decodeProject(_ data: Data) throws -> Project {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Project.self, from: data)
     }
 
     private func uploadMissing(projectDir: URL, projectID: String,
