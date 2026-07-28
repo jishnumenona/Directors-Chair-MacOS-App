@@ -141,6 +141,7 @@ struct CentralViewStack: View {
             VisionBoardView(
                 cards: projectViewModel.project.beats,
                 boards: projectViewModel.project.visionBoards,
+                connectors: projectViewModel.project.visionConnectors,
                 onCardsChanged: { cards in
                     projectViewModel.project.beats = cards
                     projectViewModel.isDirty = true
@@ -151,10 +152,16 @@ struct CentralViewStack: View {
                     projectViewModel.isDirty = true
                     coordinator.notifyProjectChanged()
                 },
+                onConnectorsChanged: { connectors in
+                    projectViewModel.project.visionConnectors = connectors
+                    projectViewModel.isDirty = true
+                    coordinator.notifyProjectChanged()
+                },
                 onGenerateImage: { prompt, completion in
                     generateVisionBoardImage(prompt: prompt, completion: completion)
                 },
-                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent()
+                projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
+                locations: projectViewModel.project.locations
             )
             .onAppear { debugLog("📱 VisionBoardView appeared") }
         case .shotList:

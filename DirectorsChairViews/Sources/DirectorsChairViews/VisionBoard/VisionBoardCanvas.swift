@@ -59,10 +59,55 @@ public struct VisionBoardCanvas: View {
             .clipped()
             .contentShape(Rectangle())
             .coordinateSpace(name: Self.canvasSpaceName)
+            .background(
+                TrackpadScrollCatcher(
+                    onPan: { deltaX, deltaY in
+                        viewModel.scrollPan(deltaX: deltaX, deltaY: deltaY)
+                    },
+                    onZoom: { deltaY, focus in
+                        viewModel.scrollZoom(deltaY: deltaY, focus: focus)
+                    },
+                    onRightClick: { point in
+                        viewModel.recordRightClick(atScreenPoint: point)
+                    }
+                )
+            )
             .gesture(panGesture)
             .gesture(magnificationGesture)
             .onTapGesture {
                 viewModel.clearSelection()
+            }
+            .contextMenu {
+                Section("Add to board") {
+                    ForEach(VisionCardType.allCases) { type in
+                        if type == .text {
+                            // Presets discoverable at creation time
+                            // (research 2026-07).
+                            Menu {
+                                ForEach(VisionTextStyle.allCases) { style in
+                                    Button(style.displayName) {
+                                        viewModel.createNewCard(
+                                            type: .text,
+                                            at: viewModel.consumeRightClickPoint(),
+                                            textStyle: style.rawValue)
+                                    }
+                                }
+                            } label: {
+                                Label(type.displayName,
+                                      systemImage: type.systemImage)
+                            }
+                        } else {
+                            Button {
+                                viewModel.createNewCard(
+                                    type: type,
+                                    at: viewModel.consumeRightClickPoint())
+                            } label: {
+                                Label(type.displayName,
+                                      systemImage: type.systemImage)
+                            }
+                        }
+                    }
+                }
             }
             .onAppear {
                 viewSize = geometry.size
@@ -76,6 +121,14 @@ public struct VisionBoardCanvas: View {
             }
         }
         .background(Color(hex: "#1A1A1A"))
+    }
+
+    private func cardCenter(_ cardId: String) -> CGPoint? {
+        guard let card = viewModel.cards.first(where: { $0.id == cardId }) else {
+            return nil
+        }
+        return CGPoint(x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
+                       y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
     }
 
     // MARK: - Canvas Background with Dot Grid
@@ -136,6 +189,22 @@ public struct VisionBoardCanvas: View {
     @ViewBuilder
     private var cardsLayer: some View {
         ZStack(alignment: .topLeading) {
+            // Arrows render under cards; endpoints are card centers, so
+            // the cards themselves occlude the line ends naturally.
+            ForEach(viewModel.boardConnectors) { connector in
+                if let from = cardCenter(connector.fromCardId),
+                   let to = cardCenter(connector.toCardId) {
+                    ConnectorArrow(
+                        from: from, to: to, label: connector.label,
+                        onEditLabel: {
+                            viewModel.editingConnectorId = connector.id
+                        },
+                        onDelete: {
+                            viewModel.removeConnector(connector.id)
+                        })
+                }
+            }
+
             ForEach(viewModel.filteredCards) { card in
                 VisionCardItem(
                     card: card,
@@ -143,9 +212,11 @@ public struct VisionBoardCanvas: View {
                     zoomLevel: viewModel.zoomLevel,
                     showLabel: viewModel.showLabels,
                     canvasSpaceName: Self.canvasSpaceName,
-                    projectBase: viewModel.assetStore?.projectBase,
+                    projectBase: viewModel.projectBase,
                     onSelect: { addToSelection in
-                        if addToSelection {
+                        if viewModel.pendingConnectorSource != nil {
+                            viewModel.completeConnector(to: card.id)
+                        } else if addToSelection {
                             viewModel.toggleCardSelection(card.id)
                         } else {
                             viewModel.selectCard(card.id)
@@ -153,6 +224,19 @@ public struct VisionBoardCanvas: View {
                     },
                     onDoubleClick: {
                         onCardEdit?(card)
+                    },
+                    onDuplicate: {
+                        viewModel.selectCard(card.id)
+                        viewModel.duplicateSelectedCards()
+                    },
+                    onDelete: {
+                        viewModel.removeCard(card.id)
+                    },
+                    onExtractPalette: {
+                        viewModel.extractPalette(fromCardId: card.id)
+                    },
+                    onBeginConnector: {
+                        viewModel.beginConnector(from: card.id)
                     },
                     onDragBegan: {
                         viewModel.beginCardDrag(anchor: card.id)
@@ -204,6 +288,173 @@ public struct VisionBoardCanvas: View {
             .onEnded { _ in
                 viewModel.endPinch()
             }
+    }
+}
+
+// MARK: - Connector Arrow (roadmap #5)
+
+/// A labeled dashed arrow between two world-space points. The label pill
+/// at the midpoint is the interaction target (edit label / delete).
+private struct ConnectorArrow: View {
+    let from: CGPoint
+    let to: CGPoint
+    let label: String
+    var onEditLabel: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        let minX = min(from.x, to.x) - 24
+        let minY = min(from.y, to.y) - 24
+        let width = abs(from.x - to.x) + 48
+        let height = abs(from.y - to.y) + 48
+        let localFrom = CGPoint(x: from.x - minX, y: from.y - minY)
+        let localTo = CGPoint(x: to.x - minX, y: to.y - minY)
+        let angle = atan2(to.y - from.y, to.x - from.x)
+        let mid = CGPoint(x: (localFrom.x + localTo.x) / 2,
+                          y: (localFrom.y + localTo.y) / 2)
+
+        ZStack(alignment: .topLeading) {
+            Path { path in
+                path.move(to: localFrom)
+                path.addLine(to: localTo)
+            }
+            .stroke(Color.white.opacity(0.45),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+
+            Image(systemName: "arrowtriangle.right.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.55))
+                .rotationEffect(.radians(angle))
+                .position(x: localTo.x - cos(angle) * 14,
+                          y: localTo.y - sin(angle) * 14)
+
+            HStack(spacing: 3) {
+                if label.isEmpty {
+                    Image(systemName: "character.cursor.ibeam")
+                        .font(.system(size: 8))
+                } else {
+                    Text(label)
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundColor(.white.opacity(0.85))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color(hex: "#2A2A2A")))
+            .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
+            .position(mid)
+            .onTapGesture(count: 2, perform: onEditLabel)
+            .contextMenu {
+                Button("Edit Label…", action: onEditLabel)
+                Divider()
+                Button("Delete Connector", role: .destructive, action: onDelete)
+            }
+        }
+        .frame(width: width, height: height)
+        .position(x: minX + width / 2, y: minY + height / 2)
+    }
+}
+
+// MARK: - Trackpad Scroll Capture
+
+/// SwiftUI has no scroll-wheel gesture on macOS, so this transparent
+/// background view installs a local NSEvent monitor and forwards
+/// two-finger scroll deltas that land over the canvas: plain scroll pans,
+/// ⌘-scroll zooms about the cursor. Events over scrollable content (a
+/// text card's inner ScrollView) pass through untouched so the canvas
+/// never fights a card's own scrolling.
+private struct TrackpadScrollCatcher: NSViewRepresentable {
+    let onPan: (CGFloat, CGFloat) -> Void
+    let onZoom: (CGFloat, CGPoint) -> Void
+    var onRightClick: ((CGPoint) -> Void)?
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.onPan = onPan
+        view.onZoom = onZoom
+        view.onRightClick = onRightClick
+        view.installMonitor()
+        return view
+    }
+
+    func updateNSView(_ view: CatcherView, context: Context) {
+        view.onPan = onPan
+        view.onZoom = onZoom
+        view.onRightClick = onRightClick
+    }
+
+    static func dismantleNSView(_ view: CatcherView, coordinator: ()) {
+        view.removeMonitor()
+    }
+
+    final class CatcherView: NSView {
+        var onPan: ((CGFloat, CGFloat) -> Void)?
+        var onZoom: ((CGFloat, CGPoint) -> Void)?
+        var onRightClick: ((CGPoint) -> Void)?
+        private var monitor: Any?
+
+        // Flipped so converted points share SwiftUI's top-left origin —
+        // the same space the zoom focus math expects.
+        override var isFlipped: Bool { true }
+
+        func installMonitor() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.scrollWheel, .rightMouseDown]) {
+                [weak self] event in
+                self?.handle(event) ?? event
+            }
+        }
+
+        func removeMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        deinit {
+            removeMonitor()
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard let window, event.window === window else { return event }
+            let point = convert(event.locationInWindow, from: nil)
+            guard bounds.contains(point) else { return event }
+
+            // Right-click: record where, pass through — SwiftUI's
+            // contextMenu still presents; the recorded point places the
+            // added card under the cursor.
+            if event.type == .rightMouseDown {
+                onRightClick?(point)
+                return event
+            }
+
+            guard !isOverScrollableContent(event) else { return event }
+
+            // Physical mouse wheels deliver line-based deltas; scale them
+            // to feel like points.
+            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
+            if event.modifierFlags.contains(.command) {
+                onZoom?(event.scrollingDeltaY * scale, point)
+            } else {
+                onPan?(event.scrollingDeltaX * scale,
+                       event.scrollingDeltaY * scale)
+            }
+            return event
+        }
+
+        /// True when the event lands on content that scrolls by itself
+        /// (SwiftUI ScrollViews are NSScrollView-backed).
+        private func isOverScrollableContent(_ event: NSEvent) -> Bool {
+            guard let contentView = window?.contentView else { return false }
+            var view = contentView.hitTest(
+                contentView.convert(event.locationInWindow, from: nil))
+            while let current = view {
+                if current is NSScrollView { return true }
+                view = current.superview
+            }
+            return false
+        }
     }
 }
 

@@ -25,8 +25,14 @@ public struct VisionBoardView: View {
     /// Callback when the board registry changes (Slice 4 persistence)
     public var onBoardsChanged: (([VisionBoardMeta]) -> Void)?
 
+    /// Callback when connectors change (roadmap #5 persistence)
+    public var onConnectorsChanged: (([VisionConnector]) -> Void)?
+
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
+
+    /// Project locations for the Location-card picker.
+    public var locations: [Location]
 
     /// The project directory (Slice 2) — base for resolving relative image
     /// paths and home of the managed assets/visionboard/ folder. Nil when
@@ -41,24 +47,31 @@ public struct VisionBoardView: View {
     @State private var showingDeleteAlert: Bool = false
     @State private var showingExportOptions: Bool = false
     @State private var exportError: String?
+    @State private var connectorLabelDraft: String = ""
+
 
     // MARK: - Init
 
     public init(
         cards: [VisionCard] = [],
         boards: [VisionBoardMeta] = [],
+        connectors: [VisionConnector] = [],
         onCardsChanged: (([VisionCard]) -> Void)? = nil,
         onBoardsChanged: (([VisionBoardMeta]) -> Void)? = nil,
+        onConnectorsChanged: (([VisionConnector]) -> Void)? = nil,
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
-        projectBasePath: URL? = nil
+        projectBasePath: URL? = nil,
+        locations: [Location] = []
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
-            cards: cards, boards: boards))
+            cards: cards, boards: boards, connectors: connectors))
         self.cards = cards
         self.onCardsChanged = onCardsChanged
         self.onBoardsChanged = onBoardsChanged
+        self.onConnectorsChanged = onConnectorsChanged
         self.onGenerateImage = onGenerateImage
         self.projectBasePath = projectBasePath
+        self.locations = locations
     }
 
     // MARK: - Body
@@ -89,6 +102,33 @@ public struct VisionBoardView: View {
             }
             .padding()
 
+            // Infinite-canvas rescue: appears when every card is
+            // off-screen and jumps back to the content.
+            if !viewModel.contentVisible {
+                VStack {
+                    Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.35,
+                                              dampingFraction: 0.85)) {
+                            viewModel.fitToView(viewSize: viewModel.viewportSize)
+                        }
+                    } label: {
+                        Label("Back to content",
+                              systemImage: "arrow.uturn.backward.circle.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.accentColor))
+                            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 56)
+                }
+                .frame(maxWidth: .infinity)
+                .transition(.opacity)
+            }
+
             // Selection info at bottom left
             if !viewModel.selectedCardIds.isEmpty {
                 VStack {
@@ -115,7 +155,8 @@ public struct VisionBoardView: View {
                     },
                     onGenerateImage: onGenerateImage,
                     assetStore: viewModel.assetStore,
-                    isNew: !viewModel.cards.contains { $0.id == card.id }
+                    isNew: !viewModel.cards.contains { $0.id == card.id },
+                    locations: locations
                 )
             }
         }
@@ -127,6 +168,28 @@ public struct VisionBoardView: View {
         }
         .onChange(of: cards) { _, newCards in
             viewModel.reconcileExternalCards(newCards)
+        }
+        .alert("Connector Label", isPresented: Binding(
+            get: { viewModel.editingConnectorId != nil },
+            set: { if !$0 { viewModel.editingConnectorId = nil } })) {
+            TextField("Label", text: $connectorLabelDraft)
+            Button("Save") {
+                if let id = viewModel.editingConnectorId {
+                    viewModel.setConnectorLabel(id, label: connectorLabelDraft)
+                }
+                viewModel.editingConnectorId = nil
+                connectorLabelDraft = ""
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.editingConnectorId = nil
+                connectorLabelDraft = ""
+            }
+        } message: {
+            Text("Name the relationship, e.g. \"this palette → night exteriors\"")
+        }
+        .onChange(of: viewModel.editingConnectorId) { _, id in
+            connectorLabelDraft = viewModel.connectors
+                .first { $0.id == id }?.label ?? ""
         }
         .alert("Export Failed", isPresented: Binding(
             get: { exportError != nil },
@@ -158,6 +221,7 @@ public struct VisionBoardView: View {
         .onAppear {
             viewModel.onCardsChanged = onCardsChanged
             viewModel.onBoardsChanged = onBoardsChanged
+            viewModel.onConnectorsChanged = onConnectorsChanged
             viewModel.onGenerateImage = onGenerateImage
         }
     }
@@ -445,10 +509,40 @@ public struct VisionBoardView: View {
                         exportBoardPNG()
                     }
                     .buttonStyle(.borderedProminent)
+                    Button("Export Lookbook as PDF…") {
+                        showingExportOptions = false
+                        exportLookbookPDF()
+                    }
                 }
                 .padding()
                 .frame(width: 240)
             }
+        }
+    }
+
+    /// Roadmap #6: paginated per-section lookbook.
+    private func exportLookbookPDF() {
+        let boardCards = viewModel.cards.filter {
+            $0.boardId == viewModel.currentBoardId
+        }
+        guard !boardCards.isEmpty else {
+            exportError = "This board has no cards to export."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "Lookbook-\(viewModel.currentBoardId).pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let data = VisionBoardLookbook.renderPDF(
+            cards: boardCards, projectBase: projectBasePath) else {
+            exportError = "Could not render the lookbook."
+            return
+        }
+        do {
+            try data.write(to: url)
+        } catch {
+            exportError = "Could not save the PDF: \(error.localizedDescription)"
         }
     }
 

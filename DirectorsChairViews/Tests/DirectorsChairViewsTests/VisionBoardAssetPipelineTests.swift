@@ -517,12 +517,18 @@ final class VisionBoardSavePipelineTests: XCTestCase {
 
     func testConfigureAssetStoreIsIdempotentPerBase() {
         let viewModel = VisionBoardViewModel(cards: [])
+        XCTAssertNil(viewModel.projectBase)
+
         viewModel.configureAssetStore(projectBase: projectBase)
         let first = viewModel.assetStore
+        XCTAssertEqual(viewModel.projectBase, projectBase,
+                       "published so cards re-resolve when the base lands")
+
         viewModel.configureAssetStore(projectBase: projectBase)
         XCTAssertEqual(viewModel.assetStore?.projectBase, first?.projectBase)
 
         viewModel.configureAssetStore(projectBase: nil)
         XCTAssertNil(viewModel.assetStore)
+        XCTAssertNil(viewModel.projectBase)
     }
 }

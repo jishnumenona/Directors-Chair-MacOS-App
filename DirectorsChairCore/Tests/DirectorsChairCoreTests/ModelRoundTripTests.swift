@@ -1331,6 +1331,26 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertFalse(decoded.pinned)
         XCTAssertEqual(decoded.size, "medium")
         XCTAssertNil(decoded.canvasX)
+        XCTAssertNil(decoded.textStyle, "pre-preset cards have no style")
+    }
+
+    func testVisionCardTextStyleRoundTrip() throws {
+        var card = VisionCard(title: "Big idea")
+        card.textStyle = "headline"
+        card.referenceNote = "35mm anamorphic · dusk"
+        let decoded = try roundTrip(card)
+        XCTAssertEqual(decoded.textStyle, "headline")
+        XCTAssertEqual(decoded.referenceNote, "35mm anamorphic · dusk")
+        card.imagePaths = ["a.png", "b.png"]
+        XCTAssertEqual(try roundTrip(card).imagePaths, ["a.png", "b.png"],
+                       "shot-strip frames keep their order")
+        let json = String(data: try encoder.encode(card), encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"text_style\""))
+        XCTAssertTrue(json.contains("\"reference_note\""))
+        // Legacy cards decode with no note.
+        let legacy: VisionCard = try decodeJSON("{}")
+        XCTAssertNil(legacy.referenceNote)
+        XCTAssertEqual(legacy.imagePaths, [])
     }
 
     // =========================================================================
@@ -1348,7 +1368,13 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertTrue(json.contains("\"beats\""),
                       "the legacy beats key is load-bearing — never rename")
 
-        let decoded = try decoder.decode(Project.self, from: data)
+        project.visionConnectors = [VisionConnector(
+            fromCardId: "c1", toCardId: "c2", label: "palette → night")]
+        let data2 = try encoder.encode(project)
+        XCTAssertTrue(String(data: data2, encoding: .utf8)!
+            .contains("\"vision_connectors\""))
+        let decoded = try decoder.decode(Project.self, from: data2)
+        XCTAssertEqual(decoded.visionConnectors.first?.label, "palette → night")
         XCTAssertEqual(decoded.visionBoards,
                        [VisionBoardMeta(id: "mood_two", name: "Mood Two")])
         XCTAssertEqual(decoded.beats.count, 1)
@@ -1358,6 +1384,7 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded: Project = try decodeJSON(#"{"name": "Old Project"}"#)
         XCTAssertEqual(decoded.visionBoards, [],
                        "pre-Slice-4 projects decode with an empty registry")
+        XCTAssertEqual(decoded.visionConnectors, [])
     }
 
     // =========================================================================

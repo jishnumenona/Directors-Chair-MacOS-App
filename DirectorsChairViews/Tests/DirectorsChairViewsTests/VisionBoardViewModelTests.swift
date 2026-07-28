@@ -521,7 +521,11 @@ final class VisionBoardViewModelTests: XCTestCase {
     // MARK: - VisionCardType Enum
 
     func testVisionCardTypeAllCases() {
-        XCTAssertEqual(VisionCardType.allCases.count, 7)
+        XCTAssertEqual(VisionCardType.allCases.count, 9)
+        XCTAssertTrue(VisionCardType.allCases.contains(.frame),
+                      "section frames (roadmap #1)")
+        XCTAssertTrue(VisionCardType.allCases.contains(.shotStrip),
+                      "shot strips (roadmap #4)")
     }
 
     func testVisionCardTypeDisplayNames() {

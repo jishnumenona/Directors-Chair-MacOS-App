@@ -22,12 +22,22 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     let role: MessageRole
     let content: String
     let timestamp: Date
+    /// Where the reply came from: on-device logic vs a third-party model.
+    /// Optional so conversations saved before this field decode unchanged.
+    var source: MessageSource?
+    /// Story elements with artwork mentioned in the reply — rendered as
+    /// thumbnails under the bubble. Optional for the same reason.
+    var entityRefs: [EntityRef]?
 
-    init(role: MessageRole, content: String) {
+    init(role: MessageRole, content: String,
+         source: MessageSource? = nil,
+         entityRefs: [EntityRef]? = nil) {
         self.id = UUID()
         self.role = role
         self.content = content
         self.timestamp = Date()
+        self.source = source
+        self.entityRefs = entityRefs
     }
 
     enum MessageRole: String, Codable, Equatable {
@@ -35,6 +45,23 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         case assistant
         case system
         case toolResult
+    }
+
+    /// Provenance of an assistant-produced message.
+    enum MessageSource: Codable, Equatable {
+        /// Produced by deterministic on-device logic — no AI call at all
+        /// (welcome, proactive checks, error notices). Phase L's local
+        /// model tier will get its own case when it exists.
+        case local
+        /// Answered by the routed third-party model ("Gemini", "Claude"…).
+        case cloud(provider: String)
+    }
+
+    /// A story element referenced in a reply that has an image to show.
+    struct EntityRef: Codable, Hashable {
+        let kind: String       // "character" | "location" | "scene"
+        let name: String
+        let imagePath: String  // project-relative (or legacy absolute)
     }
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
@@ -274,6 +301,65 @@ class AIChatViewModel: ObservableObject {
             content: "⚠ Heads up: \(findings.joined(separator: " and ")) — ask me for details or fixes."))
     }
 
+    // MARK: - Reply provenance + referenced entities
+
+    /// Display name of the routed third-party chat provider (A6.5 table).
+    static func routedProviderDisplayName() -> String {
+        switch AssistantRuntime.routedConfiguration().provider {
+        case "anthropic": return "Claude"
+        case "deepseek": return "DeepSeek"
+        default: return "Gemini"
+        }
+    }
+
+    /// Story elements mentioned in a reply that have artwork: characters,
+    /// locations, and scenes matched by whole-word, case-insensitive name.
+    /// First-occurrence order, deduped, capped at 4; nil when none match.
+    func entityRefs(in text: String) -> [ChatMessage.EntityRef]? {
+        guard let project = projectViewModel?.project else { return nil }
+
+        var candidates: [(name: String, kind: String, image: String)] = []
+        for character in project.characters {
+            if let image = character.avatar ?? character.baseImage
+                ?? character.imageFront, !image.isEmpty {
+                candidates.append((character.name, "character", image))
+            }
+        }
+        for location in project.locations {
+            if let image = location.primaryImage, !image.isEmpty {
+                candidates.append((location.name, "location", image))
+            }
+        }
+        for scene in project.sequences.flatMap(\.scenes) {
+            if let image = scene.sceneOverviewImage, !image.isEmpty {
+                candidates.append((scene.name, "scene", image))
+            }
+        }
+
+        let lowered = text.lowercased()
+        var found: [(position: String.Index, ref: ChatMessage.EntityRef)] = []
+        for candidate in candidates where candidate.name.count >= 3 {
+            let pattern = "\\b\(NSRegularExpression.escapedPattern(for: candidate.name.lowercased()))\\b"
+            if let range = lowered.range(of: pattern, options: .regularExpression) {
+                found.append((range.lowerBound,
+                              ChatMessage.EntityRef(kind: candidate.kind,
+                                                    name: candidate.name,
+                                                    imagePath: candidate.image)))
+            }
+        }
+        guard !found.isEmpty else { return nil }
+
+        var seen = Set<String>()
+        var refs: [ChatMessage.EntityRef] = []
+        for item in found.sorted(by: { $0.position < $1.position }) {
+            if seen.insert("\(item.ref.kind)|\(item.ref.name)").inserted {
+                refs.append(item.ref)
+            }
+            if refs.count == 4 { break }
+        }
+        return refs
+    }
+
     private func resetTurnState() {
         streamingText = ""
         toolActivity = nil
@@ -305,7 +391,8 @@ class AIChatViewModel: ObservableObject {
         You can open me anytime by pressing **Shift** twice quickly. Just type your question below and hit Enter — try one of the suggestions to get started!
         """
 
-        messages.append(ChatMessage(role: .assistant, content: welcome))
+        messages.append(ChatMessage(role: .assistant, content: welcome,
+                                    source: .local))
     }
 
     func loadConversation(_ conversation: ChatConversation) {
@@ -366,7 +453,10 @@ class AIChatViewModel: ObservableObject {
                 turnPlan = plan
             case .finished(let fullText, let transcript):
                 if !fullText.isEmpty {
-                    messages.append(ChatMessage(role: .assistant, content: fullText))
+                    messages.append(ChatMessage(
+                        role: .assistant, content: fullText,
+                        source: .cloud(provider: Self.routedProviderDisplayName()),
+                        entityRefs: entityRefs(in: fullText)))
                 } else if turnPlan == nil,
                           !messages.contains(where: { $0.role == .system
                               && $0.timestamp > (messages.last { $0.role == .user }?.timestamp ?? .distantPast) }) {
@@ -374,14 +464,16 @@ class AIChatViewModel: ObservableObject {
                     // protocol failure — say so instead of staying silent.
                     messages.append(ChatMessage(
                         role: .assistant,
-                        content: "I didn't receive a response from the assistant service. Please try again."))
+                        content: "I didn't receive a response from the assistant service. Please try again.",
+                        source: .local))
                 }
                 // The system prompt is rebuilt fresh each turn — persist the
                 // rest as the model's tool-fidelity memory.
                 kitHistory = Array(transcript.dropFirst())
             case .failed(let message):
                 messages.append(ChatMessage(role: .assistant,
-                                            content: "Error: \(message)"))
+                                            content: "Error: \(message)",
+                                            source: .local))
             }
         }
 

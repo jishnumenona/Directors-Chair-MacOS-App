@@ -66,6 +66,9 @@ public enum VisionBoardExporter {
         }
         // Draw order mirrors the canvas: (pinned, zOrder) ascending.
         let ordered = cards.sorted {
+            let leftFrame = $0.cardType == VisionCardType.frame.rawValue
+            let rightFrame = $1.cardType == VisionCardType.frame.rawValue
+            if leftFrame != rightFrame { return leftFrame }
             if $0.pinned != $1.pinned { return !$0.pinned }
             return $0.zOrder < $1.zOrder
         }
@@ -74,7 +77,8 @@ public enum VisionBoardExporter {
             Color(hex: "#1A1A1A")
             ForEach(ordered, id: \.id) { card in
                 if let frame = layout.frames[card.id] {
-                    ExportCardView(card: card, image: images[card.id])
+                    ExportCardView(card: card, image: images[card.id],
+                                   projectBase: projectBase)
                         .frame(width: frame.width, height: frame.height)
                         .offset(x: frame.minX, y: frame.minY)
                 }
@@ -98,6 +102,7 @@ public enum VisionBoardExporter {
 struct ExportCardView: View {
     let card: VisionCard
     let image: NSImage?
+    var projectBase: URL? = nil
 
     private var type: VisionCardType {
         VisionCardType(rawValue: card.cardType) ?? .image
@@ -107,13 +112,41 @@ struct ExportCardView: View {
         ZStack {
             Color(hex: "#2A2A2A")
             switch type {
+            case .shotStrip:
+                // One-shot render: synchronous loads are fine here.
+                HStack(spacing: 3) {
+                    ForEach(Array(card.imagePaths.enumerated()),
+                            id: \.offset) { _, path in
+                        if let url = VisionBoardImagePath.resolveImageURL(
+                            path, projectBase: projectBase),
+                           let frame = NSImage(contentsOf: url) {
+                            Image(nsImage: frame)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .clipped()
+                        } else {
+                            Color(hex: "#1A1A1A")
+                        }
+                    }
+                }
+                .padding(4)
+                .background(Color.black)
+            case .frame:
+                ZStack(alignment: .topLeading) {
+                    Color(hex: card.textColor).opacity(0.07)
+                    Text((card.title.isEmpty ? "Section" : card.title).uppercased())
+                        .font(.system(size: 12, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundColor(Color(hex: card.textColor).opacity(0.85))
+                        .padding(10)
+                }
             case .text:
-                Text(card.text.isEmpty ? card.title : card.text)
-                    .font(.system(size: 13))
-                    .foregroundColor(Color(hex: card.textColor))
-                    .padding(8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: .topLeading)
+                // The exact canvas face, fallback and preset included.
+                VisionTextCardFace(
+                    content: [card.text, card.description, card.title]
+                        .first { !$0.isEmpty } ?? "",
+                    style: VisionTextStyle.resolve(card.textStyle),
+                    colorHex: card.textColor)
             case .colorPalette:
                 HStack(spacing: 0) {
                     ForEach(Array(card.colorPalette.enumerated()),
@@ -134,14 +167,25 @@ struct ExportCardView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if !card.title.isEmpty {
-                Text(card.title)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 3)
-                    .background(Color.black.opacity(0.55))
+            if !card.title.isEmpty || !(card.referenceNote ?? "").isEmpty {
+                VStack(spacing: 1) {
+                    if !card.title.isEmpty {
+                        Text(card.title)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                    }
+                    if let note = card.referenceNote, !note.isEmpty {
+                        Text(note.uppercased())
+                            .font(.system(size: 8, weight: .medium))
+                            .tracking(0.8)
+                            .foregroundColor(.white.opacity(0.72))
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
+                .background(Color.black.opacity(0.55))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))

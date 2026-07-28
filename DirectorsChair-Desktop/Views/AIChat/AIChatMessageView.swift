@@ -6,9 +6,13 @@
 //
 
 import SwiftUI
+import DirectorsChairCore
+import DirectorsChairViews
 
 struct AIChatMessageView: View {
     let message: ChatMessage
+    /// Base for resolving project-relative entity thumbnails.
+    var projectBase: URL?
 
     var body: some View {
         switch message.role {
@@ -54,10 +58,23 @@ struct AIChatMessageView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .tracking(1.2)
                         .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+
+                    if let source = message.source {
+                        sourceBadge(source)
+                    }
                 }
 
                 MarkdownTextView(text: message.content)
 
+                if let refs = message.entityRefs, !refs.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(refs, id: \.self) { ref in
+                            EntityRefThumbnail(entityRef: ref,
+                                               projectBase: projectBase)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -73,6 +90,39 @@ struct AIChatMessageView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 2)
+    }
+
+    // MARK: - Provenance Badge
+
+    /// "Which AI answered this?" — on-device logic vs the routed
+    /// third-party model.
+    private func sourceBadge(_ source: ChatMessage.MessageSource) -> some View {
+        let icon: String
+        let label: String
+        let color: Color
+        switch source {
+        case .local:
+            icon = "cpu"
+            label = "On-device"
+            color = .teal
+        case .cloud(let provider):
+            icon = "cloud"
+            label = provider
+            color = .accentColor
+        }
+        return HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 7, weight: .semibold))
+            Text(label)
+                .font(.system(size: 8, weight: .semibold))
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(color.opacity(0.14)))
+        .foregroundColor(color)
+        .help(label == "On-device"
+              ? "Produced by the app itself — no AI service involved"
+              : "Answered by \(label)")
     }
 
     // MARK: - System Message
@@ -317,5 +367,76 @@ struct RoundedCorner: Shape {
         }
 
         return path
+    }
+}
+
+// MARK: - Entity Reference Thumbnail
+
+/// Thumbnail chip for a story element mentioned in a reply — makes the
+/// answer feel anchored in the user's actual project artwork.
+private struct EntityRefThumbnail: View {
+    let entityRef: ChatMessage.EntityRef
+    let projectBase: URL?
+
+    @State private var image: NSImage?
+
+    private var kindIcon: String {
+        switch entityRef.kind {
+        case "character": return "person.fill"
+        case "location": return "mappin.and.ellipse"
+        default: return "film"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.white.opacity(0.06))
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: kindIcon)
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                }
+            }
+            .frame(width: 34, height: 34)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entityRef.name)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(entityRef.kind.capitalized)
+                    .font(.system(size: 8))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+        .onAppear(perform: load)
+    }
+
+    private func load() {
+        guard image == nil,
+              let url = VisionBoardImagePath.resolveImageURL(
+                entityRef.imagePath, projectBase: projectBase) else { return }
+        if let cached = ThumbnailImageCache.shared.cached(url, maxPixel: 96) {
+            image = cached
+            return
+        }
+        Task {
+            let thumbnail = await ThumbnailImageCache.shared.thumbnail(
+                url, maxPixel: 96)
+            await MainActor.run { image = thumbnail }
+        }
     }
 }

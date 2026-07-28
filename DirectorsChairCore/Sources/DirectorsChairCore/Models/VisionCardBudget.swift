@@ -19,6 +19,39 @@ public struct VisionBoardMeta: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - VisionConnector
+
+/// A labeled arrow between two vision cards ("this palette → night
+/// exteriors"). Endpoints are card ids; connectors live on the project
+/// beside the board registry.
+public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var boardId: String
+    public var fromCardId: String
+    public var toCardId: String
+    public var label: String
+
+    public init(id: String = UUID().uuidString,
+                boardId: String = "master",
+                fromCardId: String,
+                toCardId: String,
+                label: String = "") {
+        self.id = id
+        self.boardId = boardId
+        self.fromCardId = fromCardId
+        self.toCardId = toCardId
+        self.label = label
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case boardId = "board_id"
+        case fromCardId = "from_card_id"
+        case toCardId = "to_card_id"
+        case label
+    }
+}
+
 // MARK: - VisionCard
 
 /// Represents a vision card - visual reference for filmmaking pre-production
@@ -65,6 +98,9 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
 
     // Text Card Specific
     public var textColor: String  // Hex color code for text cards
+    public var textStyle: String?  // Preset name (headline, label, …); nil = default poster
+    public var referenceNote: String?  // ShotDeck-style caption: "35mm anamorphic · backlit · dusk"
+    public var imagePaths: [String]  // Ordered images for shot-strip cards (project-relative)
 
     public init(
         id: String = UUID().uuidString,
@@ -94,7 +130,10 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         zOrder: Double = 0,
         canvasWidth: Double? = nil,
         canvasHeight: Double? = nil,
-        textColor: String = "#FFFFFF"
+        textColor: String = "#FFFFFF",
+        textStyle: String? = nil,
+        referenceNote: String? = nil,
+        imagePaths: [String] = []
     ) {
         self.id = id
         self.title = title
@@ -124,6 +163,9 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         self.canvasWidth = canvasWidth
         self.canvasHeight = canvasHeight
         self.textColor = textColor
+        self.textStyle = textStyle
+        self.referenceNote = referenceNote
+        self.imagePaths = imagePaths
     }
 
     enum CodingKeys: String, CodingKey {
@@ -145,6 +187,9 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         case canvasWidth = "canvas_width"
         case canvasHeight = "canvas_height"
         case textColor = "text_color"
+        case textStyle = "text_style"
+        case referenceNote = "reference_note"
+        case imagePaths = "image_paths"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -196,6 +241,9 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
 
         // Text card specific
         textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"
+        textStyle = try container.decodeIfPresent(String.self, forKey: .textStyle)
+        referenceNote = try container.decodeIfPresent(String.self, forKey: .referenceNote)
+        imagePaths = try container.decodeIfPresent([String].self, forKey: .imagePaths) ?? []
     }
 }
 

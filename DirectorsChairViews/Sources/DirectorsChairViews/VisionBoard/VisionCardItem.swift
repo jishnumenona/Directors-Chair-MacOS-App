@@ -28,6 +28,10 @@ public struct VisionCardItem: View {
     // anchored sessions (Slice 1).
     public var onSelect: ((Bool) -> Void)?  // Bool = add to selection (shift-click)
     public var onDoubleClick: (() -> Void)?
+    public var onDuplicate: (() -> Void)?
+    public var onDelete: (() -> Void)?
+    public var onExtractPalette: (() -> Void)?
+    public var onBeginConnector: (() -> Void)?
     public var onDragBegan: (() -> Void)?
     public var onDragChanged: ((CGSize) -> Void)?
     public var onDragEnded: ((CGSize) -> Void)?
@@ -75,6 +79,10 @@ public struct VisionCardItem: View {
         projectBase: URL? = nil,
         onSelect: ((Bool) -> Void)? = nil,
         onDoubleClick: (() -> Void)? = nil,
+        onDuplicate: (() -> Void)? = nil,
+        onDelete: (() -> Void)? = nil,
+        onExtractPalette: (() -> Void)? = nil,
+        onBeginConnector: (() -> Void)? = nil,
         onDragBegan: (() -> Void)? = nil,
         onDragChanged: ((CGSize) -> Void)? = nil,
         onDragEnded: ((CGSize) -> Void)? = nil,
@@ -90,6 +98,10 @@ public struct VisionCardItem: View {
         self.projectBase = projectBase
         self.onSelect = onSelect
         self.onDoubleClick = onDoubleClick
+        self.onDuplicate = onDuplicate
+        self.onDelete = onDelete
+        self.onExtractPalette = onExtractPalette
+        self.onBeginConnector = onBeginConnector
         self.onDragBegan = onDragBegan
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -107,6 +119,38 @@ public struct VisionCardItem: View {
                 .frame(width: cardWidth, height: cardHeight)
                 .background(cardBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contextMenu {
+                    Button {
+                        onDoubleClick?()
+                    } label: {
+                        Label("Edit Card", systemImage: "pencil")
+                    }
+                    Button {
+                        onDuplicate?()
+                    } label: {
+                        Label("Duplicate", systemImage: "plus.square.on.square")
+                    }
+                    if [.image, .texture, .lighting, .location].contains(cardType),
+                       !(card.imagePath ?? "").isEmpty {
+                        Button {
+                            onExtractPalette?()
+                        } label: {
+                            Label("Extract Color Palette",
+                                  systemImage: "eyedropper.halffull")
+                        }
+                    }
+                    Button {
+                        onBeginConnector?()
+                    } label: {
+                        Label("Connect to…", systemImage: "arrow.right")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        onDelete?()
+                    } label: {
+                        Label("Delete Card", systemImage: "trash")
+                    }
+                }
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(
@@ -126,8 +170,10 @@ public struct VisionCardItem: View {
                 resizeHandles
             }
 
-            // Label overlay at bottom
-            if showLabel && !card.title.isEmpty {
+            // Label overlay at bottom. Text cards ARE their text — the
+            // poster face already shows it, so no duplicate footer label.
+            if showLabel && cardType != .text && cardType != .frame
+                && (!card.title.isEmpty || !(card.referenceNote ?? "").isEmpty) {
                 labelOverlay
             }
 
@@ -154,6 +200,11 @@ public struct VisionCardItem: View {
         .onChange(of: card.imagePath) { _, _ in
             loadImageIfNeeded()
         }
+        .onChange(of: projectBase) { _, _ in
+            // The base lands AFTER first appear (the hosting view's
+            // onAppear configures it) — retry the resolve.
+            loadImageIfNeeded()
+        }
     }
 
     // MARK: - Card Content by Type
@@ -175,6 +226,56 @@ public struct VisionCardItem: View {
             lightingCardContent
         case .location:
             locationCardContent
+        case .frame:
+            frameCardContent
+        case .shotStrip:
+            shotStripContent
+        }
+    }
+
+    // MARK: - Shot Strip
+
+    /// Ordered filmstrip (roadmap #4): expresses progression — a scene's
+    /// beat arc, a color script across acts.
+    @ViewBuilder
+    private var shotStripContent: some View {
+        if card.imagePaths.isEmpty {
+            ZStack {
+                Color(hex: "#2A2A2A")
+                VStack(spacing: 6) {
+                    Image(systemName: "film.stack")
+                        .font(.system(size: 24))
+                        .foregroundColor(.gray)
+                    Text("Add frames in the editor")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+            }
+        } else {
+            HStack(spacing: 3) {
+                ForEach(Array(card.imagePaths.enumerated()), id: \.offset) { _, path in
+                    ShotStripFrame(path: path, projectBase: projectBase)
+                }
+            }
+            .padding(4)
+            .background(Color.black)
+        }
+    }
+
+    // MARK: - Section Frame
+
+    /// A named, tinted region (research roadmap #1): renders under all
+    /// cards; dragging it carries cards whose centers lie inside.
+    @ViewBuilder
+    private var frameCardContent: some View {
+        ZStack(alignment: .topLeading) {
+            Color(hex: card.textColor).opacity(0.07)
+            Text((card.title.isEmpty ? "Section" : card.title).uppercased())
+                .font(.system(size: 12, weight: .bold))
+                .tracking(1.4)
+                .foregroundColor(Color(hex: card.textColor).opacity(0.85))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
         }
     }
 
@@ -240,18 +341,29 @@ public struct VisionCardItem: View {
 
     // MARK: - Text Card
 
+    /// Semantic preset text (Title/Section/Quote/Caption/Note/Tag):
+    /// display type that fills the card and scales as the card is
+    /// resized. No inner scroll (it hijacked canvas gestures) and no
+    /// zoom font math — the cards layer already applies the one true
+    /// zoom.
     @ViewBuilder
     private var textCardContent: some View {
+        // Whatever the user typed shows on the face — text first, but a
+        // card that only has a title still displays it large.
+        let content = [card.text, card.description, card.title]
+            .first { !$0.isEmpty } ?? ""
         ZStack {
-            Color(hex: card.textColor).opacity(0.1)
+            Color(hex: card.textColor).opacity(0.04)
 
-            ScrollView {
-                Text(card.text.isEmpty ? card.description : card.text)
-                    .font(.system(size: max(11, 14 * zoomLevel)))
-                    .foregroundColor(Color(hex: card.textColor))
-                    .multilineTextAlignment(.leading)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if content.isEmpty {
+                Text("Double-click to edit")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            } else {
+                VisionTextCardFace(
+                    content: content,
+                    style: VisionTextStyle.resolve(card.textStyle),
+                    colorHex: card.textColor)
             }
         }
     }
@@ -511,10 +623,22 @@ public struct VisionCardItem: View {
         VStack {
             Spacer()
             HStack {
-                Text(card.title)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundColor(.white)
+                VStack(alignment: .leading, spacing: 1) {
+                    if !card.title.isEmpty {
+                        Text(card.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .foregroundColor(.white)
+                    }
+                    // ShotDeck-style reference caption (roadmap #3).
+                    if let note = card.referenceNote, !note.isEmpty {
+                        Text(note.uppercased())
+                            .font(.system(size: 8, weight: .medium))
+                            .tracking(0.8)
+                            .lineLimit(1)
+                            .foregroundColor(.white.opacity(0.72))
+                    }
+                }
                 Spacer()
                 if let dept = card.department, !dept.isEmpty {
                     Text(dept)
@@ -712,3 +836,47 @@ struct VisionCardItem_Previews: PreviewProvider {
     }
 }
 #endif
+
+
+// MARK: - Shot Strip Frame
+
+/// One filmstrip cell: thumbnail-cached, resolve-on-load like every
+/// other board image.
+private struct ShotStripFrame: View {
+    let path: String
+    let projectBase: URL?
+
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            Color(hex: "#1A1A1A")
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .onAppear(perform: load)
+        .onChange(of: projectBase) { _, _ in load() }
+    }
+
+    private func load() {
+        guard let url = VisionBoardImagePath.resolveImageURL(
+            path, projectBase: projectBase) else { return }
+        if let cached = ThumbnailImageCache.shared.cached(url, maxPixel: 320) {
+            image = cached
+            return
+        }
+        Task {
+            let thumbnail = await ThumbnailImageCache.shared.thumbnail(url, maxPixel: 320)
+            await MainActor.run { image = thumbnail }
+        }
+    }
+}

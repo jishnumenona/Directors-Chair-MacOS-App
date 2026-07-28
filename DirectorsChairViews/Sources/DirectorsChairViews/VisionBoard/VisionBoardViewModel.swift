@@ -66,8 +66,23 @@ public class VisionBoardViewModel: ObservableObject {
     /// unchanged). Not @Published — it never drives rendering.
     public var assetStore: VisionBoardAssetStore?
 
+    /// Published mirror of the store's project base. Cards resolve their
+    /// relative image paths against this, and card views appear BEFORE
+    /// the hosting view's onAppear configures the store — so the base
+    /// must drive rendering (the store itself deliberately doesn't) and
+    /// cards re-load when it lands.
+    @Published public private(set) var projectBase: URL?
+
     /// Slice 4: the persisted board registry (empty boards survive).
     @Published public var boardRegistry: [VisionBoardMeta]
+
+    /// Roadmap #5: labeled arrows between cards.
+    @Published public var connectors: [VisionConnector] = []
+    public var onConnectorsChanged: (([VisionConnector]) -> Void)?
+    /// Card armed by "Connect to…" — the next card click completes.
+    @Published public var pendingConnectorSource: String?
+    /// Connector whose label the host view is editing (drives an alert).
+    @Published public var editingConnectorId: String?
 
     /// Persistence callback for the board registry.
     public var onBoardsChanged: (([VisionBoardMeta]) -> Void)?
@@ -115,9 +130,13 @@ public class VisionBoardViewModel: ObservableObject {
             }
         }
 
-        // Draw order: (pinned, zOrder) ascending — pinned cards render
-        // after (above) everything unpinned, honoring "Pin to Top".
+        // Draw order: section frames render UNDER everything, then
+        // (pinned, zOrder) ascending — pinned cards render after (above)
+        // everything unpinned, honoring "Pin to Top".
         return result.sorted {
+            let leftFrame = $0.cardType == VisionCardType.frame.rawValue
+            let rightFrame = $1.cardType == VisionCardType.frame.rawValue
+            if leftFrame != rightFrame { return leftFrame }
             if $0.pinned != $1.pinned { return !$0.pinned }
             return $0.zOrder < $1.zOrder
         }
@@ -156,9 +175,11 @@ public class VisionBoardViewModel: ObservableObject {
 
     // MARK: - Initialization
 
-    public init(cards: [VisionCard] = [], boards: [VisionBoardMeta] = []) {
+    public init(cards: [VisionCard] = [], boards: [VisionBoardMeta] = [],
+                connectors: [VisionConnector] = []) {
         self.cards = cards
         self.boardRegistry = boards
+        self.connectors = connectors
         // Note: Don't select cards in init as filteredCards depends on currentBoardId
     }
 
@@ -210,6 +231,7 @@ public class VisionBoardViewModel: ObservableObject {
         cards.removeAll { $0.id == cardId }
         selectedCardIds.remove(cardId)
         cleanupAssets(for: removed)
+        removeConnectors(touching: [cardId])
         notifyChange()
     }
 
@@ -217,8 +239,10 @@ public class VisionBoardViewModel: ObservableObject {
     public func removeSelectedCards() {
         let removed = cards.filter { selectedCardIds.contains($0.id) }
         cards.removeAll { selectedCardIds.contains($0.id) }
+        let removedIds = Set(removed.map(\.id))
         selectedCardIds.removeAll()
         cleanupAssets(for: removed)
+        removeConnectors(touching: removedIds)
         notifyChange()
     }
 
@@ -281,6 +305,8 @@ public class VisionBoardViewModel: ObservableObject {
     /// Clear all selection
     public func clearSelection() {
         selectedCardIds.removeAll()
+        // Clicking empty canvas also disarms a pending connector.
+        pendingConnectorSource = nil
     }
 
     /// Select all cards on current board
@@ -415,10 +441,47 @@ public class VisionBoardViewModel: ObservableObject {
         applyPendingExternalCards()
     }
 
+    /// Trackpad two-finger scroll pans the canvas directly — each event
+    /// already carries a delta, so no anchored session is needed.
+    /// Natural-scrolling deltas move content with the fingers (the
+    /// NSScrollView convention).
+    public func scrollPan(deltaX: CGFloat, deltaY: CGFloat) {
+        transform.offset.x += deltaX
+        transform.offset.y += deltaY
+    }
+
+    /// ⌘-scroll zooms about the cursor (the Audacity/Figma convention:
+    /// scroll up zooms in). Exponential, so zoom speed feels constant at
+    /// any level; clamped like every other zoom path.
+    public func scrollZoom(deltaY: CGFloat, focus: CGPoint) {
+        guard deltaY != 0 else { return }
+        let factor = pow(1.0035, -deltaY)
+        transform = VisionCanvasGeometry.zoomed(
+            transform, toZoom: transform.zoom * factor, about: focus,
+            minZoom: Self.minZoom, maxZoom: Self.maxZoom)
+    }
+
     /// Captures the whole selection's origins so multi-drag stays rigid.
+    /// A section frame carries its contents: cards whose CENTER lies
+    /// inside the frame at drag start move rigidly with it (membership is
+    /// computed once per gesture, not re-evaluated mid-drag).
     public func beginCardDrag(anchor cardId: String) {
         dragSessionAnchorId = cardId
-        let ids = selectedCardIds.contains(cardId) ? selectedCardIds : [cardId]
+        var ids = selectedCardIds.contains(cardId) ? selectedCardIds : [cardId]
+        if let anchor = cards.first(where: { $0.id == cardId }),
+           anchor.cardType == VisionCardType.frame.rawValue {
+            let rect = CGRect(x: anchor.canvasX ?? 0, y: anchor.canvasY ?? 0,
+                              width: anchor.canvasWidth ?? 0,
+                              height: anchor.canvasHeight ?? 0)
+            for card in cards where card.boardId == anchor.boardId
+                && card.id != anchor.id
+                && card.cardType != VisionCardType.frame.rawValue {
+                let center = CGPoint(
+                    x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
+                    y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
+                if rect.contains(center) { ids.insert(card.id) }
+            }
+        }
         dragSessionOrigins = [:]
         for id in ids {
             if let card = cards.first(where: { $0.id == id }) {
@@ -583,20 +646,156 @@ public class VisionBoardViewModel: ObservableObject {
     }
 
     /// Open editor for a new card
-    public func createNewCard(type: VisionCardType = .image) {
+    /// Sticky last-used text preset (research: tldraw's pattern — serial
+    /// creation stays fast).
+    static let lastTextStyleKey = "visionBoardLastTextStyle"
+
+    /// Opens the editor for a fresh card. `origin` (world space) places
+    /// it under a right-click; nil falls back to the visible-center
+    /// cascade placement. `textStyle` picks a preset for text cards
+    /// (nil = last used).
+    public func createNewCard(type: VisionCardType = .image,
+                              at origin: CGPoint? = nil,
+                              textStyle: String? = nil) {
         var card = VisionCard()
         card.cardType = type.rawValue
         card.boardId = currentBoardId
-        let origin = defaultPlacement(
+        if type == .frame {
+            card.canvasWidth = 480
+            card.canvasHeight = 360
+        }
+        if type == .shotStrip {
+            card.canvasWidth = 560
+            card.canvasHeight = 140
+        }
+        if type == .text {
+            let style = textStyle
+                ?? UserDefaults.standard.string(forKey: Self.lastTextStyleKey)
+            card.textStyle = style
+            if let style {
+                UserDefaults.standard.set(style, forKey: Self.lastTextStyleKey)
+            }
+        }
+        var placement = origin ?? defaultPlacement(
             for: CGSize(width: Self.defaultCardWidth, height: Self.defaultCardHeight))
-        card.canvasX = origin.x
-        card.canvasY = origin.y
-        card.canvasWidth = Double(Self.defaultCardWidth)
-        card.canvasHeight = Double(Self.defaultCardHeight)
+        if origin != nil, gridSnapEnabled {
+            placement = CGPoint(
+                x: (placement.x / gridSnapSize).rounded() * gridSnapSize,
+                y: (placement.y / gridSnapSize).rounded() * gridSnapSize)
+        }
+        card.canvasX = placement.x
+        card.canvasY = placement.y
+        card.canvasWidth = card.canvasWidth ?? Double(Self.defaultCardWidth)
+        card.canvasHeight = card.canvasHeight ?? Double(Self.defaultCardHeight)
         card.zOrder = maxZOrder + 1
 
         editingCard = card
         showingCardEditor = true
+    }
+
+    /// Roadmap #2: one-click palette from an image card. Places the
+    /// palette card immediately to the source card's right, top z.
+    public func extractPalette(fromCardId cardId: String) {
+        guard let source = cards.first(where: { $0.id == cardId }),
+              let url = VisionBoardImagePath.resolveImageURL(
+                source.imagePath, projectBase: projectBase),
+              let image = NSImage(contentsOf: url) else { return }
+        let colors = VisionPaletteExtractor.extract(from: image, count: 5)
+        guard !colors.isEmpty else { return }
+
+        var palette = VisionCard(
+            title: source.title.isEmpty ? "Palette" : "\(source.title) palette")
+        palette.cardType = VisionCardType.colorPalette.rawValue
+        palette.boardId = source.boardId
+        palette.colorPalette = colors
+        palette.canvasX = (source.canvasX ?? 0) + (source.canvasWidth ?? 200) + 24
+        palette.canvasY = source.canvasY
+        palette.canvasWidth = 200
+        palette.canvasHeight = 100
+        palette.zOrder = maxZOrder + 1
+        cards.append(palette)
+        notifyChange()
+    }
+
+    /// True while at least one of the current board's cards intersects
+    /// the visible world (or there is nothing/nowhere to show). The
+    /// infinite canvas is unbounded by design — this drives the
+    /// "Back to content" rescue when the user scrolls into empty space.
+    public var contentVisible: Bool {
+        guard viewportSize != .zero else { return true }
+        let board = cards.filter { $0.boardId == currentBoardId }
+        guard !board.isEmpty else { return true }
+        let visible = transform.visibleWorldRect(viewport: viewportSize)
+        return board.contains { card in
+            visible.intersects(CGRect(
+                x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                width: card.canvasWidth ?? 200,
+                height: card.canvasHeight ?? 200))
+        }
+    }
+
+    // MARK: - Connectors (roadmap #5)
+
+    public var boardConnectors: [VisionConnector] {
+        connectors.filter { $0.boardId == currentBoardId }
+    }
+
+    public func beginConnector(from cardId: String) {
+        pendingConnectorSource = cardId
+    }
+
+    /// Completes a pending connector. Self-links and duplicates are
+    /// silently ignored; either way the pending state clears.
+    public func completeConnector(to cardId: String) {
+        guard let source = pendingConnectorSource else { return }
+        pendingConnectorSource = nil
+        guard source != cardId,
+              cards.contains(where: { $0.id == cardId }),
+              !connectors.contains(where: {
+                  $0.boardId == currentBoardId
+                      && $0.fromCardId == source && $0.toCardId == cardId
+              }) else { return }
+        connectors.append(VisionConnector(boardId: currentBoardId,
+                                          fromCardId: source,
+                                          toCardId: cardId))
+        onConnectorsChanged?(connectors)
+    }
+
+    public func removeConnector(_ id: String) {
+        connectors.removeAll { $0.id == id }
+        onConnectorsChanged?(connectors)
+    }
+
+    public func setConnectorLabel(_ id: String, label: String) {
+        guard let index = connectors.firstIndex(where: { $0.id == id }) else { return }
+        connectors[index].label = label
+        onConnectorsChanged?(connectors)
+    }
+
+    /// Deleting cards severs their arrows.
+    private func removeConnectors(touching ids: Set<String>) {
+        let before = connectors.count
+        connectors.removeAll { ids.contains($0.fromCardId) || ids.contains($0.toCardId) }
+        if connectors.count != before { onConnectorsChanged?(connectors) }
+    }
+
+    // MARK: - Right-Click Context Menu
+
+    /// World position of the last right-click on empty canvas, captured
+    /// by the canvas event catcher so "add card" lands under the cursor.
+    private var lastRightClickWorldPoint: CGPoint?
+
+    /// Converts and stores a right-click's canvas-space point. World
+    /// conversion happens NOW — the menu blocks pan/zoom, so the
+    /// transform can't drift before the user picks an item.
+    public func recordRightClick(atScreenPoint point: CGPoint) {
+        lastRightClickWorldPoint = transform.toWorld(point)
+    }
+
+    /// Hands the captured point to the menu action and clears it.
+    public func consumeRightClickPoint() -> CGPoint? {
+        defer { lastRightClickWorldPoint = nil }
+        return lastRightClickWorldPoint
     }
 
     /// Open editor for existing card
@@ -611,10 +810,14 @@ public class VisionBoardViewModel: ObservableObject {
     public func configureAssetStore(projectBase: URL?) {
         guard let projectBase else {
             assetStore = nil
+            self.projectBase = nil
             return
         }
         if assetStore?.projectBase != projectBase {
             assetStore = VisionBoardAssetStore(projectBase: projectBase)
+        }
+        if self.projectBase != projectBase {
+            self.projectBase = projectBase
         }
     }
 
@@ -742,6 +945,8 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
     case texture = "texture"
     case lighting = "lighting"
     case location = "location"
+    case frame = "frame"
+    case shotStrip = "shot_strip"
 
     public var id: String { rawValue }
 
@@ -754,6 +959,8 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
         case .texture: return "Texture"
         case .lighting: return "Lighting"
         case .location: return "Location"
+        case .frame: return "Frame"
+        case .shotStrip: return "Shot Strip"
         }
     }
 
@@ -766,6 +973,8 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
         case .texture: return "square.grid.3x3"
         case .lighting: return "lightbulb"
         case .location: return "mappin"
+        case .frame: return "rectangle.dashed"
+        case .shotStrip: return "film.stack"
         }
     }
 }
