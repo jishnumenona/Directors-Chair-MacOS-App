@@ -258,6 +258,32 @@ final class VisionBoardSessionTests: XCTestCase {
         XCTAssertEqual(viewModel.editingCard?.canvasY, 440)
     }
 
+    func testFrameDragCarriesContainedCardsOnly() {
+        let (viewModel, changes) = makeViewModel()
+        viewModel.gridSnapEnabled = false
+        var frame = VisionCard(id: "f", cardType: "frame",
+                               canvasX: 50, canvasY: 50,
+                               zOrder: 5, canvasWidth: 400, canvasHeight: 400)
+        frame.boardId = "master"
+        viewModel.setCards(viewModel.cards + [frame])
+        // Card "a" (center 200,200) is inside the frame; "b" (center
+        // 500,200) is outside.
+
+        viewModel.beginCardDrag(anchor: "f")
+        viewModel.endCardDrag(translation: CGSize(width: 30, height: 40))
+
+        XCTAssertEqual(viewModel.cards.first { $0.id == "f" }?.canvasX, 80)
+        XCTAssertEqual(viewModel.cards.first { $0.id == "a" }?.canvasX, 130,
+                       "contained card moves rigidly with its frame")
+        XCTAssertEqual(viewModel.cards.first { $0.id == "a" }?.canvasY, 140)
+        XCTAssertEqual(viewModel.cards.first { $0.id == "b" }?.canvasX, 400,
+                       "cards outside the frame stay put")
+        XCTAssertEqual(changes(), 1, "one commit for the whole carry")
+
+        // Frames draw under everything regardless of zOrder.
+        XCTAssertEqual(viewModel.filteredCards.first?.id, "f")
+    }
+
     func testTextStyleResolutionAndStickyLastUsed() {
         XCTAssertEqual(VisionTextStyle.resolve(nil), .title,
                        "pre-preset cards render as the poster default")

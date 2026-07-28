@@ -322,6 +322,22 @@ public struct VisionCardEditor: View {
                 case .colorPalette:
                     colorPaletteEditor
 
+                case .frame:
+                    VStack(alignment: .leading, spacing: 6) {
+                        FieldLabel("Section name", icon: "rectangle.dashed")
+                        EditorTextField(placeholder: "e.g. ACT I, LIGHTING, THE HOUSE",
+                                        text: $card.title)
+                    }
+                    HStack {
+                        FieldLabel("Tint")
+                        Spacer()
+                        ColorPicker("", selection: Binding(
+                            get: { Color(hex: card.textColor) },
+                            set: { card.textColor = $0.hexString }
+                        ))
+                        .labelsHidden()
+                    }
+
                 case .video:
                     VStack(alignment: .leading, spacing: 6) {
                         FieldLabel("Video URL", icon: "video")
@@ -605,6 +621,16 @@ public struct VisionCardEditor: View {
                     content: posterText,
                     style: VisionTextStyle.resolve(card.textStyle),
                     colorHex: card.textColor)
+            }
+
+        case .frame:
+            ZStack(alignment: .topLeading) {
+                Color(hex: card.textColor).opacity(0.07)
+                Text((card.title.isEmpty ? "Section" : card.title).uppercased())
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundColor(Color(hex: card.textColor).opacity(0.85))
+                    .padding(8)
             }
 
         case .video:

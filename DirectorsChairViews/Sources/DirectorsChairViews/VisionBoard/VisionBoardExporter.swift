@@ -66,6 +66,9 @@ public enum VisionBoardExporter {
         }
         // Draw order mirrors the canvas: (pinned, zOrder) ascending.
         let ordered = cards.sorted {
+            let leftFrame = $0.cardType == VisionCardType.frame.rawValue
+            let rightFrame = $1.cardType == VisionCardType.frame.rawValue
+            if leftFrame != rightFrame { return leftFrame }
             if $0.pinned != $1.pinned { return !$0.pinned }
             return $0.zOrder < $1.zOrder
         }
@@ -107,6 +110,15 @@ struct ExportCardView: View {
         ZStack {
             Color(hex: "#2A2A2A")
             switch type {
+            case .frame:
+                ZStack(alignment: .topLeading) {
+                    Color(hex: card.textColor).opacity(0.07)
+                    Text((card.title.isEmpty ? "Section" : card.title).uppercased())
+                        .font(.system(size: 12, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundColor(Color(hex: card.textColor).opacity(0.85))
+                        .padding(10)
+                }
             case .text:
                 // The exact canvas face, fallback and preset included.
                 VisionTextCardFace(

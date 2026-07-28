@@ -122,9 +122,13 @@ public class VisionBoardViewModel: ObservableObject {
             }
         }
 
-        // Draw order: (pinned, zOrder) ascending — pinned cards render
-        // after (above) everything unpinned, honoring "Pin to Top".
+        // Draw order: section frames render UNDER everything, then
+        // (pinned, zOrder) ascending — pinned cards render after (above)
+        // everything unpinned, honoring "Pin to Top".
         return result.sorted {
+            let leftFrame = $0.cardType == VisionCardType.frame.rawValue
+            let rightFrame = $1.cardType == VisionCardType.frame.rawValue
+            if leftFrame != rightFrame { return leftFrame }
             if $0.pinned != $1.pinned { return !$0.pinned }
             return $0.zOrder < $1.zOrder
         }
@@ -443,9 +447,26 @@ public class VisionBoardViewModel: ObservableObject {
     }
 
     /// Captures the whole selection's origins so multi-drag stays rigid.
+    /// A section frame carries its contents: cards whose CENTER lies
+    /// inside the frame at drag start move rigidly with it (membership is
+    /// computed once per gesture, not re-evaluated mid-drag).
     public func beginCardDrag(anchor cardId: String) {
         dragSessionAnchorId = cardId
-        let ids = selectedCardIds.contains(cardId) ? selectedCardIds : [cardId]
+        var ids = selectedCardIds.contains(cardId) ? selectedCardIds : [cardId]
+        if let anchor = cards.first(where: { $0.id == cardId }),
+           anchor.cardType == VisionCardType.frame.rawValue {
+            let rect = CGRect(x: anchor.canvasX ?? 0, y: anchor.canvasY ?? 0,
+                              width: anchor.canvasWidth ?? 0,
+                              height: anchor.canvasHeight ?? 0)
+            for card in cards where card.boardId == anchor.boardId
+                && card.id != anchor.id
+                && card.cardType != VisionCardType.frame.rawValue {
+                let center = CGPoint(
+                    x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
+                    y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
+                if rect.contains(center) { ids.insert(card.id) }
+            }
+        }
         dragSessionOrigins = [:]
         for id in ids {
             if let card = cards.first(where: { $0.id == id }) {
@@ -624,6 +645,10 @@ public class VisionBoardViewModel: ObservableObject {
         var card = VisionCard()
         card.cardType = type.rawValue
         card.boardId = currentBoardId
+        if type == .frame {
+            card.canvasWidth = 480
+            card.canvasHeight = 360
+        }
         if type == .text {
             let style = textStyle
                 ?? UserDefaults.standard.string(forKey: Self.lastTextStyleKey)
@@ -641,8 +666,8 @@ public class VisionBoardViewModel: ObservableObject {
         }
         card.canvasX = placement.x
         card.canvasY = placement.y
-        card.canvasWidth = Double(Self.defaultCardWidth)
-        card.canvasHeight = Double(Self.defaultCardHeight)
+        card.canvasWidth = card.canvasWidth ?? Double(Self.defaultCardWidth)
+        card.canvasHeight = card.canvasHeight ?? Double(Self.defaultCardHeight)
         card.zOrder = maxZOrder + 1
 
         editingCard = card
@@ -815,6 +840,7 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
     case texture = "texture"
     case lighting = "lighting"
     case location = "location"
+    case frame = "frame"
 
     public var id: String { rawValue }
 
@@ -827,6 +853,7 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
         case .texture: return "Texture"
         case .lighting: return "Lighting"
         case .location: return "Location"
+        case .frame: return "Frame"
         }
     }
 
@@ -839,6 +866,7 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
         case .texture: return "square.grid.3x3"
         case .lighting: return "lightbulb"
         case .location: return "mappin"
+        case .frame: return "rectangle.dashed"
         }
     }
 }

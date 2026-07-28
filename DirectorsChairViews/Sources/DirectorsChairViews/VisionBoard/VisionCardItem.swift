@@ -152,7 +152,7 @@ public struct VisionCardItem: View {
 
             // Label overlay at bottom. Text cards ARE their text — the
             // poster face already shows it, so no duplicate footer label.
-            if showLabel && !card.title.isEmpty && cardType != .text {
+            if showLabel && !card.title.isEmpty && cardType != .text && cardType != .frame {
                 labelOverlay
             }
 
@@ -205,6 +205,25 @@ public struct VisionCardItem: View {
             lightingCardContent
         case .location:
             locationCardContent
+        case .frame:
+            frameCardContent
+        }
+    }
+
+    // MARK: - Section Frame
+
+    /// A named, tinted region (research roadmap #1): renders under all
+    /// cards; dragging it carries cards whose centers lie inside.
+    @ViewBuilder
+    private var frameCardContent: some View {
+        ZStack(alignment: .topLeading) {
+            Color(hex: card.textColor).opacity(0.07)
+            Text((card.title.isEmpty ? "Section" : card.title).uppercased())
+                .font(.system(size: 12, weight: .bold))
+                .tracking(1.4)
+                .foregroundColor(Color(hex: card.textColor).opacity(0.85))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
         }
     }
 
