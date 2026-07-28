@@ -60,4 +60,25 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         XCTAssertTrue(JSONSerialization.isValidJSONObject(deck),
                       "the deck must serialize for the PUT body")
     }
+
+    func testDecodeProjectHandlesISO8601DatesFromPersistence() throws {
+        // Persistence writes dates as ISO-8601 (ProjectPersistence's
+        // encoder); the overview push must decode the same dialect. The
+        // owner's project silently skipped every push because a bare
+        // JSONDecoder threw on Character.createdAt.
+        var project = Project(name: "Dated")
+        var maya = Character(name: "Maya")
+        maya.createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+        maya.traitsLastCalibrated = Date(timeIntervalSince1970: 1_750_000_000)
+        project.characters = [maya]
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(project)
+
+        XCTAssertThrowsError(try JSONDecoder().decode(Project.self, from: data),
+                             "bare decoder rejects ISO dates — the original bug")
+        let decoded = try SyncEngine.decodeProject(data)
+        XCTAssertEqual(decoded.characters.first?.createdAt,
+                       Date(timeIntervalSince1970: 1_700_000_000))
+    }
 }
