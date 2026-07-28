@@ -154,6 +154,11 @@ public struct VisionCardItem: View {
         .onChange(of: card.imagePath) { _, _ in
             loadImageIfNeeded()
         }
+        .onChange(of: projectBase) { _, _ in
+            // The base lands AFTER first appear (the hosting view's
+            // onAppear configures it) — retry the resolve.
+            loadImageIfNeeded()
+        }
     }
 
     // MARK: - Card Content by Type

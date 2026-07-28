@@ -66,6 +66,13 @@ public class VisionBoardViewModel: ObservableObject {
     /// unchanged). Not @Published — it never drives rendering.
     public var assetStore: VisionBoardAssetStore?
 
+    /// Published mirror of the store's project base. Cards resolve their
+    /// relative image paths against this, and card views appear BEFORE
+    /// the hosting view's onAppear configures the store — so the base
+    /// must drive rendering (the store itself deliberately doesn't) and
+    /// cards re-load when it lands.
+    @Published public private(set) var projectBase: URL?
+
     /// Slice 4: the persisted board registry (empty boards survive).
     @Published public var boardRegistry: [VisionBoardMeta]
 
@@ -631,10 +638,14 @@ public class VisionBoardViewModel: ObservableObject {
     public func configureAssetStore(projectBase: URL?) {
         guard let projectBase else {
             assetStore = nil
+            self.projectBase = nil
             return
         }
         if assetStore?.projectBase != projectBase {
             assetStore = VisionBoardAssetStore(projectBase: projectBase)
+        }
+        if self.projectBase != projectBase {
+            self.projectBase = projectBase
         }
     }
 
