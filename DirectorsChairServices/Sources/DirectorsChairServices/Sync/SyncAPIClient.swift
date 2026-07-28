@@ -197,6 +197,12 @@ public actor SyncAPIClient {
 
     // MARK: Blobs
 
+    /// §12A: pushes the pitch-deck projection the web portal renders.
+    public func putOverview(projectID: String, deck: [String: Any]) async throws {
+        _ = try await requestRaw("PUT", "api/v1/projects/\(projectID)/overview",
+                                 body: ["payload": deck, "source": "desktop"])
+    }
+
     public func missingBlobs(projectID: String, refs: [SyncBlobRef]) async throws -> [String] {
         struct Missing: Codable { let missing: [String] }
         let payload = refs.map { ["sha256": $0.sha256, "size": $0.size] }
