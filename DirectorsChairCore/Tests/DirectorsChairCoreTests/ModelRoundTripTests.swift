@@ -1341,12 +1341,16 @@ final class ModelRoundTripTests: XCTestCase {
         let decoded = try roundTrip(card)
         XCTAssertEqual(decoded.textStyle, "headline")
         XCTAssertEqual(decoded.referenceNote, "35mm anamorphic · dusk")
+        card.imagePaths = ["a.png", "b.png"]
+        XCTAssertEqual(try roundTrip(card).imagePaths, ["a.png", "b.png"],
+                       "shot-strip frames keep their order")
         let json = String(data: try encoder.encode(card), encoding: .utf8)!
         XCTAssertTrue(json.contains("\"text_style\""))
         XCTAssertTrue(json.contains("\"reference_note\""))
         // Legacy cards decode with no note.
         let legacy: VisionCard = try decodeJSON("{}")
         XCTAssertNil(legacy.referenceNote)
+        XCTAssertEqual(legacy.imagePaths, [])
     }
 
     // =========================================================================

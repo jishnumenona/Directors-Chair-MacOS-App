@@ -338,6 +338,59 @@ public struct VisionCardEditor: View {
                         .labelsHidden()
                     }
 
+                case .shotStrip:
+                    VStack(alignment: .leading, spacing: 6) {
+                        FieldLabel("Frames — in order", icon: "film.stack")
+                        ForEach(Array(card.imagePaths.enumerated()),
+                                id: \.offset) { index, path in
+                            HStack(spacing: 6) {
+                                Text("\(index + 1).")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(EditorTheme.secondary)
+                                Text((path as NSString).lastPathComponent)
+                                    .font(.system(size: 11))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Button {
+                                    card.imagePaths.swapAt(index, index - 1)
+                                } label: {
+                                    Image(systemName: "arrow.up")
+                                        .font(.system(size: 10))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(EditorTheme.secondary)
+                                .disabled(index == 0)
+                                Button {
+                                    card.imagePaths.swapAt(index, index + 1)
+                                } label: {
+                                    Image(systemName: "arrow.down")
+                                        .font(.system(size: 10))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(EditorTheme.secondary)
+                                .disabled(index == card.imagePaths.count - 1)
+                                Button {
+                                    card.imagePaths.remove(at: index)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 11))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(EditorTheme.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8)
+                                .fill(EditorTheme.field))
+                        }
+                        mediaButton("Add Frames…", icon: "plus") {
+                            addStripFrames()
+                        }
+                    }
+                    simpleTitleField
+
                 case .video:
                     VStack(alignment: .leading, spacing: 6) {
                         FieldLabel("Video URL", icon: "video")
@@ -637,6 +690,16 @@ public struct VisionCardEditor: View {
                     .tracking(1.4)
                     .foregroundColor(Color(hex: card.textColor).opacity(0.85))
                     .padding(8)
+            }
+
+        case .shotStrip:
+            VStack(spacing: 6) {
+                Image(systemName: "film.stack")
+                    .font(.system(size: 22))
+                    .foregroundColor(EditorTheme.secondary)
+                Text("\(card.imagePaths.count) frame\(card.imagePaths.count == 1 ? "" : "s")")
+                    .font(.system(size: 10))
+                    .foregroundColor(EditorTheme.secondary)
             }
 
         case .video:
@@ -1162,6 +1225,25 @@ public struct VisionCardEditor: View {
     }
 
     // MARK: - Actions
+
+    /// Roadmap #4: multi-select add for shot-strip frames. Files are
+    /// imported into the project immediately when a store exists so the
+    /// stored paths are relative; absolute otherwise (legacy-resolvable).
+    private func addStripFrames() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image, .png, .jpeg]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            if let store = assetStore,
+               let relative = try? store.importExternal(url) {
+                card.imagePaths.append(relative)
+            } else {
+                card.imagePaths.append(url.path)
+            }
+        }
+    }
 
     private func browseForImage() {
         let panel = NSOpenPanel()

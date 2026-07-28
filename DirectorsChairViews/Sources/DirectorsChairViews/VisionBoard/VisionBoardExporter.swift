@@ -77,7 +77,8 @@ public enum VisionBoardExporter {
             Color(hex: "#1A1A1A")
             ForEach(ordered, id: \.id) { card in
                 if let frame = layout.frames[card.id] {
-                    ExportCardView(card: card, image: images[card.id])
+                    ExportCardView(card: card, image: images[card.id],
+                                   projectBase: projectBase)
                         .frame(width: frame.width, height: frame.height)
                         .offset(x: frame.minX, y: frame.minY)
                 }
@@ -101,6 +102,7 @@ public enum VisionBoardExporter {
 struct ExportCardView: View {
     let card: VisionCard
     let image: NSImage?
+    var projectBase: URL? = nil
 
     private var type: VisionCardType {
         VisionCardType(rawValue: card.cardType) ?? .image
@@ -110,6 +112,25 @@ struct ExportCardView: View {
         ZStack {
             Color(hex: "#2A2A2A")
             switch type {
+            case .shotStrip:
+                // One-shot render: synchronous loads are fine here.
+                HStack(spacing: 3) {
+                    ForEach(Array(card.imagePaths.enumerated()),
+                            id: \.offset) { _, path in
+                        if let url = VisionBoardImagePath.resolveImageURL(
+                            path, projectBase: projectBase),
+                           let frame = NSImage(contentsOf: url) {
+                            Image(nsImage: frame)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .clipped()
+                        } else {
+                            Color(hex: "#1A1A1A")
+                        }
+                    }
+                }
+                .padding(4)
+                .background(Color.black)
             case .frame:
                 ZStack(alignment: .topLeading) {
                     Color(hex: card.textColor).opacity(0.07)

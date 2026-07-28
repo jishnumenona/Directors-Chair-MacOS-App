@@ -220,6 +220,37 @@ public struct VisionCardItem: View {
             locationCardContent
         case .frame:
             frameCardContent
+        case .shotStrip:
+            shotStripContent
+        }
+    }
+
+    // MARK: - Shot Strip
+
+    /// Ordered filmstrip (roadmap #4): expresses progression — a scene's
+    /// beat arc, a color script across acts.
+    @ViewBuilder
+    private var shotStripContent: some View {
+        if card.imagePaths.isEmpty {
+            ZStack {
+                Color(hex: "#2A2A2A")
+                VStack(spacing: 6) {
+                    Image(systemName: "film.stack")
+                        .font(.system(size: 24))
+                        .foregroundColor(.gray)
+                    Text("Add frames in the editor")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+            }
+        } else {
+            HStack(spacing: 3) {
+                ForEach(Array(card.imagePaths.enumerated()), id: \.offset) { _, path in
+                    ShotStripFrame(path: path, projectBase: projectBase)
+                }
+            }
+            .padding(4)
+            .background(Color.black)
         }
     }
 
@@ -797,3 +828,47 @@ struct VisionCardItem_Previews: PreviewProvider {
     }
 }
 #endif
+
+
+// MARK: - Shot Strip Frame
+
+/// One filmstrip cell: thumbnail-cached, resolve-on-load like every
+/// other board image.
+private struct ShotStripFrame: View {
+    let path: String
+    let projectBase: URL?
+
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            Color(hex: "#1A1A1A")
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .onAppear(perform: load)
+        .onChange(of: projectBase) { _, _ in load() }
+    }
+
+    private func load() {
+        guard let url = VisionBoardImagePath.resolveImageURL(
+            path, projectBase: projectBase) else { return }
+        if let cached = ThumbnailImageCache.shared.cached(url, maxPixel: 320) {
+            image = cached
+            return
+        }
+        Task {
+            let thumbnail = await ThumbnailImageCache.shared.thumbnail(url, maxPixel: 320)
+            await MainActor.run { image = thumbnail }
+        }
+    }
+}

@@ -67,6 +67,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
     public var textColor: String  // Hex color code for text cards
     public var textStyle: String?  // Preset name (headline, label, …); nil = default poster
     public var referenceNote: String?  // ShotDeck-style caption: "35mm anamorphic · backlit · dusk"
+    public var imagePaths: [String]  // Ordered images for shot-strip cards (project-relative)
 
     public init(
         id: String = UUID().uuidString,
@@ -98,7 +99,8 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         canvasHeight: Double? = nil,
         textColor: String = "#FFFFFF",
         textStyle: String? = nil,
-        referenceNote: String? = nil
+        referenceNote: String? = nil,
+        imagePaths: [String] = []
     ) {
         self.id = id
         self.title = title
@@ -130,6 +132,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         self.textColor = textColor
         self.textStyle = textStyle
         self.referenceNote = referenceNote
+        self.imagePaths = imagePaths
     }
 
     enum CodingKeys: String, CodingKey {
@@ -153,6 +156,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         case textColor = "text_color"
         case textStyle = "text_style"
         case referenceNote = "reference_note"
+        case imagePaths = "image_paths"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -206,6 +210,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"
         textStyle = try container.decodeIfPresent(String.self, forKey: .textStyle)
         referenceNote = try container.decodeIfPresent(String.self, forKey: .referenceNote)
+        imagePaths = try container.decodeIfPresent([String].self, forKey: .imagePaths) ?? []
     }
 }
 

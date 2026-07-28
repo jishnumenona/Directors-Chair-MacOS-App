@@ -649,6 +649,10 @@ public class VisionBoardViewModel: ObservableObject {
             card.canvasWidth = 480
             card.canvasHeight = 360
         }
+        if type == .shotStrip {
+            card.canvasWidth = 560
+            card.canvasHeight = 140
+        }
         if type == .text {
             let style = textStyle
                 ?? UserDefaults.standard.string(forKey: Self.lastTextStyleKey)
@@ -865,6 +869,7 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
     case lighting = "lighting"
     case location = "location"
     case frame = "frame"
+    case shotStrip = "shot_strip"
 
     public var id: String { rawValue }
 
@@ -878,6 +883,7 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
         case .lighting: return "Lighting"
         case .location: return "Location"
         case .frame: return "Frame"
+        case .shotStrip: return "Shot Strip"
         }
     }
 
@@ -891,6 +897,7 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
         case .lighting: return "lightbulb"
         case .location: return "mappin"
         case .frame: return "rectangle.dashed"
+        case .shotStrip: return "film.stack"
         }
     }
 }
