@@ -476,10 +476,40 @@ public struct VisionBoardView: View {
                         exportBoardPNG()
                     }
                     .buttonStyle(.borderedProminent)
+                    Button("Export Lookbook as PDF…") {
+                        showingExportOptions = false
+                        exportLookbookPDF()
+                    }
                 }
                 .padding()
                 .frame(width: 240)
             }
+        }
+    }
+
+    /// Roadmap #6: paginated per-section lookbook.
+    private func exportLookbookPDF() {
+        let boardCards = viewModel.cards.filter {
+            $0.boardId == viewModel.currentBoardId
+        }
+        guard !boardCards.isEmpty else {
+            exportError = "This board has no cards to export."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "Lookbook-\(viewModel.currentBoardId).pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let data = VisionBoardLookbook.renderPDF(
+            cards: boardCards, projectBase: projectBasePath) else {
+            exportError = "Could not render the lookbook."
+            return
+        }
+        do {
+            try data.write(to: url)
+        } catch {
+            exportError = "Could not save the PDF: \(error.localizedDescription)"
         }
     }
 
