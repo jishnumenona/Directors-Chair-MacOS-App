@@ -64,6 +64,10 @@ public enum ProjectOverviewBuilder {
 
         var sceneCount = 0
         var shotCount = 0
+        // The renderer requires BOTH shapes: shots nested per scene AND a
+        // flat top-level shot board (ProjectView dereferences deck.shots
+        // unconditionally — its absence crashed the page).
+        var shotBoard: [[String: Any]] = []
         deck["scenes"] = project.sequences.flatMap { sequence in
             sequence.scenes.map { scene -> [String: Any] in
                 sceneCount += 1
@@ -78,11 +82,20 @@ public enum ProjectOverviewBuilder {
                 }
                 entry["shots"] = scene.shots.map { shot -> [String: Any] in
                     shotCount += 1
+                    var board: [String: Any] = ["id": "\(scene.id)#\(shot.shotId)",
+                                                "scene": scene.name,
+                                                "shot_type": shot.shotType]
+                    if let image = blobURL(shot.referenceMedia.first(
+                        where: { $0.type == .image })?.path) {
+                        board["image"] = image
+                    }
+                    shotBoard.append(board)
                     return ["id": shot.shotId, "shot_type": shot.shotType]
                 }
                 return entry
             }
         }
+        deck["shots"] = shotBoard
 
         deck["stats"] = ["characters": project.characters.count,
                          "locations": project.locations.count,
