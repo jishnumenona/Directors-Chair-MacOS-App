@@ -53,6 +53,14 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         XCTAssertEqual((scenes?[0]["shots"] as? [[String: Any]])?.first?["shot_type"] as? String,
                        "Wide")
 
+        let board = deck["shots"] as? [[String: Any]]
+        XCTAssertEqual(board?.count, 1,
+                       "flat shot board — ProjectView dereferences it unconditionally")
+        XCTAssertEqual(board?.first?["scene"] as? String, "Opening")
+        XCTAssertEqual(board?.first?["shot_type"] as? String, "Wide")
+        XCTAssertEqual(board?.first?["id"] as? String, "\(scene.id)#1",
+                       "board ids unique across scenes")
+
         let stats = deck["stats"] as? [String: Int]
         XCTAssertEqual(stats, ["characters": 2, "locations": 1,
                                "scenes": 1, "shots": 1])
