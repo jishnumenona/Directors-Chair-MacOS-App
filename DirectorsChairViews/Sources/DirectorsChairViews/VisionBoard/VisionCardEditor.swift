@@ -157,6 +157,9 @@ public struct VisionCardEditor: View {
     static let advancedModeKey = "visionCardEditorAdvancedMode"
 
     @State private var selectedTab: EditorTab = .general
+    /// Transient style under the cursor in the style picker — drives the
+    /// live preview without committing.
+    @State private var hoveredStyle: VisionTextStyle?
     @State private var isLoadingImage: Bool = false
     @State private var imageLoadError: String?
     @State private var newColorHex: String = "#"
@@ -299,10 +302,11 @@ public struct VisionCardEditor: View {
 
                 switch cardType {
                 case .text:
+                    textPreviewPanel
                     VStack(alignment: .leading, spacing: 6) {
                         FieldLabel("Text", icon: "text.alignleft")
                         EditorTextEditor(placeholder: "The words on the card…",
-                                         text: $card.text, height: 120)
+                                         text: $card.text, height: 90)
                     }
                     textStylePicker
                     HStack {
@@ -350,6 +354,27 @@ public struct VisionCardEditor: View {
         }
     }
 
+    /// Live preview of the user's actual words in the active style —
+    /// hovering a style chip previews that style before committing.
+    private var textPreviewPanel: some View {
+        let content = [card.text, card.description, card.title]
+            .first { !$0.isEmpty } ?? "Your text"
+        let style = hoveredStyle ?? VisionTextStyle.resolve(card.textStyle)
+        return VStack(alignment: .leading, spacing: 6) {
+            FieldLabel("Preview", icon: "eye")
+            ZStack {
+                Color(hex: "#101012")
+                VisionTextCardFace(content: content, style: style,
+                                   colorHex: card.textColor)
+            }
+            .frame(height: 130)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(EditorTheme.stroke, lineWidth: 1))
+            .animation(.easeOut(duration: 0.12), value: style)
+        }
+    }
+
     /// Six semantic presets, each chip rendered IN its own style —
     /// recognition over recall (research 2026-07). Whole-card styling;
     /// size always comes from resizing the card.
@@ -391,6 +416,13 @@ public struct VisionCardEditor: View {
         }
         .buttonStyle(.plain)
         .help(style.displayName)
+        .onHover { hovering in
+            if hovering {
+                hoveredStyle = style
+            } else if hoveredStyle == style {
+                hoveredStyle = nil
+            }
+        }
     }
 
     private var simpleTitleField: some View {
