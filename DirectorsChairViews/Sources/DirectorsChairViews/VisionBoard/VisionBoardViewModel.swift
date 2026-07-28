@@ -610,20 +610,48 @@ public class VisionBoardViewModel: ObservableObject {
     }
 
     /// Open editor for a new card
-    public func createNewCard(type: VisionCardType = .image) {
+    /// Opens the editor for a fresh card. `origin` (world space) places
+    /// it under a right-click; nil falls back to the visible-center
+    /// cascade placement.
+    public func createNewCard(type: VisionCardType = .image,
+                              at origin: CGPoint? = nil) {
         var card = VisionCard()
         card.cardType = type.rawValue
         card.boardId = currentBoardId
-        let origin = defaultPlacement(
+        var placement = origin ?? defaultPlacement(
             for: CGSize(width: Self.defaultCardWidth, height: Self.defaultCardHeight))
-        card.canvasX = origin.x
-        card.canvasY = origin.y
+        if origin != nil, gridSnapEnabled {
+            placement = CGPoint(
+                x: (placement.x / gridSnapSize).rounded() * gridSnapSize,
+                y: (placement.y / gridSnapSize).rounded() * gridSnapSize)
+        }
+        card.canvasX = placement.x
+        card.canvasY = placement.y
         card.canvasWidth = Double(Self.defaultCardWidth)
         card.canvasHeight = Double(Self.defaultCardHeight)
         card.zOrder = maxZOrder + 1
 
         editingCard = card
         showingCardEditor = true
+    }
+
+    // MARK: - Right-Click Context Menu
+
+    /// World position of the last right-click on empty canvas, captured
+    /// by the canvas event catcher so "add card" lands under the cursor.
+    private var lastRightClickWorldPoint: CGPoint?
+
+    /// Converts and stores a right-click's canvas-space point. World
+    /// conversion happens NOW — the menu blocks pan/zoom, so the
+    /// transform can't drift before the user picks an item.
+    public func recordRightClick(atScreenPoint point: CGPoint) {
+        lastRightClickWorldPoint = transform.toWorld(point)
+    }
+
+    /// Hands the captured point to the menu action and clears it.
+    public func consumeRightClickPoint() -> CGPoint? {
+        defer { lastRightClickWorldPoint = nil }
+        return lastRightClickWorldPoint
     }
 
     /// Open editor for existing card

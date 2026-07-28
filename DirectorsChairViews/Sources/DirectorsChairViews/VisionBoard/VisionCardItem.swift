@@ -28,6 +28,8 @@ public struct VisionCardItem: View {
     // anchored sessions (Slice 1).
     public var onSelect: ((Bool) -> Void)?  // Bool = add to selection (shift-click)
     public var onDoubleClick: (() -> Void)?
+    public var onDuplicate: (() -> Void)?
+    public var onDelete: (() -> Void)?
     public var onDragBegan: (() -> Void)?
     public var onDragChanged: ((CGSize) -> Void)?
     public var onDragEnded: ((CGSize) -> Void)?
@@ -75,6 +77,8 @@ public struct VisionCardItem: View {
         projectBase: URL? = nil,
         onSelect: ((Bool) -> Void)? = nil,
         onDoubleClick: (() -> Void)? = nil,
+        onDuplicate: (() -> Void)? = nil,
+        onDelete: (() -> Void)? = nil,
         onDragBegan: (() -> Void)? = nil,
         onDragChanged: ((CGSize) -> Void)? = nil,
         onDragEnded: ((CGSize) -> Void)? = nil,
@@ -90,6 +94,8 @@ public struct VisionCardItem: View {
         self.projectBase = projectBase
         self.onSelect = onSelect
         self.onDoubleClick = onDoubleClick
+        self.onDuplicate = onDuplicate
+        self.onDelete = onDelete
         self.onDragBegan = onDragBegan
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -107,6 +113,24 @@ public struct VisionCardItem: View {
                 .frame(width: cardWidth, height: cardHeight)
                 .background(cardBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contextMenu {
+                    Button {
+                        onDoubleClick?()
+                    } label: {
+                        Label("Edit Card", systemImage: "pencil")
+                    }
+                    Button {
+                        onDuplicate?()
+                    } label: {
+                        Label("Duplicate", systemImage: "plus.square.on.square")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        onDelete?()
+                    } label: {
+                        Label("Delete Card", systemImage: "trash")
+                    }
+                }
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(

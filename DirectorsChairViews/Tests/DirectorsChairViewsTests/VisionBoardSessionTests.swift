@@ -231,6 +231,33 @@ final class VisionBoardSessionTests: XCTestCase {
         XCTAssertEqual(viewModel.cards.map(\.id), ["a", "c"])
     }
 
+    func testRightClickAddPlacesCardUnderCursor() {
+        let (viewModel, _) = makeViewModel()
+        viewModel.gridSnapEnabled = false
+        viewModel.transform = CanvasTransform(zoom: 2,
+                                              offset: CGPoint(x: -100, y: -50))
+
+        // The catcher records the click in screen space; conversion to
+        // world happens at record time.
+        viewModel.recordRightClick(atScreenPoint: CGPoint(x: 300, y: 250))
+        let world = viewModel.consumeRightClickPoint()
+        XCTAssertEqual(world?.x, 200, "(300 − −100) ÷ 2")
+        XCTAssertEqual(world?.y, 150)
+        XCTAssertNil(viewModel.consumeRightClickPoint(), "consumed once")
+
+        viewModel.createNewCard(type: .text, at: CGPoint(x: 333, y: 444))
+        XCTAssertEqual(viewModel.editingCard?.canvasX, 333)
+        XCTAssertEqual(viewModel.editingCard?.canvasY, 444)
+        XCTAssertEqual(viewModel.editingCard?.cardType, "text")
+
+        // Snap applies to right-click placement when enabled.
+        viewModel.gridSnapEnabled = true
+        viewModel.gridSnapSize = 20
+        viewModel.createNewCard(type: .image, at: CGPoint(x: 333, y: 444))
+        XCTAssertEqual(viewModel.editingCard?.canvasX, 340)
+        XCTAssertEqual(viewModel.editingCard?.canvasY, 440)
+    }
+
     func testCreateNewCardLandsInVisibleWorld() {
         let (viewModel, _) = makeViewModel()
         viewModel.viewportSize = CGSize(width: 800, height: 600)

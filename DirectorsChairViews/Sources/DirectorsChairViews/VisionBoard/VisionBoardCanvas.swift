@@ -66,6 +66,9 @@ public struct VisionBoardCanvas: View {
                     },
                     onZoom: { deltaY, focus in
                         viewModel.scrollZoom(deltaY: deltaY, focus: focus)
+                    },
+                    onRightClick: { point in
+                        viewModel.recordRightClick(atScreenPoint: point)
                     }
                 )
             )
@@ -73,6 +76,20 @@ public struct VisionBoardCanvas: View {
             .gesture(magnificationGesture)
             .onTapGesture {
                 viewModel.clearSelection()
+            }
+            .contextMenu {
+                Section("Add to board") {
+                    ForEach(VisionCardType.allCases) { type in
+                        Button {
+                            viewModel.createNewCard(
+                                type: type,
+                                at: viewModel.consumeRightClickPoint())
+                        } label: {
+                            Label(type.displayName,
+                                  systemImage: type.systemImage)
+                        }
+                    }
+                }
             }
             .onAppear {
                 viewSize = geometry.size
@@ -164,6 +181,13 @@ public struct VisionBoardCanvas: View {
                     onDoubleClick: {
                         onCardEdit?(card)
                     },
+                    onDuplicate: {
+                        viewModel.selectCard(card.id)
+                        viewModel.duplicateSelectedCards()
+                    },
+                    onDelete: {
+                        viewModel.removeCard(card.id)
+                    },
                     onDragBegan: {
                         viewModel.beginCardDrag(anchor: card.id)
                     },
@@ -228,11 +252,13 @@ public struct VisionBoardCanvas: View {
 private struct TrackpadScrollCatcher: NSViewRepresentable {
     let onPan: (CGFloat, CGFloat) -> Void
     let onZoom: (CGFloat, CGPoint) -> Void
+    var onRightClick: ((CGPoint) -> Void)?
 
     func makeNSView(context: Context) -> CatcherView {
         let view = CatcherView()
         view.onPan = onPan
         view.onZoom = onZoom
+        view.onRightClick = onRightClick
         view.installMonitor()
         return view
     }
@@ -240,6 +266,7 @@ private struct TrackpadScrollCatcher: NSViewRepresentable {
     func updateNSView(_ view: CatcherView, context: Context) {
         view.onPan = onPan
         view.onZoom = onZoom
+        view.onRightClick = onRightClick
     }
 
     static func dismantleNSView(_ view: CatcherView, coordinator: ()) {
@@ -249,6 +276,7 @@ private struct TrackpadScrollCatcher: NSViewRepresentable {
     final class CatcherView: NSView {
         var onPan: ((CGFloat, CGFloat) -> Void)?
         var onZoom: ((CGFloat, CGPoint) -> Void)?
+        var onRightClick: ((CGPoint) -> Void)?
         private var monitor: Any?
 
         // Flipped so converted points share SwiftUI's top-left origin —
@@ -257,7 +285,8 @@ private struct TrackpadScrollCatcher: NSViewRepresentable {
 
         func installMonitor() {
             guard monitor == nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.scrollWheel, .rightMouseDown]) {
                 [weak self] event in
                 self?.handle(event) ?? event
             }
@@ -276,6 +305,15 @@ private struct TrackpadScrollCatcher: NSViewRepresentable {
             guard let window, event.window === window else { return event }
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point) else { return event }
+
+            // Right-click: record where, pass through — SwiftUI's
+            // contextMenu still presents; the recorded point places the
+            // added card under the cursor.
+            if event.type == .rightMouseDown {
+                onRightClick?(point)
+                return event
+            }
+
             guard !isOverScrollableContent(event) else { return event }
 
             // Physical mouse wheels deliver line-based deltas; scale them
