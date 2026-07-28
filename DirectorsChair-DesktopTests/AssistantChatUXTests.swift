@@ -216,4 +216,110 @@ final class AssistantChatUXTests: XCTestCase {
         XCTAssertEqual(config.provider, "google", "unknown provider → default")
         XCTAssertEqual(config.temperature, 1.0, "temperature clamped to 0…1")
     }
+
+    // MARK: - Reply provenance (local vs third-party AI)
+
+    func testProviderDisplayNamesFollowRoutingTable() {
+        let defaults = UserDefaults.standard
+        defer { defaults.removeObject(forKey: PrefKey.aiChatProvider) }
+
+        defaults.set("anthropic", forKey: PrefKey.aiChatProvider)
+        XCTAssertEqual(AIChatViewModel.routedProviderDisplayName(), "Claude")
+        defaults.set("deepseek", forKey: PrefKey.aiChatProvider)
+        XCTAssertEqual(AIChatViewModel.routedProviderDisplayName(), "DeepSeek")
+        defaults.set("google", forKey: PrefKey.aiChatProvider)
+        XCTAssertEqual(AIChatViewModel.routedProviderDisplayName(), "Gemini")
+    }
+
+    func testChatMessageDecodesLegacyJSONWithoutProvenanceFields() throws {
+        // A message persisted before source/entityRefs existed.
+        let legacy = """
+        {"id":"\(UUID().uuidString)","role":"assistant",
+         "content":"old reply","timestamp":712345678.0}
+        """
+        let message = try JSONDecoder().decode(ChatMessage.self,
+                                               from: Data(legacy.utf8))
+        XCTAssertNil(message.source)
+        XCTAssertNil(message.entityRefs)
+
+        // And the new fields round-trip.
+        let tagged = ChatMessage(
+            role: .assistant, content: "hi",
+            source: .cloud(provider: "Gemini"),
+            entityRefs: [.init(kind: "character", name: "Maya",
+                               imagePath: "assets/characters/maya.png")])
+        let decoded = try JSONDecoder().decode(
+            ChatMessage.self, from: JSONEncoder().encode(tagged))
+        XCTAssertEqual(decoded.source, .cloud(provider: "Gemini"))
+        XCTAssertEqual(decoded.entityRefs?.first?.name, "Maya")
+    }
+
+    // MARK: - Referenced-entity thumbnails
+
+    /// The chat VM holds its project weakly — return both so tests keep
+    /// the project alive.
+    @MainActor
+    private func makeEntityRefViewModel() -> (AIChatViewModel, ProjectViewModel) {
+        var project = Project(name: "Refs")
+        var maya = Character(name: "Maya")
+        maya.baseImage = "assets/characters/Maya/base.png"
+        var rob = Character(name: "Rob")
+        rob.avatar = "assets/characters/Rob/avatar.png"
+        let uninked = Character(name: "Extra")   // no artwork
+        project.characters = [maya, rob, uninked]
+        var rooftop = Location(name: "Rooftop")
+        rooftop.primaryImage = "assets/locations/Rooftop/primary.png"
+        project.locations = [rooftop]
+        var opening = Scene(name: "Opening", description: "")
+        opening.sceneOverviewImage = "assets/scenes/Opening/overview.png"
+        project.sequences = [Sequence(name: "Act 1", scenes: [opening])]
+
+        let viewModel = AIChatViewModel()
+        let projectVM = ProjectViewModel(project: project)
+        viewModel.projectViewModel = projectVM
+        return (viewModel, projectVM)
+    }
+
+    func testEntityRefsMatchWholeWordsInFirstOccurrenceOrder() {
+        let (viewModel, projectVM) = makeEntityRefViewModel()
+        _ = projectVM  // retained for the weak seam
+
+        let refs = viewModel.entityRefs(
+            in: "Shoot the Rooftop scene with Maya at dusk.")
+        XCTAssertEqual(refs?.map(\.name), ["Rooftop", "Maya"],
+                       "first-occurrence order")
+        XCTAssertEqual(refs?.map(\.kind), ["location", "character"])
+
+        // Word boundaries: "Robert" must not surface Rob's thumbnail.
+        XCTAssertNil(viewModel.entityRefs(in: "Ask Robert about the crane."))
+
+        // Case-insensitive; entities without artwork never match.
+        let shouted = viewModel.entityRefs(in: "MAYA enters. Extra follows.")
+        XCTAssertEqual(shouted?.map(\.name), ["Maya"])
+
+        // Mentions repeated across the reply dedupe to one chip.
+        let repeated = viewModel.entityRefs(
+            in: "Maya looks up. Maya runs. Maya, again, on the Rooftop.")
+        XCTAssertEqual(repeated?.map(\.name), ["Maya", "Rooftop"])
+
+        XCTAssertNil(viewModel.entityRefs(in: "Nothing relevant here."))
+    }
+
+    func testEntityRefsIncludeScenesAndCapAtFour() {
+        let (viewModel, projectVM) = makeEntityRefViewModel()
+
+        let refs = viewModel.entityRefs(in: "Review the Opening scene.")
+        XCTAssertEqual(refs?.first?.kind, "scene")
+        XCTAssertEqual(refs?.first?.imagePath,
+                       "assets/scenes/Opening/overview.png")
+
+        projectVM.project.characters = (1...6).map { index in
+            var character = Character(name: "Crewman\(index)")
+            character.avatar = "assets/characters/c\(index).png"
+            return character
+        }
+        let many = viewModel.entityRefs(
+            in: "Crewman1 Crewman2 Crewman3 Crewman4 Crewman5 Crewman6")
+        XCTAssertEqual(many?.count, 4, "capped so the strip stays compact")
+    }
 }

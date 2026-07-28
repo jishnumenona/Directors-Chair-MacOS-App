@@ -210,7 +210,10 @@ struct AIChatOverlayView: View {
                     }
 
                     ForEach(viewModel.messages) { message in
-                        AIChatMessageView(message: message)
+                        AIChatMessageView(
+                            message: message,
+                            projectBase: projectViewModel.projectPath?
+                                .deletingLastPathComponent())
                             .id(message.id)
                     }
 
