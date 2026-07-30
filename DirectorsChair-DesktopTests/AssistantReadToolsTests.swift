@@ -83,12 +83,13 @@ final class AssistantReadToolsTests: XCTestCase {
     func testReadToolsAreRegisteredAndReadOnly() {
         for name in ["list_scenes", "get_scene", "get_schedule",
                      "get_schedule_conflicts", "get_gantt",
-                     "get_budget_summary", "get_people", "get_equipment"] {
+                     "get_budget_summary", "get_people", "get_equipment",
+                     "get_app_help"] {
             let action = registry.action(named: name)
             XCTAssertNotNil(action, name)
             XCTAssertEqual(action?.risk, .readOnly, name)
         }
-        XCTAssertEqual(registry.count, 52)   // + creative 6 + world 4 + script 3 + generation 7 + pipeline 4
+        XCTAssertEqual(registry.count, 53)   // + creative 6 + world 4 + script 3 + generation 7 + pipeline 4 + app-help 1
     }
 
     // MARK: - Scenes
@@ -188,5 +189,17 @@ final class AssistantReadToolsTests: XCTestCase {
         let rows = try decode([Row].self, try await run("get_equipment"))
         XCTAssertEqual(rows.first?.name, "Alexa 35")
         XCTAssertEqual(rows.first?.allocation, "unallocated")
+    }
+}
+
+@MainActor
+final class GetAppHelpActionTests: XCTestCase {
+    func testAppHelpReturnsGuideAsToolResult() async throws {
+        let action = GetAppHelpAction(projectViewModel: nil, coordinator: nil)
+        action.loadGuide = { "VIEWS: Overview, Script. SHORTCUTS: Cmd+1." }
+        XCTAssertEqual(action.risk, .readOnly)
+        _ = try action.validate(argumentsData: Data("{}".utf8))
+        let outcome = try await action.execute(argumentsData: Data("{}".utf8))
+        XCTAssertTrue(outcome.resultForModel.contains("SHORTCUTS"))
     }
 }

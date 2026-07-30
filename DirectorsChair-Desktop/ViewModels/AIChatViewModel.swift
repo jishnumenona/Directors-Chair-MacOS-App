@@ -526,7 +526,7 @@ class AIChatViewModel: ObservableObject {
           exist, say so.
         - For modifications, always explain what you want to change and why
         - Be concise and specific to filmmaking
-        - If the user asks about app features, reference the FEATURE GUIDE below
+        - For app feature/how-to questions, call get_app_help and answer from it
 
         """
 
@@ -541,7 +541,9 @@ class AIChatViewModel: ObservableObject {
         }
 
         // Always include feature reference so the assistant knows what the app can do
-        prompt += "\n\n--- FEATURE GUIDE ---\n" + featureReference
+        // FEATURE GUIDE moved to the get_app_help tool (2026-07-30):
+        // its ~1,300 static tokens helped tip gemini-2.5-flash into a
+        // degenerate empty-generation mode and cost money every turn.
 
         return prompt
     }
@@ -585,7 +587,7 @@ class AIChatViewModel: ObservableObject {
 
     // MARK: - Feature Reference
 
-    private static func loadFeatureReference() -> String {
+    static func loadFeatureReference() -> String {
         """
         Director's Chair is a comprehensive filmmaking project management app for macOS.
 

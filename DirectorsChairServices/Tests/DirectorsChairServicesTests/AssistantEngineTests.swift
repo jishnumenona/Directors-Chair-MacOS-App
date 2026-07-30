@@ -256,8 +256,11 @@ final class AssistantEngineTests: XCTestCase {
         XCTAssertFalse(events.contains { if case .failed = $0 { return true }; return false })
     }
 
-    func testDoubleEmptyModelCallFailsWithFinishReason() async throws {
+    func testTripleEmptyModelCallFailsWithFinishReason() async throws {
+        // Three strikes now: empty retries are nudged (mutated request)
+        // twice before surfacing — the Gemini empty-generation fix.
         let transport = ScriptedTransport(scripts: [
+            [.done(finishReason: "MALFORMED_FUNCTION_CALL", model: "m")],
             [.done(finishReason: "MALFORMED_FUNCTION_CALL", model: "m")],
             [.done(finishReason: "MALFORMED_FUNCTION_CALL", model: "m")],
         ])
