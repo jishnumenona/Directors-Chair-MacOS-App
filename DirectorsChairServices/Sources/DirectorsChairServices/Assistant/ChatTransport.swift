@@ -214,6 +214,11 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
 
     private func makeURLRequest(_ body: ChatRequestBody,
                                 token: String?) throws -> URLRequest {
+        WireDebugLog.append("MAKE-REQUEST enter")
+        if let encoded = try? JSONEncoder().encode(body) {
+            WireDebugLog.append("REQUEST " +
+                String(decoding: encoded, as: UTF8.self))
+        }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -232,8 +237,12 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
 /// assistant.wireDebug -bool true — writes assistant-wire.log under
 /// Application Support/DirectorsChair.
 enum WireDebugLog {
+    #if DEBUG
+    private static let enabled = true   // debug builds always capture
+    #else
     private static let enabled =
         UserDefaults.standard.bool(forKey: "assistant.wireDebug")
+    #endif
     private static let url: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,
                                            in: .userDomainMask)[0]

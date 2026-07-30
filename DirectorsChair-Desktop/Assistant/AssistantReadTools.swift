@@ -71,6 +71,31 @@ final class ListScenesAction: ProjectAssistantAction, AssistantAction {
     }
 }
 
+/// The FEATURE GUIDE used to ride on every turn's system prompt
+/// (~1,300 static tokens). Beyond the cost, the full prompt + 52 tool
+/// schemas tipped gemini-2.5-flash into a degenerate empty-generation
+/// mode (diagnosed 2026-07-30). It is now fetched on demand.
+final class GetAppHelpAction: ProjectAssistantAction, AssistantAction {
+    let name = "get_app_help"
+    let summary = "Read the app feature guide: views and shortcuts, production tools, AI features, and workflows (video generation, screenplay import)."
+    let risk = ActionRisk.readOnly
+    var parameterSchema: JSONValue { objectSchema([:]) }
+
+    /// Injected so tests run without the bundled guide.
+    var loadGuide: @MainActor () -> String = { AIChatViewModel.loadFeatureReference() }
+
+    @MainActor func validate(argumentsData: Data) throws -> ActionPlan {
+        ActionPlan(summary: "Read the app feature guide",
+                   previews: [ActionPreview(title: "app help", oldValue: nil,
+                                            newValue: "feature guide")])
+    }
+
+    @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
+        ActionOutcome(resultForModel: loadGuide(),
+                      userSummary: "Read the app feature guide")
+    }
+}
+
 final class GetSceneAction: ProjectAssistantAction, AssistantAction {
     let name = "get_scene"
     let summary = """
@@ -376,6 +401,7 @@ extension AssistantActionFactory {
             GetBudgetSummaryAction(projectViewModel: projectViewModel, coordinator: coordinator),
             GetPeopleAction(projectViewModel: projectViewModel, coordinator: coordinator),
             GetEquipmentAction(projectViewModel: projectViewModel, coordinator: coordinator),
+            GetAppHelpAction(projectViewModel: projectViewModel, coordinator: coordinator),
         ]
     }
 }

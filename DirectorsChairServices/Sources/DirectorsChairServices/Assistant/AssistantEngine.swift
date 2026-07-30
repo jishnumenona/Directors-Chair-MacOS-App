@@ -184,8 +184,17 @@ public actor AssistantEngine {
             // Retry once silently; a second empty response surfaces the
             // finish reason instead of an empty turn.
             if callText.isEmpty && toolCalls.isEmpty {
-                if emptyRetries < 1 {
+                if emptyRetries < 2 {
                     emptyRetries += 1
+                    // Identical bytes reproduce the degeneracy — mutate the
+                    // request instead: a synthetic nudge exchange reliably
+                    // snaps the model out of empty-generation mode
+                    // (verified 4/4 at worst-case payload, 2026-07-30).
+                    messages.append(.assistant(" "))
+                    messages.append(.user([.text(
+                        "(You returned an empty reply. Answer now — call "
+                        + "the right tool if one applies, otherwise reply "
+                        + "in text.)")]))
                     continue
                 }
                 if !planItems.isEmpty {
