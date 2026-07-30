@@ -75,9 +75,9 @@ final class AssistantKitTests: XCTestCase {
         var parser = SSEEventParser()
         var events: [ChatStreamEvent] = []
         for line in text.components(separatedBy: "\n") {
-            if let event = parser.feed(line: line) { events.append(event) }
+            events.append(contentsOf: parser.feed(line: line))
         }
-        if let last = parser.finish() { events.append(last) }
+        events.append(contentsOf: parser.finish())
         return events
     }
 
@@ -139,9 +139,9 @@ final class AssistantKitTests: XCTestCase {
             "event: usage", #"data: {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}"#,
             "event: done", #"data: {"finish_reason": "stop", "model": "m"}"#,
         ] {
-            if let event = parser.feed(line: line) { events.append(event) }
+            events.append(contentsOf: parser.feed(line: line))
         }
-        if let last = parser.finish() { events.append(last) }
+        events.append(contentsOf: parser.finish())
         XCTAssertEqual(events.count, 4)
         XCTAssertEqual(events[0], .delta("Hel"))
         XCTAssertEqual(events[1], .delta("lo"))
@@ -150,9 +150,22 @@ final class AssistantKitTests: XCTestCase {
 
     func testParserFlushesUnterminatedTrailingFrame() {
         var parser = SSEEventParser()
-        XCTAssertNil(parser.feed(line: "event: done"))
-        XCTAssertNil(parser.feed(line: #"data: {"finish_reason": "stop", "model": null}"#))
-        XCTAssertEqual(parser.finish(), .done(finishReason: "stop", model: nil))
+        XCTAssertTrue(parser.feed(line: "event: done").isEmpty)
+        XCTAssertTrue(parser.feed(line: #"data: {"finish_reason": "stop", "model": null}"#).isEmpty)
+        XCTAssertEqual(parser.finish(), [.done(finishReason: "stop", model: nil)])
+    }
+
+    func testDoneWithThreadIdYieldsAckBeforeDone() {
+        // A6.2: the gateway echoes thread_id in the done payload when it
+        // persists the thread; the parser surfaces that as a distinct
+        // threadAck event so the engine can gate delta-sending on it.
+        let events = drain("""
+        event: done
+        data: {"finish_reason": "stop", "model": "m", "thread_id": "conv-1"}
+
+        """)
+        XCTAssertEqual(events, [.threadAck("conv-1"),
+                                .done(finishReason: "stop", model: "m")])
     }
 
     // MARK: - Transport error mapping

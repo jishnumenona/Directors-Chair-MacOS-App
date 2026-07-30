@@ -48,20 +48,22 @@ public enum ChatTransportError: LocalizedError, Equatable {
 
 /// Accumulates raw SSE lines into decoded `ChatStreamEvent`s. SSE frames are
 /// `event: <name>` + `data: <json>` pairs terminated by a blank line;
-/// comments (`:`) and unknown events are ignored.
+/// comments (`:`) and unknown events are ignored. One frame can decode to
+/// more than one event (a `done` payload carrying a thread ack), so `feed`
+/// returns an array — empty until a frame boundary.
 public struct SSEEventParser: Sendable {
     private var eventName: String?
     private var dataLines: [String] = []
 
     public init() {}
 
-    public mutating func feed(line: String) -> ChatStreamEvent? {
+    public mutating func feed(line: String) -> [ChatStreamEvent] {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
             defer { eventName = nil; dataLines = [] }
             return decodeCurrent()
         }
-        if trimmed.hasPrefix(":") { return nil }              // SSE comment/keepalive
+        if trimmed.hasPrefix(":") { return [] }               // SSE comment/keepalive
         if trimmed.hasPrefix("event:") {
             // A new frame is starting. If a complete frame is pending, flush
             // it now — some line readers (URLSession's AsyncLineSequence)
@@ -76,49 +78,57 @@ public struct SSEEventParser: Sendable {
             dataLines.append(String(trimmed.dropFirst("data:".count))
                 .trimmingCharacters(in: .whitespaces))
         }
-        return nil
+        return []
     }
 
     /// Flush a trailing frame that wasn't newline-terminated.
-    public mutating func finish() -> ChatStreamEvent? {
+    public mutating func finish() -> [ChatStreamEvent] {
         defer { eventName = nil; dataLines = [] }
         return decodeCurrent()
     }
 
-    private func decodeCurrent() -> ChatStreamEvent? {
+    private func decodeCurrent() -> [ChatStreamEvent] {
         guard let name = eventName, !dataLines.isEmpty,
               let data = dataLines.joined(separator: "\n").data(using: .utf8) else {
-            return nil
+            return []
         }
         let decoder = JSONDecoder()
         switch name {
         case "message.delta":
             struct Delta: Decodable { let text: String }
             return (try? decoder.decode(Delta.self, from: data))
-                .map { .delta($0.text) }
+                .map { [.delta($0.text)] } ?? []
         case "tool_call":
             return (try? decoder.decode(AssistantToolCall.self, from: data))
-                .map { .toolCall($0) }
+                .map { [.toolCall($0)] } ?? []
         case "usage":
             return (try? decoder.decode(ChatUsage.self, from: data))
-                .map { .usage($0) }
+                .map { [.usage($0)] } ?? []
         case "done":
             struct Done: Decodable {
                 let finishReason: String
                 let model: String?
+                let threadId: String?
                 enum CodingKeys: String, CodingKey {
                     case finishReason = "finish_reason"
                     case model
+                    case threadId = "thread_id"
                 }
             }
-            return (try? decoder.decode(Done.self, from: data))
-                .map { .done(finishReason: $0.finishReason, model: $0.model) }
+            guard let done = try? decoder.decode(Done.self, from: data) else {
+                return []
+            }
+            // The persistence ack surfaces before the terminal event so
+            // consumers record it while the stream is still "alive".
+            let terminal = ChatStreamEvent.done(finishReason: done.finishReason,
+                                                model: done.model)
+            return done.threadId.map { [.threadAck($0), terminal] } ?? [terminal]
         case "error":
             struct Failure: Decodable { let error: String }
             return (try? decoder.decode(Failure.self, from: data))
-                .map { .error($0.error) }
+                .map { [.error($0.error)] } ?? []
         default:
-            return nil
+            return []
         }
     }
 }
@@ -186,10 +196,11 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
         var parser = SSEEventParser()
         var lineBuffer = Data()
         func deliver(_ line: String) -> Bool {   // returns false to stop
-            guard let event = parser.feed(line: line) else { return true }
-            continuation.yield(event)
-            if case .done = event { return false }
-            if case .error = event { return false }
+            for event in parser.feed(line: line) {
+                continuation.yield(event)
+                if case .done = event { return false }
+                if case .error = event { return false }
+            }
             return true
         }
         for try await byte in bytes {
@@ -207,7 +218,7 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
         if !lineBuffer.isEmpty {
             _ = deliver(String(decoding: lineBuffer, as: UTF8.self))
         }
-        if let event = parser.finish() {
+        for event in parser.finish() {
             continuation.yield(event)
         }
     }

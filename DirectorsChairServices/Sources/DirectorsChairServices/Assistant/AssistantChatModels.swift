@@ -187,6 +187,10 @@ public struct ChatRequestBody: Encodable, Sendable {
     public var stream: Bool
     public var projectId: String?
     public var turnId: String?
+    /// A6.2 server-side threads: the gateway prepends this thread's stored
+    /// transcript and persists the exchange. Absent = classic full-history
+    /// protocol.
+    public var threadId: String?
 
     enum CodingKeys: String, CodingKey {
         case messages, tools, provider, model, stream, temperature
@@ -194,13 +198,15 @@ public struct ChatRequestBody: Encodable, Sendable {
         case maxTokens = "max_tokens"
         case projectId = "project_id"
         case turnId = "turn_id"
+        case threadId = "thread_id"
     }
 
     public init(messages: [ChatMessage], tools: [ToolDefinition] = [],
                 toolChoice: String = "auto", provider: String? = nil,
                 model: String? = nil, maxTokens: Int = 4000,
                 temperature: Double = 0.7, stream: Bool = true,
-                projectId: String? = nil, turnId: String? = nil) {
+                projectId: String? = nil, turnId: String? = nil,
+                threadId: String? = nil) {
         self.messages = messages
         self.tools = tools
         self.toolChoice = toolChoice
@@ -211,6 +217,7 @@ public struct ChatRequestBody: Encodable, Sendable {
         self.stream = stream
         self.projectId = projectId
         self.turnId = turnId
+        self.threadId = threadId
     }
 }
 
@@ -233,6 +240,11 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case delta(String)
     case toolCall(AssistantToolCall)
     case usage(ChatUsage)
+    /// A6.2: the gateway confirmed it persists this thread — emitted just
+    /// before `done` when the done payload echoes the request's thread_id.
+    /// A gateway without thread support never sends it, so its absence is
+    /// the signal to keep sending full history.
+    case threadAck(String)
     case done(finishReason: String, model: String?)
     case error(String)
 }
