@@ -116,6 +116,10 @@ class AIChatViewModel: ObservableObject {
     weak var coordinator: AppCoordinator?
     weak var projectViewModel: ProjectViewModel?
 
+    /// Voice mode (hands-free): called with each finished assistant
+    /// reply so the conversation controller can speak it.
+    var onAssistantReply: ((String) -> Void)?
+
     private var currentConversationId: UUID?
     private let historyDirectory: URL
     private let featureReference: String
@@ -457,6 +461,7 @@ class AIChatViewModel: ObservableObject {
                         role: .assistant, content: fullText,
                         source: .cloud(provider: Self.routedProviderDisplayName()),
                         entityRefs: entityRefs(in: fullText)))
+                    onAssistantReply?(fullText)
                 } else if turnPlan == nil,
                           !messages.contains(where: { $0.role == .system
                               && $0.timestamp > (messages.last { $0.role == .user }?.timestamp ?? .distantPast) }) {
@@ -474,6 +479,7 @@ class AIChatViewModel: ObservableObject {
                 messages.append(ChatMessage(role: .assistant,
                                             content: "Error: \(message)",
                                             source: .local))
+                onAssistantReply?("Sorry — that didn't go through.")
             }
         }
 
