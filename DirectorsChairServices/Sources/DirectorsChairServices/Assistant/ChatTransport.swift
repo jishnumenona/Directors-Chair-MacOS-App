@@ -197,6 +197,7 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
                 var line = String(decoding: lineBuffer, as: UTF8.self)
                 lineBuffer.removeAll(keepingCapacity: true)
                 if line.hasSuffix("\r") { line.removeLast() }
+                WireDebugLog.append(line)
                 if !deliver(line) { return }
             } else {
                 lineBuffer.append(byte)
@@ -221,5 +222,36 @@ public final class GatewayChatTransport: ChatTransporting, @unchecked Sendable {
         request.httpBody = try JSONEncoder().encode(body)
         request.timeoutInterval = 180
         return request
+    }
+}
+
+
+/// Flag-gated raw SSE capture for diagnosing provider anomalies the
+/// normalized event stream masks (empty candidates, blocked prompts).
+/// Enable: defaults write com.directorschair.DirectorsChair-Desktop
+/// assistant.wireDebug -bool true — writes assistant-wire.log under
+/// Application Support/DirectorsChair.
+enum WireDebugLog {
+    private static let enabled =
+        UserDefaults.standard.bool(forKey: "assistant.wireDebug")
+    private static let url: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory,
+                                           in: .userDomainMask)[0]
+            .appendingPathComponent("DirectorsChair")
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("assistant-wire.log")
+    }()
+
+    static func append(_ line: String) {
+        guard enabled, !line.isEmpty else { return }
+        let stamped = "\(Date().ISO8601Format()) \(line)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(stamped.utf8))
+            try? handle.close()
+        } else {
+            try? Data(stamped.utf8).write(to: url)
+        }
     }
 }
