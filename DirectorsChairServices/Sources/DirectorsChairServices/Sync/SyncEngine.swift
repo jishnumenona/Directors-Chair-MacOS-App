@@ -28,6 +28,15 @@ public final class SyncEngine: ObservableObject {
 
     @Published public private(set) var state: EngineState = .idle
     @Published public private(set) var pendingChanges: Int = 0
+    /// Remote context for the open project (Orgs §12B.7): the owning org's
+    /// name and this user's role there. Served instantly from the checkpoint
+    /// cache, refreshed from the server when the project opens.
+    @Published public private(set) var orgName: String?
+    @Published public private(set) var myRole: String?
+
+    /// Viewer role = pull-only: the server would 404 our commits anyway
+    /// (IDOR posture); the UI turns Sync into "get latest" instead.
+    public var isViewer: Bool { myRole == "viewer" }
 
     private let client: SyncAPIClient
     private var pendingConflictManifest: SyncManifest?
@@ -38,6 +47,95 @@ public final class SyncEngine: ObservableObject {
 
     public func markLocalChange() {
         pendingChanges += 1
+    }
+
+    // MARK: Remote context (Orgs §12B.7)
+
+    /// Instant, offline: publish the org/role cached in the checkpoint.
+    public func loadRemoteContext(projectDir: URL) {
+        let checkpoint = SyncCheckpoint.load(projectDir: projectDir)
+        orgName = checkpoint?.orgName
+        myRole = checkpoint?.myRole
+    }
+
+    /// Ask the server who owns this project and what we may do, then cache
+    /// it in the checkpoint. Best-effort — sync works without it.
+    public func refreshRemoteContext(projectDir: URL) async {
+        guard var checkpoint = SyncCheckpoint.load(projectDir: projectDir) else { return }
+        do {
+            let projects = try await client.listProjects()
+            guard let remote = projects.first(where: { $0.id == checkpoint.projectID }),
+                  let orgID = remote.orgID else { return }
+            let orgs = try await client.listOrgs()
+            let org = orgs.first { $0.id == orgID }
+            let role = try await client.orgProjects(orgID: orgID)
+                .first { $0.id == checkpoint.projectID }?.myRole
+            checkpoint.orgName = org.map {
+                $0.kind == "personal" ? "Personal" : $0.name
+            }
+            checkpoint.myRole = role
+            try? checkpoint.save(projectDir: projectDir)
+            orgName = checkpoint.orgName
+            myRole = checkpoint.myRole
+        } catch {
+            // Offline or token trouble — keep whatever the cache said.
+        }
+    }
+
+    // MARK: Cloud directory (Open from Cloud, Orgs §12B.7)
+
+    /// One org and its projects, as the picker renders them.
+    public struct CloudOrgListing: Sendable, Equatable, Identifiable {
+        public let org: SyncOrg
+        public let projects: [SyncProject]
+        public var id: String { org.id }
+    }
+
+    /// Everything the signed-in user can see in the cloud, grouped by org.
+    /// An org whose project list can't be fetched still appears (empty) —
+    /// partial visibility beats a blank picker.
+    public func cloudDirectory() async throws -> [CloudOrgListing] {
+        let orgs = try await client.listOrgs()
+        var listings: [CloudOrgListing] = []
+        for org in orgs {
+            let projects = (try? await client.orgProjects(orgID: org.id)) ?? []
+            listings.append(CloudOrgListing(org: org, projects: projects))
+        }
+        return listings
+    }
+
+    // MARK: Clone (Open from Cloud, Orgs §12B.7)
+
+    /// Bootstrap a project that exists server-side but not on this device:
+    /// create the directory, write a revision-0 checkpoint, pull. Returns
+    /// the project directory, or nil with the failure in `state`.
+    public func clone(projectID: String, name: String, orgName: String?,
+                      myRole: String?, into parentDir: URL) async -> URL? {
+        let sanitized = name.replacingOccurrences(of: "/", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var dir = parentDir.appendingPathComponent(
+            sanitized.isEmpty ? "Cloud Project" : sanitized)
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: dir.path) {
+            dir = parentDir.appendingPathComponent("\(sanitized) \(suffix)")
+            suffix += 1
+        }
+        do {
+            try FileManager.default.createDirectory(at: dir,
+                                                    withIntermediateDirectories: true)
+            try SyncCheckpoint(projectID: projectID, orgName: orgName,
+                               myRole: myRole).save(projectDir: dir)
+        } catch {
+            state = .error(Self.describe(error))
+            return nil
+        }
+        guard await pull(projectDir: dir) else {
+            try? FileManager.default.removeItem(at: dir)
+            return nil
+        }
+        self.orgName = orgName
+        self.myRole = myRole
+        return dir
     }
 
     // MARK: Push
@@ -335,7 +433,11 @@ public final class SyncEngine: ObservableObject {
             case .serviceUnavailable: return "Sync service unavailable — try again shortly"
             case .payloadTooLarge: return "A file exceeds the sync size limit"
             case .staleBase: return "Sync conflict"
-            case .notFound: return "Project not found on the server"
+            case .notFound:
+                return "Not available with your current access — the project "
+                     + "may have been removed or your role changed"
+            case .archived:
+                return "Project is archived — unarchive it in the web portal to sync"
             case .uncommittedBlobs: return "Upload incomplete — try again"
             case .server(let status): return "Sync failed (server \(status))"
             case .transport(let message): return "Network problem: \(message)"

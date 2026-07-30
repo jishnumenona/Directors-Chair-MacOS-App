@@ -16,12 +16,26 @@ struct SyncEngineStatusView: View {
 
     var body: some View {
         Button(action: { Task { await syncNow() } }) {
-            Label("Sync", systemImage: iconName)
-                .labelStyle(.iconOnly)
-                .foregroundStyle(iconColor)
+            HStack(spacing: 5) {
+                Image(systemName: iconName)
+                    .foregroundStyle(iconColor)
+                // Org subtitle (Orgs §12B.7): whose cloud this project
+                // lives in, plus the pull-only marker for viewers.
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
         }
         .help(helpText)
         .disabled(isSyncing || !authManager.isAuthenticated)
+        .task(id: projectDir) {
+            guard let dir = projectDir else { return }
+            engine.loadRemoteContext(projectDir: dir)     // instant, cached
+            await engine.refreshRemoteContext(projectDir: dir)
+        }
         .onChange(of: engine.state) { _, newState in
             if case .conflict = newState { showConflict = true }
         }
@@ -63,15 +77,24 @@ struct SyncEngineStatusView: View {
         }
     }
 
+    private var subtitle: String? {
+        guard let orgName = engine.orgName else { return nil }
+        return engine.isViewer ? "\(orgName) · view-only" : orgName
+    }
+
     private var helpText: String {
+        let base: String
         switch engine.state {
-        case .idle: return "Sync project to DirectorsChair Cloud"
-        case .syncing(let message): return message
-        case .conflict: return "Sync conflict — click to resolve"
-        case .error(let message): return message
+        case .idle: base = "Sync project to DirectorsChair Cloud"
+        case .syncing(let message): base = message
+        case .conflict: base = "Sync conflict — click to resolve"
+        case .error(let message): base = message
         case .synced(let date):
-            return "Synced \(date.formatted(date: .omitted, time: .shortened))"
+            base = "Synced \(date.formatted(date: .omitted, time: .shortened))"
         }
+        return engine.isViewer
+            ? base + " (view-only access — Sync pulls the latest version)"
+            : base
     }
 
     private var projectDir: URL? {
@@ -83,6 +106,14 @@ struct SyncEngineStatusView: View {
     @MainActor
     private func syncNow() async {
         guard let dir = projectDir else { return }
+        // Viewer role: the server would 404 our commits (IDOR posture), so
+        // Sync means "get the latest version" — no push, no failed state.
+        if engine.isViewer {
+            if await engine.pull(projectDir: dir) {
+                try? await projectViewModel.load(from: dir.appendingPathComponent("project.json"))
+            }
+            return
+        }
         // Flush the editor to disk so the manifest sees the latest document.
         await projectViewModel.saveSilently()
         let project = projectViewModel.project

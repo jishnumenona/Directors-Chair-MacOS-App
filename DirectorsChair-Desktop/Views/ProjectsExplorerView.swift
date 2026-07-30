@@ -86,6 +86,7 @@ struct ProjectsExplorerView: View {
     @State var projects: [ProjectInfo] = []
     @State var isLoading = true
     @State var showingNewProjectSheet = false
+    @State var showingCloudPicker = false
     @State var newProjectName = ""
     @State var hoveredProjectId: UUID?
     @State var showingImportPicker = false
@@ -163,6 +164,9 @@ struct ProjectsExplorerView: View {
         }
         .sheet(isPresented: $showingNewProjectSheet) {
             newProjectSheet
+        }
+        .sheet(isPresented: $showingCloudPicker) {
+            CloudProjectPickerView(onProjectAdded: { discoverProjects() })
         }
         .fileImporter(
             isPresented: $showingImportPicker,
