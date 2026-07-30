@@ -36,6 +36,24 @@ public struct EngineConfiguration: Sendable {
     }
 }
 
+// MARK: - Server-side threads (A6.2)
+
+/// Conversation-scoped thread state the caller carries between turns.
+/// `established` means a gateway has already acked persistence for this
+/// thread, so the engine may send only NEW messages and let the server
+/// prepend the stored transcript. Until then every call carries full
+/// history — a gateway without thread support just ignores `id`, and the
+/// protocol degrades to the classic one instead of losing context.
+public struct ThreadContext: Sendable, Equatable {
+    public var id: String
+    public var established: Bool
+
+    public init(id: String, established: Bool = false) {
+        self.id = id
+        self.established = established
+    }
+}
+
 // MARK: - Turn plan
 
 /// One approved-later proposal: a validated mutating/spending tool call.
@@ -72,6 +90,9 @@ public enum EngineEvent: Sendable, Equatable {
     case toolStarted(name: String)
     case toolFinished(name: String, summary: String)
     case turnPlan(TurnPlan)
+    /// A6.2: the gateway acked thread persistence for the first time —
+    /// the caller should mark the conversation's ThreadContext established.
+    case threadEstablished
     /// Terminal: the full assistant text and the transcript (including tool
     /// results) the caller persists as conversation history.
     case finished(fullText: String, transcript: [ChatMessage])
@@ -94,13 +115,18 @@ public actor AssistantEngine {
 
     /// Runs one turn. `history` is the prior conversation (system prompt +
     /// past user/assistant messages); `userMessage` is this turn's input.
+    /// `thread` opts into server-side threads (A6.2): once established, the
+    /// wire carries only the system prompt + messages the server hasn't
+    /// stored yet.
     public func runTurn(history: [ChatMessage], userMessage: ChatMessage,
-                        turnId: String = UUID().uuidString.lowercased())
+                        turnId: String = UUID().uuidString.lowercased(),
+                        thread: ThreadContext? = nil)
     -> AsyncStream<EngineEvent> {
         AsyncStream { continuation in
             let task = Task {
                 await self.loop(history: history, userMessage: userMessage,
-                                turnId: turnId, continuation: continuation)
+                                turnId: turnId, thread: thread,
+                                continuation: continuation)
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -108,9 +134,14 @@ public actor AssistantEngine {
     }
 
     private func loop(history: [ChatMessage], userMessage: ChatMessage,
-                      turnId: String,
+                      turnId: String, thread: ThreadContext?,
                       continuation: AsyncStream<EngineEvent>.Continuation) async {
         var messages = history + [userMessage]
+        // Thread mode: what the server hasn't persisted yet. Each acked
+        // model call clears it (the server stored these + its own reply).
+        var unsent: [ChatMessage] = [userMessage]
+        var established = thread?.established ?? false
+        let systemMessages = history.filter { $0.role == .system }
         var fullText = ""
         var planItems: [ProposedActionItem] = []
         var modelCalls = 0
@@ -133,7 +164,7 @@ public actor AssistantEngine {
             modelCalls += 1
 
             let request = ChatRequestBody(
-                messages: messages,
+                messages: established ? systemMessages + unsent : messages,
                 tools: registry.toolDefinitions,
                 provider: configuration.provider,
                 model: configuration.model,
@@ -141,11 +172,13 @@ public actor AssistantEngine {
                 temperature: configuration.temperature,
                 stream: true,
                 projectId: configuration.projectId,
-                turnId: turnId)
+                turnId: turnId,
+                threadId: thread?.id)
 
             var callText = ""
             var toolCalls: [AssistantToolCall] = []
             var finishReason: String?
+            var ackedThisCall = false
             do {
                 for try await event in transport.stream(request) {
                     switch event {
@@ -154,6 +187,8 @@ public actor AssistantEngine {
                         continuation.yield(.assistantText(text))
                     case .toolCall(let call):
                         toolCalls.append(call)
+                    case .threadAck(let id):
+                        ackedThisCall = (id == thread?.id)
                     case .error(let message):
                         if !planItems.isEmpty {
                             continuation.yield(.turnPlan(TurnPlan(items: planItems)))
@@ -179,6 +214,21 @@ public actor AssistantEngine {
                 return
             }
 
+            // Thread bookkeeping: an ack means the server persisted this
+            // call's fresh messages plus its reply — nothing is "unsent"
+            // any more. No ack while established means the server lost
+            // thread support mid-conversation (downgrade); fall back to
+            // full-history sends for the rest of the turn.
+            if ackedThisCall {
+                unsent.removeAll()
+                if !established {
+                    established = true
+                    continuation.yield(.threadEstablished)
+                }
+            } else if established {
+                established = false
+            }
+
             // An empty model call (no text, no tool calls) is a provider
             // anomaly — Gemini's malformed-function-call mode, safety trims.
             // Retry once silently; a second empty response surfaces the
@@ -195,6 +245,8 @@ public actor AssistantEngine {
                         "(You returned an empty reply. Answer now — call "
                         + "the right tool if one applies, otherwise reply "
                         + "in text.)")]))
+                    unsent.append(.assistant(" "))
+                    unsent.append(messages[messages.count - 1])
                     continue
                 }
                 if !planItems.isEmpty {
@@ -220,6 +272,7 @@ public actor AssistantEngine {
                 let result = await handle(call: call, planItems: &planItems,
                                           continuation: continuation)
                 messages.append(.toolResult(callId: call.id, result))
+                unsent.append(.toolResult(callId: call.id, result))
             }
             // Loop: the model sees the tool results and continues the turn.
         }

@@ -111,7 +111,12 @@ class AIChatViewModel: ObservableObject {
     private var undoProject: Project?
     /// Tool-fidelity transcript (wire messages, system excluded) — the
     /// model's memory across turns; display `messages` stay human-readable.
+    /// Kept even in thread mode: it is the fallback when the gateway does
+    /// not (or stops) acking thread persistence.
     private var kitHistory: [KitMessage] = []
+    /// A6.2: the gateway acked persistence for the current conversation's
+    /// thread — the engine may send only new messages from now on.
+    private var threadEstablished = false
 
     weak var coordinator: AppCoordinator?
     weak var projectViewModel: ProjectViewModel?
@@ -369,6 +374,7 @@ class AIChatViewModel: ObservableObject {
         toolActivity = nil
         turnPlan = nil
         kitHistory = []
+        threadEstablished = false
         undoProject = nil
         canUndoAssistantChanges = false
     }
@@ -442,12 +448,21 @@ class AIChatViewModel: ObservableObject {
 
         streamingText = ""
         let history = [KitMessage.system(systemPrompt)] + kitHistory
+        // A6.2: the conversation id doubles as the server-side thread id, so
+        // resumed conversations regain the model's memory after a relaunch.
+        let thread = currentConversationId.map {
+            ThreadContext(id: $0.uuidString.lowercased(),
+                          established: threadEstablished)
+        }
 
         for await event in await engine.runTurn(history: history,
-                                                userMessage: .user(parts)) {
+                                                userMessage: .user(parts),
+                                                thread: thread) {
             switch event {
             case .assistantText(let fragment):
                 streamingText += fragment
+            case .threadEstablished:
+                threadEstablished = true
             case .toolStarted(let name):
                 toolActivity = "Running \(name)…"
             case .toolFinished(_, let summary):

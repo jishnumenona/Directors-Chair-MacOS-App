@@ -328,8 +328,103 @@ final class AssistantEngineTests: XCTestCase {
         case .toolStarted: return "toolStarted"
         case .toolFinished: return "toolFinished"
         case .turnPlan: return "turnPlan"
+        case .threadEstablished: return "threadEstablished"
         case .finished: return "finished"
         case .failed: return "failed"
         }
+    }
+}
+
+// MARK: - Server-side threads (A6.2)
+
+final class AssistantEngineThreadTests: XCTestCase {
+
+    /// Prior turns the VM would replay as kitHistory in classic mode.
+    private let history: [ChatMessage] = [
+        .system("sys"), .user("old question"), .assistant("old answer")]
+
+    private func collect(_ engine: AssistantEngine,
+                         thread: ThreadContext?) async -> [EngineEvent] {
+        var events: [EngineEvent] = []
+        for await event in await engine.runTurn(history: history,
+                                                userMessage: .user("hello"),
+                                                thread: thread) {
+            events.append(event)
+        }
+        return events
+    }
+
+    func testThreadlessRequestsCarryNoThreadId() async {
+        let transport = ScriptedTransport(scripts: [[
+            .delta("Hi."), .done(finishReason: "stop", model: "m")]])
+        let engine = AssistantEngine(transport: transport, registry: ActionRegistry())
+        _ = await collect(engine, thread: nil)
+        XCTAssertNil(transport.requests[0].threadId)
+    }
+
+    func testAckSwitchesToDeltaSendingMidTurn() async throws {
+        // Call 1 (thread not yet established) carries FULL history; the ack
+        // in its reply means the server persisted it — call 2 must carry
+        // only the system prompt + the tool result.
+        let transport = ScriptedTransport(scripts: [
+            [.threadAck("conv-1"),
+             call("call_1", "get_scene", ["name": .string("Opening")]),
+             .done(finishReason: "tool_calls", model: "m")],
+            [.threadAck("conv-1"), .delta("Rainy night."),
+             .done(finishReason: "stop", model: "m")],
+        ])
+        var registry = ActionRegistry()
+        try registry.register(ReadAction())
+        let engine = AssistantEngine(transport: transport, registry: registry)
+
+        let events = await collect(
+            engine, thread: ThreadContext(id: "conv-1", established: false))
+
+        XCTAssertEqual(transport.requests[0].threadId, "conv-1")
+        XCTAssertEqual(transport.requests[0].messages.map(\.role),
+                       [.system, .user, .assistant, .user],
+                       "first call sends full history until the ack")
+        XCTAssertEqual(transport.requests[1].messages.map(\.role),
+                       [.system, .tool],
+                       "after the ack only unsent messages ride the wire")
+        XCTAssertEqual(events.filter { $0 == .threadEstablished }.count, 1)
+    }
+
+    func testEstablishedThreadSendsOnlyNewMessages() async {
+        let transport = ScriptedTransport(scripts: [[
+            .threadAck("conv-1"), .delta("Hi."),
+            .done(finishReason: "stop", model: "m")]])
+        let engine = AssistantEngine(transport: transport, registry: ActionRegistry())
+
+        let events = await collect(
+            engine, thread: ThreadContext(id: "conv-1", established: true))
+
+        XCTAssertEqual(transport.requests[0].messages.map(\.role),
+                       [.system, .user],
+                       "prior history stays server-side")
+        XCTAssertFalse(events.contains(.threadEstablished),
+                       "no transition event when already established")
+    }
+
+    func testNoAckKeepsClassicFullHistory() async throws {
+        // A gateway without thread support (production before the promote)
+        // never acks: every call must keep carrying full history and the
+        // conversation must never be marked established.
+        let transport = ScriptedTransport(scripts: [
+            [call("call_1", "get_scene", ["name": .string("Opening")]),
+             .done(finishReason: "tool_calls", model: "m")],
+            [.delta("Rainy night."), .done(finishReason: "stop", model: "m")],
+        ])
+        var registry = ActionRegistry()
+        try registry.register(ReadAction())
+        let engine = AssistantEngine(transport: transport, registry: registry)
+
+        let events = await collect(
+            engine, thread: ThreadContext(id: "conv-1", established: false))
+
+        XCTAssertEqual(transport.requests[1].messages.map(\.role),
+                       [.system, .user, .assistant, .user, .assistant, .tool],
+                       "second call still carries everything")
+        XCTAssertFalse(events.contains(.threadEstablished))
     }
 }
