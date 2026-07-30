@@ -15,6 +15,7 @@ struct AIChatOverlayView: View {
     @StateObject private var viewModel = AIChatViewModel()
     @StateObject private var dictation = SpeechDictationController()
     @State private var dictationPrefix = ""
+    @StateObject private var voice = VoiceConversationController()
     @State private var commandTap = CommandTapMonitor()
     @FocusState private var isInputFocused: Bool
     @AppStorage(PrefKey.showAssistantOnLaunch) private var showAssistantOnLaunch: Bool = false
@@ -80,6 +81,22 @@ struct AIChatOverlayView: View {
         .onAppear {
             viewModel.coordinator = coordinator
             viewModel.projectViewModel = projectViewModel
+            // Voice conversation seams (hands-free mode).
+            voice.startListening = {
+                dictationPrefix = ""
+                viewModel.inputText = ""
+                if !dictation.isRecording { dictation.start() }
+            }
+            voice.stopListening = {
+                if dictation.isRecording { dictation.stop() }
+            }
+            voice.sendUtterance = { text in
+                viewModel.inputText = text
+                viewModel.sendMessage()
+            }
+            viewModel.onAssistantReply = { reply in
+                voice.speakReply(reply)
+            }
             viewModel.addWelcomeMessageIfNeeded()
             viewModel.runProactiveChecksIfEnabled()
             // A bare ⌘ tap toggles dictation while the assistant is open
@@ -465,6 +482,44 @@ struct AIChatOverlayView: View {
     }
 
     private var inputArea: some View {
+        VStack(spacing: 6) {
+            if voice.isActive {
+                voiceStatusPill
+            }
+            inputRow
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(0.03))
+    }
+
+    /// Live phase indicator; tapping while the assistant speaks barges in.
+    private var voiceStatusPill: some View {
+        let (icon, label): (String, String) = {
+            switch voice.phase {
+            case .listening: return ("mic.fill", "Listening…")
+            case .thinking: return ("ellipsis.circle", "Thinking…")
+            case .speaking: return ("speaker.wave.2.fill",
+                                    "Speaking — tap to interrupt")
+            case .idle: return ("waveform", "Voice mode")
+            }
+        }()
+        return HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+        }
+        .foregroundColor(.accentColor)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { voice.interruptSpeech() }
+    }
+
+    private var inputRow: some View {
         HStack(spacing: 10) {
             TextField(dictation.isRecording ? "Listening… (⌘ to stop)"
                                             : "Ask about your project… (⌘ to speak)",
@@ -502,6 +557,7 @@ struct AIChatOverlayView: View {
                 guard dictation.isRecording else { return }
                 viewModel.inputText = SpeechDictationController.mergedInput(
                     typedPrefix: dictationPrefix, transcript: transcript)
+                voice.transcriptChanged(transcript)
             }
             .onChange(of: dictation.state) { _, state in
                 if case .recording = state { return }
@@ -511,6 +567,21 @@ struct AIChatOverlayView: View {
                 }
             }
 
+            // Hands-free conversation: listen → reply aloud → listen.
+            Button(action: { voice.toggle() }) {
+                Image(systemName: voice.isActive
+                      ? "waveform.circle.fill" : "waveform.circle")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(voice.isActive
+                                     ? .accentColor
+                                     : Color(nsColor: .secondaryLabelColor))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(voice.isActive ? "End voice conversation"
+                                 : "Voice conversation — talk back and forth")
+
             Button(action: { sendStoppingDictation() }) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 24))
@@ -519,14 +590,12 @@ struct AIChatOverlayView: View {
             .buttonStyle(.plain)
             .disabled(viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isGenerating)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.03))
     }
 
     // MARK: - Actions
 
     private func dismiss() {
+        voice.deactivate()
         viewModel.saveCurrentConversation()
         coordinator.showingAIChat = false
     }
