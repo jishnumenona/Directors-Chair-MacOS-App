@@ -91,6 +91,54 @@ final class VoiceConversationControllerTests: XCTestCase {
             voices: [("premium-fr", "fr-FR", 2)], language: "en-US"))
     }
 
+    func testStudioEngineFallsBackToDeviceOnFailure() async throws {
+        let (controller, _, _) = makeController()
+        var deviceSpoke: [String] = []
+        var studioCalls = 0
+        controller.speakText = { deviceSpoke.append($0) }
+        controller.synthesizeStudioAudio = { _ in
+            studioCalls += 1
+            throw URLError(.notConnectedToInternet)
+        }
+        controller.studioEnabled = { true }
+        controller.activate()
+
+        controller.speakReply("Hello there")
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(studioCalls, 1)
+        XCTAssertEqual(deviceSpoke, ["Hello there"],
+                       "offline degrades to the on-device voice")
+        XCTAssertEqual(controller.phase, .speaking)
+    }
+
+    func testDevicePreferenceSkipsStudioEntirely() {
+        let (controller, _, _) = makeController()
+        var deviceSpoke: [String] = []
+        var studioCalls = 0
+        controller.speakText = { deviceSpoke.append($0) }
+        controller.synthesizeStudioAudio = { _ in studioCalls += 1; return Data() }
+        controller.studioEnabled = { false }
+        controller.activate()
+
+        controller.speakReply("Local only")
+
+        XCTAssertEqual(studioCalls, 0, "the free path never touches the network")
+        XCTAssertEqual(deviceSpoke, ["Local only"])
+    }
+
+    func testSpokenCapCutsLongRepliesAtSentenceBoundary() {
+        let short = "Just a short reply."
+        XCTAssertEqual(VoiceConversationController.spokenCap(short), short)
+
+        let sentence = "This is a sentence. "
+        let long = String(repeating: sentence, count: 80)   // 1,600 chars
+        let capped = VoiceConversationController.spokenCap(long)
+        XCTAssertTrue(capped.hasSuffix("The rest is in the chat."))
+        XCTAssertLessThan(capped.count, 1_100)
+        XCTAssertTrue(capped.contains("This is a sentence."))
+    }
+
     func testSpeakableTextStripsMarkdown() {
         XCTAssertEqual(VoiceConversationController.speakableText(
             from: "**Bold** and *italic* with `code`"),

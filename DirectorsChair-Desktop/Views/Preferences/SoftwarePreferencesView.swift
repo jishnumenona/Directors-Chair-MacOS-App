@@ -564,6 +564,14 @@ struct SoftwarePreferencesView: View {
                     )
 
                     PrefChipRow(
+                        label: "Voice replies",
+                        icon: "speaker.wave.2",
+                        options: ["gemini", "device"],
+                        displayNames: ["Gemini (~1¢/reply)", "On-device (free)"],
+                        selection: $prefs.voiceReplyEngine
+                    )
+
+                    PrefChipRow(
                         label: "Text Generation",
                         icon: "text.bubble",
                         options: ["deepseek", "google", "openai", "anthropic"],
