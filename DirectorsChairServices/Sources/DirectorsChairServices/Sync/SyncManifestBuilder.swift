@@ -21,11 +21,18 @@ public struct SyncCheckpoint: Codable, Sendable, Equatable {
     public var projectID: String
     public var lastRevision: Int
     public var lastManifest: SyncManifest?
+    /// Remote context cached at the last sync/refresh (Orgs §12B.7) —
+    /// optional so pre-orgs checkpoint files keep decoding.
+    public var orgName: String?
+    public var myRole: String?
 
-    public init(projectID: String, lastRevision: Int = 0, lastManifest: SyncManifest? = nil) {
+    public init(projectID: String, lastRevision: Int = 0, lastManifest: SyncManifest? = nil,
+                orgName: String? = nil, myRole: String? = nil) {
         self.projectID = projectID
         self.lastRevision = lastRevision
         self.lastManifest = lastManifest
+        self.orgName = orgName
+        self.myRole = myRole
     }
 
     public static let filename = ".sync-state.json"

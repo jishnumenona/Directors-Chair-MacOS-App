@@ -14,10 +14,16 @@ import Foundation
 public struct SyncProject: Codable, Sendable, Equatable {
     public let id: String
     public let name: String
-    public let headRevision: Int
-    public let bytesTotal: Int
+    /// Optional because the org list route can return name-only entries for
+    /// projects a member can see listed but not open (Orgs D3), and the flat
+    /// /projects route omits `my_role` entirely.
+    public let headRevision: Int?
+    public let bytesTotal: Int?
     public let archivedAt: String?
     public let updatedAt: String?
+    public let orgID: String?
+    /// "owner" / "editor" / "viewer"; nil = unknown (or list-only access).
+    public let myRole: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name
@@ -25,6 +31,24 @@ public struct SyncProject: Codable, Sendable, Equatable {
         case bytesTotal = "bytes_total"
         case archivedAt = "archived_at"
         case updatedAt = "updated_at"
+        case orgID = "org_id"
+        case myRole = "my_role"
+    }
+}
+
+/// An organization the signed-in user belongs to (Orgs §12B.7): the grouping
+/// key of the Open-from-Cloud picker and the owner of every project.
+public struct SyncOrg: Codable, Sendable, Equatable {
+    public let id: String
+    public let slug: String
+    public let name: String
+    /// "personal" or "team".
+    public let kind: String
+    public let myRole: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, slug, name, kind
+        case myRole = "my_role"
     }
 }
 
@@ -123,6 +147,9 @@ public enum SyncAPIError: Error, Sendable, Equatable {
     case staleBase(headRevision: Int)
     /// Not found OR not yours (the server never distinguishes — IDOR posture).
     case notFound
+    /// The project is archived server-side — mutations 409 until it is
+    /// unarchived in the web portal (Orgs §12B.6).
+    case archived
     case payloadTooLarge
     case uncommittedBlobs([String])
     case serviceUnavailable
@@ -160,10 +187,20 @@ public actor SyncAPIClient {
         self.tokenRefresher = refresher
     }
 
-    // MARK: Projects
+    // MARK: Projects & orgs
 
     public func listProjects() async throws -> [SyncProject] {
         try await request("GET", "api/v1/projects")
+    }
+
+    public func listOrgs() async throws -> [SyncOrg] {
+        try await request("GET", "api/v1/orgs")
+    }
+
+    /// Projects of one org, each carrying `my_role` (nil = list-only
+    /// visibility — the project must not be openable from this device).
+    public func orgProjects(orgID: String) async throws -> [SyncProject] {
+        try await request("GET", "api/v1/orgs/\(orgID)/projects")
     }
 
     public func createProject(id: String, name: String) async throws -> SyncProject {
@@ -301,9 +338,13 @@ public actor SyncAPIClient {
         case 404:
             throw SyncAPIError.notFound
         case 409:
-            if let detail = Self.detailObject(data),
-               let head = detail["head_revision"] as? Int {
-                throw SyncAPIError.staleBase(headRevision: head)
+            if let detail = Self.detailObject(data) {
+                if let head = detail["head_revision"] as? Int {
+                    throw SyncAPIError.staleBase(headRevision: head)
+                }
+                if detail["error"] as? String == "project archived" {
+                    throw SyncAPIError.archived
+                }
             }
             throw SyncAPIError.server(status: 409)
         case 413:

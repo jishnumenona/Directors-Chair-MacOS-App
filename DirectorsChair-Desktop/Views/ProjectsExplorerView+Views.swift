@@ -49,6 +49,18 @@ extension ProjectsExplorerView {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("new-project-button")
 
+                    Button(action: { showingCloudPicker = true }) {
+                        Label("Open from Cloud", systemImage: "icloud.and.arrow.down")
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .overlay(Capsule().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("open-from-cloud-empty-button")
+
                     Button(action: { showingImportPicker = true }) {
                         Label("Import Screenplay", systemImage: "doc.text")
                             .font(.system(size: 13, weight: .medium))
@@ -149,6 +161,18 @@ extension ProjectsExplorerView {
                         // Same identifier as the empty-state button so the
                         // New Project affordance is findable in either state.
                         .accessibilityIdentifier("new-project-button")
+
+                        Button(action: { showingCloudPicker = true }) {
+                            Label("Open from Cloud", systemImage: "icloud.and.arrow.down")
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .overlay(Capsule().stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("open-from-cloud-button")
 
                         Button(action: { showingImportPicker = true }) {
                             Label("Import", systemImage: "doc.text")

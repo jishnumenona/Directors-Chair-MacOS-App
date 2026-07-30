@@ -17,6 +17,12 @@ final class ScriptedSyncServer {
     var blobs: [String: Data] = [:]
     var committedBlobs: Set<String> = []
     var createdProjects: [String] = []
+    /// Orgs §12B.7 directory routes.
+    var orgs: [[String: Any]] = []
+    var orgProjects: [String: [[String: Any]]] = [:]
+    var projectList: [[String: Any]] = []
+    /// When true, commits 409 with the archived marker (server _not_archived).
+    var archived = false
 
     func install() {
         MockURLProtocol.handler = { [weak self] request in
@@ -106,6 +112,11 @@ final class ScriptedSyncServer {
             return try ok(["download_url": "https://storage.test/get/\(sha)"], url: url)
 
         case ("POST", let p) where p.hasSuffix("/revisions"):
+            if archived {
+                return try ok(["detail": ["error": "project archived",
+                                          "message": "unarchive in the portal"]],
+                              status: 409, url: url)
+            }
             let payload = body(of: request)
             let base = payload["base_revision"] as? Int ?? -1
             guard base == headRevision else {
@@ -132,6 +143,16 @@ final class ScriptedSyncServer {
             let newer = revisions.keys.filter { $0 > since }.sorted()
                 .compactMap { revisions[$0] }
             return try ok(["revisions": newer, "cursor": headRevision], url: url)
+
+        case ("GET", "/api/v1/projects"):
+            return try ok(projectList, url: url)
+
+        case ("GET", "/api/v1/orgs"):
+            return try ok(orgs, url: url)
+
+        case ("GET", let p) where p.hasPrefix("/api/v1/orgs/") && p.hasSuffix("/projects"):
+            let orgID = p.components(separatedBy: "/")[4]
+            return try ok(orgProjects[orgID] ?? [], url: url)
 
         case ("POST", "/api/v1/projects"):
             let payload = body(of: request)
@@ -344,5 +365,126 @@ final class SyncEngineTests: XCTestCase {
             .deletingLastPathComponent().appendingPathComponent("escape.txt").path
         XCTAssertFalse(FileManager.default.fileExists(atPath: escapePath),
                        "path traversal must never write outside the project dir")
+    }
+
+    // MARK: Orgs desktop echoes (§12B.7)
+
+    private func seedOrgDirectory(role: String = "editor") {
+        server.orgs = [
+            ["id": "u-1", "slug": "me", "name": "me", "kind": "personal",
+             "my_role": "org_admin"],
+            ["id": "o-1", "slug": "studio", "name": "Aurora Studio",
+             "kind": "team", "my_role": "member"],
+        ]
+        server.projectList = [
+            ["id": "p-1", "name": "Film", "head_revision": 1, "bytes_total": 9,
+             "archived_at": NSNull(), "updated_at": NSNull(), "org_id": "o-1"],
+        ]
+        server.orgProjects = [
+            "u-1": [],
+            "o-1": [["id": "p-1", "name": "Film", "head_revision": 1,
+                     "bytes_total": 9, "archived_at": NSNull(),
+                     "updated_at": NSNull(), "org_id": "o-1",
+                     "my_role": role],
+                    ["id": "p-2", "name": "Locked", "org_id": "o-1",
+                     "my_role": NSNull()]],
+        ]
+    }
+
+    func testCloudDirectoryGroupsProjectsByOrg() async throws {
+        seedOrgDirectory()
+        let listings = try await engine.cloudDirectory()
+        XCTAssertEqual(listings.map(\.org.name), ["me", "Aurora Studio"])
+        XCTAssertEqual(listings[1].projects.map(\.id), ["p-1", "p-2"])
+        XCTAssertEqual(listings[1].projects[0].myRole, "editor")
+        XCTAssertNil(listings[1].projects[1].myRole,
+                     "list-only visibility decodes as no role")
+    }
+
+    func testRefreshRemoteContextCachesOrgAndRole() async throws {
+        seedOrgDirectory(role: "viewer")
+        try SyncCheckpoint(projectID: "p-1", lastRevision: 1)
+            .save(projectDir: projectDir)
+        await engine.refreshRemoteContext(projectDir: projectDir)
+        XCTAssertEqual(engine.orgName, "Aurora Studio")
+        XCTAssertEqual(engine.myRole, "viewer")
+        XCTAssertTrue(engine.isViewer)
+        // Cached: a fresh engine reads it offline from the checkpoint.
+        let checkpoint = SyncCheckpoint.load(projectDir: projectDir)
+        XCTAssertEqual(checkpoint?.orgName, "Aurora Studio")
+        XCTAssertEqual(checkpoint?.myRole, "viewer")
+    }
+
+    func testPersonalOrgRendersAsPersonal() async throws {
+        seedOrgDirectory()
+        server.projectList = [["id": "p-1", "name": "Film", "head_revision": 1,
+                               "bytes_total": 9, "archived_at": NSNull(),
+                               "updated_at": NSNull(), "org_id": "u-1"]]
+        server.orgProjects["u-1"] = [["id": "p-1", "name": "Film",
+                                      "org_id": "u-1", "my_role": "owner"]]
+        try SyncCheckpoint(projectID: "p-1", lastRevision: 1)
+            .save(projectDir: projectDir)
+        await engine.refreshRemoteContext(projectDir: projectDir)
+        XCTAssertEqual(engine.orgName, "Personal")
+        XCTAssertFalse(engine.isViewer)
+    }
+
+    func testArchivedProjectPushSurfacesClearState() async throws {
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        server.archived = true
+        try write("project.json", #"{"uuid":"p-1","name":"Film","edited":true}"#)
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1",
+                                       name: "Film")
+        XCTAssertFalse(pushed)
+        guard case .error(let message) = engine.state else {
+            return XCTFail("expected error state")
+        }
+        XCTAssertTrue(message.contains("archived"), message)
+        XCTAssertTrue(message.contains("portal"), message)
+    }
+
+    func testCloneBootstrapsDirectoryAndPulls() async throws {
+        // Seed the server with one pushed revision from THIS device...
+        try write("assets/a.png", "aaa")
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1",
+                                       name: "Film")
+        XCTAssertTrue(pushed)
+        // ...then clone it as if on a brand-new Mac.
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clone-parent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: parent,
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let dir = await engine.clone(projectID: "p-1", name: "Film",
+                                     orgName: "Aurora Studio", myRole: "editor",
+                                     into: parent)
+        let cloned = try XCTUnwrap(dir)
+        XCTAssertEqual(cloned.lastPathComponent, "Film")
+        let json = try String(contentsOf: cloned.appendingPathComponent("project.json"),
+                              encoding: .utf8)
+        XCTAssertTrue(json.contains(#""uuid":"p-1""#))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: cloned.appendingPathComponent("assets/a.png").path))
+        let checkpoint = try XCTUnwrap(SyncCheckpoint.load(projectDir: cloned))
+        XCTAssertEqual(checkpoint.lastRevision, 1)
+        XCTAssertEqual(checkpoint.orgName, "Aurora Studio")
+        XCTAssertEqual(checkpoint.myRole, "editor")
+        XCTAssertEqual(engine.orgName, "Aurora Studio")
+    }
+
+    func testCloneCollisionPicksFreshDirectoryName() async throws {
+        try write("assets/a.png", "aaa")
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clone-parent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: parent.appendingPathComponent("Film"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let dir = await engine.clone(projectID: "p-1", name: "Film",
+                                     orgName: nil, myRole: nil, into: parent)
+        XCTAssertEqual(try XCTUnwrap(dir).lastPathComponent, "Film 2")
     }
 }
