@@ -1139,7 +1139,14 @@ public actor AIServiceClient {
             )
         }
 
-        return SpeechGenerationResponse(audioData: data, mimeType: mimeType)
+        // The gateway labels Gemini TTS output audio/wav but passes the
+        // raw headerless PCM through (16-bit mono 24kHz) — AVAudioPlayer
+        // can't decode that, which made every consumer silently fail.
+        // Wrap when needed; already-containerized audio passes through.
+        let audio = mimeType.contains("wav")
+            ? PCMWAVWrapper.wrapIfNeeded(data)
+            : data
+        return SpeechGenerationResponse(audioData: audio, mimeType: mimeType)
     }
 
     /// Generate character backstory
