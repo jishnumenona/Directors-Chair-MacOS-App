@@ -107,7 +107,59 @@ final class VoiceConversationController: NSObject, ObservableObject {
         } else {
             let utterance = AVSpeechUtterance(string: text)
             utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+            utterance.voice = Self.bestAvailableVoice()
             synthesizer.speak(utterance)
+        }
+    }
+
+    // MARK: - Voice selection
+
+    /// The default system voice is the compact (robotic) one. Prefer the
+    /// best neural voice the user has installed for their language:
+    /// Premium > Enhanced > default. Cached per session.
+    private static var cachedVoice: AVSpeechSynthesisVoice??
+    static func bestAvailableVoice() -> AVSpeechSynthesisVoice? {
+        if let cached = cachedVoice { return cached }
+        let language = AVSpeechSynthesisVoice.currentLanguageCode()
+        let identifier = pickVoiceIdentifier(
+            voices: AVSpeechSynthesisVoice.speechVoices().map {
+                (id: $0.identifier, language: $0.language,
+                 qualityRank: $0.quality == .premium ? 2
+                            : $0.quality == .enhanced ? 1 : 0)
+            },
+            language: language)
+        let voice = identifier.flatMap(AVSpeechSynthesisVoice.init(identifier:))
+            ?? AVSpeechSynthesisVoice(language: language)
+        cachedVoice = voice
+        return voice
+    }
+
+    /// Pure selection: highest quality rank, exact-language matches
+    /// preferred over same-primary-language ones. Nil when nothing fits.
+    nonisolated static func pickVoiceIdentifier(
+        voices: [(id: String, language: String, qualityRank: Int)],
+        language: String
+    ) -> String? {
+        let primary = String(language.prefix(2))
+        let candidates = voices.filter {
+            $0.language == language || $0.language.hasPrefix(primary)
+        }
+        return candidates.max { lhs, rhs in
+            if lhs.qualityRank != rhs.qualityRank {
+                return lhs.qualityRank < rhs.qualityRank
+            }
+            return (lhs.language == language ? 1 : 0)
+                 < (rhs.language == language ? 1 : 0)
+        }?.id
+    }
+
+    /// True when only compact-quality voices are installed for the user's
+    /// language — the UI shows a one-time "download a premium voice" tip.
+    static var onlyCompactVoiceAvailable: Bool {
+        let language = AVSpeechSynthesisVoice.currentLanguageCode()
+        let primary = String(language.prefix(2))
+        return !AVSpeechSynthesisVoice.speechVoices().contains {
+            $0.language.hasPrefix(primary) && $0.quality != .default
         }
     }
 
