@@ -94,16 +94,19 @@ struct AIChatMessageView: View {
 
     // MARK: - Provenance Badge
 
-    /// "Which AI answered this?" — on-device logic vs the routed
-    /// third-party model.
+    /// "Who produced this?" — the app's own notices (errors, welcomes,
+    /// fallbacks) vs the routed third-party model. "App" and not
+    /// "On-device": no local model exists, and error bubbles labeled
+    /// On-device read as if one executed the request (live confusion,
+    /// 2026-07-30).
     private func sourceBadge(_ source: ChatMessage.MessageSource) -> some View {
         let icon: String
         let label: String
         let color: Color
         switch source {
         case .local:
-            icon = "cpu"
-            label = "On-device"
+            icon = "app.dashed"
+            label = "App"
             color = .teal
         case .cloud(let provider):
             icon = "cloud"
@@ -120,7 +123,7 @@ struct AIChatMessageView: View {
         .padding(.vertical, 2)
         .background(Capsule().fill(color.opacity(0.14)))
         .foregroundColor(color)
-        .help(label == "On-device"
+        .help(label == "App"
               ? "Produced by the app itself — no AI service involved"
               : "Answered by \(label)")
     }
