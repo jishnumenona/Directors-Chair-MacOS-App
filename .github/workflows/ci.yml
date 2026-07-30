@@ -8,6 +8,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +19,15 @@ jobs:
   lint:
     name: SwiftLint (non-blocking)
     runs-on: macos-15
+    # macOS minutes are 10x-metered and drained the free tier — Mac jobs
+    # run ONLY when the owner explicitly asks: label the PR 'run-mac-ci'
+    # or use workflow_dispatch. Local ./scripts/verify.sh remains the
+    # binding gate before every commit. Skipped jobs satisfy branch
+    # protection.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-mac-ci'))
     # Non-blocking for now: surfaces god-file / force-unwrap debt without failing
     # green CI on code slated for decomposition in WS8/WS9. Remove once
     # file_length no longer errors, then it becomes a required check.
@@ -39,6 +49,15 @@ jobs:
   package-tests:
     name: SPM package tests
     runs-on: macos-15
+    # macOS minutes are 10x-metered and drained the free tier — Mac jobs
+    # run ONLY when the owner explicitly asks: label the PR 'run-mac-ci'
+    # or use workflow_dispatch. Local ./scripts/verify.sh remains the
+    # binding gate before every commit. Skipped jobs satisfy branch
+    # protection.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-mac-ci'))
     strategy:
       fail-fast: false
       matrix:
@@ -92,6 +111,15 @@ jobs:
   app-tests:
     name: App target tests
     runs-on: macos-15
+    # macOS minutes are 10x-metered and drained the free tier — Mac jobs
+    # run ONLY when the owner explicitly asks: label the PR 'run-mac-ci'
+    # or use workflow_dispatch. Local ./scripts/verify.sh remains the
+    # binding gate before every commit. Skipped jobs satisfy branch
+    # protection.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-mac-ci'))
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Select Xcode
@@ -118,6 +146,15 @@ jobs:
   ui-e2e:
     name: UI end-to-end (XCUITest)
     runs-on: macos-15
+    # macOS minutes are 10x-metered and drained the free tier — Mac jobs
+    # run ONLY when the owner explicitly asks: label the PR 'run-mac-ci'
+    # or use workflow_dispatch. Local ./scripts/verify.sh remains the
+    # binding gate before every commit. Skipped jobs satisfy branch
+    # protection.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-mac-ci'))
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -161,6 +198,15 @@ jobs:
     # macOS minutes on PR pushes.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: macos-15
+    # macOS minutes are 10x-metered and drained the free tier — Mac jobs
+    # run ONLY when the owner explicitly asks: label the PR 'run-mac-ci'
+    # or use workflow_dispatch. Local ./scripts/verify.sh remains the
+    # binding gate before every commit. Skipped jobs satisfy branch
+    # protection.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-mac-ci'))
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Select Xcode
