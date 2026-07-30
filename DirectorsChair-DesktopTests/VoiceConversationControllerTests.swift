@@ -69,6 +69,28 @@ final class VoiceConversationControllerTests: XCTestCase {
         XCTAssertEqual(listens(), 2)
     }
 
+    func testVoicePickerPrefersPremiumThenExactLanguage() {
+        typealias V = (id: String, language: String, qualityRank: Int)
+        let voices: [V] = [
+            ("compact-us", "en-US", 0),
+            ("enhanced-gb", "en-GB", 1),
+            ("premium-gb", "en-GB", 2),
+            ("premium-us", "en-US", 2),
+            ("premium-fr", "fr-FR", 2),
+        ]
+        XCTAssertEqual(VoiceConversationController.pickVoiceIdentifier(
+            voices: voices, language: "en-US"), "premium-us",
+            "highest quality, exact language wins")
+        XCTAssertEqual(VoiceConversationController.pickVoiceIdentifier(
+            voices: voices.filter { $0.id != "premium-us" }, language: "en-US"),
+            "premium-gb", "same primary language beats lower quality")
+        XCTAssertEqual(VoiceConversationController.pickVoiceIdentifier(
+            voices: [("compact-us", "en-US", 0)], language: "en-US"),
+            "compact-us", "compact still beats nothing")
+        XCTAssertNil(VoiceConversationController.pickVoiceIdentifier(
+            voices: [("premium-fr", "fr-FR", 2)], language: "en-US"))
+    }
+
     func testSpeakableTextStripsMarkdown() {
         XCTAssertEqual(VoiceConversationController.speakableText(
             from: "**Bold** and *italic* with `code`"),

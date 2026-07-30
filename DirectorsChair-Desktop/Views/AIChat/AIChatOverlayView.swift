@@ -568,7 +568,18 @@ struct AIChatOverlayView: View {
             }
 
             // Hands-free conversation: listen → reply aloud → listen.
-            Button(action: { voice.toggle() }) {
+            Button(action: {
+                if !voice.isActive,
+                   VoiceConversationController.onlyCompactVoiceAvailable,
+                   !UserDefaults.standard.bool(forKey: "voiceQualityTipShown") {
+                    UserDefaults.standard.set(true, forKey: "voiceQualityTipShown")
+                    viewModel.messages.append(ChatMessage(
+                        role: .system,
+                        content: "Tip: for a natural voice, download a Premium voice in System Settings → Accessibility → Spoken Content → System Voice → Manage Voices, then restart voice mode.",
+                        source: .local))
+                }
+                voice.toggle()
+            }) {
                 Image(systemName: voice.isActive
                       ? "waveform.circle.fill" : "waveform.circle")
                     .font(.system(size: 18, weight: .medium))
