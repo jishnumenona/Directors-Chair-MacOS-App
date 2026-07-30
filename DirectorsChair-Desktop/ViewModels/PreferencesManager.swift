@@ -111,6 +111,7 @@ enum PrefKey {
     static let aiTextProvider = "pref.ai.textProvider"
     /// A6.5: the assistant agent's chat provider (routing table input).
     static let aiChatProvider = "pref.ai.chatProvider"
+    static let voiceReplyEngine = "pref.ai.voiceReplyEngine"
     static let aiImageProvider = "pref.ai.imageProvider"
     static let aiVideoProvider = "pref.ai.videoProvider"
 
@@ -266,6 +267,7 @@ class PreferencesManager: ObservableObject {
 
     @AppStorage(PrefKey.aiTextProvider) var aiTextProvider: String = "google"
     @AppStorage(PrefKey.aiChatProvider) var aiChatProvider: String = "google"
+    @AppStorage(PrefKey.voiceReplyEngine) var voiceReplyEngine: String = "gemini"
     @AppStorage(PrefKey.aiImageProvider) var aiImageProvider: String = "google_imagen"
     @AppStorage(PrefKey.aiVideoProvider) var aiVideoProvider: String = "google_veo"
 

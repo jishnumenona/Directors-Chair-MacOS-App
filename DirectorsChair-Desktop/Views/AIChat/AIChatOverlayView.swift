@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import DirectorsChairCore
+import DirectorsChairServices
 
 struct AIChatOverlayView: View {
     @EnvironmentObject var coordinator: AppCoordinator
@@ -96,6 +97,13 @@ struct AIChatOverlayView: View {
             }
             viewModel.onAssistantReply = { reply in
                 voice.speakReply(reply)
+            }
+            // Gemini TTS (~1 cent/reply); controller falls back to the
+            // on-device voice when offline or the "device" pref is set.
+            voice.synthesizeStudioAudio = { text in
+                try await AIServiceClient.shared.generateSpeech(
+                    SpeechGenerationRequest(text: text,
+                                            provider: .google)).audioData
             }
             viewModel.addWelcomeMessageIfNeeded()
             viewModel.runProactiveChecksIfEnabled()
@@ -484,7 +492,13 @@ struct AIChatOverlayView: View {
     private var inputArea: some View {
         VStack(spacing: 6) {
             if voice.isActive {
-                voiceStatusPill
+                HStack(spacing: 8) {
+                    voiceStatusPill
+                    if VoiceConversationController.onlyCompactVoiceAvailable {
+                        naturalVoiceShortcut
+                    }
+                    Spacer()
+                }
             }
             inputRow
         }
@@ -514,9 +528,30 @@ struct AIChatOverlayView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture { voice.interruptSpeech() }
+    }
+
+    /// One-click path to Apple's FREE Premium neural voices (on-device,
+    /// no tokens) — shown while only the compact robotic voice exists.
+    private var naturalVoiceShortcut: some View {
+        Button {
+            NSWorkspace.shared.open(URL(
+                string: "x-apple.systempreferences:com.apple.preference.universalaccess?SpokenContent")!)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Get a natural voice — free download")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundColor(Color(nsColor: .secondaryLabelColor))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.white.opacity(0.06)))
+        }
+        .buttonStyle(.plain)
+        .help("Opens System Settings → Spoken Content. Download a Premium voice (e.g. Ava), then restart voice mode — it's picked up automatically.")
     }
 
     private var inputRow: some View {

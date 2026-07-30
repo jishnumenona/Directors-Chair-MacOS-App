@@ -36,6 +36,20 @@ final class VoiceConversationController: NSObject, ObservableObject {
     /// Injected for tests; default speaks through AVSpeechSynthesizer.
     var speakText: ((String) -> Void)?
 
+    /// Gemini TTS seam: text → audio bytes via the AI gateway (~1 cent
+    /// per reply). Nil, the "device" preference, or any failure falls
+    /// back to on-device speech — voice mode must keep working offline.
+    var synthesizeStudioAudio: ((String) async throws -> Data)?
+
+    /// Owner preference: "gemini" (default) | "device".
+    var studioEnabled: () -> Bool = {
+        (UserDefaults.standard.string(forKey: PrefKey.voiceReplyEngine)
+            ?? "gemini") == "gemini"
+    }
+
+    private var audioPlayer: AVAudioPlayer?
+    private var studioTask: Task<Void, Never>?
+
     private let synthesizer = AVSpeechSynthesizer()
     private var silenceTimer: Timer?
     private var lastTranscript = ""
@@ -59,6 +73,10 @@ final class VoiceConversationController: NSObject, ObservableObject {
         phase = .idle
         silenceTimer?.invalidate()
         silenceTimer = nil
+        studioTask?.cancel()
+        studioTask = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
         synthesizer.stopSpeaking(at: .immediate)
         stopListening?()
     }
@@ -102,6 +120,25 @@ final class VoiceConversationController: NSObject, ObservableObject {
             return
         }
         phase = .speaking
+        let spoken = Self.spokenCap(text)
+        if let synthesizeStudioAudio, studioEnabled() {
+            studioTask = Task { [weak self] in
+                do {
+                    let audio = try await synthesizeStudioAudio(spoken)
+                    guard let self, self.isActive, !Task.isCancelled else { return }
+                    try self.playStudioAudio(audio)
+                } catch {
+                    // Offline/quota/decode → the on-device voice.
+                    guard let self, self.isActive, !Task.isCancelled else { return }
+                    self.speakOnDevice(spoken)
+                }
+            }
+            return
+        }
+        speakOnDevice(spoken)
+    }
+
+    private func speakOnDevice(_ text: String) {
         if let speakText {
             speakText(text)   // test seam
         } else {
@@ -163,14 +200,38 @@ final class VoiceConversationController: NSObject, ObservableObject {
         }
     }
 
+    private func playStudioAudio(_ data: Data) throws {
+        let player = try AVAudioPlayer(data: data)
+        player.delegate = self
+        audioPlayer = player
+        player.play()
+    }
+
     /// Barge-in: tap while the assistant is talking to skip to listening.
     func interruptSpeech() {
         guard phase == .speaking else { return }
-        if synthesizer.isSpeaking {
+        studioTask?.cancel()
+        if let audioPlayer, audioPlayer.isPlaying {
+            audioPlayer.stop()
+            self.audioPlayer = nil
+            speechDidEnd()
+        } else if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)  // delegate resumes listening
         } else {
             speechDidEnd()  // test seam path
         }
+    }
+
+    /// Cloud speech bills per character and nobody wants a three-minute
+    /// monologue: long replies cut at a sentence boundary past the limit.
+    nonisolated static func spokenCap(_ text: String,
+                                      limit: Int = 1_000) -> String {
+        guard text.count > limit else { return text }
+        let head = String(text.prefix(limit))
+        let cut = head.lastIndex(where: { ".!?\n".contains($0) })
+            .map { String(head[...$0]) } ?? head
+        return cut.trimmingCharacters(in: .whitespacesAndNewlines)
+            + " The rest is in the chat."
     }
 
     /// Delegate/system entry: a spoken reply finished or was cancelled.
@@ -191,6 +252,16 @@ final class VoiceConversationController: NSObject, ObservableObject {
                                              options: .regularExpression)
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension VoiceConversationController: AVAudioPlayerDelegate {
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer,
+                                                 successfully flag: Bool) {
+        Task { @MainActor in
+            self.audioPlayer = nil
+            self.speechDidEnd()
+        }
     }
 }
 
