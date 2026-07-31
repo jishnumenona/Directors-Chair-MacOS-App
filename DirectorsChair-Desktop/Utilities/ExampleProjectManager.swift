@@ -32,6 +32,12 @@ struct ExampleProjectDefinition: Identifiable {
     var assetsURL: URL {
         URL(string: "https://directorschair.app/static/downloads/examples/\(id)-assets.zip")!
     }
+
+    /// Downscaled poster for the store card (~60-110 KB JPEG). Missing =
+    /// the SF Symbol fallback keeps rendering.
+    var thumbnailURL: URL {
+        URL(string: "https://directorschair.app/static/downloads/examples/\(id)-poster.jpg")!
+    }
 }
 
 // MARK: - Example Project Error
