@@ -57,7 +57,9 @@ struct ExampleDownloadCard: View {
                 miniStat(icon: "person.2", value: "\(example.characterCount)")
                 miniStat(icon: "camera", value: "\(example.shotCount)")
                 Spacer()
-                Text("\(example.fileSizeKB) KB")
+                Text(example.fileSizeKB >= 1024
+                     ? String(format: "%.0f MB", Double(example.fileSizeKB) / 1024)
+                     : "\(example.fileSizeKB) KB")
                     .font(.system(size: 9))
                     .foregroundColor(Color(nsColor: .tertiaryLabelColor))
             }

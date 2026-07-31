@@ -68,8 +68,8 @@ final class ExampleProjectManager {
             tagline: "A vintage camera that photographs the future",
             sceneCount: 12,
             characterCount: 5,
-            shotCount: 45,
-            fileSizeKB: 119,
+            shotCount: 50,
+            fileSizeKB: 196542,
             iconName: "camera.aperture"
         ),
         ExampleProjectDefinition(
@@ -81,7 +81,7 @@ final class ExampleProjectManager {
             sceneCount: 8,
             characterCount: 3,
             shotCount: 35,
-            fileSizeKB: 87,
+            fileSizeKB: 145053,
             iconName: "music.note.tv"
         ),
         ExampleProjectDefinition(
@@ -93,7 +93,7 @@ final class ExampleProjectManager {
             sceneCount: 5,
             characterCount: 2,
             shotCount: 20,
-            fileSizeKB: 44,
+            fileSizeKB: 98198,
             iconName: "cup.and.saucer"
         ),
         ExampleProjectDefinition(
@@ -105,7 +105,7 @@ final class ExampleProjectManager {
             sceneCount: 6,
             characterCount: 3,
             shotCount: 28,
-            fileSizeKB: 59,
+            fileSizeKB: 130979,
             iconName: "hammer"
         ),
         ExampleProjectDefinition(
@@ -114,10 +114,10 @@ final class ExampleProjectManager {
             projectType: "Feature Film",
             genre: "Sci-Fi/Drama",
             tagline: "In a world where memories can be shared",
-            sceneCount: 24,
+            sceneCount: 13,
             characterCount: 8,
-            shotCount: 90,
-            fileSizeKB: 198,
+            shotCount: 57,
+            fileSizeKB: 270911,
             iconName: "sparkles.tv"
         ),
     ]
