@@ -294,12 +294,18 @@ final class StorytellerEngineTests: XCTestCase {
     }
 }
 
-// MARK: - Playhead + slideshow mapping (pure math)
+// MARK: - Span mapping + slideshow windows (pure math)
+//
+// Storyteller-as-a-MODE semantics: timelineTime is the per-scene linear
+// primitive behind StorytellerTimeline.editTime/storyTime (story clock ↔
+// edit-timeline WPM clock), and buildSlides/slideIndex operate on the
+// STORYTELLER-timed windows of the retimed playlist. The retime and
+// mode-integration coverage lives in StorytellerModeTests.
 
 final class StorytellerMappingTests: XCTestCase {
 
     func testTimelineTimeMapsNarrationProgressOntoSceneSpan() {
-        // Scene spans 10…40 on the timeline; narration is 20 s long.
+        // Scene spans 10…40 on the target clock; narration is 20 s long.
         XCTAssertEqual(StorytellerMapping.timelineTime(
             narrationTime: 0, narrationDuration: 20, sceneStart: 10, sceneEnd: 40), 10)
         XCTAssertEqual(StorytellerMapping.timelineTime(

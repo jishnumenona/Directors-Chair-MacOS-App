@@ -12,7 +12,7 @@ import DirectorsChairCore
 
 struct PlaybackViewfinder: View {
     @ObservedObject var viewModel: PlaybackViewModel
-    @ObservedObject var storyteller: StorytellerPlaybackController
+    @ObservedObject var narration: StorytellerNarrationPlayer
 
     @State private var avPlayer: AVPlayer?
     @State private var currentVideoPath: String?
@@ -22,10 +22,13 @@ struct PlaybackViewfinder: View {
             ZStack {
                 Color.black
 
-                // Storyteller mode replaces the shot display with the scene
-                // slideshow while active; normal playback is untouched.
-                if storyteller.isActive {
-                    StorytellerStageOverlay(controller: storyteller)
+                // Storyteller mode swaps only the MEDIA layer for the scene
+                // slideshow; the timecode, subtitle, and shot-info overlays
+                // below read the shared view-model state and track the
+                // narration exactly like normal playback.
+                if viewModel.storytellerActive {
+                    StorytellerStageOverlay(viewModel: viewModel,
+                                            narration: narration)
                 } else if let item = viewModel.currentItem {
                     Group {
                         // Video content
@@ -84,29 +87,27 @@ struct PlaybackViewfinder: View {
                     }
                 }
 
-                // Timecode overlay (top-left) — the storyteller stage has
-                // its own badge and clock.
-                if !storyteller.isActive {
-                    VStack {
-                        HStack {
-                            Text("\(viewModel.currentTimecode) / \(viewModel.totalTimecode)")
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(4)
-                                .padding(12)
-                            Spacer()
-                        }
+                // Timecode overlay (top-left) — uniform narration time in
+                // storyteller mode (one clock for scrubber + timecode).
+                VStack {
+                    HStack {
+                        Text("\(viewModel.currentTimecode) / \(viewModel.totalTimecode)")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.6))
+                            .cornerRadius(4)
+                            .padding(12)
                         Spacer()
                     }
+                    Spacer()
                 }
 
                 // Subtitle overlay (above shot info bar)
                 VStack {
                     Spacer()
-                    if !storyteller.isActive, let subtitle = viewModel.currentSubtitle {
+                    if let subtitle = viewModel.currentSubtitle {
                         VStack(spacing: 2) {
                             Text(subtitle.character.uppercased())
                                 .font(.system(size: 9, weight: .bold))
@@ -129,10 +130,11 @@ struct PlaybackViewfinder: View {
                     }
                 }
 
-                // Shot info bar (bottom)
+                // Shot info bar (bottom) — currentItem tracks the narrated
+                // shot in storyteller mode via the retimed playlist.
                 VStack {
                     Spacer()
-                    if !storyteller.isActive, let item = viewModel.currentItem {
+                    if let item = viewModel.currentItem {
                         HStack(spacing: 8) {
                             if let shotId = item.shotId {
                                 Text("Shot \(shotId)")
@@ -175,6 +177,11 @@ struct PlaybackViewfinder: View {
             } else {
                 avPlayer?.pause()
             }
+        }
+        .onChange(of: viewModel.storytellerActive) { _, active in
+            // Entering storyteller mode: silence any shot video — the
+            // narration is the only audio source while the mode is active.
+            if active { teardownVideo() }
         }
     }
 
