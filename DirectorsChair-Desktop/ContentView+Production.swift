@@ -84,7 +84,8 @@ struct ProductionContainer: View {
                 case "Cast & Crew":
                     CastCrewView(viewModel: castCrewViewModel)
                 case "Accounting":
-                    BudgetView(viewModel: budgetViewModel)
+                    BudgetView(viewModel: budgetViewModel,
+                               aiUsageData: makeAIUsagePanelData())
                 case "Equipment":
                     EquipmentView(viewModel: equipmentViewModel)
                 default:
@@ -213,6 +214,57 @@ struct ProductionContainer: View {
            let sceneIdx = projectViewModel.project.sequences[seqIdx].scenes.firstIndex(where: { $0.name == sceneName }) {
             projectViewModel.project.sequences[seqIdx].scenes[sceneIdx].productionStatus = status
         }
+    }
+
+    /// Accounting › AI Usage: bridges AIUsageTracker (Services) and the
+    /// project's shots into the Production package's injected panel data.
+    func makeAIUsagePanelData() -> AIUsagePanelData {
+        let tracker = AIUsageTracker.shared
+        let rates = AIUsageStats.rateCard
+
+        func tokens(_ count: Int) -> String {
+            count >= 1000 ? String(format: "%.1fk tokens", Double(count) / 1000)
+                          : "\(count) tokens"
+        }
+
+        func lines(_ stats: AIUsageStats) -> [AIUsagePanelData.CapabilityLine] {
+            [
+                .init(id: "Images", icon: "photo", calls: stats.totalImageCalls,
+                      unitsLabel: "\(stats.totalImages) images",
+                      costUSD: stats.imageCostUSD),
+                .init(id: "Video", icon: "video", calls: stats.totalVideoCalls,
+                      unitsLabel: String(format: "%.0f seconds", stats.totalVideoSeconds),
+                      costUSD: stats.videoCostUSD),
+                .init(id: "Speech (TTS)", icon: "waveform", calls: stats.totalSpeechCalls,
+                      unitsLabel: "\(stats.totalSpeechChars) chars",
+                      costUSD: stats.speechCostUSD),
+                .init(id: "Text", icon: "text.alignleft", calls: stats.totalTextCalls,
+                      unitsLabel: tokens(stats.totalPromptTokens + stats.totalCompletionTokens),
+                      costUSD: stats.textInputCostUSD + stats.textOutputCostUSD),
+                .init(id: "AI Assistant", icon: "sparkles", calls: stats.totalChatCalls,
+                      unitsLabel: tokens(stats.totalChatPromptTokens
+                                         + stats.totalChatCompletionTokens),
+                      costUSD: stats.chatCostUSD),
+            ]
+        }
+
+        let shots = projectViewModel.project.sequences
+            .flatMap(\.scenes).flatMap(\.shots)
+        let specified = shots.compactMap(\.duration).filter { $0 > 0 }
+
+        return AIUsagePanelData(
+            projectLines: lines(tracker.projectStats),
+            sessionLines: lines(tracker.sessionStats),
+            projectTotalUSD: tracker.projectStats.totalCostUSD,
+            sessionTotalUSD: tracker.sessionStats.totalCostUSD,
+            imageRate: rates.imagePerImage,
+            videoRatePerSecond: rates.videoPerSecond,
+            speechRatePer1kChars: rates.speechPer1kChars,
+            textInRatePerMTokens: rates.textInPerMTokens,
+            textOutRatePerMTokens: rates.textOutPerMTokens,
+            shotCount: shots.count,
+            shotSecondsSpecified: specified.reduce(0, +),
+            shotsWithoutDuration: shots.count - specified.count)
     }
 }
 struct ProductionViewWrapper<Content: View>: View {

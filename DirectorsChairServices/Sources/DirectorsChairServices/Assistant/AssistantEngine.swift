@@ -93,6 +93,9 @@ public enum EngineEvent: Sendable, Equatable {
     /// A6.2: the gateway acked thread persistence for the first time —
     /// the caller should mark the conversation's ThreadContext established.
     case threadEstablished
+    /// Token usage reported by the gateway for one model call — the caller
+    /// records it (AI Usage accounting tab).
+    case usageReported(promptTokens: Int, completionTokens: Int)
     /// Terminal: the full assistant text and the transcript (including tool
     /// results) the caller persists as conversation history.
     case finished(fullText: String, transcript: [ChatMessage])
@@ -197,8 +200,10 @@ public actor AssistantEngine {
                         return
                     case .done(let reason, _):
                         finishReason = reason
-                    case .usage:
-                        break
+                    case .usage(let usage):
+                        continuation.yield(.usageReported(
+                            promptTokens: usage.promptTokens,
+                            completionTokens: usage.completionTokens))
                     }
                     try Task.checkCancellation()
                 }
