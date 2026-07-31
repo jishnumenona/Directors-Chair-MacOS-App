@@ -22,10 +22,23 @@ struct ExampleDownloadCard: View {
         VStack(alignment: .leading, spacing: 10) {
             // Icon + type badge row
             HStack(spacing: 8) {
-                Image(systemName: example.iconName)
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundColor(.cyan)
-                    .frame(width: 28, height: 28)
+                // Real poster art once it loads; the SF Symbol stands in
+                // offline / while loading / if the thumbnail was never
+                // published.
+                AsyncImage(url: example.thumbnailURL) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 42, height: 42)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                    } else {
+                        Image(systemName: example.iconName)
+                            .font(.system(size: 20, weight: .light))
+                            .foregroundColor(.cyan)
+                            .frame(width: 42, height: 42)
+                    }
+                }
 
                 Spacer()
 
