@@ -6,16 +6,20 @@
 //  the cost-confirmation sheet that gates ALL generation, and the
 //  slideshow stage overlay the viewfinder mounts while the mode is active.
 //
+//  There is deliberately NO play/pause or clock here — the main transport
+//  bar drives the narration while the mode is active (one source of
+//  truth for the whole transport).
+//
 
 import SwiftUI
 import DirectorsChairCore
 
-// MARK: - Panel (scene-chunk strip + storyteller transport)
+// MARK: - Panel (scene-chunk strip + cache controls)
 
 struct StorytellerPanel: View {
     @ObservedObject var engine: StorytellerEngine
-    @ObservedObject var controller: StorytellerPlaybackController
-    let onPlayPause: () -> Void
+    @ObservedObject var narration: StorytellerNarrationPlayer
+    let onSeekChunk: (Int) -> Void
     let onClearCache: () -> Void
     let onClose: () -> Void
 
@@ -23,25 +27,13 @@ struct StorytellerPanel: View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 12) {
-                // Play/pause routed through the view so the cost gate can
-                // re-arm after a cache clear.
-                Button(action: onPlayPause) {
-                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(Color.accentColor.opacity(0.8))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-
                 headerLabel
 
                 sceneChips
 
                 Spacer()
 
-                if controller.isWaitingForChunk {
+                if narration.isWaitingForChunk {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
                         Text("Preparing scene…")
@@ -49,10 +41,6 @@ struct StorytellerPanel: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
-                Text(storyTimecode)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
 
                 Button(action: onClearCache) {
                     Label("Clear narration cache", systemImage: "trash")
@@ -94,16 +82,16 @@ struct StorytellerPanel: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
                 ForEach(Array(engine.chunks.enumerated()), id: \.element.id) { index, chunk in
-                    Button(action: { controller.seek(toChunk: index) }) {
+                    Button(action: { onSeekChunk(index) }) {
                         HStack(spacing: 4) {
                             chunkStateIcon(chunk)
                             Text(chunk.sceneName)
-                                .font(.system(size: 10, weight: index == controller.currentChunkIndex ? .semibold : .regular))
+                                .font(.system(size: 10, weight: index == narration.currentChunkIndex ? .semibold : .regular))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(index == controller.currentChunkIndex
+                        .background(index == narration.currentChunkIndex
                             ? Color.accentColor.opacity(0.25)
                             : Color(nsColor: .quaternarySystemFill))
                         .cornerRadius(4)
@@ -149,18 +137,6 @@ struct StorytellerPanel: View {
         case .ready: return "\(chunk.sceneName) — ready"
         case .failed(let message): return "\(chunk.sceneName) — failed: \(message)"
         }
-    }
-
-    private var storyTimecode: String {
-        let current = format(controller.storyTime)
-        let total = format(engine.storyDuration)
-        return "\(current) / \(total)"
-    }
-
-    private func format(_ seconds: TimeInterval) -> String {
-        let mins = Int(max(0, seconds)) / 60
-        let secs = Int(max(0, seconds)) % 60
-        return String(format: "%02d:%02d", mins, secs)
     }
 }
 
@@ -259,13 +235,14 @@ struct StorytellerCostSheet: View {
 // MARK: - Stage overlay (slideshow in the viewfinder)
 
 struct StorytellerStageOverlay: View {
-    @ObservedObject var controller: StorytellerPlaybackController
+    @ObservedObject var viewModel: PlaybackViewModel
+    @ObservedObject var narration: StorytellerNarrationPlayer
 
     var body: some View {
         ZStack {
             Color.black
 
-            if let url = controller.currentSlideURL {
+            if let url = viewModel.storytellerSlideURL {
                 AsyncThumbnail(url: url, displaySize: 720, contentMode: .fit) {
                     Color.black
                 }
@@ -276,14 +253,15 @@ struct StorytellerStageOverlay: View {
                     Image(systemName: "text.book.closed")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text(controller.isWaitingForChunk
+                    Text(narration.isWaitingForChunk
                          ? "Preparing the story…" : "Storyteller")
                         .font(.system(size: 14))
                         .foregroundStyle(.tertiary)
                 }
             }
 
-            // "narrated by AI · cached" badge (bottom-right)
+            // "narrated by AI · cached" badge (bottom-right, above the
+            // shot info bar the viewfinder now keeps visible in this mode)
             VStack {
                 Spacer()
                 HStack {
@@ -291,7 +269,7 @@ struct StorytellerStageOverlay: View {
                     HStack(spacing: 4) {
                         Image(systemName: "waveform")
                             .font(.system(size: 8))
-                        Text(controller.currentChunkIsCached
+                        Text(narration.currentChunkIsCached
                              ? "narrated by AI · cached" : "narrated by AI")
                             .font(.system(size: 9, weight: .medium))
                     }
@@ -300,11 +278,12 @@ struct StorytellerStageOverlay: View {
                     .padding(.vertical, 4)
                     .background(.black.opacity(0.6))
                     .cornerRadius(4)
-                    .padding(12)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 36)
                 }
             }
         }
         // Crossfade: identity change on the slide URL animates old-out/new-in.
-        .animation(.easeInOut(duration: 0.6), value: controller.currentSlideURL)
+        .animation(.easeInOut(duration: 0.6), value: viewModel.storytellerSlideURL)
     }
 }

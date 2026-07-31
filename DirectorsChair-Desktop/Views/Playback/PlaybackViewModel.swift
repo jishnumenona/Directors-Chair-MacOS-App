@@ -6,6 +6,12 @@
 //  Mirrors TimelineViewModel.rebuildForGlobal() timing logic to build
 //  a flat, time-ordered playback playlist from project data.
 //
+//  Storyteller is a MODE of this view model (storytellerActive): the
+//  playlist is retimed to the narration's real audio durations, the
+//  narration player becomes the master clock, and the whole transport +
+//  sidebar + timeline pipeline runs through the same code paths as
+//  normal playback. See StorytellerTimeline.swift for the pure math.
+//
 
 import Foundation
 import SwiftUI
@@ -34,6 +40,24 @@ struct PlaybackItem: Identifiable {
     let linkedNarrationIds: [String]
     let shot: Shot?
     let sceneIndex: Int
+}
+
+extension PlaybackItem {
+    /// Copy with a new time window. Metadata — linked ids, media, shot —
+    /// is preserved verbatim, so every sidebar card resolves identically
+    /// whichever clock the playlist runs on.
+    func retimed(startTime: CGFloat, duration: CGFloat) -> PlaybackItem {
+        PlaybackItem(id: id, shotId: shotId, sceneName: sceneName,
+                     sequenceName: sequenceName, startTime: startTime,
+                     duration: duration, previewImagePath: previewImagePath,
+                     videoPath: videoPath, shotType: shotType,
+                     cameraAngle: cameraAngle, lensMm: lensMm,
+                     movement: movement, description: description,
+                     linkedDialogueIds: linkedDialogueIds,
+                     linkedActionIds: linkedActionIds,
+                     linkedNarrationIds: linkedNarrationIds,
+                     shot: shot, sceneIndex: sceneIndex)
+    }
 }
 
 struct AudioCue: Identifiable {
@@ -68,7 +92,13 @@ class PlaybackViewModel: ObservableObject {
     @Published var isPlaying = false
     @Published var currentTime: CGFloat = 0
     @Published var totalDuration: CGFloat = 0
-    @Published var playbackSpeed: Double = 1.0
+    @Published var playbackSpeed: Double = 1.0 {
+        // Storyteller mode: speed is applied as AVAudioPlayer.rate on the
+        // narration (time-stretch, pitch preserved) — the transport's speed
+        // menu keeps working. Outside the mode the rate lands on the next
+        // narration chunk load, which never happens (player is reset).
+        didSet { narrationPlayer.rate = Float(playbackSpeed) }
+    }
     @Published var volume: Double = 0.25
     @Published var isMuted = false
 
@@ -107,6 +137,28 @@ class PlaybackViewModel: ObservableObject {
     /// Set by PlaybackView to allow direct playhead sync without SwiftUI onChange overhead
     weak var timelineViewModel: TimelineViewModel?
 
+    // MARK: - Storyteller Mode State
+    /// Storyteller is a MODE of this view model, not a parallel player.
+    /// While active: the playlist is retimed so scene span == narration
+    /// span, the narration AVAudioPlayer is the master clock, and every
+    /// transport control routes to the narration. The normal playlist is
+    /// saved on entry and restored intact on exit.
+    @Published private(set) var storytellerActive = false
+    /// Current slideshow image (scene overview / shot stills), keyed by the
+    /// storyteller-timed windows.
+    @Published private(set) var storytellerSlideURL: URL?
+    /// Bumped when play is requested while ungenerated chunks exist and no
+    /// generation is running — the view arms the cost-confirmation gate.
+    @Published private(set) var storytellerPlayArmRequests = 0
+
+    let narrationPlayer: StorytellerNarrationPlayer
+
+    private var savedNormalItems: [PlaybackItem] = []
+    private var savedNormalBoundaries: [SceneBoundary] = []
+    private var savedNormalTotalDuration: CGFloat = 0
+    private var storytellerSceneMaps: [StorytellerTimeline.SceneMap] = []
+    private var storytellerSlides: [StorytellerSlide] = []
+
     // MARK: - Private
     private var timer: Timer?
     private var internalTime: CGFloat = 0  // High-frequency internal clock (not @Published)
@@ -118,6 +170,20 @@ class PlaybackViewModel: ObservableObject {
 
     // Audio engine
     var audioEngine = PlaybackAudioEngine()
+
+    // MARK: - Init
+
+    convenience init() {
+        self.init(narrationPlayer: StorytellerNarrationPlayer())
+    }
+
+    /// Seam: tests inject a narration player with a scripted clock.
+    init(narrationPlayer: StorytellerNarrationPlayer) {
+        self.narrationPlayer = narrationPlayer
+        narrationPlayer.volumeProvider = { [weak self] in self?.effectiveVolume ?? 1.0 }
+        narrationPlayer.onStoryFinished = { [weak self] in self?.storytellerStoryFinished() }
+        narrationPlayer.onChunksChanged = { [weak self] in self?.retimeStorytellerPlaylist() }
+    }
 
     // MARK: - Playlist Building
 
@@ -296,26 +362,8 @@ class PlaybackViewModel: ObservableObject {
                 guard let shotId = items[i].shotId else { continue }
                 let key = "\(shotId)-\(items[i].sceneName)"
                 if let label = shotLabelMap[key] {
-                    items[i] = PlaybackItem(
-                        id: items[i].id,
-                        shotId: items[i].shotId,
-                        sceneName: items[i].sceneName,
-                        sequenceName: items[i].sequenceName,
-                        startTime: label.time,
-                        duration: max(label.duration, 1.0),
-                        previewImagePath: items[i].previewImagePath,
-                        videoPath: items[i].videoPath,
-                        shotType: items[i].shotType,
-                        cameraAngle: items[i].cameraAngle,
-                        lensMm: items[i].lensMm,
-                        movement: items[i].movement,
-                        description: items[i].description,
-                        linkedDialogueIds: items[i].linkedDialogueIds,
-                        linkedActionIds: items[i].linkedActionIds,
-                        linkedNarrationIds: items[i].linkedNarrationIds,
-                        shot: items[i].shot,
-                        sceneIndex: items[i].sceneIndex
-                    )
+                    items[i] = items[i].retimed(startTime: label.time,
+                                                duration: max(label.duration, 1.0))
                 }
             }
         }
@@ -333,36 +381,30 @@ class PlaybackViewModel: ObservableObject {
             if i + 1 < items.count {
                 let maxDuration = items[i + 1].startTime - items[i].startTime
                 if maxDuration > 0 && items[i].duration > maxDuration {
-                    items[i] = PlaybackItem(
-                        id: items[i].id,
-                        shotId: items[i].shotId,
-                        sceneName: items[i].sceneName,
-                        sequenceName: items[i].sequenceName,
-                        startTime: items[i].startTime,
-                        duration: maxDuration,
-                        previewImagePath: items[i].previewImagePath,
-                        videoPath: items[i].videoPath,
-                        shotType: items[i].shotType,
-                        cameraAngle: items[i].cameraAngle,
-                        lensMm: items[i].lensMm,
-                        movement: items[i].movement,
-                        description: items[i].description,
-                        linkedDialogueIds: items[i].linkedDialogueIds,
-                        linkedActionIds: items[i].linkedActionIds,
-                        linkedNarrationIds: items[i].linkedNarrationIds,
-                        shot: items[i].shot,
-                        sceneIndex: items[i].sceneIndex
-                    )
+                    items[i] = items[i].retimed(startTime: items[i].startTime,
+                                                duration: maxDuration)
                 }
             }
         }
 
-        self.playlistItems = items
         self.audioCues = cues
         self.subtitleCues = subs
-        self.sceneBoundaries = boundaries
         self.allScenes = scenes
-        self.totalDuration = max(t, items.last.map { $0.startTime + $0.duration } ?? 0)
+        let total = max(t, items.last.map { $0.startTime + $0.duration } ?? 0)
+
+        if storytellerActive {
+            // A project edit landed mid-narration: refresh the saved normal
+            // playlist and re-derive the storyteller timing from it. The
+            // published playlist stays on the story clock.
+            savedNormalItems = items
+            savedNormalBoundaries = boundaries
+            savedNormalTotalDuration = total
+            retimeStorytellerPlaylist()
+        } else {
+            self.playlistItems = items
+            self.sceneBoundaries = boundaries
+            self.totalDuration = total
+        }
 
         // Preload audio
         audioEngine.preloadAudio(cues: cues, basePath: basePath)
@@ -371,7 +413,7 @@ class PlaybackViewModel: ObservableObject {
         audioEngine.preloadSoundtracks(tracks: project.soundtracks, basePath: basePath)
 
         // Set initial item
-        if let first = items.first {
+        if !storytellerActive, let first = items.first {
             currentItem = first
             currentSceneName = first.sceneName
             currentItemIndex = 0
@@ -383,6 +425,23 @@ class PlaybackViewModel: ObservableObject {
     // MARK: - Playback Controls
 
     func play() {
+        if storytellerActive {
+            // The narration is the player — the normal dialogue/soundtrack
+            // engines must never start while the mode is active.
+            isPlaying = true
+            narrationPlayer.rate = Float(playbackSpeed)
+            // Pressing play at the story's end restarts the telling.
+            if totalDuration > 0, internalTime >= totalDuration - 0.01 {
+                seekTo(time: 0)
+            }
+            narrationPlayer.play()
+            startTimer()
+            let engine = narrationPlayer.engine
+            if engine.pendingChunkCount > 0, !engine.isGenerating {
+                storytellerPlayArmRequests += 1
+            }
+            return
+        }
         guard !playlistItems.isEmpty else { return }
         isPlaying = true
         audioEngine.resumeAll(speed: playbackSpeed)
@@ -393,8 +452,12 @@ class PlaybackViewModel: ObservableObject {
     func pause() {
         isPlaying = false
         stopTimer()
-        audioEngine.pauseAll()
-        audioEngine.pauseAllSoundtracks()
+        if storytellerActive {
+            narrationPlayer.pause()
+        } else {
+            audioEngine.pauseAll()
+            audioEngine.pauseAllSoundtracks()
+        }
     }
 
     func togglePlayPause() {
@@ -402,6 +465,11 @@ class PlaybackViewModel: ObservableObject {
     }
 
     func stop() {
+        if storytellerActive {
+            pause()
+            seekTo(time: 0)
+            return
+        }
         isPlaying = false
         stopTimer()
         internalTime = 0
@@ -419,16 +487,30 @@ class PlaybackViewModel: ObservableObject {
         let t = max(0, min(time, totalDuration))
         internalTime = t
         currentTime = t
-        timelineViewModel?.playheadTime = t
-        updateCurrentItem()
-        updateActiveLightCues(at: t)
-        updateActiveSFXCues(at: t)
-        updateActiveSupportCues(at: t)
-        // Use seek (stop-then-restart) only on explicit user scrub
-        audioEngine.seek(to: t, speed: playbackSpeed, volume: effectiveVolume)
-        audioEngine.seekSoundtracks(to: t, speed: playbackSpeed, volume: effectiveVolume)
+        if storytellerActive {
+            // All transport routes to narration: chunk + intra-chunk offset
+            // (scene span == narration span, so this is a direct lookup).
+            narrationPlayer.seek(toStoryTime: TimeInterval(t))
+        } else {
+            // Use seek (stop-then-restart) only on explicit user scrub
+            audioEngine.seek(to: t, speed: playbackSpeed, volume: effectiveVolume)
+            audioEngine.seekSoundtracks(to: t, speed: playbackSpeed, volume: effectiveVolume)
+        }
+        refreshDerivedState()
         // Scroll timeline to keep playhead visible
         timelineViewModel?.followPlayheadIfNeeded()
+    }
+
+    /// Seek arriving from the EDIT timeline ruler (WPM time). In
+    /// storyteller mode the incoming time is mapped onto the story clock
+    /// (the inverse of the per-scene linear playhead mapping).
+    func seekFromEditTimeline(_ editTime: CGFloat) {
+        if storytellerActive {
+            seekTo(time: StorytellerTimeline.storyTime(forEditTime: editTime,
+                                                       maps: storytellerSceneMaps))
+        } else {
+            seekTo(time: editTime)
+        }
     }
 
     func goToStart() {
@@ -513,10 +595,24 @@ class PlaybackViewModel: ObservableObject {
     }
 
     private nonisolated func tick() {
-        MainActor.assumeIsolated {
-            guard isPlaying else { return }
+        MainActor.assumeIsolated { performTick() }
+    }
 
-            tickCount += 1
+    /// One clock frame. Internal (not private) so tests can drive the clock
+    /// deterministically without the runloop timer.
+    func performTick() {
+        guard isPlaying else { return }
+
+        tickCount += 1
+
+        if storytellerActive {
+            // The narration AVAudioPlayer is the master clock: read it,
+            // never integrate dt — 1 s of audio is exactly 1 s of playhead,
+            // timecode, and scrubber. End-of-story is delegate-driven
+            // (storytellerStoryFinished), not a totalDuration compare,
+            // because the total grows as chunk audio lands.
+            internalTime = CGFloat(narrationPlayer.narrationTime)
+        } else {
             internalTime += CGFloat(1.0 / 60.0) * CGFloat(playbackSpeed)
 
             if internalTime >= totalDuration {
@@ -526,38 +622,194 @@ class PlaybackViewModel: ObservableObject {
                 pause()
                 return
             }
+        }
 
-            // Update timeline playhead directly (just sets a CGFloat, very cheap)
-            timelineViewModel?.playheadTime = internalTime
+        // Cue windows + the edit-timeline playhead live in WPM time; the
+        // storyteller clock maps onto it linearly per scene.
+        let cueTime = cueEvaluationTime(for: internalTime)
 
-            // Throttle @Published currentTime to ~12fps (every 5th frame)
-            // Prevents SwiftUI re-diffing the view tree 60x/sec
-            if tickCount % 5 == 0 {
-                currentTime = internalTime
-            }
+        // Update timeline playhead directly (just sets a CGFloat, very cheap)
+        timelineViewModel?.playheadTime = cueTime
 
-            // Update current item (only fires when crossing shot boundaries)
-            updateCurrentItem()
+        // Throttle @Published currentTime to ~12fps (every 5th frame)
+        // Prevents SwiftUI re-diffing the view tree 60x/sec
+        if tickCount % 5 == 0 {
+            currentTime = internalTime
+        }
 
-            // Throttle audio sync to ~15fps (every 4th frame)
-            if tickCount % 4 == 0 {
+        // Update current item (only fires when crossing shot boundaries)
+        updateCurrentItem()
+
+        // Throttle audio sync to ~15fps (every 4th frame). The normal
+        // dialogue/soundtrack engines NEVER run while the narration owns
+        // the clock — only its volume is refreshed.
+        if tickCount % 4 == 0 {
+            if storytellerActive {
+                narrationPlayer.refreshVolume()
+            } else {
                 audioEngine.syncAudio(to: internalTime, speed: playbackSpeed, volume: effectiveVolume, mutedCharacters: mutedTracks)
                 audioEngine.syncSoundtracks(to: internalTime, speed: playbackSpeed, volume: effectiveVolume)
             }
-
-            // Update subtitle and light cues (throttled to ~12fps with currentTime)
-            if tickCount % 5 == 0 {
-                updateSubtitle(at: internalTime)
-                updateActiveLightCues(at: internalTime)
-                updateActiveSFXCues(at: internalTime)
-                updateActiveSupportCues(at: internalTime)
-            }
-
-            // Auto-scroll timeline to follow playhead (~4fps, every 15th frame)
-            if tickCount % 15 == 0 {
-                timelineViewModel?.followPlayheadIfNeeded()
-            }
         }
+
+        // Update subtitle and light cues (throttled to ~12fps with currentTime)
+        if tickCount % 5 == 0 {
+            updateSubtitle(at: cueTime)
+            updateActiveLightCues(at: cueTime)
+            updateActiveSFXCues(at: cueTime)
+            updateActiveSupportCues(at: cueTime)
+            if storytellerActive { updateStorytellerSlide() }
+        }
+
+        // Auto-scroll timeline to follow playhead (~4fps, every 15th frame)
+        if tickCount % 15 == 0 {
+            timelineViewModel?.followPlayheadIfNeeded()
+        }
+    }
+
+    // MARK: - Storyteller Mode
+
+    /// Enter storyteller mode: build the scene chunks (cache only — the
+    /// cost sheet still gates generation), save the normal playlist, and
+    /// swap in the storyteller-timed one. The clock starts at 0.
+    func enterStorytellerMode() {
+        guard !storytellerActive, let project = projectRef else { return }
+        narrationPlayer.engine.prepare(project: project)
+        guard !narrationPlayer.engine.chunks.isEmpty else { return }
+
+        pause()
+        // The normal engines must NOT run during narration.
+        audioEngine.stopAll()
+        audioEngine.stopAllSoundtracks()
+
+        savedNormalItems = playlistItems
+        savedNormalBoundaries = sceneBoundaries
+        savedNormalTotalDuration = totalDuration
+
+        narrationPlayer.rate = Float(playbackSpeed)
+        narrationPlayer.stopAndReset()
+        storytellerActive = true
+        retimeStorytellerPlaylist()
+        internalTime = 0
+        currentTime = 0
+        refreshDerivedState()
+    }
+
+    /// Leave storyteller mode: restore the normal playlist intact and hand
+    /// the playhead the edit-timeline position of the narrated moment.
+    func exitStorytellerMode() {
+        guard storytellerActive else { return }
+        let exitTime = StorytellerTimeline.editTime(forStoryTime: internalTime,
+                                                    maps: storytellerSceneMaps)
+        pause()
+        narrationPlayer.stopAndReset()
+        // Stop spending on chunks nobody is listening to; cached audio
+        // keeps whatever already finished.
+        narrationPlayer.engine.cancelGeneration()
+        storytellerActive = false
+        storytellerSceneMaps = []
+        storytellerSlides = []
+        storytellerSlideURL = nil
+
+        playlistItems = savedNormalItems
+        sceneBoundaries = savedNormalBoundaries
+        totalDuration = savedNormalTotalDuration
+        savedNormalItems = []
+        savedNormalBoundaries = []
+        savedNormalTotalDuration = 0
+
+        internalTime = max(0, min(exitTime, totalDuration))
+        currentTime = internalTime
+        refreshDerivedState()
+    }
+
+    /// Chip-strip / prev-next-scene entry point: snap to a chunk's start on
+    /// the story clock (an ungenerated chunk waits at its boundary).
+    func seekToStorytellerChunk(_ index: Int) {
+        guard storytellerActive else { return }
+        seekTo(time: CGFloat(narrationPlayer.engine.chunkStartOffset(at: index)))
+    }
+
+    /// (Re)build the storyteller-timed playlist from the saved normal one
+    /// plus the chunks' REAL measured audio durations. Runs on entry and
+    /// whenever a chunk lands (durations stream in during generation).
+    private func retimeStorytellerPlaylist() {
+        guard storytellerActive else { return }
+        let chunks = narrationPlayer.engine.chunks
+        let retimed = StorytellerTimeline.retime(
+            normalItems: savedNormalItems,
+            normalBoundaries: savedNormalBoundaries,
+            normalTotalDuration: savedNormalTotalDuration,
+            chunkSpans: chunks.map { (sceneIndex: $0.sceneIndex, duration: $0.duration) })
+        playlistItems = retimed.items
+        sceneBoundaries = retimed.boundaries
+        totalDuration = retimed.totalDuration
+        storytellerSceneMaps = retimed.sceneMaps
+        storytellerSlides = buildStorytellerSlides(maps: retimed.sceneMaps,
+                                                  items: retimed.items)
+        internalTime = min(internalTime, totalDuration)
+        refreshDerivedState()
+    }
+
+    /// Slideshow for the whole story: per narrated scene, the overview
+    /// image + shot stills over the retimed (storyteller-clock) windows.
+    private func buildStorytellerSlides(maps: [StorytellerTimeline.SceneMap],
+                                        items: [PlaybackItem]) -> [StorytellerSlide] {
+        var slides: [StorytellerSlide] = []
+        for map in maps where map.storyEnd > map.storyStart {
+            guard map.sceneIndex < allScenes.count else { continue }
+            let scene = allScenes[map.sceneIndex]
+            let shots = items
+                .filter { $0.sceneIndex == map.sceneIndex }
+                .map { (imagePath: $0.previewImagePath, startTime: $0.startTime) }
+            slides.append(contentsOf: StorytellerMapping.buildSlides(
+                sceneStart: map.storyStart, sceneEnd: map.storyEnd,
+                overviewImagePath: scene.sceneOverviewImage, shots: shots))
+        }
+        return slides
+    }
+
+    private func updateStorytellerSlide() {
+        guard storytellerActive else { return }
+        if let index = StorytellerMapping.slideIndex(at: internalTime,
+                                                     in: storytellerSlides) {
+            let url = resolvedImagePath(for: storytellerSlides[index].imagePath)
+            if url != storytellerSlideURL { storytellerSlideURL = url }
+        } else if storytellerSlideURL != nil {
+            storytellerSlideURL = nil
+        }
+    }
+
+    private func storytellerStoryFinished() {
+        internalTime = totalDuration
+        currentTime = internalTime
+        pause()
+        refreshDerivedState()
+    }
+
+    /// Cue windows (light/SFX/support), subtitles, and the edit-timeline
+    /// playhead live in EDIT-timeline (WPM) time. In storyteller mode the
+    /// clock runs on narration time, so map it back linearly per scene.
+    /// The edit-timeline lanes are WPM-scaled, so the playhead's rate
+    /// differs across scenes there BY DESIGN — the playback scrubber and
+    /// timecode are the uniform clock.
+    private func cueEvaluationTime(for time: CGFloat) -> CGFloat {
+        storytellerActive
+            ? StorytellerTimeline.editTime(forStoryTime: time, maps: storytellerSceneMaps)
+            : time
+    }
+
+    /// Re-resolve every time-derived surface (current item, sidebar cues,
+    /// subtitle, timeline playhead, slideshow) at the current clock.
+    private func refreshDerivedState() {
+        let cueTime = cueEvaluationTime(for: internalTime)
+        timelineViewModel?.playheadTime = cueTime
+        updateCurrentItem()
+        updateSubtitle(at: cueTime)
+        updateActiveLightCues(at: cueTime)
+        updateActiveSFXCues(at: cueTime)
+        updateActiveSupportCues(at: cueTime)
+        if storytellerActive { updateStorytellerSlide() }
     }
 
     // MARK: - Item Tracking

@@ -17,7 +17,6 @@ struct PlaybackView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var timelineViewModel: TimelineViewModel
     @StateObject private var playbackVM = PlaybackViewModel()
-    @StateObject private var storyteller = StorytellerPlaybackController()
 
     @State private var sidebarWidth: CGFloat = 300
     @State private var keyMonitor: Any?
@@ -31,23 +30,25 @@ struct PlaybackView: View {
             // Left: Viewfinder + Transport
             VStack(spacing: 0) {
                 // Viewfinder (expands to fill)
-                PlaybackViewfinder(viewModel: playbackVM, storyteller: storyteller)
+                PlaybackViewfinder(viewModel: playbackVM,
+                                   narration: playbackVM.narrationPlayer)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
 
-                // Transport Bar
+                // Transport Bar — one transport for BOTH modes; while the
+                // storyteller is active every control drives the narration.
                 PlaybackTransportBar(viewModel: playbackVM,
-                                     storytellerActive: storyteller.isActive,
+                                     storytellerActive: playbackVM.storytellerActive,
                                      onStoryteller: { toggleStoryteller() })
 
                 // Storyteller scene strip (visible while the mode is open)
-                if storyteller.isActive {
+                if playbackVM.storytellerActive {
                     StorytellerPanel(
-                        engine: storyteller.engine,
-                        controller: storyteller,
-                        onPlayPause: { storytellerPlayPause() },
+                        engine: playbackVM.narrationPlayer.engine,
+                        narration: playbackVM.narrationPlayer,
+                        onSeekChunk: { playbackVM.seekToStorytellerChunk($0) },
                         onClearCache: { clearStorytellerCache() },
-                        onClose: { storyteller.deactivate() })
+                        onClose: { playbackVM.exitStorytellerMode() })
                 }
             }
 
@@ -65,9 +66,11 @@ struct PlaybackView: View {
             timelineViewModel.playheadActive = true
             timelineViewModel.playheadTime = 0
 
-            // When user clicks/drags the timeline ruler → seek playback to that time
+            // When user clicks/drags the timeline ruler → seek playback to
+            // that time (the ruler speaks EDIT-timeline/WPM time; in
+            // storyteller mode it's mapped onto the story clock).
             timelineViewModel.onPlayheadSeeked = { [weak playbackVM] time in
-                playbackVM?.seekTo(time: time)
+                playbackVM?.seekFromEditTimeline(time)
             }
 
             // When user toggles mute from timeline context menu → sync to playback
@@ -97,17 +100,22 @@ struct PlaybackView: View {
             }
         }
         .onChange(of: projectViewModel.project.sequences.count) { _, _ in
+            // The view model re-derives the storyteller timing internally
+            // when the mode is active; chunks already generated from the
+            // old text stay playable until the cache is cleared.
             buildPlaylist()
-            // Keep scene spans/slides in sync; chunks already generated
-            // from the old text stay playable until the cache is cleared.
-            if storyteller.isActive { configureStoryteller() }
         }
         .onChange(of: playbackVM.mutedTracks) { _, newValue in
             timelineViewModel.mutedTracks = newValue
         }
+        .onChange(of: playbackVM.storytellerPlayArmRequests) { _, _ in
+            // Play was pressed with ungenerated chunks and no generation
+            // running — arm the cost-confirmation gate.
+            armStorytellerGenerationIfNeeded()
+        }
         .sheet(isPresented: $showStorytellerCostSheet) {
             StorytellerCostSheet(
-                engine: storyteller.engine,
+                engine: playbackVM.narrationPlayer.engine,
                 onGenerate: {
                     showStorytellerCostSheet = false
                     confirmStorytellerGeneration()
@@ -115,12 +123,12 @@ struct PlaybackView: View {
                 onCancel: {
                     showStorytellerCostSheet = false
                     // Don't sit on "Preparing scene…" for chunks that were
-                    // never approved — park the storyteller transport.
-                    storyteller.pause()
+                    // never approved — park the transport.
+                    playbackVM.pause()
                 })
         }
         .onDisappear {
-            storyteller.deactivate()
+            playbackVM.exitStorytellerMode()
             playbackVM.stop()
             timelineViewModel.playheadActive = false
             timelineViewModel.playheadTime = nil
@@ -138,47 +146,22 @@ struct PlaybackView: View {
 
     // MARK: - Storyteller Mode
 
-    private func configureStoryteller() {
-        let basePath = projectViewModel.projectPath?.deletingLastPathComponent()
-        storyteller.configure(
-            project: projectViewModel.project,
-            basePath: basePath,
-            playlistItems: playbackVM.playlistItems,
-            sceneBoundaries: playbackVM.sceneBoundaries,
-            totalDuration: playbackVM.totalDuration,
-            timelineViewModel: timelineViewModel)
-        storyteller.volumeProvider = { [weak playbackVM] in
-            playbackVM?.effectiveVolume ?? 1.0
-        }
-    }
-
     private func toggleStoryteller() {
-        if storyteller.isActive {
-            storyteller.deactivate()
+        if playbackVM.storytellerActive {
+            playbackVM.exitStorytellerMode()
             return
         }
-        // The storyteller owns the playhead while active — park normal playback.
-        playbackVM.pause()
-        configureStoryteller()
-        storyteller.engine.prepare(project: projectViewModel.project)
-        guard !storyteller.engine.chunks.isEmpty else { return }
-        storyteller.beginStory()
-        armStorytellerGenerationIfNeeded()
-    }
-
-    private func storytellerPlayPause() {
-        if storyteller.isPlaying {
-            storyteller.pause()
-        } else {
-            storyteller.resume()
-            armStorytellerGenerationIfNeeded()
-        }
+        playbackVM.enterStorytellerMode()
+        guard playbackVM.storytellerActive else { return }  // nothing to tell
+        // Auto-play the story; play() bumps storytellerPlayArmRequests when
+        // ungenerated chunks need the cost gate.
+        playbackVM.play()
     }
 
     /// Ungenerated chunks exist and nothing is running: either confirm via
     /// the cost sheet or start generating, per the analysis-gate precedent.
     private func armStorytellerGenerationIfNeeded() {
-        let engine = storyteller.engine
+        let engine = playbackVM.narrationPlayer.engine
         guard engine.pendingChunkCount > 0, !engine.isGenerating else { return }
         if shouldShowStorytellerCostSheet(estimated: engine.totalEstimatedCost) {
             showStorytellerCostSheet = true
@@ -203,48 +186,40 @@ struct PlaybackView: View {
 
     private func confirmStorytellerGeneration() {
         UserDefaults.standard.set(true, forKey: storytellerSeenKey())
-        storyteller.engine.startGeneration()
+        playbackVM.narrationPlayer.engine.startGeneration()
     }
 
     private func clearStorytellerCache() {
-        storyteller.pause()
-        storyteller.engine.clearCache()
+        playbackVM.pause()
+        playbackVM.narrationPlayer.engine.clearCache()
     }
 
     // MARK: - Keyboard Shortcut Monitor
 
     private func installKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak playbackVM, weak storyteller] event in
+        // One transport for both modes: in storyteller mode the same
+        // bindings drive the narration (space = play/pause, arrows = shot
+        // sub-spans, ⌘-arrows = scene/chunk boundaries).
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak playbackVM] event in
             // Don't intercept if a text field is focused
             if let responder = event.window?.firstResponder,
                responder is NSTextView || responder is NSTextField {
                 return event
             }
 
-            // Storyteller mode owns the transport keys while active.
-            let storyMode = storyteller?.isActive == true
-
             switch event.keyCode {
             case 49: // Space bar
-                if storyMode {
-                    storytellerPlayPause()
-                } else {
-                    playbackVM?.togglePlayPause()
-                }
+                playbackVM?.togglePlayPause()
                 return nil
             case 123: // Left arrow
-                if storyMode {
-                    storyteller?.seekToPreviousChunk()
-                } else if event.modifierFlags.contains(.command) {
+                if event.modifierFlags.contains(.command) {
                     playbackVM?.skipToPreviousScene()
                 } else {
                     playbackVM?.skipToPreviousShot()
                 }
                 return nil
             case 124: // Right arrow
-                if storyMode {
-                    storyteller?.seekToNextChunk()
-                } else if event.modifierFlags.contains(.command) {
+                if event.modifierFlags.contains(.command) {
                     playbackVM?.skipToNextScene()
                 } else {
                     playbackVM?.skipToNextShot()
