@@ -210,6 +210,32 @@ final class NavigateAction: ProjectAssistantAction, AssistantAction {
     }
 }
 
+final class StartStorytellerAction: ProjectAssistantAction, AssistantAction {
+    let name = "start_storyteller"
+    let summary = """
+    Open the Playback view in Storyteller mode: the screenplay performed as \
+    spoken narration with a scene-image slideshow and the timeline playhead \
+    following along. Never spends on its own — the user confirms any \
+    narration-generation cost in the app before anything is generated.
+    """
+    let risk = ActionRisk.readOnly
+    var parameterSchema: JSONValue {
+        objectSchema([:], required: [])
+    }
+
+    @MainActor func validate(argumentsData: Data) throws -> ActionPlan {
+        ActionPlan(summary: "Open Storyteller in Playback")
+    }
+
+    @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome {
+        coordinator?.shouldOpenStoryteller = true
+        coordinator?.navigateTo(.playback)
+        return ActionOutcome(
+            resultForModel: #"{"status": "storyteller opened", "note": "generation costs are confirmed by the user in-app"}"#,
+            userSummary: "Opened Storyteller in Playback")
+    }
+}
+
 // MARK: - Mutating actions
 
 final class UpdateCharacterTraitAction: ProjectAssistantAction, AssistantAction {
@@ -525,6 +551,7 @@ enum AssistantActionFactory {
         var actions: [any AssistantAction] = [
             WebSearchAction(projectViewModel: projectViewModel, coordinator: coordinator),
             NavigateAction(projectViewModel: projectViewModel, coordinator: coordinator),
+            StartStorytellerAction(projectViewModel: projectViewModel, coordinator: coordinator),
             UpdateCharacterTraitAction(projectViewModel: projectViewModel, coordinator: coordinator),
             UpdateCharacterBioAction(projectViewModel: projectViewModel, coordinator: coordinator),
             UpdateSceneDescriptionAction(projectViewModel: projectViewModel, coordinator: coordinator),

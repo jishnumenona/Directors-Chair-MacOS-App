@@ -89,7 +89,7 @@ final class AssistantReadToolsTests: XCTestCase {
             XCTAssertNotNil(action, name)
             XCTAssertEqual(action?.risk, .readOnly, name)
         }
-        XCTAssertEqual(registry.count, 53)   // + creative 6 + world 4 + script 3 + generation 7 + pipeline 4 + app-help 1
+        XCTAssertEqual(registry.count, 54)   // + creative 6 + world 4 + script 3 + generation 7 + pipeline 4 + app-help 1 + storyteller 1
     }
 
     // MARK: - Scenes

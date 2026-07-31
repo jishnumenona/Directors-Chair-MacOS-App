@@ -65,7 +65,7 @@ final class AssistantActionsTests: XCTestCase {
     // MARK: - Factory
 
     func testFactoryRegistersTheFullCatalog() {
-        XCTAssertEqual(registry.count, 53)   // + creative 6 + world 4 + script 3 + generation 7 + pipeline 4 + app-help 1
+        XCTAssertEqual(registry.count, 54)   // + creative 6 + world 4 + script 3 + generation 7 + pipeline 4 + app-help 1 + storyteller 1
         for name in ["web_search", "navigate", "update_character_trait",
                      "update_character_bio", "update_scene_description",
                      "update_dialogue", "update_project_metadata",
@@ -76,6 +76,22 @@ final class AssistantActionsTests: XCTestCase {
         for definition in registry.toolDefinitions {
             XCTAssertNotNil(definition.parameters.objectValue, definition.name)
         }
+    }
+
+    // MARK: - Storyteller (navigation-class, never spends by itself)
+
+    func testStartStorytellerIsReadOnlyAndFlagsCoordinator() async throws {
+        let storyteller = action("start_storyteller")
+        XCTAssertEqual(storyteller.risk, .readOnly)
+        _ = try storyteller.validate(argumentsData: args("{}"))
+
+        XCTAssertFalse(coordinator.shouldOpenStoryteller)
+        let outcome = try await storyteller.execute(argumentsData: args("{}"))
+        XCTAssertEqual(coordinator.selectedView, .playback)
+        XCTAssertTrue(coordinator.shouldOpenStoryteller,
+                      "PlaybackView.onAppear consumes this flag")
+        XCTAssertTrue(outcome.resultForModel.contains("confirmed by the user"),
+                      "the model is told the cost sheet still gates generation")
     }
 
     // MARK: - Mutating actions: validate previews + execute
