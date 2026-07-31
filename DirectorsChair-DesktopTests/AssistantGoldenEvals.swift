@@ -449,6 +449,14 @@ final class AssistantGoldenEvals: XCTestCase {
                 XCTAssertEqual(coordinator.selectedShot?.shotId, 12)
             }),
         GoldenScenario(
+            name: "navigate.start_storyteller opens playback + flags the mode",
+            scripts: toolTurn("start_storyteller", "{}"),
+            expectToolResults: [(1, "storyteller opened")],
+            verify: { _, coordinator in
+                XCTAssertEqual(coordinator.selectedView, .playback)
+                XCTAssertTrue(coordinator.shouldOpenStoryteller)
+            }),
+        GoldenScenario(
             name: "recovery.unknown tool → engine tells the model",
             scripts: toolTurn("not_a_tool", "{}"),
             expectToolResults: [(1, "unknown tool")]),

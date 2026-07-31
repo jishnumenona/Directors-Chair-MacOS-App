@@ -107,6 +107,11 @@ class AppCoordinator: ObservableObject {
     /// When true, PlaybackView should auto-play on appear (set by global space bar shortcut)
     @Published var shouldAutoPlay: Bool = false
 
+    /// When true, PlaybackView opens Storyteller mode on appear (set by the
+    /// assistant's start_storyteller action; the cost sheet still gates any
+    /// generation)
+    @Published var shouldOpenStoryteller: Bool = false
+
     // MARK: - UI State
 
     /// Navigator sidebar visibility

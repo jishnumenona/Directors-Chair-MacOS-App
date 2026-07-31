@@ -10,6 +10,8 @@ import SwiftUI
 
 struct PlaybackTransportBar: View {
     @ObservedObject var viewModel: PlaybackViewModel
+    var storytellerActive: Bool = false
+    var onStoryteller: (() -> Void)? = nil
 
     @State private var isDraggingScrubber = false
     @State private var scrubTime: CGFloat = 0
@@ -69,8 +71,23 @@ struct PlaybackTransportBar: View {
 
                 Spacer()
 
-                // Right: Speed + Track Mixer + Volume
+                // Right: Storyteller + Speed + Track Mixer + Volume
                 HStack(spacing: 12) {
+                    // Storyteller mode toggle
+                    if let onStoryteller {
+                        Button(action: onStoryteller) {
+                            Image(systemName: storytellerActive
+                                  ? "text.book.closed.fill" : "text.book.closed")
+                                .font(.system(size: 12))
+                                .foregroundStyle(storytellerActive
+                                    ? Color.accentColor : .secondary)
+                                .frame(width: 20, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Storyteller — hear the screenplay told as a story")
+                    }
+
                     // Speed picker
                     Menu {
                         ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { speed in
