@@ -18,6 +18,7 @@ public enum AccountingDisplayMode: String, CaseIterable {
     case expenses = "Expenses"
     case purchaseOrders = "Purchase Orders"
     case payroll = "Payroll"
+    case aiUsage = "AI Usage"
     case export = "Export"
 }
 
@@ -51,8 +52,13 @@ public struct BudgetView: View {
     @State var exportMinAmount = ""
     @State var exportMaxAmount = ""
 
-    public init(viewModel: BudgetViewModel) {
+    /// AI usage tally + estimator data, built at the app layer from
+    /// AIUsageTracker (this package depends only on Core).
+    var aiUsageData: AIUsagePanelData?
+
+    public init(viewModel: BudgetViewModel, aiUsageData: AIUsagePanelData? = nil) {
         self.viewModel = viewModel
+        self.aiUsageData = aiUsageData
     }
 
     public var body: some View {
@@ -72,6 +78,14 @@ public struct BudgetView: View {
                 purchaseOrdersView
             case .payroll:
                 payrollView
+            case .aiUsage:
+                if let aiUsageData {
+                    AIUsageView(data: aiUsageData)
+                } else {
+                    Text("AI usage data unavailable")
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             case .export:
                 exportView
             }

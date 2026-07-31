@@ -26,6 +26,8 @@ public struct AIUsageRecord: Identifiable, Codable, Sendable {
         case image
         case video
         case speech
+        /// AI Assistant conversations (gateway /generate/chat)
+        case chat
     }
 
     public let videoDurationSeconds: Double
@@ -81,6 +83,9 @@ public struct AIUsageStats: Codable, Sendable {
     public var totalVideoSeconds: Double = 0
     public var totalSpeechChars: Int = 0
     public var totalSpeechCalls: Int = 0
+    public var totalChatPromptTokens: Int = 0
+    public var totalChatCompletionTokens: Int = 0
+    public var totalChatCalls: Int = 0
 
     public init() {}
 
@@ -96,6 +101,9 @@ public struct AIUsageStats: Codable, Sendable {
         totalVideoSeconds = try container.decodeIfPresent(Double.self, forKey: .totalVideoSeconds) ?? 0
         totalSpeechChars = try container.decodeIfPresent(Int.self, forKey: .totalSpeechChars) ?? 0
         totalSpeechCalls = try container.decodeIfPresent(Int.self, forKey: .totalSpeechCalls) ?? 0
+        totalChatPromptTokens = try container.decodeIfPresent(Int.self, forKey: .totalChatPromptTokens) ?? 0
+        totalChatCompletionTokens = try container.decodeIfPresent(Int.self, forKey: .totalChatCompletionTokens) ?? 0
+        totalChatCalls = try container.decodeIfPresent(Int.self, forKey: .totalChatCalls) ?? 0
     }
 
     /// Rates aligned with the server's authoritative cost model (ai-gateway cost.py).
@@ -126,12 +134,33 @@ public struct AIUsageStats: Codable, Sendable {
         Double(totalSpeechChars) / 1000.0 * Self.speechCostPer1kChars
     }
 
+    /// Assistant conversations bill at the text-model token rates.
+    public var chatCostUSD: Double {
+        Double(totalChatPromptTokens) * Self.textInputCostPerToken
+            + Double(totalChatCompletionTokens) * Self.textOutputCostPerToken
+    }
+
     public var totalCostUSD: Double {
-        textInputCostUSD + textOutputCostUSD + imageCostUSD + videoCostUSD + speechCostUSD
+        textInputCostUSD + textOutputCostUSD + imageCostUSD + videoCostUSD
+            + speechCostUSD + chatCostUSD
     }
 
     public var totalCalls: Int {
-        totalTextCalls + totalImageCalls + totalVideoCalls + totalSpeechCalls
+        totalTextCalls + totalImageCalls + totalVideoCalls + totalSpeechCalls + totalChatCalls
+    }
+
+    public mutating func addChatUsage(promptTokens: Int, completionTokens: Int) {
+        totalChatPromptTokens += promptTokens
+        totalChatCompletionTokens += completionTokens
+        totalChatCalls += 1
+    }
+
+    /// Public rate card for estimate calculators (matches ai-gateway cost.py).
+    public static var rateCard: (imagePerImage: Double, videoPerSecond: Double,
+                                 speechPer1kChars: Double, textInPerMTokens: Double,
+                                 textOutPerMTokens: Double) {
+        (imageCostPerImage, videoCostPerSecond, speechCostPer1kChars,
+         textInputCostPerToken * 1_000_000, textOutputCostPerToken * 1_000_000)
     }
 
     public mutating func addTextUsage(promptTokens: Int, completionTokens: Int) {
@@ -300,6 +329,21 @@ public final class AIUsageTracker: ObservableObject {
         projectStats.addVideoUsage(durationSeconds: durationSeconds)
 
         appendRecord(record)
+        saveProjectData()
+    }
+
+    /// Records one AI Assistant model call (chat tokens at text rates).
+    public func recordChatUsage(provider: String, model: String,
+                                promptTokens: Int, completionTokens: Int) {
+        let cost = AIUsageStats.textCallCost(promptTokens: promptTokens,
+                                             completionTokens: completionTokens)
+        sessionStats.addChatUsage(promptTokens: promptTokens, completionTokens: completionTokens)
+        projectStats.addChatUsage(promptTokens: promptTokens, completionTokens: completionTokens)
+        appendRecord(AIUsageRecord(
+            type: .chat, provider: provider, model: model,
+            promptTokens: promptTokens, completionTokens: completionTokens,
+            costUSD: cost
+        ))
         saveProjectData()
     }
 

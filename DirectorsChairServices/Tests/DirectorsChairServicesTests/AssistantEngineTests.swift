@@ -329,6 +329,7 @@ final class AssistantEngineTests: XCTestCase {
         case .toolFinished: return "toolFinished"
         case .turnPlan: return "turnPlan"
         case .threadEstablished: return "threadEstablished"
+        case .usageReported: return "usageReported"
         case .finished: return "finished"
         case .failed: return "failed"
         }
@@ -426,5 +427,20 @@ final class AssistantEngineThreadTests: XCTestCase {
                        [.system, .user, .assistant, .user, .assistant, .tool],
                        "second call still carries everything")
         XCTAssertFalse(events.contains(.threadEstablished))
+    }
+
+    func testGatewayUsageEventsAreForwarded() async {
+        let transport = ScriptedTransport(scripts: [[
+            .delta("Hi."),
+            .usage(ChatUsage(promptTokens: 6000, completionTokens: 400,
+                             totalTokens: 6400)),
+            .done(finishReason: "stop", model: "m")]])
+        let engine = AssistantEngine(transport: transport, registry: ActionRegistry())
+
+        let events = await collect(engine, thread: nil)
+
+        XCTAssertTrue(events.contains(
+            .usageReported(promptTokens: 6000, completionTokens: 400)),
+            "the caller needs usage for the AI Usage accounting tab")
     }
 }

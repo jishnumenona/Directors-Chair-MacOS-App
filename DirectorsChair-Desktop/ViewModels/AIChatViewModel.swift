@@ -463,6 +463,13 @@ class AIChatViewModel: ObservableObject {
                 streamingText += fragment
             case .threadEstablished:
                 threadEstablished = true
+            case .usageReported(let promptTokens, let completionTokens):
+                // Accounting › AI Usage: assistant calls finally get tallied.
+                AIUsageTracker.shared.recordChatUsage(
+                    provider: Self.routedProviderDisplayName(),
+                    model: "assistant-chat",
+                    promptTokens: promptTokens,
+                    completionTokens: completionTokens)
             case .toolStarted(let name):
                 toolActivity = "Running \(name)…"
             case .toolFinished(_, let summary):
