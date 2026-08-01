@@ -192,11 +192,14 @@ jobs:
           retention-days: 7
 
   release-build-check:
-    name: Release-config build (main only)
-    # A broken Release configuration must surface on merge, not at tag time
-    # (release.yml is the only other place Release builds). Main-only to spare
-    # macOS minutes on PR pushes.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    name: Release-config build (opt-in)
+    # A broken Release configuration must surface before tag time
+    # (release.yml is the only other place Release builds). Formerly ran on
+    # every main push; since the 2026-07-29 macOS opt-in it runs only on
+    # explicit ask like the other Mac jobs. NOTE 2026-08-01: this job briefly
+    # carried TWO `if:` keys (the old main-push gate plus the opt-in gate),
+    # which is invalid YAML — every CI run failed at workflow-parse with
+    # 0 jobs until the duplicate was removed. One `if:` per job.
     runs-on: macos-15
     # macOS minutes are 10x-metered and drained the free tier — Mac jobs
     # run ONLY when the owner explicitly asks: label the PR 'run-mac-ci'
