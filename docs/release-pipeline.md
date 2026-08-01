@@ -7,7 +7,10 @@ promotion gate: **a tag builds and stores; a person ships.** Full architecture
 ## The train
 
 1. **Release PR** (`chore/release-vX.Y.Z`): bump `MARKETING_VERSION` in
-   `project.pbxproj` **and** add the `## [X.Y.Z]` section to `CHANGELOG.md`.
+   `project.pbxproj` — **all SIX occurrences** (one per target/configuration;
+   verified at v3.9.0 — bump them together, e.g.
+   `sed -i '' 's/MARKETING_VERSION = 3\.8\.1;/MARKETING_VERSION = 3.9.0;/g'`) —
+   **and** add the `## [X.Y.Z]` section to `CHANGELOG.md`.
    Merge via the normal PR loop (`verify.sh` green).
 2. **Tag**: annotated `vX.Y.Z` on main, pushed. This triggers `release.yml`.
 3. **`release.yml`** (CI, macos-15):
@@ -86,13 +89,14 @@ Developer enrollment as a launch blocker for any marketing push.
    Developer ID + hardened runtime + timestamp → `notarytool submit --wait` →
    `stapler staple`), set repo variable `SIGNING_ENABLED=true`.
 4. Manifest `signed` flips true; downloads page drops the Gatekeeper caveats.
-5. Later (roadmap P1): Sparkle 2 auto-update — EdDSA keys, appcast generated
-   from `manifest.json` `history` (works with or without Apple signing).
+5. Sparkle auto-update already ships (see above, live since v3.5.0) and is
+   unaffected — EdDSA verification works with or without Apple signing.
 
 ## Versioning
 
 - `MARKETING_VERSION` (`CFBundleShortVersionString`): the SemVer release, bumped
-  in the release PR, verified against the tag.
+  in the release PR (all six `project.pbxproj` occurrences), verified against
+  the tag.
 - `CURRENT_PROJECT_VERSION` (`CFBundleVersion`): commit count on main
   (`git rev-list --count HEAD`), injected at archive time — monotonic and
   reproducible locally; never hand-edited.

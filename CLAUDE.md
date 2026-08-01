@@ -9,8 +9,12 @@
 - **Before every commit:** `./scripts/verify.sh` must be green.
 - **macOS CI is opt-in (owner decision 2026-07-29, cost control):** PR
   runs skip all macOS jobs unless the owner explicitly asks — add the
-  `run-mac-ci` label (or workflow_dispatch). Skipped jobs satisfy branch
-  protection; local verify.sh is the binding gate.
+  `run-mac-ci` label (or workflow_dispatch). Skipped non-matrix jobs
+  report and satisfy their required checks, but the five SPM **matrix**
+  contexts never materialize when skipped (verified 2026-08-01), so
+  unlabeled PRs merge with `gh pr merge --squash --admin` until the
+  owner retunes the required contexts. Local verify.sh is the binding
+  gate.
 - Conventional commits: `type(scope): imperative summary` + a WHY body with
   the test delta; perf claims carry measured numbers.
 - Update a work branch by **rebasing onto origin/main**; force-push only
