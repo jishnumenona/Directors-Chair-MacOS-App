@@ -398,6 +398,30 @@ public class AuthManager: ObservableObject {
         return url
     }
 
+    /// Mints a one-time ticket to open the web dashboard already signed in.
+    /// The caller opens the browser to the platform's handoff URL with this
+    /// ticket, which redeems it into a web session (no second login). Throws
+    /// if not authenticated or the request fails, so callers can fall back to
+    /// the plain hosted login.
+    public func createWebHandoffTicket() async throws -> String {
+        guard let authHeader = authorizationHeader else {
+            throw AuthError.sessionExpired
+        }
+        let url = try endpoint("/login/handoff/create")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw AuthError.tokenExchangeFailed("handoff create failed (HTTP \(status))")
+        }
+        struct HandoffResponse: Decodable { let ticket: String }
+        return try JSONDecoder().decode(HandoffResponse.self, from: data).ticket
+    }
+
     private func exchangeCodeForTokens(code: String) async throws {
         guard let verifier = codeVerifier else {
             authLog("[Auth] exchangeCodeForTokens: NO code verifier!")
