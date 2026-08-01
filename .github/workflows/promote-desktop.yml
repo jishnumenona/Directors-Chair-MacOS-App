@@ -95,6 +95,9 @@ jobs:
           # Sparkle feed: pure transform of the manifest (unsigned entries excluded).
           python3 ../scripts/generate_appcast.py --self-test
           python3 ../scripts/generate_appcast.py manifest.json appcast.xml
+          # Gate: refuse to publish any feed item lacking a numeric sparkle:version —
+          # an empty one defeats Sparkle downgrade protection (3.9.0→3.7.1 offer, 2026-08-01).
+          python3 ../scripts/generate_appcast.py --validate appcast.xml
           put appcast.xml "desktop/appcast.xml" 600 "public, max-age=300"
       - name: Job summary
         run: |
