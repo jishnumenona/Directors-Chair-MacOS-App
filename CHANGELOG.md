@@ -9,6 +9,38 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.9.0] — 2026-08-01
+
+### Added
+- **Voice conversations** with the AI assistant: hands-free back-and-forth with
+  natural Gemini speech (or the free on-device voice), auto-listening after
+  each reply.
+- **Storyteller mode** in Playback: the screenplay performed scene-by-scene by
+  an AI narrator with a synced image slideshow and timeline playhead, a
+  per-scene cost preview before generating, and local caching so replays are
+  free. Also launchable by asking the assistant.
+- **Example projects**: five fully-produced downloadable examples — short film,
+  music video, commercial, YouTube documentary, and a feature proof-of-concept —
+  complete with poster art, character turnarounds, location plates, shot
+  stills, vision boards, and audio.
+- **AI Usage** tab in Accounting: real per-capability API spend (images, video,
+  speech, text, AI assistant) plus an estimate calculator, including a live
+  "generate video for every shot with Veo" costing for the open project.
+- **Open from Cloud**: browse and download your synced projects grouped by
+  organization. Viewer-role projects sync pull-only, and the sync toolbar
+  shows which organization a project belongs to.
+- Assistant conversations now **remember context across app restarts**
+  (server-side threads), and resumed conversations regain their memory.
+
+### Fixed
+- Assistant no longer intermittently returns "empty response" on complex
+  requests.
+- Natural-voice assistant replies play reliably (audio container fix).
+- Sync shows clear messages when a project is archived or your access level
+  changed, instead of generic errors.
+- App-generated notices in chat are labeled "App" instead of the misleading
+  "On-device".
+
 ## [3.8.1] — 2026-07-27
 
 ### Added
