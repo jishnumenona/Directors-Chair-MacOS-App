@@ -64,7 +64,11 @@ git fetch origin && git rebase origin/main
 git push -u origin feature/<topic>
 gh pr create --fill --base main
 
-# 5. Merge when CI is green (squash keeps main linear and readable)
+# 5. Merge when CI is green (squash keeps main linear and readable).
+#    Steady state: macOS jobs are opt-in (run-mac-ci label) and report
+#    "skipped", which satisfies branch protection — the plain squash
+#    merge below is all that's needed. (--admin was only an outage-era
+#    fallback while Actions was blocked; don't reach for it by default.)
 gh pr merge --squash --delete-branch
 
 # 6. Update the local trunk and clean up
@@ -118,8 +122,14 @@ Co-Authored-By: Claude <the harness-required trailer>
   linear history satisfied). Use **rebase-merge** only when a branch's
   individual commits are each independently valuable (e.g. a multi-commit
   perf tier where each step carries its own measurements).
-- Merge only when CI is green. If CI is broken for unrelated reasons, fix CI
-  first — never merge past a red pipeline.
+- Merge only when CI is green. Since the macOS opt-in (2026-07-29), "green"
+  means: the ubuntu jobs (gitleaks, appcast self-test) pass and the macOS
+  jobs report *skipped* — skipped required checks satisfy branch protection,
+  so a plain `gh pr merge --squash` suffices. `./scripts/verify.sh` is the
+  binding test gate. `--admin` was an outage-era fallback (Actions minutes
+  exhausted / workflow outages), not part of the steady-state loop. If CI is
+  broken for unrelated reasons, fix CI first — never merge past a red
+  pipeline.
 - Delete the branch on merge (`--delete-branch`), local and remote.
 - Solo-review reality: the owner isn't reviewing every PR, so the PR is the
   reviewable record, not a gate. Anything user-visible or risky: pause and
@@ -245,16 +255,22 @@ a session with a stash you haven't either applied or consciously dropped.
 
 ## 12. CI operations
 
-- Config: `.github/workflows/ci.yml` — lint + all package suites + app
-  target; triggers on push to `main`/work-branch prefixes, on PRs to main,
-  and manually.
+- Config: `.github/workflows/ci.yml` — triggers on push to `main`, on PRs to
+  main, and manually. Ubuntu jobs (gitleaks secret scan, appcast self-test)
+  always run; **all macOS jobs (SwiftLint, SPM suites, app tests, UI E2E,
+  Release-config) run ONLY with the `run-mac-ci` PR label or a
+  workflow_dispatch** — owner decision 2026-07-29, cost control (macOS
+  minutes bill 10x). Never add the label without an explicit owner cue.
+- Required status checks are LIVE on `main`'s protection (the seven macOS
+  check contexts). Unlabeled PRs satisfy them via *skipped* conclusions;
+  `./scripts/verify.sh` is the binding test gate.
 - Manual run: `gh workflow run CI --ref <branch>`.
 - Watch: `gh run watch <id> --exit-status`; list: `gh run list`.
 - If CI infra itself breaks (runner/billing/plugin), fixing it is a `ci:`
-  commit and takes priority over feature work in flight.
-- Roadmap item (owner-gated): once CI history is stable, add the CI job as a
-  *required* status check on `main`'s protection so merges gate on it
-  server-side.
+  commit and takes priority over feature work in flight. (Precedent:
+  2026-08-01 — a duplicate `if:` key in `ci.yml` made every run fail at
+  workflow-parse with 0 jobs; required checks never reported and merges
+  needed the `--admin` fallback until the file was fixed.)
 
 ---
 
