@@ -309,6 +309,122 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         XCTAssertTrue(empty.isEmpty, "no scenes → no screenplay key → no tab")
     }
 
+    func testLocationCardCarriesDetailAndSceneContext() throws {
+        // The portal's Story → Locations detail pane renders type, tags,
+        // gallery, atmosphere, cinematography, and "appears in" — and its
+        // rail selects by id. The deck used to send only {name, image}, so
+        // clicking locations never switched (owner field report 2026-08-02).
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overview-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("assets"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("primary".utf8).write(to: dir.appendingPathComponent("assets/primary.png"))
+        try Data("alt".utf8).write(to: dir.appendingPathComponent("assets/alt.png"))
+
+        var estate = Location(name: "Estate House")
+        estate.locationType = "indoor"
+        estate.description = "Sun through dust."
+        estate.tags = ["interior", "period-adjacent"]
+        estate.images = ["assets/primary.png", "assets/alt.png"]
+        estate.primaryImage = "assets/primary.png"
+        estate.styleAttributes = ["mood": "hushed",
+                                  "architecture": "1920s foursquare",
+                                  "palette": "dust, oak, brass"]
+        estate.cinematographyDefaults = ["lighting_style": "Window key, no fill",
+                                         "time_of_day": "Day"]
+        estate.notes = "Ask about the parlor."
+        var swatched = Location(name: "Darkroom")
+        swatched.styleAttributes = ["palette": "#331111, #886644"]
+
+        var scene = Scene(name: "Opening", description: "")
+        scene.location = "Estate House"
+        var project = Project(name: "Test Film")
+        project.locations = [estate, swatched]
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+
+        let deck = ProjectOverviewBuilder.deck(project: project,
+                                               projectDir: dir, projectID: "p-1")
+        let cards = deck["locations"] as? [[String: Any]]
+
+        XCTAssertEqual(cards?[0]["id"] as? String, estate.uuid,
+                       "stable id — the rail selects and keys on it")
+        XCTAssertEqual(cards?[0]["type"] as? String, "indoor")
+        XCTAssertEqual(cards?[0]["description"] as? String, "Sun through dust.")
+        XCTAssertEqual(cards?[0]["tags"] as? [String], ["interior", "period-adjacent"])
+        XCTAssertEqual(cards?[0]["mood"] as? String, "hushed")
+        XCTAssertEqual(cards?[0]["architecture"] as? String, "1920s foursquare")
+        XCTAssertEqual(cards?[0]["cine_lighting"] as? String, "Window key, no fill")
+        XCTAssertEqual(cards?[0]["cine_time"] as? String, "Day")
+        XCTAssertEqual(cards?[0]["notes"] as? String, "Ask about the parlor.")
+        XCTAssertEqual(cards?[0]["scene_context"] as? [String], ["Opening"])
+        XCTAssertNotNil(cards?[0]["image"])
+        let variations = cards?[0]["variations"] as? [[String: Any]]
+        XCTAssertEqual(variations?.count, 1, "non-primary gallery images")
+        XCTAssertEqual(variations?.first?["label"] as? String, "View 1")
+        XCTAssertNil(cards?[0]["color_palette"],
+                     "descriptive palettes are not CSS colors — dropped")
+        XCTAssertEqual(cards?[1]["color_palette"] as? [String],
+                       ["#331111", "#886644"], "hex palettes become swatches")
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(deck))
+    }
+
+    func testShotLinkedContentAndSceneBubbles() throws {
+        // The shot page lists the dialogue/action the shot covers (resolved
+        // from Connections links); the scene detail renders the bubble view.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overview-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let line = Dialogue(character: "Mara", text: "That was my father's.",
+                            tags: ["O.S."], chronologyNumber: 1)
+        var beat = Action(description: "She lifts the camera.", chronologyNumber: 2)
+        beat.parentDialogueId = line.uuid            // sub-bubble
+        var shot = Shot(shotId: 1, shotType: "Wide")
+        shot.lightingStyle = "Low-key"
+        shot.linkedDialogueIds = [line.uuid]
+        shot.linkedActionIds = [beat.uuid]
+        var scene = Scene(name: "Opening", description: "")
+        scene.dialogues = [line]
+        scene.actions = [beat]
+        scene.soundNotes = [SoundNote(description: "shutter click",
+                                      soundType: "effects", chronologyNumber: 3)]
+        scene.shots = [shot]
+        var mara = Character(name: "Mara")
+        mara.color = "#4a9eff"
+        var project = Project(name: "Test Film")
+        project.characters = [mara]
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+
+        let deck = ProjectOverviewBuilder.deck(project: project,
+                                               projectDir: dir, projectID: "p-1")
+
+        let card = (deck["shots"] as? [[String: Any]])?.first
+        XCTAssertEqual(card?["lighting"] as? String, "Low-key")
+        XCTAssertEqual(card?["dialogue_lines"] as? [String],
+                       ["MARA: That was my father's."])
+        XCTAssertEqual(card?["action_lines"] as? [String],
+                       ["She lifts the camera."])
+
+        let sceneEntry = (deck["scenes"] as? [[String: Any]])?.first
+        let bubbles = sceneEntry?["bubbles"] as? [[String: Any]]
+        XCTAssertEqual(bubbles?.map { $0["kind"] as? String },
+                       ["dialogue", "action", "sound"],
+                       "chronological, sub-bubbles included")
+        XCTAssertEqual(bubbles?[0]["character"] as? String, "Mara")
+        XCTAssertEqual(bubbles?[0]["color"] as? String, "#4a9eff",
+                       "dialogue bubble carries the speaker's color")
+        XCTAssertEqual(bubbles?[0]["tags"] as? [String], ["O.S."])
+        XCTAssertEqual(bubbles?[2]["text"] as? String, "EFFECTS: shutter click")
+
+        // The screenplay projection still excludes the sub-bubble action.
+        let elements = ProjectOverviewBuilder.screenplayElements(project: project)
+        XCTAssertFalse(elements.contains { $0["text"] == "She lifts the camera." },
+                       "sub-bubbles stay out of the script, as on desktop")
+    }
+
     func testDecodeProjectHandlesISO8601DatesFromPersistence() throws {
         // Persistence writes dates as ISO-8601 (ProjectPersistence's
         // encoder); the overview push must decode the same dialect. The
