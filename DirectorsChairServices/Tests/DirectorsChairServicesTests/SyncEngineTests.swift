@@ -4,6 +4,7 @@
 // the push/pull/conflict flows against a scripted in-memory sync server
 // (MockURLProtocol, the module's transport-faking convention).
 
+import Combine
 import XCTest
 @testable import DirectorsChairServices
 
@@ -246,6 +247,61 @@ final class SyncEngineTests: XCTestCase {
         let revisionsBefore = server.headRevision
         _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
         XCTAssertEqual(server.headRevision, revisionsBefore)   // no new revision
+    }
+
+    func testPushPublishesByteWeightedProgress() async throws {
+        // The toolbar renders engine.progress as a percent: it must start
+        // low, climb monotonically to 1.0 as blob bytes land, and clear to
+        // nil at the terminal state so the button falls back to its icon.
+        try write("assets/big.bin", String(repeating: "x", count: 9_000))
+        try write("assets/small.bin", "yy")
+        var seen: [Double] = []
+        let cancellable = engine.$progress.sink { value in
+            if let value { seen.append(value) }
+        }
+        defer { cancellable.cancel() }
+
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+
+        XCTAssertTrue(pushed)
+        XCTAssertEqual(seen.last, 1.0, "all bytes accounted for at the end")
+        XCTAssertEqual(seen, seen.sorted(), "progress never goes backwards")
+        XCTAssertTrue(seen.contains { $0 > 0 && $0 < 1 },
+                      "intermediate percentages exist (byte-weighted, not 0→1)")
+        XCTAssertNil(engine.progress, "terminal state clears the percent")
+    }
+
+    func testPullPublishesDownloadProgress() async throws {
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        // Another device committed a new asset; our pull must report
+        // byte-weighted download progress the same way push does.
+        let checkpoint = SyncCheckpoint.load(projectDir: projectDir)!
+        let payload = Data("their-asset-bytes".utf8)
+        let sha = SyncHashing.sha256Hex(payload)
+        server.blobs[sha] = payload
+        server.committedBlobs.insert(sha)
+        server.headRevision = 2
+        server.revisions[2] = [
+            "revision": 2, "parent_revision": 1, "merged_from": NSNull(),
+            "manifest": ["schema": 1,
+                         "project_blob": ["sha256": checkpoint.lastManifest!.projectBlob.sha256,
+                                          "size": checkpoint.lastManifest!.projectBlob.size],
+                         "assets": [["path": "assets/theirs.bin",
+                                     "sha256": sha, "size": payload.count]],
+                         "deleted": []],
+            "device_name": "other-mac", "created_at": "2026-07-19T00:00:00Z",
+        ]
+        var seen: [Double] = []
+        let cancellable = engine.$progress.sink { value in
+            if let value { seen.append(value) }
+        }
+        defer { cancellable.cancel() }
+
+        let pulled = await engine.pull(projectDir: projectDir)
+
+        XCTAssertTrue(pulled)
+        XCTAssertEqual(seen.last, 1.0)
+        XCTAssertNil(engine.progress, "terminal state clears the percent")
     }
 
     func testAssetOnlyDivergenceAutoMerges() async throws {
