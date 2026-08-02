@@ -116,6 +116,24 @@ final class ProjectOverviewBuilderTests: XCTestCase {
                        "reference imagery still resolves when no preview exists")
         XCTAssertEqual(board?[2]["image"] as? String, referenceURL,
                        "an unreadable preview file falls back, not omits")
+
+        // The portal's Scenes + Shot list tabs render scenes[].shots — the
+        // nested entries must carry the same full storyboard card (they
+        // used to be bare {id, shot_type}, so every shot in the Shot list
+        // tab rendered imageless — the 2026-08-02 field report).
+        let scenes = deck["scenes"] as? [[String: Any]]
+        let nested = scenes?[0]["shots"] as? [[String: Any]]
+        XCTAssertEqual(nested?[0]["image"] as? String, previewURL,
+                       "nested per-scene shots must carry the image too")
+        XCTAssertEqual(nested?[1]["image"] as? String, referenceURL)
+        XCTAssertEqual(nested?[0]["number"] as? Int, 1,
+                       "shot display number for the storyboard card")
+        XCTAssertEqual(nested?[0]["camera_angle"] as? String, "Medium")
+        XCTAssertEqual(nested?[0]["lens_mm"] as? Int, 50)
+        XCTAssertEqual(nested?[0]["movement"] as? String, "Static")
+        XCTAssertEqual(nested?[0]["status"] as? String, "Planning")
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(deck),
+                      "the enriched deck must serialize for the PUT body")
     }
 
     func testBlobURLOmitsFilesOutsideProjectDir() throws {

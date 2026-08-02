@@ -88,20 +88,37 @@ public enum ProjectOverviewBuilder {
                 if let image = blobURL(scene.sceneOverviewImage) {
                     entry["image"] = image
                 }
+                // ONE full storyboard card per shot, shared by the nested
+                // per-scene lists (the portal's Scenes + Shot list tabs
+                // render scenes[].shots) AND the flat top-level board (the
+                // Overview tab). The nested entries used to be bare
+                // {id, shot_type} — every shot rendered imageless in the
+                // Shot list tab even though the blobs were all uploaded.
                 entry["shots"] = scene.shots.map { shot -> [String: Any] in
                     shotCount += 1
-                    var board: [String: Any] = ["id": "\(scene.id)#\(shot.shotId)",
-                                                "scene": scene.name,
-                                                "shot_type": shot.shotType]
+                    var card: [String: Any] = ["id": "\(scene.id)#\(shot.shotId)",
+                                               "number": shot.shotId,
+                                               "scene": scene.name,
+                                               "shot_type": shot.shotType]
+                    func field(_ key: String, _ value: String?) {
+                        if let value, !value.isEmpty { card[key] = value }
+                    }
+                    field("camera_angle", shot.cameraAngle)
+                    field("movement", shot.movement)
+                    field("aperture", shot.aperture)
+                    field("status", shot.status)
+                    field("description", shot.description)
+                    if let lens = shot.lensMm { card["lens_mm"] = lens }
+                    if let duration = shot.duration { card["duration"] = duration }
                     // The AI-generated preview is what the desktop's own shot
                     // cards display; reference imagery is the fallback.
                     if let image = blobURL(shot.previewImage)
                         ?? blobURL(shot.referenceMedia.first(
                             where: { $0.type == .image })?.path) {
-                        board["image"] = image
+                        card["image"] = image
                     }
-                    shotBoard.append(board)
-                    return ["id": shot.shotId, "shot_type": shot.shotType]
+                    shotBoard.append(card)
+                    return card
                 }
                 return entry
             }
