@@ -64,6 +64,17 @@ public enum ProjectOverviewBuilder {
             deck["screenplay"] = ["title": project.name, "elements": screenplay]
         }
 
+        // Final parity sweep: props, vision board, production suite
+        // (ProjectOverviewBuilder+Production.swift). Empty sections are
+        // omitted — the portal gates each tab on its data arriving.
+        let propCards = project.props.map { propCard($0, blobURL: blobURL) }
+        if !propCards.isEmpty { deck["props"] = propCards }
+        let vision = visionCards(project: project, blobURL: blobURL)
+        if !vision.isEmpty { deck["vision_board"] = vision }
+        if let production = productionSection(project: project) {
+            deck["production"] = production
+        }
+
         deck["locations"] = project.locations.map {
             locationCard($0, project: project, blobURL: blobURL)
         }
