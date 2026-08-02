@@ -67,6 +67,7 @@ public enum AuthError: LocalizedError {
     case keychainError(String)
     case noRefreshToken
     case sessionExpired
+    case handoffFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -79,6 +80,7 @@ public enum AuthError: LocalizedError {
         case .keychainError(let msg): return "Keychain error: \(msg)"
         case .noRefreshToken: return "Your session could not be renewed. Please sign out and sign back in from the account menu."
         case .sessionExpired: return "Your session has expired. Please sign out and sign back in from the account menu."
+        case .handoffFailed(let msg): return "Could not sign in to the web dashboard: \(msg)"
         }
     }
 }
@@ -91,6 +93,14 @@ private struct TokenResponse: Codable {
     let expires_in: Int?
     let refresh_token: String?
     let scope: String?
+}
+
+// MARK: - Handoff Ticket Response
+
+/// Wire shape of auth-service `POST /login/handoff/create`.
+private struct HandoffTicketResponse: Codable {
+    let ticket: String
+    let expires_in: Int?
 }
 
 // MARK: - Auth Debug Logger
@@ -146,7 +156,7 @@ public class AuthManager: ObservableObject {
     private var inFlightRefresh: Task<Void, Error>?
 
     private let keychain: KeychainService
-    private let session = URLSession.shared
+    private let session: URLSession
     private var authSession: ASWebAuthenticationSession?
     #if canImport(AppKit)
     private let contextProvider = AuthPresentationContext()
@@ -154,11 +164,22 @@ public class AuthManager: ObservableObject {
 
     // MARK: - Initialization
 
-    /// - Parameter keychain: Credential store. Defaults to the shared production
-    ///   store; tests inject an isolated instance so they never touch the real login.
-    public init(configuration: AuthConfiguration = .default, keychain: KeychainService = .shared) {
+    /// - Parameters:
+    ///   - keychain: Credential store. Defaults to the shared production
+    ///     store; tests inject an isolated instance so they never touch the real login.
+    ///   - protocolClasses: URLProtocol stubs for network-path tests (the
+    ///     GiteaClient/WS4.7 convention). nil = the shared production session.
+    public init(configuration: AuthConfiguration = .default, keychain: KeychainService = .shared,
+                protocolClasses: [AnyClass]? = nil) {
         self.configuration = configuration
         self.keychain = keychain
+        if let protocolClasses {
+            let sessionConfig = URLSessionConfiguration.ephemeral
+            sessionConfig.protocolClasses = protocolClasses
+            self.session = URLSession(configuration: sessionConfig)
+        } else {
+            self.session = .shared
+        }
         authLog("[Auth] AuthManager initialized, clientID: \(configuration.clientID.prefix(8))...")
     }
 
@@ -394,6 +415,62 @@ public class AuthManager: ObservableObject {
     /// Log out: clear tokens, Keychain, and state.
     public func logout() async {
         await clearSession()
+    }
+
+    // MARK: - Web Dashboard Handoff
+
+    /// Mint a one-time ticket for the desktop → web SSO handoff (auth-service
+    /// `POST /login/handoff/create`). The browser redeems it at the platform
+    /// BFF, which establishes a signed-in web session — the dashboard opens
+    /// without a second login. Tickets are single-use and expire in ~120 s.
+    public func createWebHandoffTicket() async throws -> String {
+        try await refreshTokenIfNeeded()
+        guard isAuthenticated, let token = accessToken else {
+            throw AuthError.sessionExpired
+        }
+        let (ticket, status) = try await requestHandoffTicket(token: token)
+        if let ticket { return ticket }
+        // One forced refresh + retry when the server rejects the token — the
+        // same 401 convention as SyncAPIClient/AIServiceClient.
+        guard status == 401 else { throw AuthError.handoffFailed("HTTP \(status)") }
+        try await forceRefreshToken()
+        guard let fresh = accessToken else { throw AuthError.sessionExpired }
+        let (retried, retryStatus) = try await requestHandoffTicket(token: fresh)
+        guard let retried else { throw AuthError.handoffFailed("HTTP \(retryStatus)") }
+        return retried
+    }
+
+    /// The browser URL that redeems a handoff ticket: the platform BFF
+    /// (`GET /api/v1/session/handoff`) sets the web session cookie and
+    /// redirects into the dashboard. An invalid or expired ticket degrades to
+    /// the portal's normal sign-in with `next=/app/`.
+    public static func webHandoffURL(ticket: String) -> URL {
+        guard var components = URLComponents(
+            string: "\(ServiceEnvironment.syncBaseURLString)/api/v1/session/handoff") else {
+            return ServiceEnvironment.webDashboardURL   // unreachable: constant base
+        }
+        components.queryItems = [URLQueryItem(name: "ticket", value: ticket)]
+        return components.url ?? ServiceEnvironment.webDashboardURL
+    }
+
+    /// Returns (ticket, statusCode); ticket is nil on any non-200 so the
+    /// caller decides whether to refresh-and-retry.
+    private func requestHandoffTicket(token: String) async throws -> (ticket: String?, status: Int) {
+        let url = try endpoint("/login/handoff/create")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AuthError.handoffFailed("Not an HTTP response")
+        }
+        guard httpResponse.statusCode == 200 else {
+            return (nil, httpResponse.statusCode)
+        }
+        let payload = try JSONDecoder().decode(HandoffTicketResponse.self, from: data)
+        return (payload.ticket, httpResponse.statusCode)
     }
 
     // MARK: - Token Exchange

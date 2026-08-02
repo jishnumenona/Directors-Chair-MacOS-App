@@ -26,9 +26,7 @@ struct AccountMenuView: View {
 
                 Section {
                     Button {
-                        if let url = URL(string: "https://directorschair.app/dashboard") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        Task { await openWebDashboard() }
                     } label: {
                         Label("Open Web Dashboard", systemImage: "globe")
                     }
@@ -129,5 +127,20 @@ struct AccountMenuView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
         }
+    }
+
+    /// Open the web dashboard signed in: mint a one-time handoff ticket and
+    /// let the platform BFF redeem it into a web session (SSO). If minting
+    /// fails (offline, expired session), fall back to the plain dashboard
+    /// URL — the portal shows its own sign-in and returns to /app/ after.
+    private func openWebDashboard() async {
+        let url: URL
+        do {
+            let ticket = try await authManager.createWebHandoffTicket()
+            url = AuthManager.webHandoffURL(ticket: ticket)
+        } catch {
+            url = ServiceEnvironment.webDashboardURL
+        }
+        NSWorkspace.shared.open(url)
     }
 }
