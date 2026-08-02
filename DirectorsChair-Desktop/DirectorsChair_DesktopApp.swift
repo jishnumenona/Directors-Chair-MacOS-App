@@ -205,6 +205,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // driver). Setup runs from ContentView.onAppear once the delegate
         // refs are wired (see runPostLaunchSetupForTesting).
         if TestMode.skipSplash {
+            // The window still opens BEHIND whatever app launched the test
+            // (the XCUITest runner / Terminal / Xcode) or the `run.sh`
+            // relaunch, leaving elements "found but not hittable" until
+            // someone clicks DirectorsChair in the Dock — which stalled every
+            // local UI-test run. Bring ourselves frontmost, WITHOUT the
+            // hide/re-show dance that previously raced the driver. Retry a few
+            // times to catch the SwiftUI WindowGroup window once it exists (it
+            // may not yet at applicationDidFinishLaunching).
+            activateAndBringToFront(retry: true)
             return
         }
 
@@ -244,12 +253,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 window.alphaValue = 0
                 window.makeKeyAndOrderFront(nil)
+                // Beat any app that launched us to the foreground (Finder, or a
+                // command-line `run.sh` relaunch that would otherwise leave the
+                // window behind the terminal).
+                window.orderFrontRegardless()
+                NSApplication.shared.activate(ignoringOtherApps: true)
 
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.3
                     window.animator().alphaValue = 1
                 }
             }
+        }
+    }
+
+    /// Make DirectorsChair the frontmost app and its main window key/ordered
+    /// front. Fixes the launch race where the window opens hidden behind the
+    /// process that started it (the XCUITest runner, or a terminal running
+    /// `run.sh`) — which stalled UI-test runs until the app was clicked in the
+    /// Dock by hand. Nothing is hidden here, so `retry` (re-asserting a few
+    /// times across the first second) is safe: it just catches the SwiftUI
+    /// WindowGroup window whenever it finally comes up.
+    func activateAndBringToFront(retry: Bool = false) {
+        NSApp.setActivationPolicy(.regular)
+        func front() {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            if let window = NSApplication.shared.windows.first(where: { $0.contentView is NSHostingView<ContentView> }) ?? NSApplication.shared.windows.first {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+            }
+        }
+        front()
+        guard retry else { return }
+        for delay in [0.1, 0.25, 0.5, 1.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: front)
         }
     }
 
@@ -261,6 +298,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard !didRunTestSetup else { return }
         didRunTestSetup = true
         postLaunchSetup()
+        // ContentView.onAppear has fired, so the window definitely exists now:
+        // claim the foreground once more so the driver's very first clicks land.
+        activateAndBringToFront()
     }
 
     private func postLaunchSetup() {

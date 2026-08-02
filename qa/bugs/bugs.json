@@ -1,1 +1,1244 @@
-{"bugs": {}}
+{
+  "bugs": {
+    "BUG-40A20474": {
+      "id": "BUG-40A20474",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testAllPrimaryViewsOpen",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testAllPrimaryViewsOpen: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-8A26D9C2": {
+      "id": "BUG-8A26D9C2",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testBubbleViewRendersSceneItems",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testBubbleViewRendersSceneItems: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-7F8A0E0C": {
+      "id": "BUG-7F8A0E0C",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testCreateNewProject",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testCreateNewProject: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-373FE121": {
+      "id": "BUG-373FE121",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testEditorShowsFixtureScript",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testEditorShowsFixtureScript: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-A4DA01B0": {
+      "id": "BUG-A4DA01B0",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testEditPersistsAcrossRelaunch",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testEditPersistsAcrossRelaunch: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-14D1CB8B": {
+      "id": "BUG-14D1CB8B",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testFindBarOpensInEditor",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testFindBarOpensInEditor: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-41A06F2E": {
+      "id": "BUG-41A06F2E",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testLaunchReachesFixtureProject",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testLaunchReachesFixtureProject: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-AD16C42D": {
+      "id": "BUG-AD16C42D",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-E6424C75": {
+      "id": "BUG-E6424C75",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testOutlineExpandCollapse",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testOutlineExpandCollapse: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-EEB8E777": {
+      "id": "BUG-EEB8E777",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-3618CC2A": {
+      "id": "BUG-3618CC2A",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-E794ED32": {
+      "id": "BUG-E794ED32",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testRapidNavigationClicksLand",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testRapidNavigationClicksLand: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-C2E7BABC": {
+      "id": "BUG-C2E7BABC",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testReturnCreatesNewElement",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testReturnCreatesNewElement: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-CAFEAC3C": {
+      "id": "BUG-CAFEAC3C",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testSceneRowSelection",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testSceneRowSelection: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-752359C0": {
+      "id": "BUG-752359C0",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testShotListViewOpens",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testShotListViewOpens: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-0C38F94D": {
+      "id": "BUG-0C38F94D",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testStoryDesignCharacterListAndDetail",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testStoryDesignCharacterListAndDetail: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-A5509CB2": {
+      "id": "BUG-A5509CB2",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testTimelineRenders",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testTimelineRenders: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-A8A0A6CE": {
+      "id": "BUG-A8A0A6CE",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testToolbarAndTimelineAreVoiceOverTraversable",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testToolbarAndTimelineAreVoiceOverTraversable: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "regressed"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-12D1250C": {
+      "id": "BUG-12D1250C",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testTypingInEditor",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testTypingInEditor: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-09-11",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-09-11",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-EA10AE57": {
+      "id": "BUG-EA10AE57",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testUndoReversesEdit",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testUndoReversesEdit: XCTAssertTrue failed - Main window should appear",
+      "message": "XCTAssertTrue failed - Main window should appear",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:39"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_18-41-27",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_18-41-27",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-E86E6627": {
+      "id": "BUG-E86E6627",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testBubbleViewRendersSceneItems",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testBubbleViewRendersSceneItems: Failed to get matching snapshots: Lost connection to the application (pid 4014).",
+      "message": "Failed to get matching snapshots: Lost connection to the application (pid 4014). (Underlying Error: Couldn\u2019t communicate with a helper application. Try your operation again. If that fails, quit and relaunch the application and try again. connection to service with pid 4014 created from an endpoint)",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:374"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-64467944": {
+      "id": "BUG-64467944",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testEditorShowsFixtureScript",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testEditorShowsFixtureScript: Failed to get matching snapshots: Lost connection to the application (pid 4525).",
+      "message": "Failed to get matching snapshots: Lost connection to the application (pid 4395). (Underlying Error: Couldn\u2019t communicate with a helper application. Try your operation again. If that fails, quit and relaunch the application and try again. connection to service with pid 4395 created from an endpoint)",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:46"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-7B6422F9": {
+      "id": "BUG-7B6422F9",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testEditPersistsAcrossRelaunch",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testEditPersistsAcrossRelaunch: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 4549, token: xREAAAAAAABvY29jLwAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-269152D8": {
+      "id": "BUG-269152D8",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testFindBarOpensInEditor",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testFindBarOpensInEditor: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 4688, token: UBIAAAAAAABvY29jLwAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-19EE5B04": {
+      "id": "BUG-19EE5B04",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testLaunchReachesFixtureProject",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testLaunchReachesFixtureProject: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 4760, token: mBIAAAAAAABvY29jLQAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-B107A870": {
+      "id": "BUG-B107A870",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 4862, token: /hIAAAAAAABvY29j7QEAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:223"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-8DEACE21": {
+      "id": "BUG-8DEACE21",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testOutlineExpandCollapse",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testOutlineExpandCollapse: XCTAssertTrue failed - Nav button nav-script must exist",
+      "message": "XCTAssertTrue failed - Nav button nav-script must exist",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:54"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-1605BFD3": {
+      "id": "BUG-1605BFD3",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents: XCTAssertTrue failed - Nav button nav-script must exist",
+      "message": "XCTAssertTrue failed - Nav button nav-script must exist",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:54"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-7B3EA1B0": {
+      "id": "BUG-7B3EA1B0",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers: XCTAssertTrue failed - Nav control 'nav-bubble' must expose its identifier",
+      "message": "XCTAssertTrue failed - Nav control 'nav-bubble' must expose its identifier",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:477"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-7E27B23F": {
+      "id": "BUG-7E27B23F",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testRapidNavigationClicksLand",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testRapidNavigationClicksLand: Failed to get matching snapshots: Lost connection to the application (pid 5394).",
+      "message": "Failed to get matching snapshots: Lost connection to the application (pid 5394). (Underlying Error: Couldn\u2019t communicate with a helper application. Try your operation again. If that fails, quit and relaunch the application and try again. connection to service with pid 5394 created from an endpoint)",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:54"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-F07E5F08": {
+      "id": "BUG-F07E5F08",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testReturnCreatesNewElement",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testReturnCreatesNewElement: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 4859, token: +xIAAAAAAABvY29jLgAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-57B04F55": {
+      "id": "BUG-57B04F55",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testSceneRowSelection",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testSceneRowSelection: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 5592, token: 2BUAAAAAAABvY29jLQAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-CE0DF2EC": {
+      "id": "BUG-CE0DF2EC",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testTimelineRenders",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testTimelineRenders: XCTAssertTrue failed - Nav button nav-script must exist",
+      "message": "XCTAssertTrue failed - Nav button nav-script must exist",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:54"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-F6B4630B": {
+      "id": "BUG-F6B4630B",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testToolbarAndTimelineAreVoiceOverTraversable",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testToolbarAndTimelineAreVoiceOverTraversable: Failed to get matching snapshot: Application com.directorschair.DirectorsChair-D",
+      "message": "Failed to get matching snapshot: Application com.directorschair.DirectorsChair-Desktop is not running",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:81"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-5BE064AB": {
+      "id": "BUG-5BE064AB",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testTypingInEditor",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testTypingInEditor: Failed to get matching snapshots: AX request is for element <AXUIElement Applica",
+      "message": "Failed to get matching snapshots: AX request is for element <AXUIElement Application 0x600001befa50> {pid=4859} which has a different process identifier from the current process 6191 and this instance of XCTAccessibilityFramework does not support remote access.",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:46"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-40",
+      "last_seen": "2026-08-01_19-43-36",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-40",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-A2DCEBFD": {
+      "id": "BUG-A2DCEBFD",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow: Failed to get matching snapshot: No matches found for first query match sequence",
+      "message": "Failed to get matching snapshot: No matches found for first query match sequence: `Descendants matching type Any` -> `Elements matching predicate '\"screenplay-editor\" IN identifiers'`, given input App element pid: 4936",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:102"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-C8EDA112": {
+      "id": "BUG-C8EDA112",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 4859, token: +xIAAAAAAABvY29jLgAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-79C9D3AF": {
+      "id": "BUG-79C9D3AF",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers: XCTAssertTrue failed - screenplay-editor identifier must resolve",
+      "message": "XCTAssertTrue failed - screenplay-editor identifier must resolve",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:482"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-CA99F3E1": {
+      "id": "BUG-CA99F3E1",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testRapidNavigationClicksLand",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testRapidNavigationClicksLand: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 4859, token: +xIAAAAAAABvY29jLgAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-936A598E": {
+      "id": "BUG-936A598E",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testReturnCreatesNewElement",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testReturnCreatesNewElement: Failed to get matching snapshot: No matches found for Descendant with identity b",
+      "message": "Failed to get matching snapshot: No matches found for Descendant with identity binding to AX element pid: 5592, token: 2BUAAAAAAABvY29jLQAAAAAAAAA= from input {(",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:55"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-CBB24EC2": {
+      "id": "BUG-CBB24EC2",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testSceneRowSelection",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testSceneRowSelection: Root elements for target (App element pid: 5730) and hit elements (App element p",
+      "message": "Root elements for target (App element pid: 5730) and hit elements (App element pid: 5731) should be equal. (NSInternalInconsistencyException)",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:81"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-5131A928": {
+      "id": "BUG-5131A928",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testStoryDesignCharacterListAndDetail",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testStoryDesignCharacterListAndDetail: XCTAssertTrue failed - Story Design should list the fixture's characters",
+      "message": "XCTAssertTrue failed - Story Design should list the fixture's characters",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:388"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-7AF0570D": {
+      "id": "BUG-7AF0570D",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testTimelineRenders",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testTimelineRenders: Failed to get matching snapshots: AX request is for element <AXUIElement Applica",
+      "message": "Failed to get matching snapshots: AX request is for element <AXUIElement Application 0x600003b9e670> {pid=4859} which has a different process identifier from the current process 6139 and this instance of XCTAccessibilityFramework does not support remote access.",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:46"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    },
+    "BUG-AFB040DD": {
+      "id": "BUG-AFB040DD",
+      "component": "desktop",
+      "suite": "ui-e2e",
+      "test": "DirectorsChair_DesktopUITests/testUndoReversesEdit",
+      "kind": "test",
+      "gate": true,
+      "title": "DirectorsChair_DesktopUITests/testUndoReversesEdit: Application 'com.directorschair.DirectorsChair-Desktop' has not loaded accessibi",
+      "message": "Application 'com.directorschair.DirectorsChair-Desktop' has not loaded accessibility",
+      "locations": [
+        "DirectorsChair_DesktopUITests.swift:33"
+      ],
+      "status": "verified",
+      "first_seen": "2026-08-01_19-43-36",
+      "last_seen": "2026-08-01_20-21-45",
+      "diagnosis": null,
+      "fix": null,
+      "history": [
+        {
+          "run": "2026-08-01_19-43-36",
+          "event": "identified"
+        },
+        {
+          "run": "2026-08-01_20-21-45",
+          "event": "verified"
+        }
+      ]
+    }
+  }
+}

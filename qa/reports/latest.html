@@ -1,5 +1,5 @@
 <!doctype html><meta charset="utf-8">
-<title>QA Report — 2026-07-09_21-19-25</title>
+<title>QA Report — 2026-08-01_21-32-24</title>
 <style>
 :root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2129;--line:#2d333b;--ink:#e6edf3;--ink2:#9da7b3;--ink3:#6e7681;--acc:#58a6ff;--ok:#3fb950;--warn:#d29922;--bad:#f85149;}
 @media(prefers-color-scheme:light){:root{--bg:#f6f8fa;--panel:#fff;--panel2:#eef1f4;--line:#d0d7de;--ink:#1f2328;--ink2:#57606a;--ink3:#8c959f;--acc:#0969da;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;}}
@@ -28,12 +28,12 @@ td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}.n
 .foot{margin-top:34px;color:var(--ink3);font-size:.8rem;border-top:1px solid var(--line);padding-top:12px}
 </style>
 <h1>🧪 QA Report</h1>
-<p class="sub">DirectorsChair Desktop · run <b>2026-07-09_21-19-25</b></p>
+<p class="sub">DirectorsChair Desktop · run <b>2026-08-01_21-32-24</b></p>
 
 <div class="verdict ok">
   <div><div class="big">RELEASABLE</div><div class="dim">All gate suites passed</div></div>
   <div class="stats">
-    <div><b>175</b><span>passed</span></div>
+    <div><b>1545</b><span>passed</span></div>
     <div><b>0</b><span>failed</span></div>
     <div><b>0</b><span>skipped</span></div>
     <div><b>0</b><span>open bugs</span></div>
@@ -44,40 +44,389 @@ td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}.n
 <div class="tw"><table>
 <thead><tr><th>Suite</th><th>Component</th><th>Type</th><th>Pass</th><th>Fail</th><th>Total</th></tr></thead>
 <tbody><tr>
+          <td><span class="dot ok"></span>App target (unit · adapters)</td>
+          <td class="dim">desktop</td>
+          <td><span class="tag gate">gate</span></td>
+          <td class="num">325</td>
+          <td class="num">0</td>
+          <td class="num dim">325</td>
+        </tr>
+<tr>
           <td><span class="dot ok"></span>Core (models · persistence)</td>
           <td class="dim">desktop</td>
           <td><span class="tag gate">gate</span></td>
-          <td class="num">175</td>
+          <td class="num">196</td>
           <td class="num">0</td>
-          <td class="num dim">175</td>
+          <td class="num dim">196</td>
+        </tr>
+<tr>
+          <td><span class="dot ok"></span>Exports (FDX · Fountain · PDF · CSV)</td>
+          <td class="dim">desktop</td>
+          <td><span class="tag gate">gate</span></td>
+          <td class="num">89</td>
+          <td class="num">0</td>
+          <td class="num dim">89</td>
+        </tr>
+<tr>
+          <td><span class="dot ok"></span>Production (schedule · budget · cast/crew)</td>
+          <td class="dim">desktop</td>
+          <td><span class="tag gate">gate</span></td>
+          <td class="num">141</td>
+          <td class="num">0</td>
+          <td class="num dim">141</td>
+        </tr>
+<tr>
+          <td><span class="dot ok"></span>Services (auth · sync · AI clients)</td>
+          <td class="dim">desktop</td>
+          <td><span class="tag gate">gate</span></td>
+          <td class="num">207</td>
+          <td class="num">0</td>
+          <td class="num dim">207</td>
+        </tr>
+<tr>
+          <td><span class="dot ok"></span>UI end-to-end (XCUITest)</td>
+          <td class="dim">desktop</td>
+          <td><span class="tag gate">gate</span></td>
+          <td class="num">20</td>
+          <td class="num">0</td>
+          <td class="num dim">20</td>
+        </tr>
+<tr>
+          <td><span class="dot ok"></span>Views (creative · timeline · snapshots)</td>
+          <td class="dim">desktop</td>
+          <td><span class="tag gate">gate</span></td>
+          <td class="num">567</td>
+          <td class="num">0</td>
+          <td class="num dim">567</td>
         </tr></tbody></table></div>
 
 <div class="seclabel">Catalog coverage <span class="dim">— automated E2E cases per feature</span></div>
-<div class="cov"><span class="pct">35%</span><span class="dim">13 of 37 catalogued cases have wired automation (the rest are the documented manual/roadmap backlog).</span></div>
+<div class="cov"><span class="pct">100%</span><span class="dim">37 of 37 catalogued cases have wired automation (the rest are the documented manual/roadmap backlog).</span></div>
 <div class="tw"><table>
 <thead><tr><th>Component</th><th>Feature</th><th>Automated</th><th></th></tr></thead>
-<tbody><tr><td>desktop</td><td>Application shell &amp; lifecycle</td><td class='num'>2/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:67%'></div></div></td></tr>
-<tr><td>desktop</td><td>Project lifecycle &amp; persistence</td><td class='num'>2/4</td><td class='barcell'><div class='bar'><div class='fill' style='width:50%'></div></div></td></tr>
-<tr><td>desktop</td><td>Screenplay editor (Final Draft parity)</td><td class='num'>5/8</td><td class='barcell'><div class='bar'><div class='fill' style='width:62%'></div></div></td></tr>
-<tr><td>desktop</td><td>Navigator panel</td><td class='num'>2/4</td><td class='barcell'><div class='bar'><div class='fill' style='width:50%'></div></div></td></tr>
-<tr><td>desktop</td><td>Bubble view</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
-<tr><td>desktop</td><td>Story Design (characters, locations, cues)</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
-<tr><td>desktop</td><td>Production (shots, schedule, budget, cast/crew)</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
-<tr><td>desktop</td><td>Timeline</td><td class='num'>0/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
-<tr><td>desktop</td><td>Exports</td><td class='num'>0/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr>
+<tbody><tr><td>desktop</td><td>Application shell &amp; lifecycle</td><td class='num'>3/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Project lifecycle &amp; persistence</td><td class='num'>4/4</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Screenplay editor (Final Draft parity)</td><td class='num'>8/8</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Navigator panel</td><td class='num'>4/4</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Bubble view</td><td class='num'>3/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Story Design (characters, locations, cues)</td><td class='num'>3/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Production (shots, schedule, budget, cast/crew)</td><td class='num'>3/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Timeline</td><td class='num'>2/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
+<tr><td>desktop</td><td>Exports</td><td class='num'>3/3</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
 <tr><td>desktop</td><td>Performance &amp; responsiveness (benchmark gates)</td><td class='num'>2/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr>
-<tr><td>desktop</td><td>Accessibility</td><td class='num'>0/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:0%'></div></div></td></tr></tbody></table></div>
+<tr><td>desktop</td><td>Accessibility</td><td class='num'>2/2</td><td class='barcell'><div class='bar'><div class='fill' style='width:100%'></div></div></td></tr></tbody></table></div>
 
 <div class="seclabel">Open bugs <span class="dim">— identified → diagnosed → fixed → verified</span></div>
 <div class='empty'>No open bugs. 🎉</div>
 
 <div class="seclabel">Resolved &amp; flagged</div>
 <div class="bug ok">
-          <div class="bughdr"><span class="bugid">BUG-4E1C880C</span>
+          <div class="bughdr"><span class="bugid">BUG-40A20474</span>
             <span class="pill ok">Verified fixed</span>
-            <span class="dim">desktop · core</span></div>
-          <div class="bugtitle">QALoopDemoTests/testIntentionalFailureForDemo: XCTAssertEqual failed: (&quot;4&quot;) is not equal to (&quot;5&quot;) - Deliberate demo failure</div>
-          <div class='loc'>QALoopDemoTests.swift:8</div><div class='blk'><b>Diagnosis.</b> Demo test asserted 2+2==5. Root cause: intentional demonstration defect, not a product bug.</div><div class='blk fix'><b>Fix.</b> Removed the demo test (QALoopDemoTests). In a real defect this field records the code change and the verify.sh result.</div>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testAllPrimaryViewsOpen: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-8A26D9C2</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testBubbleViewRendersSceneItems: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-7F8A0E0C</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testCreateNewProject: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-373FE121</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testEditorShowsFixtureScript: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-A4DA01B0</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testEditPersistsAcrossRelaunch: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-14D1CB8B</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testFindBarOpensInEditor: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-41A06F2E</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testLaunchReachesFixtureProject: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-AD16C42D</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-E6424C75</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testOutlineExpandCollapse: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-EEB8E777</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-3618CC2A</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-E794ED32</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testRapidNavigationClicksLand: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-C2E7BABC</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testReturnCreatesNewElement: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-CAFEAC3C</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testSceneRowSelection: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-752359C0</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testShotListViewOpens: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-0C38F94D</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testStoryDesignCharacterListAndDetail: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-A5509CB2</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testTimelineRenders: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-A8A0A6CE</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testToolbarAndTimelineAreVoiceOverTraversable: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-12D1250C</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testTypingInEditor: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-EA10AE57</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testUndoReversesEdit: XCTAssertTrue failed - Main window should appear</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:39</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-E86E6627</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testBubbleViewRendersSceneItems: Failed to get matching snapshots: Lost connection to the application (pid 4014).</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:374</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-64467944</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testEditorShowsFixtureScript: Failed to get matching snapshots: Lost connection to the application (pid 4525).</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:46</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-7B6422F9</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testEditPersistsAcrossRelaunch: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-269152D8</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testFindBarOpensInEditor: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-19EE5B04</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testLaunchReachesFixtureProject: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-B107A870</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:223</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-8DEACE21</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testOutlineExpandCollapse: XCTAssertTrue failed - Nav button nav-script must exist</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:54</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-1605BFD3</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents: XCTAssertTrue failed - Nav button nav-script must exist</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:54</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-7B3EA1B0</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers: XCTAssertTrue failed - Nav control &#x27;nav-bubble&#x27; must expose its identifier</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:477</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-7E27B23F</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testRapidNavigationClicksLand: Failed to get matching snapshots: Lost connection to the application (pid 5394).</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:54</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-F07E5F08</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testReturnCreatesNewElement: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-57B04F55</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testSceneRowSelection: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-CE0DF2EC</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testTimelineRenders: XCTAssertTrue failed - Nav button nav-script must exist</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:54</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-F6B4630B</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testToolbarAndTimelineAreVoiceOverTraversable: Failed to get matching snapshot: Application com.directorschair.DirectorsChair-D</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:81</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-5BE064AB</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testTypingInEditor: Failed to get matching snapshots: AX request is for element &lt;AXUIElement Applica</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:46</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-A2DCEBFD</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testNewSceneWizardTypedFlow: Failed to get matching snapshot: No matches found for first query match sequence</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:102</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-C8EDA112</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testOutlineRowsStayStableAcrossEvents: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-79C9D3AF</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testPrimaryControlsExposeAccessibilityIdentifiers: XCTAssertTrue failed - screenplay-editor identifier must resolve</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:482</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-CA99F3E1</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testRapidNavigationClicksLand: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-936A598E</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testReturnCreatesNewElement: Failed to get matching snapshot: No matches found for Descendant with identity b</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:55</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-CBB24EC2</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testSceneRowSelection: Root elements for target (App element pid: 5730) and hit elements (App element p</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:81</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-5131A928</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testStoryDesignCharacterListAndDetail: XCTAssertTrue failed - Story Design should list the fixture&#x27;s characters</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:388</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-7AF0570D</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testTimelineRenders: Failed to get matching snapshots: AX request is for element &lt;AXUIElement Applica</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:46</div>
+        </div>
+<div class="bug ok">
+          <div class="bughdr"><span class="bugid">BUG-AFB040DD</span>
+            <span class="pill ok">Verified fixed</span>
+            <span class="dim">desktop · ui-e2e</span></div>
+          <div class="bugtitle">DirectorsChair_DesktopUITests/testUndoReversesEdit: Application &#x27;com.directorschair.DirectorsChair-Desktop&#x27; has not loaded accessibi</div>
+          <div class='loc'>DirectorsChair_DesktopUITests.swift:33</div>
         </div>
 
 <div class="foot">

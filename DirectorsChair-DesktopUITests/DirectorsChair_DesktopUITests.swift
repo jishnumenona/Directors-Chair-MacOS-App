@@ -38,6 +38,11 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
         // navigation race.
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 20),
                       "Main window should appear")
+        // Bring the app frontmost from the driver side too (the app also
+        // self-activates on launch). Without a frontmost window, elements are
+        // "found but not hittable" and the run stalls until the app is clicked
+        // in the Dock by hand.
+        app.activate()
         let ready = app.buttons["nav-script"].waitForExistence(timeout: 25)
             || app.buttons["nav-overview"].waitForExistence(timeout: 5)
         XCTAssertTrue(ready, "App should reach an interactive project view (nav rail present)")
