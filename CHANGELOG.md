@@ -9,6 +9,46 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.10.0] — 2026-08-02
+
+### Added
+- **One-click web dashboard sign-in**: "Open Web Dashboard" in the account
+  menu now signs you straight into the web portal — a secure single-sign-on
+  handoff, no second login in the browser. If the handoff can't be minted,
+  the button still opens the dashboard sign-in page.
+- **The web dashboard now shows your whole project.** Syncing projects far
+  more content into the portal:
+  - Full **character sheets** — biography, physical appearance with the
+    six-angle image gallery, personality traits (with the AI's confidence
+    and reasoning), voice profile, relationships, scene appearances, and
+    costume cards.
+  - The **screenplay**, readable in the portal — generated from your scenes
+    with proper slug lines, dialogue (including CONT'D), and sound effects.
+  - **Location detail** — image galleries, mood and architecture, color
+    palettes, cinematography defaults, address and notes, and the scenes
+    each location appears in.
+  - **Scene bubbles** — each scene's beats as chronological chat bubbles
+    with speaker colors and tone tags, just like the desktop bubble view.
+  - **Shot pages** now list the dialogue and action lines each shot covers,
+    plus lighting, film-style override, and take counts.
+  - **Props**, the **vision board**, and the full **production suite** —
+    schedule, Gantt chart, cast, crew, teams, budget, and equipment.
+- **Live sync progress**: the toolbar sync button shows a determinate
+  progress ring with a percentage while uploading or downloading, weighted
+  by bytes actually transferred.
+
+### Fixed
+- Shot images now appear in the web dashboard — the Overview deck, Scenes
+  tab, and Shot list previously rendered every shot card as a placeholder
+  even when the project was fully synced.
+- Selecting a location in the web dashboard's Story tab no longer jumps
+  back to the first location.
+- Sync no longer uploads the same content twice when two files are
+  identical (faster pushes, accurate progress).
+- The in-app updater can no longer offer a downgrade to an older version
+  (appcast entries with a missing build number are dropped, and every
+  published feed is validated before it goes live).
+
 ## [3.9.0] — 2026-08-01
 
 ### Added
