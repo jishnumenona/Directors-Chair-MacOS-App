@@ -6,6 +6,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import DirectorsChairCore
+import DirectorsChairServices
 
 // MARK: - Vision Board View
 
@@ -513,6 +514,10 @@ public struct VisionBoardView: View {
                         showingExportOptions = false
                         exportLookbookPDF()
                     }
+                    // Creator feature (Product-Versions §3.9). Fail-open:
+                    // every account is .studio until billing, so no lock
+                    // renders today — this exercises the gating pattern.
+                    .requiresTier(.creator, feature: "Lookbook PDF export")
                 }
                 .padding()
                 .frame(width: 240)

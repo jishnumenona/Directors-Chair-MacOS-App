@@ -37,6 +37,7 @@ final class GenerateMissingImagesAction: ProjectAssistantAction, AssistantAction
     many entities are included.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["limit": integerProp], required: [])
     }

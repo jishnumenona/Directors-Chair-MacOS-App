@@ -23,9 +23,15 @@ final class AssistantRuntime {
     /// through the SAME lifecycle the Cinematography view uses.
     weak var videoJobs: VideoJobCoordinator?
 
+    /// The session source for the engine's tier-filtered catalog
+    /// (Product-Versions §5.2). Weak like videoJobs; before configure()
+    /// runs, makeEngine falls back to `.studio` (fail-open).
+    private weak var authManager: AuthManager?
+
     /// Mirrors the app's AIServiceClient token wiring (single 401 refresh);
     /// AuthManager is @MainActor, so both closures hop for its state.
     func configure(authManager: AuthManager) {
+        self.authManager = authManager
         transport.tokenProvider = { [weak authManager] in
             await MainActor.run { authManager?.currentAccessToken }
         }
@@ -54,11 +60,14 @@ final class AssistantRuntime {
 
     /// A fresh engine per turn: the registry is rebuilt so its weak seams
     /// track the live view models, and configuration follows the routing
-    /// table (Preferences → provider/temperature).
+    /// table (Preferences → provider/temperature) plus the session tier
+    /// (the engine advertises only the actions the tier includes).
     func makeEngine(registry: ActionRegistry) -> AssistantEngine {
-        AssistantEngine(
+        var configuration = Self.routedConfiguration()
+        configuration.sessionTier = authManager?.tier ?? .studio  // fail-open
+        return AssistantEngine(
             transport: transport,
             registry: registry,
-            configuration: Self.routedConfiguration())
+            configuration: configuration)
     }
 }

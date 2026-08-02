@@ -120,6 +120,14 @@ public class AuthManager: ObservableObject {
     @Published public var isLoading = false
     @Published public var errorMessage: String?
 
+    /// The session's product tier, derived from the access token's `tier`
+    /// claim whenever the token changes (Product-Versions §5.2). The token
+    /// is decoded WITHOUT signature verification — the server verifies
+    /// every request; this feeds display/UX gating only. Fail-open: no
+    /// token, or an unknown/legacy claim, resolves to `.studio` until
+    /// billing ships (the structure-now rule — see Entitlements.swift).
+    @Published public private(set) var tier: ProductTier = ProductTier(fromJWT: nil)
+
     // MARK: - Configuration
 
     public var configuration: AuthConfiguration
@@ -178,6 +186,7 @@ public class AuthManager: ObservableObject {
             }
 
             accessToken = storedToken
+            tier = ProductTier(fromJWT: storedToken)
             refreshToken = try await keychain.load(key: .refreshToken)
 
             if let expiryString = try await keychain.load(key: .tokenExpiry),
@@ -539,6 +548,7 @@ public class AuthManager: ObservableObject {
 
     private func storeTokens(_ response: TokenResponse) async throws {
         accessToken = response.access_token
+        tier = ProductTier(fromJWT: response.access_token)
         refreshToken = response.refresh_token
 
         if let expiresIn = response.expires_in {
@@ -562,6 +572,7 @@ public class AuthManager: ObservableObject {
 
     private func clearSession() async {
         accessToken = nil
+        tier = ProductTier(fromJWT: nil)  // fail-open: signed out = .studio today
         refreshToken = nil
         tokenExpiry = nil
         currentUser = nil

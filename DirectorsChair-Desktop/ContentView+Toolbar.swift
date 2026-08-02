@@ -24,6 +24,10 @@ struct AppToolbar: View {
     @EnvironmentObject var captureService: LiveCaptureService
     @EnvironmentObject var cloudSyncManager: CloudSyncManager
     @EnvironmentObject var syncEngine: SyncEngine
+    /// Session tier (Product-Versions §5.3): destinations above it stay in
+    /// the toolbar with a lock badge — never hidden. Fail-open default
+    /// `.studio` means no badge renders until billing ships.
+    @Environment(\.productTier) private var productTier
 
     var body: some View {
         HStack(spacing: 0) {
@@ -38,6 +42,11 @@ struct AppToolbar: View {
                         Label(view.rawValue, systemImage: view.icon)
                             .labelStyle(.iconOnly)
                             .frame(width: 32, height: 32)
+                            .overlay(alignment: .topTrailing) {
+                                if view.requiredTier > productTier {
+                                    TierLockBadge()
+                                }
+                            }
                     }
                     .buttonStyle(ToolbarButtonStyle(isSelected: coordinator.selectedView == view, tooltipText: view.rawValue))
                     .accessibilityIdentifier("nav-\(view.rawValue.lowercased().replacingOccurrences(of: " ", with: "-"))")

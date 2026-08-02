@@ -63,6 +63,10 @@ struct DirectorsChair_DesktopApp: App {
                 .environmentObject(authManager)
                 .environmentObject(cloudSyncManager)
                 .environmentObject(syncEngine)
+                // Product-tiering Phase 2: the session tier for lock-badge
+                // gating (Product-Versions §5.2). AuthManager derives it from
+                // the JWT's tier claim; fail-open `.studio` until billing.
+                .environment(\.productTier, authManager.tier)
                 .focusedValue(\.projectViewModel, projectViewModel)
                 .focusedValue(\.appCoordinator, coordinator)
                 .frame(minWidth: 1200, minHeight: 800)

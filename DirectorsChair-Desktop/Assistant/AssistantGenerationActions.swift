@@ -186,6 +186,7 @@ final class GenerateCharacterImagesAction: ProjectAssistantAction, AssistantActi
     profile_right|back).
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "character": stringProp,

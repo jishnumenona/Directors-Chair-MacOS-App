@@ -45,6 +45,7 @@ final class GenerateSceneImageAction: ProjectAssistantAction, AssistantAction {
     after the user approves. Overwrites the scene's existing overview.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["scene": stringProp, "custom_prompt": stringProp],
                      required: ["scene"])
@@ -123,6 +124,7 @@ final class GenerateLocationImagesAction: ProjectAssistantAction, AssistantActio
     after the user approves. Variations use the primary image as reference.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["location": stringProp, "variations": stringArrayProp],
                      required: ["location"])
@@ -248,6 +250,7 @@ final class GenerateVisionBoardImageAction: ProjectAssistantAction, AssistantAct
     description. SPENDS ~$0.04; runs only after the user approves.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["prompt": stringProp], required: ["prompt"])
     }

@@ -42,6 +42,11 @@ struct CentralViewStack: View {
     /// AI operation progress — survives navigation between tabs
     @StateObject private var aiProgress = AIProgressTracker()
 
+    /// Session tier (Product-Versions §5.2): a destination above it routes
+    /// to LockedFeatureView instead of its real content. Fail-open default
+    /// `.studio` — every destination renders normally until billing ships.
+    @Environment(\.productTier) private var productTier
+
     // Cache view models to prevent recreation on every switch
     @StateObject private var scheduleViewModel = ScheduleViewModel(scheduleItems: [])
     @StateObject private var castCrewViewModel = CastCrewViewModel(castMembers: [], crewMembers: [], teams: [], equipment: [])
@@ -60,7 +65,7 @@ struct CentralViewStack: View {
         ZStack {
             ForEach(AppView.allCases) { view in
                 if aliveViews.contains(view) || view == currentView {
-                    viewContent(for: view)
+                    gatedContent(for: view)
                         .opacity(view == currentView ? 1 : 0)
                         .allowsHitTesting(view == currentView)
                         .zIndex(view == currentView ? 1 : 0)
@@ -93,6 +98,19 @@ struct CentralViewStack: View {
             // Bubble view renders script content — skip shot/production churn.
             guard event != .shots && event != .production else { return }
             bubbleRefreshTrigger += 1
+        }
+    }
+
+    /// The tier gate at the routing seam (beside requiresProject's home):
+    /// a destination above the session tier renders the upgrade placeholder
+    /// instead of its content — still reachable from the toolbar (lock
+    /// badge, never hidden — Product-Versions §5.3).
+    @ViewBuilder
+    private func gatedContent(for view: AppView) -> some View {
+        if view.requiredTier > productTier {
+            LockedFeatureView(view: view)
+        } else {
+            viewContent(for: view)
         }
     }
 

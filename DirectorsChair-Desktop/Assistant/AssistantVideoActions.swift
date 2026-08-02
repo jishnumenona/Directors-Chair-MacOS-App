@@ -54,6 +54,7 @@ final class GenerateShotVideoAction: ProjectAssistantAction, AssistantAction {
     and in the Cinematography tab.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "shot": integerProp,

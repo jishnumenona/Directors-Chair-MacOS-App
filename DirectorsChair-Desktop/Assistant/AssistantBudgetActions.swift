@@ -69,6 +69,7 @@ final class AddExpenseAction: BudgetAssistantAction, AssistantAction {
     as warnings.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "description": stringProp, "amount": numberProp,

@@ -444,4 +444,53 @@ final class AuthManagerTests: XCTestCase {
             // since the code verifier is nil
         }
     }
+
+    // MARK: - Product Tier (entitlements Phase 2)
+
+    func testInitialTierIsStudioFailOpen() {
+        // Structure now, monetize later: with no token at all the session
+        // behaves as the top tier — nothing is ever locked before billing.
+        XCTAssertEqual(authManager.tier, .studio)
+    }
+
+    func testRestoreSessionDerivesTierFromStoredJWT() async throws {
+        // A stored access token whose payload carries "tier": "creator".
+        // Restore runs into the unreachable test host (offline path) but
+        // the tier is derived from the token itself, before any network.
+        let payload = Data(#"{"sub":"42","tier":"creator"}"#.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        let token = "eyJhbGciOiJSUzI1NiJ9.\(payload).sig"
+        try await testKeychain.save(token, forKey: .accessToken)
+
+        await authManager.restoreSession()
+
+        XCTAssertEqual(authManager.tier, .creator,
+                       "tier must reflect the stored token's claim")
+    }
+
+    func testOpaqueLegacyTokenKeepsTierStudio() async throws {
+        // Today's tokens carry legacy claims ("pro"/"standard") or none the
+        // client maps — an undecodable/legacy token must fail open.
+        try await testKeychain.save("cached-opaque-token", forKey: .accessToken)
+
+        await authManager.restoreSession()
+
+        XCTAssertEqual(authManager.tier, .studio,
+                       "fail-open: opaque/legacy tokens resolve to the top tier")
+    }
+
+    func testLogoutResetsTierToFailOpenStudio() async throws {
+        let payload = Data(#"{"tier":"free"}"#.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        try await testKeychain.save("h.\(payload).s", forKey: .accessToken)
+        await authManager.restoreSession()
+        XCTAssertEqual(authManager.tier, .free)
+
+        await authManager.logout()
+
+        XCTAssertEqual(authManager.tier, .studio,
+                       "signed out = no claim = top tier until billing ships")
+    }
 }
