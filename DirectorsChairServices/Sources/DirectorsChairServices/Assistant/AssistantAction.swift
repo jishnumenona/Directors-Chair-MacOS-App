@@ -85,6 +85,11 @@ public protocol AssistantAction: Sendable {
     /// JSON Schema for the arguments object.
     var parameterSchema: JSONValue { get }
     var risk: ActionRisk { get }
+    /// The lowest product tier whose catalog advertises this action
+    /// (Product-Versions §5.2 — one predicate beside `risk`). Defaults to
+    /// `.free`; the engine filters the tools it advertises by the session
+    /// tier. UX gating only — the server enforces spend via quotas.
+    var minimumTier: ProductTier { get }
 
     /// Checks arguments against live state and produces the preview.
     /// MUST throw `ActionError` (with a model-consumable message) on invalid
@@ -95,6 +100,12 @@ public protocol AssistantAction: Sendable {
     /// inside the loop; for `.mutating`/`.spending` it runs only after user
     /// approval (Phase A2.4 UI).
     @MainActor func execute(argumentsData: Data) async throws -> ActionOutcome
+}
+
+public extension AssistantAction {
+    /// Actions are Free unless a conformance says otherwise (the §3 matrix
+    /// assigns the spending generation actions to Creator).
+    var minimumTier: ProductTier { .free }
 }
 
 // MARK: - Registry

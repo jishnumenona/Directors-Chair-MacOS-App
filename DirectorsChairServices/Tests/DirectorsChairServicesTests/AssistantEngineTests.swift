@@ -94,6 +94,27 @@ private struct FailingAction: AssistantAction {
     }
 }
 
+/// Tiering Phase 2: a Creator-only spending action (the shape every real
+/// generation action declares via `minimumTier`).
+private final class CreatorGenerationAction: AssistantAction, @unchecked Sendable {
+    let name = "generate_poster"
+    let summary = "Generate a poster image"
+    let parameterSchema = JSONValue.object(["type": .string("object")])
+    let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator
+    private(set) var validated = false
+
+    func validate(argumentsData: Data) throws -> ActionPlan {
+        validated = true
+        return ActionPlan(summary: "poster", estimatedCost: 0.04)
+    }
+
+    func execute(argumentsData: Data) async throws -> ActionOutcome {
+        XCTFail("a locked action must never execute")
+        return ActionOutcome(resultForModel: "{}", userSummary: "")
+    }
+}
+
 // MARK: - Helpers
 
 private func call(_ id: String, _ name: String,
@@ -442,5 +463,79 @@ final class AssistantEngineThreadTests: XCTestCase {
         XCTAssertTrue(events.contains(
             .usageReported(promptTokens: 6000, completionTokens: 400)),
             "the caller needs usage for the AI Usage accounting tab")
+    }
+
+    // MARK: - Tier-filtered catalog (entitlements Phase 2)
+
+    func testActionsDefaultToFreeTier() {
+        // The protocol extension: an action that declares nothing is Free.
+        XCTAssertEqual(ReadAction().minimumTier, .free)
+        XCTAssertEqual(MutatingAction().minimumTier, .free)
+        XCTAssertEqual(CreatorGenerationAction().minimumTier, .creator)
+    }
+
+    func testFreeSessionAdvertisesOnlyFreeTools() async throws {
+        let transport = ScriptedTransport(scripts: [[
+            .delta("Hello."), .done(finishReason: "stop", model: "m")]])
+        var registry = ActionRegistry()
+        try registry.register(ReadAction())
+        try registry.register(CreatorGenerationAction())
+        let engine = AssistantEngine(
+            transport: transport, registry: registry,
+            configuration: EngineConfiguration(sessionTier: .free))
+
+        _ = await collect(engine, thread: nil)
+
+        XCTAssertEqual(transport.requests[0].tools.map(\.name), ["get_scene"],
+                       "a Free session must not advertise Creator actions")
+    }
+
+    func testDefaultConfigurationAdvertisesTheFullCatalog() async throws {
+        // GOLDEN PATH: the default session tier is .studio (fail-open,
+        // structure-now rule), so an unwired engine advertises everything —
+        // identical to the pre-tiering behavior.
+        let transport = ScriptedTransport(scripts: [[
+            .delta("Hello."), .done(finishReason: "stop", model: "m")]])
+        var registry = ActionRegistry()
+        try registry.register(ReadAction())
+        try registry.register(CreatorGenerationAction())
+        let engine = AssistantEngine(transport: transport, registry: registry)
+
+        _ = await collect(engine, thread: nil)
+
+        XCTAssertEqual(EngineConfiguration().sessionTier, .studio)
+        XCTAssertEqual(transport.requests[0].tools.map(\.name),
+                       registry.toolDefinitions.map(\.name),
+                       "at .studio the advertised catalog is the full registry")
+    }
+
+    func testLockedToolCallIsRefusedWithoutExecution() async throws {
+        // Defense in depth: the model hallucinates a call to a tool that was
+        // never advertised — it must be refused, never validated/executed
+        // or proposed in a TurnPlan.
+        let transport = ScriptedTransport(scripts: [
+            [call("call_7", "generate_poster"),
+             .done(finishReason: "tool_calls", model: "m")],
+            [.delta("That is not available."),
+             .done(finishReason: "stop", model: "m")],
+        ])
+        let locked = CreatorGenerationAction()
+        var registry = ActionRegistry()
+        try registry.register(ReadAction())
+        try registry.register(locked)
+        let engine = AssistantEngine(
+            transport: transport, registry: registry,
+            configuration: EngineConfiguration(sessionTier: .free))
+
+        let events = await collect(engine, thread: nil)
+
+        XCTAssertFalse(locked.validated, "locked actions are never validated")
+        XCTAssertFalse(events.contains { event in
+            if case .turnPlan = event { return true } ; return false
+        }, "a locked call must not become a proposal")
+        let toolResult = transport.requests[1].messages.last { $0.role == .tool }
+        XCTAssertTrue(toolResult?.textContent
+            .contains("not included in this account's plan") == true,
+            "the model is told the tool is out of plan")
     }
 }

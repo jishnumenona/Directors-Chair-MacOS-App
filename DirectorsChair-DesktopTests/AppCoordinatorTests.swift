@@ -6,6 +6,7 @@ import XCTest
 import Combine
 @testable import DirectorsChair_Desktop
 @testable import DirectorsChairCore
+@testable import DirectorsChairServices
 
 @MainActor
 final class AppCoordinatorTests: XCTestCase {
@@ -171,6 +172,28 @@ final class AppCoordinatorTests: XCTestCase {
     func testAppViewAllCases() {
         let allViews = AppView.allCases
         XCTAssertEqual(allViews.count, 13)
+    }
+
+    func testAppViewRequiredTier() {
+        // Product-Versions §3: the production suite and the capture/curation
+        // toolkit are Creator; every other app-nav destination is Free.
+        XCTAssertEqual(AppView.production.requiredTier, .creator)
+        XCTAssertEqual(AppView.curation.requiredTier, .creator)
+
+        for view in AppView.allCases where view != .production && view != .curation {
+            XCTAssertEqual(view.requiredTier, .free,
+                           "\(view.rawValue) is part of the free creative core")
+        }
+
+        // Nothing at app-nav level is Studio — org surfaces live inside the
+        // sync UI, not the navigator.
+        XCTAssertFalse(AppView.allCases.contains { $0.requiredTier == .studio })
+
+        // Structure-now invariant: at today's session tier (.studio,
+        // fail-open) no destination is ever locked — zero user impact.
+        XCTAssertTrue(AppView.allCases.allSatisfy {
+            $0.requiredTier <= ProductTier.studio
+        })
     }
 
     func testAppViewIcons() {

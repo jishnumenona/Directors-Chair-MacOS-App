@@ -46,6 +46,7 @@ final class GenerateDialogueAudioAction: ProjectAssistantAction, AssistantAction
     SPENDS ~$0.30 per 1k characters; runs only after the user approves.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "scene": stringProp, "index": integerProp, "regenerate": boolProp,

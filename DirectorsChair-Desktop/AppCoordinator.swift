@@ -11,6 +11,7 @@ import SwiftUI
 import Combine
 import os
 import DirectorsChairCore
+import DirectorsChairServices
 
 // MARK: - Debug Logging
 
@@ -510,6 +511,23 @@ enum AppView: String, CaseIterable, Identifiable {
             return false
         default:
             return true
+        }
+    }
+
+    /// The minimum product tier that includes this destination
+    /// (Product-Versions §3): the production suite and the capture/curation
+    /// toolkit are Creator; everything else at app-nav level is Free.
+    /// Nothing here is Studio — org/collaboration surfaces live inside the
+    /// sync UI, not the navigator. Per §5.3 a view above the session tier
+    /// still appears in the navigator (lock badge) and routes to
+    /// LockedFeatureView, never hidden. Until billing every session
+    /// resolves to `.studio`, so no gate engages today.
+    var requiredTier: ProductTier {
+        switch self {
+        case .production, .curation:
+            return .creator
+        default:
+            return .free
         }
     }
 }

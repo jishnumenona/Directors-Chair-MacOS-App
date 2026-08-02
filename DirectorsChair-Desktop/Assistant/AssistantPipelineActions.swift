@@ -43,6 +43,11 @@ final class ImportScreenplayAction: ProjectAssistantAction, AssistantAction {
     PDF's file path.
     """
     let risk = ActionRisk.spending
+    /// Deliberately Free despite being a spending action (Product-Versions
+    /// §3.1 footnote 1): importing an existing screenplay is the critical
+    /// first-run path for a new user. The Free monthly AI allowance still
+    /// meters it server-side.
+    let minimumTier = ProductTier.free
     var parameterSchema: JSONValue {
         objectSchema(["path": stringProp], required: ["path"])
     }
@@ -136,6 +141,7 @@ final class WriteCharacterBiographyAction: ProjectAssistantAction, AssistantActi
     existing backstory (undoable). Runs on approval (~$0.01).
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["character": stringProp], required: ["character"])
     }
@@ -199,6 +205,7 @@ final class CalibrateCharacterTraitsAction: ProjectAssistantAction, AssistantAct
     approval (~$0.02).
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["character": stringProp], required: ["character"])
     }
@@ -272,6 +279,7 @@ final class AnalyzeTimelineAction: ProjectAssistantAction, AssistantAction {
     approval.
     """
     let risk = ActionRisk.spending
+    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["scene": stringProp], required: [])
     }

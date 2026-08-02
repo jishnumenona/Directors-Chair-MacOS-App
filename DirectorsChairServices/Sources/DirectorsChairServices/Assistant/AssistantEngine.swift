@@ -23,16 +23,23 @@ public struct EngineConfiguration: Sendable {
     public var maxTokens: Int
     public var temperature: Double
     public var projectId: String?
+    /// The session's product tier — the engine advertises only the actions
+    /// whose `minimumTier` this tier satisfies (Product-Versions §5.2).
+    /// Defaults to `.studio` (fail-open, structure-now rule): an unwired
+    /// caller sees the full catalog, exactly today's behavior.
+    public var sessionTier: ProductTier
 
     public init(maxModelCalls: Int = 8, provider: String? = nil,
                 model: String? = nil, maxTokens: Int = 4000,
-                temperature: Double = 0.7, projectId: String? = nil) {
+                temperature: Double = 0.7, projectId: String? = nil,
+                sessionTier: ProductTier = .studio) {
         self.maxModelCalls = maxModelCalls
         self.provider = provider
         self.model = model
         self.maxTokens = maxTokens
         self.temperature = temperature
         self.projectId = projectId
+        self.sessionTier = sessionTier
     }
 }
 
@@ -108,12 +115,24 @@ public actor AssistantEngine {
     private let transport: any ChatTransporting
     private let registry: ActionRegistry
     private let configuration: EngineConfiguration
+    /// The catalog advertised to the model: the registry's definitions
+    /// filtered by the session tier (registry itself stays unfiltered —
+    /// tiering is one predicate at the advertisement seam, §5.2). At the
+    /// default `.studio` tier this is the full catalog, byte-identical to
+    /// the pre-tiering behavior.
+    private let advertisedTools: [ToolDefinition]
 
     public init(transport: any ChatTransporting, registry: ActionRegistry,
                 configuration: EngineConfiguration = EngineConfiguration()) {
         self.transport = transport
         self.registry = registry
         self.configuration = configuration
+        self.advertisedTools = registry.toolDefinitions.filter { definition in
+            guard let action = registry.action(named: definition.name) else {
+                return false
+            }
+            return action.minimumTier <= configuration.sessionTier
+        }
     }
 
     /// Runs one turn. `history` is the prior conversation (system prompt +
@@ -168,7 +187,7 @@ public actor AssistantEngine {
 
             let request = ChatRequestBody(
                 messages: established ? systemMessages + unsent : messages,
-                tools: registry.toolDefinitions,
+                tools: advertisedTools,
                 provider: configuration.provider,
                 model: configuration.model,
                 maxTokens: configuration.maxTokens,
@@ -290,6 +309,12 @@ public actor AssistantEngine {
                         continuation: AsyncStream<EngineEvent>.Continuation) async -> String {
         guard let action = registry.action(named: call.name) else {
             return #"{"error": "unknown tool '\#(call.name)' — use only the provided tools"}"#
+        }
+        // Defense in depth beside the advertisement filter: a call to an
+        // above-tier tool (hallucinated name — it was never advertised)
+        // must not execute. UX gating only; the server enforces spend.
+        guard action.minimumTier <= configuration.sessionTier else {
+            return #"{"error": "tool '\#(call.name)' is not included in this account's plan — use only the provided tools"}"#
         }
         let argumentsData: Data
         do {

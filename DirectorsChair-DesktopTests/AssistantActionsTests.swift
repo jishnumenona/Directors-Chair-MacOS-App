@@ -78,6 +78,56 @@ final class AssistantActionsTests: XCTestCase {
         }
     }
 
+    // MARK: - Tier assignments (Product-Versions §3.7)
+
+    func testSpendingGenerationActionsAreCreatorTier() {
+        // The matrix's generation + assistant-production spending actions.
+        let creatorActions = [
+            "generate_character_images", "generate_scene_image",
+            "generate_location_images", "generate_vision_board_image",
+            "generate_shot_video", "generate_dialogue_audio",
+            "generate_missing_images", "write_character_biography",
+            "calibrate_character_traits", "analyze_timeline", "add_expense",
+        ]
+        for name in creatorActions {
+            XCTAssertEqual(action(name).minimumTier, .creator, name)
+        }
+
+        // The deliberate Free exception (§3.1 footnote 1): screenplay
+        // import is the critical first-run path, metered server-side.
+        XCTAssertEqual(action("import_screenplay").minimumTier, .free)
+        // Navigation-class Storyteller entry stays Free — the cost sheet
+        // and the Creator-tier generation actions gate the actual spend.
+        XCTAssertEqual(action("start_storyteller").minimumTier, .free)
+
+        // Consistency: every OTHER spending action must be Creator — a new
+        // spending action lands here (with a matrix row) or fails the build.
+        for definition in registry.toolDefinitions {
+            guard let act = registry.action(named: definition.name),
+                  act.risk == .spending, act.name != "import_screenplay" else {
+                continue
+            }
+            XCTAssertEqual(act.minimumTier, .creator,
+                           "\(act.name): spending actions are Creator+ (§3.7)")
+        }
+    }
+
+    func testStudioSessionAdvertisesTheFullCatalogGoldenPath() {
+        // Structure-now invariant: every account resolves to .studio until
+        // billing, and at .studio the tier filter passes the ENTIRE catalog
+        // — assistant behavior today is byte-identical to pre-tiering.
+        XCTAssertEqual(EngineConfiguration().sessionTier, .studio)
+        let advertised = registry.toolDefinitions.filter { definition in
+            guard let act = registry.action(named: definition.name) else {
+                return false
+            }
+            return act.minimumTier <= ProductTier.studio
+        }
+        XCTAssertEqual(advertised.map(\.name),
+                       registry.toolDefinitions.map(\.name))
+        XCTAssertEqual(advertised.count, 54)
+    }
+
     // MARK: - Storyteller (navigation-class, never spends by itself)
 
     func testStartStorytellerIsReadOnlyAndFlagsCoordinator() async throws {
