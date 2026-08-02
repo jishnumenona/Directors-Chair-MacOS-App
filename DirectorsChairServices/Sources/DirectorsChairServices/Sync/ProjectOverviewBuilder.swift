@@ -64,12 +64,8 @@ public enum ProjectOverviewBuilder {
             deck["screenplay"] = ["title": project.name, "elements": screenplay]
         }
 
-        deck["locations"] = project.locations.map { location -> [String: Any] in
-            var entry: [String: Any] = ["name": location.name]
-            if let image = blobURL(location.primaryImage) {
-                entry["image"] = image
-            }
-            return entry
+        deck["locations"] = project.locations.map {
+            locationCard($0, project: project, blobURL: blobURL)
         }
 
         var sceneCount = 0
@@ -78,6 +74,10 @@ public enum ProjectOverviewBuilder {
         // flat top-level shot board (ProjectView dereferences deck.shots
         // unconditionally — its absence crashed the page).
         var shotBoard: [[String: Any]] = []
+        let styleNameByID = Dictionary(project.filmStyles.map { ($0.id, $0.name) },
+                                       uniquingKeysWith: { first, _ in first })
+        let colorByCharacter = Dictionary(project.characters.map { ($0.name, $0.color) },
+                                          uniquingKeysWith: { first, _ in first })
         deck["scenes"] = project.sequences.flatMap { sequence in
             sequence.scenes.map { scene -> [String: Any] in
                 sceneCount += 1
@@ -110,8 +110,23 @@ public enum ProjectOverviewBuilder {
                     field("aperture", shot.aperture)
                     field("status", shot.status)
                     field("description", shot.description)
+                    field("lighting", shot.lightingStyle)
+                    if let override = shot.styleOverride {
+                        field("style", styleNameByID[override] ?? override)
+                    }
                     if let lens = shot.lensMm { card["lens_mm"] = lens }
                     if let duration = shot.duration { card["duration"] = duration }
+                    if !shot.takes.isEmpty { card["takes"] = shot.takes.count }
+                    // The shot page lists the content the shot covers,
+                    // resolved from the desktop's Connections links.
+                    let dialogueLines = shot.linkedDialogueIds.compactMap { id in
+                        scene.dialogues.first { $0.uuid == id }
+                    }.map { "\($0.character.uppercased()): \(plainText($0.text))" }
+                    if !dialogueLines.isEmpty { card["dialogue_lines"] = dialogueLines }
+                    let actionLines = shot.linkedActionIds.compactMap { id in
+                        scene.actions.first { $0.uuid == id }
+                    }.map { plainText($0.description) }
+                    if !actionLines.isEmpty { card["action_lines"] = actionLines }
                     // The AI-generated preview is what the desktop's own shot
                     // cards display; reference imagery is the fallback.
                     if let image = blobURL(shot.previewImage)
@@ -122,6 +137,12 @@ public enum ProjectOverviewBuilder {
                     shotBoard.append(card)
                     return card
                 }
+                // Bubble view: the scene's content as chronological chat
+                // bubbles, dialogue carrying the speaker's color. Includes
+                // sub-bubbles (unlike the screenplay projection) — the
+                // desktop bubble view shows them too.
+                let bubbles = bubbleItems(of: scene, colorByCharacter: colorByCharacter)
+                if !bubbles.isEmpty { entry["bubbles"] = bubbles }
                 return entry
             }
         }
@@ -132,6 +153,90 @@ public enum ProjectOverviewBuilder {
                          "scenes": sceneCount,
                          "shots": shotCount]
         return deck
+    }
+
+    // MARK: - Location detail (portal Story → Locations)
+
+    /// Full location card matching the portal's OverviewLocation wire type.
+    /// The dict-typed desktop fields (styleAttributes, cinematographyDefaults)
+    /// use the keys the desktop UI writes: mood/architecture/palette and
+    /// lighting_style/time_of_day/angle.
+    private static func locationCard(_ location: Location, project: Project,
+                                     blobURL: (String?) -> String?) -> [String: Any] {
+        var entry: [String: Any] = ["id": location.uuid, "name": location.name]
+        func put(_ key: String, _ value: String?) {
+            if let value, !value.isEmpty { entry[key] = value }
+        }
+        put("type", location.locationType)
+        put("description", location.description)
+        put("address", location.address)
+        put("gps", location.gpsCoordinates)
+        put("notes", location.notes)
+        if !location.tags.isEmpty { entry["tags"] = location.tags }
+        if let image = blobURL(location.primaryImage) { entry["image"] = image }
+        let variations = location.images.filter { $0 != location.primaryImage }
+            .enumerated().compactMap { index, path -> [String: Any]? in
+                guard let src = blobURL(path) else { return nil }
+                return ["label": "View \(index + 1)", "src": src]
+            }
+        if !variations.isEmpty { entry["variations"] = variations }
+        let style = location.styleAttributes
+        let attrs = location.attributes
+        put("mood", style["mood"] ?? attrs["mood"])
+        put("architecture", style["architecture"] ?? style["architectural_style"])
+        // The portal renders palette entries as color swatches — only hex
+        // values survive; descriptive palettes ("dust, oak, brass") don't.
+        if let palette = style["color_palette"] ?? style["palette"] {
+            let swatches = palette.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { $0.hasPrefix("#") }
+            if !swatches.isEmpty { entry["color_palette"] = swatches }
+        }
+        let cine = location.cinematographyDefaults
+        put("cine_angle", cine["angle"] ?? cine["camera_angle"])
+        put("cine_lighting", cine["lighting_style"] ?? cine["lighting"])
+        put("cine_time", cine["time_of_day"] ?? attrs["time_of_day"])
+        let context = project.sequences.flatMap(\.scenes)
+            .filter { $0.location == location.name }.map(\.name)
+        if !context.isEmpty { entry["scene_context"] = context }
+        return entry
+    }
+
+    // MARK: - Bubble view (portal scene detail)
+
+    /// The scene's content as chronological chat bubbles — dialogue in the
+    /// speaker's color with tone tags; actions, narrations, and sound cues
+    /// as neutral flow bubbles. Sub-bubbles are included (the desktop
+    /// bubble view shows them attached to their dialogue).
+    private static func bubbleItems(of scene: Scene,
+                                    colorByCharacter: [String: String]) -> [[String: Any]] {
+        var items: [(chronology: Int, bubble: [String: Any])] = []
+        for dialogue in scene.dialogues {
+            var bubble: [String: Any] = ["kind": "dialogue",
+                                         "text": plainText(dialogue.text),
+                                         "character": dialogue.character]
+            if let color = colorByCharacter[dialogue.character], !color.isEmpty {
+                bubble["color"] = color
+            }
+            if !dialogue.tags.isEmpty { bubble["tags"] = dialogue.tags }
+            items.append((dialogue.chronologyNumber, bubble))
+        }
+        for action in scene.actions {
+            items.append((action.chronologyNumber,
+                          ["kind": "action", "text": plainText(action.description)]))
+        }
+        for narration in scene.narrations {
+            items.append((narration.chronologyNumber,
+                          ["kind": "narration", "text": plainText(narration.text)]))
+        }
+        for note in scene.soundNotes {
+            items.append((note.chronologyNumber,
+                          ["kind": "sound",
+                           "text": "\(note.soundType.uppercased()): \(note.description)"]))
+        }
+        return items.sorted { $0.chronology < $1.chronology }
+            .map(\.bubble)
+            .filter { ($0["text"] as? String)?.isEmpty == false }
     }
 
     // MARK: - Character sheet (portal per-character page)
