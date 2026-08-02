@@ -425,6 +425,148 @@ final class ProjectOverviewBuilderTests: XCTestCase {
                        "sub-bubbles stay out of the script, as on desktop")
     }
 
+    func testPropsVisionAndProductionProjection() throws {
+        // Final parity sweep: the portal's Story→Props, Vision board, and
+        // Production tabs gate on deck sections the desktop never sent.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overview-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("assets"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("prop".utf8).write(to: dir.appendingPathComponent("assets/prop.png"))
+        try Data("vision".utf8).write(to: dir.appendingPathComponent("assets/vision.png"))
+
+        var project = Project(name: "Test Film")
+
+        var rangefinder = Prop(name: "Rangefinder", thumbnail: "assets/prop.png")
+        rangefinder.category = "Camera"
+        rangefinder.status = "In Use"
+        rangefinder.description = "The key object."
+        rangefinder.detailedSpecs = "1950s, engraved."
+        rangefinder.continuityNotes = "Strap frays in Act 2."
+        rangefinder.sceneNames = ["Opening", "Opening", "Finale"]
+        project.props = [rangefinder]
+
+        var palette = VisionCard(title: "Palette")
+        palette.cardType = "color_palette"
+        palette.colorPalette = ["#0b2a34", "#0b2a34", "dust"]
+        palette.position = 0
+        var note = VisionCard(title: "Director's note")
+        note.cardType = "text"
+        note.text = "Listening, not spectacle."
+        note.department = "production_design"
+        note.position = 1
+        var still = VisionCard(title: "Aurora")
+        still.cardType = "image"
+        still.imagePath = "assets/vision.png"
+        still.pinned = true
+        still.position = 2
+        project.beats = [note, still, palette]   // out of position order
+
+        var day = ScheduleItem()
+        day.sceneName = "Day 1 — interiors"
+        day.shootDate = "2026-08-15"
+        day.status = "Planned"
+        day.estimatedDurationHours = 8
+        day.requiredActors = ["Nadia Sorel", "Nadia Sorel"]
+        project.scheduleItems = [day]
+
+        var task = GanttTask(name: "Shoot", category: .shooting)
+        task.startDate = "2026-08-15"
+        task.durationDays = 2
+        task.completionPercentage = 40
+        var lock = GanttTask(name: "Script lock", category: .preProduction)
+        lock.startDate = "2026-07-20"
+        lock.isMilestone = true
+        project.ganttTasks = [task, lock]
+
+        var lead = CastMember(actorName: "Nadia Sorel", characterName: "Mara")
+        lead.roleType = "Principal"
+        project.castMembers = [lead]
+        var dp = CrewMember(name: "Marisol Vega", role: "DP")
+        dp.department = "Camera"
+        project.crewMembers = [dp]
+        var unit = Team(name: "A-Camera Unit")
+        unit.crewMemberIds = [dp.id]
+        unit.teamLeadId = dp.id
+        project.teams = [unit]
+
+        project.projectBudget = ProjectBudget(
+            categories: [BudgetCategory(name: "Camera", allocated: 320),
+                         BudgetCategory(name: "Camera", allocated: 80),
+                         BudgetCategory(name: "Cast", allocated: 480)],
+            expenses: [Expense(category: "Camera", amount: 140,
+                               department: "Camera")],
+            totalBudget: 18_500)
+
+        var camera = EquipmentItem(name: "Sony FX6")
+        camera.category = "Camera"
+        camera.isRental = true
+        camera.rentalDailyRate = 285
+        var allocation = EquipmentAllocation(equipmentItemId: camera.id)
+        allocation.allocationMode = .fullProduction
+        project.equipmentLibrary = [camera]
+        project.equipmentAllocations = [allocation]
+
+        let deck = ProjectOverviewBuilder.deck(project: project,
+                                               projectDir: dir, projectID: "p-1")
+
+        let props = deck["props"] as? [[String: Any]]
+        XCTAssertEqual(props?.first?["name"] as? String, "Rangefinder")
+        XCTAssertEqual(props?.first?["specs"] as? String, "1950s, engraved.")
+        XCTAssertEqual(props?.first?["continuity"] as? String, "Strap frays in Act 2.")
+        XCTAssertEqual(props?.first?["scenes"] as? [String], ["Opening", "Finale"],
+                       "scene chips are React keys — deduped")
+        XCTAssertNotNil(props?.first?["image"])
+
+        let vision = deck["vision_board"] as? [[String: Any]]
+        XCTAssertEqual(vision?.map { $0["title"] as? String },
+                       ["Palette", "Director's note", "Aurora"],
+                       "cards ordered by position")
+        XCTAssertEqual(vision?[0]["color_palette"] as? [String], ["#0b2a34"],
+                       "hex-only, deduped swatches")
+        XCTAssertEqual(vision?[1]["department"] as? String, "Production Design")
+        XCTAssertEqual(vision?[2]["pinned"] as? Bool, true)
+        XCTAssertNotNil(vision?[2]["image"])
+
+        let production = deck["production"] as? [String: Any]
+        let schedule = production?["schedule"] as? [[String: Any]]
+        XCTAssertEqual(schedule?.first?["shoot_date"] as? String, "2026-08-15")
+        XCTAssertEqual(schedule?.first?["cast"] as? [String], ["Nadia Sorel"],
+                       "chips deduped")
+        let gantt = production?["gantt"] as? [[String: Any]]
+        XCTAssertEqual(gantt?[0]["end_date"] as? String, "2026-08-16",
+                       "duration folds into end_date — the portal draws bars from it")
+        XCTAssertEqual(gantt?[1]["is_milestone"] as? Bool, true)
+        XCTAssertNil(gantt?[1]["end_date"], "milestones render as markers")
+        let cast = production?["cast"] as? [[String: Any]]
+        XCTAssertEqual(cast?.first?["shoot_days"] as? Int, 1,
+                       "derived from schedule membership")
+        let teams = production?["teams"] as? [[String: Any]]
+        XCTAssertEqual(teams?.first?["lead"] as? String, "Marisol Vega",
+                       "lead id resolves to a name")
+        let budget = production?["budget"] as? [String: Any]
+        let categories = budget?["categories"] as? [[String: Any]]
+        XCTAssertEqual(categories?.count, 2,
+                       "duplicate category names merge — the portal keys rows by name")
+        XCTAssertEqual(categories?.first?["allocated"] as? Double, 400)
+        XCTAssertEqual((budget?["by_department"] as? [[String: Any]])?.first?["name"] as? String,
+                       "Camera")
+        let equipment = production?["equipment"] as? [[String: Any]]
+        XCTAssertEqual(equipment?.first?["allocation"] as? String, "Full production")
+        XCTAssertEqual(equipment?.first?["rental_daily_rate"] as? Double, 285)
+
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(deck))
+
+        // Empty projects omit all three sections (tabs stay hidden).
+        let bare = ProjectOverviewBuilder.deck(project: Project(name: "Bare"),
+                                               projectDir: dir, projectID: "p-2")
+        XCTAssertNil(bare["props"])
+        XCTAssertNil(bare["vision_board"])
+        XCTAssertNil(bare["production"])
+    }
+
     func testDecodeProjectHandlesISO8601DatesFromPersistence() throws {
         // Persistence writes dates as ISO-8601 (ProjectPersistence's
         // encoder); the overview push must decode the same dialect. The
