@@ -17,8 +17,19 @@ struct SyncEngineStatusView: View {
     var body: some View {
         Button(action: { Task { await syncNow() } }) {
             HStack(spacing: 5) {
-                Image(systemName: iconName)
-                    .foregroundStyle(iconColor)
+                if isSyncing, let progress = engine.progress {
+                    // Byte-weighted transfer progress: determinate ring +
+                    // percent, replacing the static icon while blobs move.
+                    ProgressView(value: progress)
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .font(.system(size: 10, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: iconName)
+                        .foregroundStyle(iconColor)
+                }
                 // Org subtitle (Orgs §12B.7): whose cloud this project
                 // lives in, plus the pull-only marker for viewers.
                 if let subtitle {

@@ -26,8 +26,16 @@ public final class SyncEngine: ObservableObject {
         case synced(Date)
     }
 
-    @Published public private(set) var state: EngineState = .idle
+    @Published public private(set) var state: EngineState = .idle {
+        // Progress only means something while a transfer runs; any terminal
+        // or idle state clears it so the button falls back to its icon.
+        didSet { if case .syncing = state {} else { progress = nil } }
+    }
     @Published public private(set) var pendingChanges: Int = 0
+    /// Byte-weighted transfer progress (0…1) while a push uploads or a pull
+    /// downloads blobs; nil during quick phases (prepare, lookup, commit
+    /// bookkeeping) and outside syncs. The toolbar renders it as a percent.
+    @Published public private(set) var progress: Double?
     /// Remote context for the open project (Orgs §12B.7): the owning org's
     /// name and this user's role there. Served instantly from the checkpoint
     /// cache, refreshed from the server when the project opens.
@@ -225,14 +233,24 @@ public final class SyncEngine: ObservableObject {
         let refs = SyncManifestBuilder.blobRefs(of: manifest)
         let missing = Set(try await client.missingBlobs(projectID: projectID, refs: refs))
         guard !missing.isEmpty else { return }
+        // Dedupe by sha: identical files share one blob — uploading it twice
+        // would waste bandwidth AND make byte progress overshoot its total.
+        var seen: Set<String> = []
+        let toUpload = refs.filter { missing.contains($0.sha256) && seen.insert($0.sha256).inserted }
+        let totalBytes = max(1, toUpload.reduce(0) { $0 + $1.size })
+        var sentBytes = 0
         var uploaded = 0
-        for ref in refs where missing.contains(ref.sha256) {
+        progress = 0
+        for ref in toUpload {
             uploaded += 1
-            state = .syncing("Uploading \(uploaded)/\(missing.count)…")
+            state = .syncing("Uploading \(uploaded)/\(toUpload.count)…")
+            progress = Double(sentBytes) / Double(totalBytes)
             let data = try dataFor(sha256: ref.sha256, manifest: manifest,
                                    projectDir: projectDir)
             try await client.uploadBlob(projectID: projectID, sha256: ref.sha256,
                                         data: data)
+            sentBytes += ref.size
+            progress = Double(sentBytes) / Double(totalBytes)
         }
     }
 
@@ -358,20 +376,31 @@ public final class SyncEngine: ObservableObject {
                 uniqueKeysWithValues: (syncState.lastManifest?.assets ?? [])
                     .map { ($0.path, $0.sha256) })
 
+            let projectChanged = target.manifest.projectBlob != syncState.lastManifest?.projectBlob
+            let changedAssets = target.manifest.assets.filter { known[$0.path] != $0.sha256 }
+            let totalBytes = max(1, (projectChanged ? target.manifest.projectBlob.size : 0)
+                                 + changedAssets.reduce(0) { $0 + $1.size })
+            var gotBytes = 0
+            progress = 0
+
             // project.json first: the document is the source of truth.
-            if target.manifest.projectBlob != syncState.lastManifest?.projectBlob {
+            if projectChanged {
                 state = .syncing("Downloading project…")
                 let data = try await client.downloadBlob(projectID: syncState.projectID,
                                                          sha256: target.manifest.projectBlob.sha256)
                 try write(data: data, relativePath: "project.json", projectDir: projectDir)
+                gotBytes += target.manifest.projectBlob.size
+                progress = Double(gotBytes) / Double(totalBytes)
             }
             var fetched = 0
-            for asset in target.manifest.assets where known[asset.path] != asset.sha256 {
+            for asset in changedAssets {
                 fetched += 1
-                state = .syncing("Downloading assets (\(fetched))…")
+                state = .syncing("Downloading assets (\(fetched)/\(changedAssets.count))…")
                 let data = try await client.downloadBlob(projectID: syncState.projectID,
                                                          sha256: asset.sha256)
                 try write(data: data, relativePath: asset.path, projectDir: projectDir)
+                gotBytes += asset.size
+                progress = Double(gotBytes) / Double(totalBytes)
             }
             // Tombstones from every revision we skipped over (no resurrection).
             for revision in feed.revisions {
