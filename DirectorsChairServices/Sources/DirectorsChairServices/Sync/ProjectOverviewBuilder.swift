@@ -23,6 +23,12 @@ public enum ProjectOverviewBuilder {
             let url = path.hasPrefix("/")
                 ? URL(fileURLWithPath: path)
                 : projectDir.appendingPathComponent(path)
+            // Only files inside the project dir are in the sync manifest;
+            // anything outside was never uploaded, so emitting its sha
+            // would 404 in the portal. Omit it → placeholder instead.
+            let root = projectDir.resolvingSymlinksInPath().path
+            guard url.resolvingSymlinksInPath().path
+                .hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
             guard let data = try? Data(contentsOf: url) else { return nil }
             // /raw redirects to the presigned object so <img src> works;
             // the bare blob endpoint returns JSON for the sync engine.
@@ -87,8 +93,11 @@ public enum ProjectOverviewBuilder {
                     var board: [String: Any] = ["id": "\(scene.id)#\(shot.shotId)",
                                                 "scene": scene.name,
                                                 "shot_type": shot.shotType]
-                    if let image = blobURL(shot.referenceMedia.first(
-                        where: { $0.type == .image })?.path) {
+                    // The AI-generated preview is what the desktop's own shot
+                    // cards display; reference imagery is the fallback.
+                    if let image = blobURL(shot.previewImage)
+                        ?? blobURL(shot.referenceMedia.first(
+                            where: { $0.type == .image })?.path) {
                         board["image"] = image
                     }
                     shotBoard.append(board)
