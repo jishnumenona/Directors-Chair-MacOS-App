@@ -773,6 +773,23 @@ private struct ConnectorArrow: View {
                                            dash: [1.4, 4.6], dashPhase: 2.6))
                 .offset(y: -t * 0.18)
 
+            // The whole length of cord is a target, not just the tag —
+            // an invisible fat stroke over it takes the right-click.
+            thread
+                .stroke(Color.white.opacity(0.001),
+                        style: StrokeStyle(lineWidth: max(16, t * 3.4),
+                                           lineCap: .round))
+                .contentShape(
+                    thread.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
+                                                   lineCap: .round)))
+                .onTapGesture(count: 2, perform: onEditLabel)
+                .contextMenu {
+                    Button("Name this connection…", action: onEditLabel)
+                    Divider()
+                    Button("Cut the thread", role: .destructive, action: onDelete)
+                }
+                .help("Double-click to name it · right-click to cut it")
+
             knot.position(a)
             knot.position(b)
 
