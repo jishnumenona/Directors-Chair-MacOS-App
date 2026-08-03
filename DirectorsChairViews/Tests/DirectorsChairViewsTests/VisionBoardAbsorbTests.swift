@@ -359,3 +359,38 @@ final class VisionBoardSnapDefaultTests: XCTestCase {
                        accuracy: 0.001)
     }
 }
+
+// MARK: - Torn paper (The Wall, pass 2 — DC-0025)
+
+final class VisionTornPaperTests: XCTestCase {
+
+    private let rect = CGRect(x: 0, y: 0, width: 240, height: 160)
+
+    func testTheTearCoversTheWholeScrap() {
+        // The first cut of this shape built four separate polylines
+        // (Path.addLines starts a new subpath), so clipping with it erased
+        // the clipping's own text. The outline must span the scrap.
+        let path = VisionTornPaper(torn: .all, seed: 42).path(in: rect)
+        let bounds = path.boundingRect
+        XCTAssertEqual(bounds.width, rect.width, accuracy: 8)
+        XCTAssertEqual(bounds.height, rect.height, accuracy: 8)
+        XCTAssertTrue(path.contains(CGPoint(x: rect.midX, y: rect.midY)),
+                      "the middle of the paper must be inside the tear")
+        XCTAssertTrue(path.contains(CGPoint(x: 20, y: 20)),
+                      "and so must the corners' content area")
+    }
+
+    func testCleanCutsStayStraight() {
+        let path = VisionTornPaper(torn: [], seed: 7).path(in: rect)
+        XCTAssertEqual(path.boundingRect, rect,
+                       "no torn edges → an exact rectangle")
+    }
+
+    func testTearIsStableAndVaries() {
+        let a = VisionTornPaper(torn: .all, seed: 1).path(in: rect)
+        let b = VisionTornPaper(torn: .all, seed: 1).path(in: rect)
+        let c = VisionTornPaper(torn: .all, seed: 2).path(in: rect)
+        XCTAssertEqual(a.description, b.description, "same scrap, same tear")
+        XCTAssertNotEqual(a.description, c.description, "different scraps differ")
+    }
+}

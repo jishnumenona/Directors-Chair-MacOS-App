@@ -449,7 +449,8 @@ public struct VisionCardEditor: View {
             ZStack {
                 Color(hex: "#101012")
                 VisionTextCardFace(content: content, style: style,
-                                   colorHex: card.textColor)
+                                   colorHex: card.textColor,
+                                seedID: card.id)
             }
             .frame(height: 130)
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -482,7 +483,8 @@ public struct VisionCardEditor: View {
         } label: {
             VStack(spacing: 4) {
                 VisionTextCardFace(content: "Aa", style: style,
-                                   colorHex: card.textColor)
+                                   colorHex: card.textColor,
+                                seedID: card.id)
                     .frame(height: 34)
                 Text(style.displayName)
                     .font(.system(size: 8, weight: .medium))
@@ -688,7 +690,8 @@ public struct VisionCardEditor: View {
                 VisionTextCardFace(
                     content: posterText,
                     style: VisionTextStyle.resolve(card.textStyle),
-                    colorHex: card.textColor)
+                    colorHex: card.textColor,
+                                seedID: card.id)
             }
 
         case .frame:

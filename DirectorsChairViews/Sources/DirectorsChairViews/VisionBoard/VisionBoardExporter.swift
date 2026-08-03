@@ -147,7 +147,8 @@ struct ExportCardView: View {
                     content: [card.text, card.description, card.title]
                         .first { !$0.isEmpty } ?? "",
                     style: VisionTextStyle.resolve(card.textStyle),
-                    colorHex: card.textColor)
+                    colorHex: card.textColor,
+                                seedID: card.id)
             case .colorPalette:
                 HStack(spacing: 0) {
                     ForEach(Array(card.colorPalette.enumerated()),

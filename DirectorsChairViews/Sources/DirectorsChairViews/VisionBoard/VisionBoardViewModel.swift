@@ -907,6 +907,30 @@ public class VisionBoardViewModel: ObservableObject {
                                          y: viewportSize.height / 2))
     }
 
+    /// Rewrites a word clipping in place (The Wall, pass 2). Empty text
+    /// removes the scrap — a clipping with nothing on it is litter.
+    public func rewriteClipping(_ cardId: String, words: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            removeCard(cardId)
+            return
+        }
+        cards[index].text = trimmed
+        notifyChange()
+    }
+
+    /// Cycles a clipping through the cuts (poster → torn strip → editorial
+    /// → caption → note → label).
+    public func cycleClippingCut(_ cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }),
+              cards[index].cardType == VisionCardType.text.rawValue else { return }
+        let next = VisionTextStyle.resolve(cards[index].textStyle).next
+        cards[index].textStyle = next.rawValue
+        UserDefaults.standard.set(next.rawValue, forKey: Self.lastTextStyleKey)
+        notifyChange()
+    }
+
     /// Open editor for existing card
     public func editCard(_ card: VisionCard) {
         editingCard = card

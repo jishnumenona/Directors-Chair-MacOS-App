@@ -28,8 +28,6 @@ public struct VisionBoardCanvas: View {
 
     // MARK: - Constants
 
-    private static let dotGridSpacing: CGFloat = 40
-    private static let dotSize: CGFloat = 2
     private static let canvasSpaceName = "visionCanvas"
 
     // MARK: - Init
@@ -173,7 +171,8 @@ public struct VisionBoardCanvas: View {
                 viewModel.viewportSize = newSize
             }
         }
-        .background(Color(hex: "#1A1A1A"))
+        .background(LinearGradient(colors: VisionWallPalette.surface,
+                                   startPoint: .topLeading, endPoint: .bottomTrailing))
     }
 
     /// Commits whatever was typed on the bare wall as a word scrap, at the
@@ -219,55 +218,48 @@ public struct VisionBoardCanvas: View {
     // MARK: - Canvas Background with Dot Grid
 
     @ViewBuilder
+    /// The wall (The Wall, pass 2). A dot grid and a world-origin crosshair
+    /// told the user this was a CAD canvas; a vision board is a surface you
+    /// pin things to. Warm plaster, a faint grain so the light isn't flat,
+    /// and a soft vignette that keeps the eye in the middle — no rulers, no
+    /// origin, nothing to align to.
     private var canvasBackground: some View {
-        // Screen-space grid: dots at world-grid positions projected through
-        // the transform, culled to the viewport. The grid CONSUMES the
-        // transform; it owns none of it.
-        Canvas { context, size in
-            context.fill(
-                Path(CGRect(origin: .zero, size: size)),
-                with: .color(Color(hex: "#1E1E1E"))
-            )
-
-            let transform = viewModel.transform
-            let spacing = Self.dotGridSpacing * transform.zoom
-            guard spacing >= 6 else { return }   // grid too dense to be useful
-            let dotRadius = max(0.5, Self.dotSize * transform.zoom / 2)
-
-            // Screen positions of world grid lines: offset modulo spacing.
-            let phaseX = transform.offset.x.truncatingRemainder(dividingBy: spacing)
-            let phaseY = transform.offset.y.truncatingRemainder(dividingBy: spacing)
-
-            var x = phaseX - spacing
-            while x < size.width + spacing {
-                var y = phaseY - spacing
-                while y < size.height + spacing {
-                    context.fill(
-                        Path(ellipseIn: CGRect(x: x - dotRadius, y: y - dotRadius,
-                                               width: dotRadius * 2,
-                                               height: dotRadius * 2)),
-                        with: .color(Color(hex: "#3A3A3A"))
-                    )
-                    y += spacing
-                }
-                x += spacing
-            }
-
-            // World-origin crosshair (projected).
-            let origin = transform.toScreen(.zero)
-            let arm: CGFloat = 20 * transform.zoom
-            context.stroke(
-                Path { path in
-                    path.move(to: CGPoint(x: origin.x - arm, y: origin.y))
-                    path.addLine(to: CGPoint(x: origin.x + arm, y: origin.y))
-                    path.move(to: CGPoint(x: origin.x, y: origin.y - arm))
-                    path.addLine(to: CGPoint(x: origin.x, y: origin.y + arm))
-                },
-                with: .color(Color(hex: "#4A4A4A")),
-                lineWidth: 1
-            )
+        ZStack {
+            LinearGradient(colors: VisionWallPalette.surface,
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            Image(nsImage: Self.grain)
+                .resizable(resizingMode: .tile)
+                .opacity(0.17)
+                .blendMode(.multiply)
+                .allowsHitTesting(false)
+            RadialGradient(colors: [.clear, Color(hex: "#4A3B26").opacity(0.18)],
+                           center: .center, startRadius: 240, endRadius: 900)
+                .allowsHitTesting(false)
         }
+        .ignoresSafeArea()
     }
+
+    /// One tileable grain swatch, generated once. Deterministic (a fixed
+    /// FNV walk, never `random`) so the wall looks identical every launch.
+    private static let grain: NSImage = {
+        let side = 96
+        let image = NSImage(size: NSSize(width: side, height: side))
+        image.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: side, height: side).fill()
+        var hash: UInt64 = 1469598103934665603
+        for y in 0..<side {
+            for x in 0..<side {
+                hash = (hash ^ UInt64(truncatingIfNeeded: x &* 31 &+ y)) &* 1099511628211
+                guard hash % 7 == 0 else { continue }
+                let alpha = Double((hash >> 8) % 40) / 400.0
+                NSColor(white: 0.35, alpha: alpha).setFill()
+                NSRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1).fill()
+            }
+        }
+        image.unlockFocus()
+        return image
+    }()
 
     // MARK: - Cards Layer
 
@@ -291,62 +283,75 @@ public struct VisionBoardCanvas: View {
             }
 
             ForEach(viewModel.filteredCards) { card in
-                VisionCardItem(
-                    card: card,
-                    isSelected: viewModel.selectedCardIds.contains(card.id),
-                    zoomLevel: viewModel.zoomLevel,
-                    showLabel: viewModel.showLabels,
-                    canvasSpaceName: Self.canvasSpaceName,
-                    projectBase: viewModel.projectBase,
-                    onSelect: { addToSelection in
-                        if viewModel.pendingConnectorSource != nil {
-                            viewModel.completeConnector(to: card.id)
-                        } else if addToSelection {
-                            viewModel.toggleCardSelection(card.id)
-                        } else {
-                            viewModel.selectCard(card.id)
-                        }
-                    },
-                    onDoubleClick: {
-                        onCardEdit?(card)
-                    },
-                    onDuplicate: {
-                        viewModel.selectCard(card.id)
-                        viewModel.duplicateSelectedCards()
-                    },
-                    onDelete: {
-                        viewModel.removeCard(card.id)
-                    },
-                    onExtractPalette: {
-                        viewModel.extractPalette(fromCardId: card.id)
-                    },
-                    onBeginConnector: {
-                        viewModel.beginConnector(from: card.id)
-                    },
-                    onDragBegan: {
-                        viewModel.beginCardDrag(anchor: card.id)
-                    },
-                    onDragChanged: { translation in
-                        viewModel.updateCardDrag(translation: translation)
-                    },
-                    onDragEnded: { translation in
-                        viewModel.endCardDrag(translation: translation)
-                    },
-                    onResizeBegan: { corner in
-                        viewModel.beginResize(cardId: card.id, corner: corner)
-                    },
-                    onResizeChanged: { translation in
-                        viewModel.updateResize(translation: translation)
-                    },
-                    onResizeEnded: { translation in
-                        viewModel.endResize(translation: translation)
-                    }
-                )
+                scrapView(card)
             }
         }
         // The ONE place zoom and offset touch the render tree.
         .scaleEffect(viewModel.transform.zoom, anchor: .topLeading)
         .offset(x: viewModel.transform.offset.x, y: viewModel.transform.offset.y)
+    }
+
+    /// One scrap on the wall. Split out of `cardsLayer` because the
+    /// closure list defeats the type-checker when inlined.
+    @ViewBuilder
+    private func scrapView(_ card: VisionCard) -> some View {
+            VisionCardItem(
+                card: card,
+                isSelected: viewModel.selectedCardIds.contains(card.id),
+                zoomLevel: viewModel.zoomLevel,
+                showLabel: viewModel.showLabels,
+                canvasSpaceName: Self.canvasSpaceName,
+                projectBase: viewModel.projectBase,
+                onSelect: { addToSelection in
+                    if viewModel.pendingConnectorSource != nil {
+                        viewModel.completeConnector(to: card.id)
+                    } else if addToSelection {
+                        viewModel.toggleCardSelection(card.id)
+                    } else {
+                        viewModel.selectCard(card.id)
+                    }
+                },
+                onDoubleClick: {
+                    onCardEdit?(card)
+                },
+                onCommitText: { words in
+                    viewModel.rewriteClipping(card.id, words: words)
+                },
+                onCycleCut: {
+                    viewModel.cycleClippingCut(card.id)
+                },
+                onDuplicate: {
+                    viewModel.selectCard(card.id)
+                    viewModel.duplicateSelectedCards()
+                },
+                onDelete: {
+                    viewModel.removeCard(card.id)
+                },
+                onExtractPalette: {
+                    viewModel.extractPalette(fromCardId: card.id)
+                },
+                onBeginConnector: {
+                    viewModel.beginConnector(from: card.id)
+                },
+                onDragBegan: {
+                    viewModel.beginCardDrag(anchor: card.id)
+                },
+                onDragChanged: { translation in
+                    viewModel.updateCardDrag(translation: translation)
+                },
+                onDragEnded: { translation in
+                    viewModel.endCardDrag(translation: translation)
+                },
+                onResizeBegan: { corner in
+                    viewModel.beginResize(cardId: card.id, corner: corner)
+                },
+                onResizeChanged: { translation in
+                    viewModel.updateResize(translation: translation)
+                },
+                onResizeEnded: { translation in
+                    viewModel.endResize(translation: translation)
+                }
+            )
     }
 
     // MARK: - Gestures

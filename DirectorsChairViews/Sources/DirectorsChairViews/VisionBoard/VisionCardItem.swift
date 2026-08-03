@@ -28,6 +28,11 @@ public struct VisionCardItem: View {
     // anchored sessions (Slice 1).
     public var onSelect: ((Bool) -> Void)?  // Bool = add to selection (shift-click)
     public var onDoubleClick: (() -> Void)?
+    /// Commits inline-edited words (The Wall, pass 2 — a clipping is
+    /// rewritten on the wall, never in a sheet).
+    public var onCommitText: ((String) -> Void)?
+    /// Cycles a clipping's cut.
+    public var onCycleCut: (() -> Void)?
     public var onDuplicate: (() -> Void)?
     public var onDelete: (() -> Void)?
     public var onExtractPalette: (() -> Void)?
@@ -79,6 +84,8 @@ public struct VisionCardItem: View {
         projectBase: URL? = nil,
         onSelect: ((Bool) -> Void)? = nil,
         onDoubleClick: (() -> Void)? = nil,
+        onCommitText: ((String) -> Void)? = nil,
+        onCycleCut: (() -> Void)? = nil,
         onDuplicate: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
         onExtractPalette: (() -> Void)? = nil,
@@ -98,6 +105,8 @@ public struct VisionCardItem: View {
         self.projectBase = projectBase
         self.onSelect = onSelect
         self.onDoubleClick = onDoubleClick
+        self.onCommitText = onCommitText
+        self.onCycleCut = onCycleCut
         self.onDuplicate = onDuplicate
         self.onDelete = onDelete
         self.onExtractPalette = onExtractPalette
@@ -110,6 +119,10 @@ public struct VisionCardItem: View {
         self.onResizeEnded = onResizeEnded
     }
 
+    @State private var isEditingInline = false
+    @State private var draftWords = ""
+    @FocusState private var inlineFocused: Bool
+
     // MARK: - Body
 
     public var body: some View {
@@ -118,7 +131,7 @@ public struct VisionCardItem: View {
             cardContent
                 .frame(width: cardWidth, height: cardHeight)
                 .background(cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: 3))
                 .contextMenu {
                     Button {
                         onDoubleClick?()
@@ -139,6 +152,13 @@ public struct VisionCardItem: View {
                                   systemImage: "eyedropper.halffull")
                         }
                     }
+                    if cardType == .text {
+                        Button {
+                            onCycleCut?()
+                        } label: {
+                            Label("Change the cut", systemImage: "scissors")
+                        }
+                    }
                     Button {
                         onBeginConnector?()
                     } label: {
@@ -151,31 +171,47 @@ public struct VisionCardItem: View {
                         Label("Delete Card", systemImage: "trash")
                     }
                 }
+                // The Wall, pass 2: a scrap IS the picture. No border, no
+                // header, no badge — only the shadow of a thing lying on a
+                // surface. Selection is a grease-pencil ring, the one
+                // accent the wall allows.
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(
-                            isSelected ? Color.accentColor : Color.gray.opacity(0.3),
-                            lineWidth: isSelected ? 3 : 1
-                        )
+                    RoundedRectangle(cornerRadius: 3)
+                        .strokeBorder(VisionWallPalette.greasePencil,
+                                      lineWidth: isSelected ? 2 : 0)
+                        .opacity(isSelected ? 1 : 0)
                 )
-                .shadow(
-                    color: isSelected ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.2),
-                    radius: isSelected ? 8 : 4,
-                    x: 0,
-                    y: 2
-                )
+                .shadow(color: VisionWallPalette.scrapShadow,
+                        radius: isSelected ? 11 : 7,
+                        x: 0, y: isSelected ? 5 : 3)
+
+            if isEditingInline {
+                TextField("", text: $draftWords, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 20, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(VisionWallPalette.ink)
+                    .padding(10)
+                    .frame(width: cardWidth, height: cardHeight)
+                    .background(VisionWallPalette.clipping)
+                    .focused($inlineFocused)
+                    .onAppear { inlineFocused = true }
+                    .onSubmit {
+                        onCommitText?(draftWords)
+                        isEditingInline = false
+                    }
+                    .onExitCommand { isEditingInline = false }
+            }
 
             // Resize handles (visible when selected)
             if isSelected {
                 resizeHandles
             }
 
-            // Label overlay at bottom. Text cards ARE their text — the
-            // poster face already shows it, so no duplicate footer label.
-            if showLabel && cardType != .text && cardType != .frame
-                && (!card.title.isEmpty || !(card.referenceNote ?? "").isEmpty) {
-                labelOverlay
-            }
+            // No label bar, no department badge: nothing on the wall
+            // announces its own metadata (The Wall, pass 2). Titles and
+            // notes live in the details popover (DC-0027); what you see
+            // is the thing itself.
 
             // Pinned indicator
             if card.pinned {
@@ -191,7 +227,12 @@ public struct VisionCardItem: View {
             isHovering = hovering
         }
         .onTapGesture(count: 2) {
-            onDoubleClick?()
+            if cardType == .text {
+                draftWords = card.text
+                isEditingInline = true
+            } else {
+                onDoubleClick?()
+            }
         }
         .onTapGesture {
             onSelect?(NSEvent.modifierFlags.contains(.shift))
@@ -244,7 +285,7 @@ public struct VisionCardItem: View {
     private var shotStripContent: some View {
         if card.imagePaths.isEmpty {
             ZStack {
-                Color(hex: "#2A2A2A")
+                VisionWallPalette.clipping
                 VStack(spacing: 6) {
                     Image(systemName: "film.stack")
                         .font(.system(size: 24))
@@ -296,7 +337,7 @@ public struct VisionCardItem: View {
             // Remote refs are never fetched while rendering (Slice 2) —
             // static placeholder instead of the old forever-spinner.
             ZStack {
-                Color(hex: "#2A2A2A")
+                VisionWallPalette.clipping
                 VStack(spacing: 8) {
                     Image(systemName: "globe")
                         .font(.system(size: 32))
@@ -309,7 +350,7 @@ public struct VisionCardItem: View {
             }
         } else if imageLoadFailed {
             ZStack {
-                Color(hex: "#2A2A2A")
+                VisionWallPalette.clipping
                 VStack(spacing: 8) {
                     Image(systemName: "photo.badge.exclamationmark")
                         .font(.system(size: 32))
@@ -322,14 +363,14 @@ public struct VisionCardItem: View {
         } else if let imagePath = card.imagePath, !imagePath.isEmpty {
             // Loading placeholder
             ZStack {
-                Color(hex: "#2A2A2A")
+                VisionWallPalette.clipping
                 ProgressView()
                     .scaleEffect(0.8)
             }
         } else {
             // Empty image placeholder
             ZStack {
-                Color(hex: "#2A2A2A")
+                VisionWallPalette.clipping
                 VStack(spacing: 8) {
                     Image(systemName: "photo")
                         .font(.system(size: 32))
@@ -366,7 +407,8 @@ public struct VisionCardItem: View {
                 VisionTextCardFace(
                     content: content,
                     style: VisionTextStyle.resolve(card.textStyle),
-                    colorHex: card.textColor)
+                    colorHex: card.textColor,
+                                seedID: card.id)
             }
         }
     }
@@ -377,7 +419,7 @@ public struct VisionCardItem: View {
     private var colorPaletteContent: some View {
         if card.colorPalette.isEmpty {
             ZStack {
-                Color(hex: "#2A2A2A")
+                VisionWallPalette.clipping
                 VStack(spacing: 8) {
                     Image(systemName: "paintpalette")
                         .font(.system(size: 32))
@@ -433,7 +475,7 @@ public struct VisionCardItem: View {
                     .frame(width: cardWidth, height: cardHeight)
                     .clipped()
             } else {
-                Color(hex: "#1A1A1A")
+                VisionWallPalette.clipping
             }
 
             // Play button overlay
@@ -510,7 +552,7 @@ public struct VisionCardItem: View {
                     }
                     .fill(Color.gray.opacity(0.3))
                 }
-                .background(Color(hex: "#2A2A2A"))
+                .background(VisionWallPalette.clipping)
 
                 VStack(spacing: 8) {
                     Image(systemName: "square.grid.3x3")
@@ -539,7 +581,7 @@ public struct VisionCardItem: View {
                 // Lighting reference placeholder with gradient
                 LinearGradient(
                     colors: [
-                        Color(hex: "#1A1A1A"),
+                        VisionWallPalette.clipping,
                         Color(hex: "#3A3A3A"),
                         Color(hex: "#FFD700").opacity(0.3)
                     ],
@@ -577,7 +619,7 @@ public struct VisionCardItem: View {
                     .frame(width: cardWidth, height: cardHeight)
                     .clipped()
             } else {
-                Color(hex: "#2A2A2A")
+                VisionWallPalette.clipping
             }
 
             // Location pin overlay
@@ -615,8 +657,10 @@ public struct VisionCardItem: View {
     // MARK: - Background
 
     @ViewBuilder
+    /// What shows behind a scrap that doesn't fill its own frame: paper,
+    /// not a black tile (The Wall, pass 2).
     private var cardBackground: some View {
-        Color(hex: "#1E1E1E")
+        VisionWallPalette.clipping
     }
 
     // MARK: - Label Overlay
