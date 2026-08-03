@@ -205,6 +205,26 @@ public enum VisionBoardAbsorb {
         return CGSize(width: width.rounded(), height: height.rounded())
     }
 
+    // MARK: - Settle
+
+    /// The tilt a scrap picks up as it lands. Nothing dropped by a hand
+    /// lands perfectly square, and a wall of axis-aligned rectangles is
+    /// the slide-deck look we are leaving behind — so each new scrap gets
+    /// a small angle of its own.
+    ///
+    /// Derived from the scrap's identity with a stable hash (NOT Swift's
+    /// `Hasher`, which is seeded per process): the same scrap always wears
+    /// the same tilt across launches, and neighbours differ. Existing
+    /// scraps are never touched — mess has to be earned.
+    public static func settleAngle(seed: String, maxDegrees: Double = 2.6) -> Double {
+        var hash: UInt64 = 1469598103934665603          // FNV-1a offset basis
+        for byte in seed.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 1099511628211
+        }
+        let unit = Double(hash % 2001) / 1000.0 - 1.0   // −1…1
+        return (unit * maxDegrees * 1000).rounded() / 1000
+    }
+
     #if canImport(AppKit)
     /// Natural aspect ratio of an image on disk, or nil when it can't be read.
     public static func aspectRatio(ofImageAt url: URL) -> CGFloat? {

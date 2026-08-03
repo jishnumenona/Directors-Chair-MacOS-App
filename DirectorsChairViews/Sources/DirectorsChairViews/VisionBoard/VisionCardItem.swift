@@ -182,6 +182,9 @@ public struct VisionCardItem: View {
                 pinnedIndicator
             }
         }
+        // A scrap lies on the wall at a slight tilt (The Wall, pass 1);
+        // rotation happens before positioning so the centre stays put.
+        .rotationEffect(.degrees(card.rotation ?? 0))
         // World coordinates only — the cards layer applies zoom+offset once.
         .position(x: cardPosition.x + cardWidth / 2, y: cardPosition.y + cardHeight / 2)
         .onHover { hovering in

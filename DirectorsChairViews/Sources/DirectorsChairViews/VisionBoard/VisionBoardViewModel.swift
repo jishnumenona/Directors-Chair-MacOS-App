@@ -832,6 +832,7 @@ public class VisionBoardViewModel: ObservableObject {
             draft.boardId = currentBoardId
             draft.canvasX = origins[index].x
             draft.canvasY = origins[index].y
+            draft.rotation = VisionBoardAbsorb.settleAngle(seed: draft.id)
             top += 1
             draft.zOrder = top
             cards.append(draft)

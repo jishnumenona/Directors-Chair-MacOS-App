@@ -258,3 +258,57 @@ final class VisionBoardAbsorbViewModelTests: XCTestCase {
         XCTAssertEqual(notifications, 1, "one commit for the whole gesture")
     }
 }
+
+// MARK: - Settle (The Wall, pass 1 — rotation)
+
+final class VisionBoardSettleTests: XCTestCase {
+
+    func testEveryScrapEarnsItsOwnTiltWithinRange() {
+        let angles = (0..<40).map {
+            VisionBoardAbsorb.settleAngle(seed: "scrap-\($0)")
+        }
+        for angle in angles {
+            XCTAssertLessThanOrEqual(abs(angle), 2.6,
+                                     "a settle is a nudge, not a spin")
+        }
+        XCTAssertGreaterThan(Set(angles).count, 30,
+                             "neighbours must not share one scripted angle")
+        XCTAssertTrue(angles.contains(where: { $0 < 0 }) &&
+                      angles.contains(where: { $0 > 0 }),
+                      "scraps tilt both ways")
+    }
+
+    func testTiltIsStableAcrossLaunches() {
+        // Derived from a fixed hash, never Swift's per-process Hasher —
+        // a scrap must not re-tilt every time the app opens.
+        XCTAssertEqual(VisionBoardAbsorb.settleAngle(seed: "the-last-frame"),
+                       VisionBoardAbsorb.settleAngle(seed: "the-last-frame"))
+        XCTAssertEqual(VisionBoardAbsorb.settleAngle(seed: "fixed", maxDegrees: 3),
+                       -1.491, accuracy: 0.0005,
+                       "pinned value: the hash must stay stable")
+    }
+}
+
+@MainActor
+final class VisionBoardAbsorbRotationTests: XCTestCase {
+
+    func testAbsorbedScrapsLandTiltedAndExistingOnesAreLeftAlone() async {
+        let viewModel = VisionBoardViewModel()
+        var flat = VisionCard()
+        flat.cardType = VisionCardType.text.rawValue
+        flat.text = "already here"
+        viewModel.addCard(flat)
+
+        await viewModel.absorb([.text("dusk"), .text("tungsten")], at: .zero)
+
+        let landed = viewModel.cards.filter { $0.id != flat.id }
+        XCTAssertEqual(landed.count, 2)
+        for scrap in landed {
+            let angle = try? XCTUnwrap(scrap.rotation)
+            XCTAssertNotNil(angle)
+            XCTAssertNotEqual(angle, 0, "a dropped scrap is never perfectly square")
+        }
+        XCTAssertNil(viewModel.cards.first(where: { $0.id == flat.id })?.rotation,
+                     "mess is earned — existing scraps are never jittered")
+    }
+}
