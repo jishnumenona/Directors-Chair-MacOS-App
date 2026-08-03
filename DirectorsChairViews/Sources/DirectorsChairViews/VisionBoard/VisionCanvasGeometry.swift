@@ -158,8 +158,33 @@ public enum VisionCanvasGeometry {
 
     // MARK: Placement
 
+    /// Where a single new scrap lands (The Wall): right where it was asked
+    /// for. Overlap is the point — scraps lying over each other is what a
+    /// wall looks like — so the only thing corrected is a scrap landing
+    /// *exactly* on top of another, where it would hide it completely.
+    /// Deterministic for a given input.
+    public static func dropOrigin(for size: CGSize, over existing: [CGRect],
+                                  preferredOrigin: CGPoint,
+                                  nudge: CGFloat = 26,
+                                  maxNudges: Int = 12) -> CGPoint {
+        var origin = preferredOrigin
+        var nudges = 0
+        while nudges < maxNudges,
+              existing.contains(where: {
+                  abs($0.origin.x - origin.x) < nudge / 2 &&
+                  abs($0.origin.y - origin.y) < nudge / 2
+              }) {
+            origin.x += nudge
+            origin.y += nudge
+            nudges += 1
+        }
+        return origin
+    }
+
     /// Cascades from a preferred origin by `step` until the rect intersects
-    /// no existing card. Deterministic for a given input.
+    /// no existing card. Deterministic for a given input. Retained for
+    /// programmatic callers that genuinely want no overlap; the wall's own
+    /// placement uses `dropOrigin`.
     public static func placement(for size: CGSize, avoiding existing: [CGRect],
                                  preferredOrigin: CGPoint,
                                  step: CGFloat = 24) -> CGPoint {

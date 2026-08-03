@@ -21,6 +21,10 @@ public struct VisionBoardCanvas: View {
     @State private var viewSize: CGSize = .zero
     /// A drag is hovering over the wall (The Wall, pass 1).
     @State private var isDropTargeted = false
+    /// Double-click-to-type: where the caret is, and what's being typed.
+    @State private var typingAt: CGPoint?
+    @State private var draftWords = ""
+    @FocusState private var draftFocused: Bool
 
     // MARK: - Constants
 
@@ -76,7 +80,16 @@ public struct VisionBoardCanvas: View {
             )
             .gesture(panGesture)
             .gesture(magnificationGesture)
+            // Double-click bare wall and type — the words land where the
+            // caret was. Registered before the single tap so it wins.
+            .onTapGesture(count: 2,
+                          coordinateSpace: .named(Self.canvasSpaceName)) { point in
+                draftWords = ""
+                typingAt = point
+                draftFocused = true
+            }
             .onTapGesture {
+                if typingAt != nil { commitTypedWords() }
                 viewModel.clearSelection()
             }
             // The Wall, pass 1: drop anything and it lands where you let
@@ -91,6 +104,22 @@ public struct VisionBoardCanvas: View {
             .focusEffectDisabled()
             .onPasteCommand(of: VisionBoardAbsorb.acceptedTypes) { providers in
                 absorb(providers, atScreenPoint: nil)
+            }
+            .overlay {
+                if let caret = typingAt {
+                    TextField("", text: $draftWords, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 24, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .frame(width: 280)
+                        .padding(10)
+                        .background(.thinMaterial,
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .focused($draftFocused)
+                        .position(caret)
+                        .onSubmit { commitTypedWords() }
+                        .onExitCommand { typingAt = nil; draftWords = "" }
+                }
             }
             .overlay {
                 if isDropTargeted {
@@ -145,6 +174,22 @@ public struct VisionBoardCanvas: View {
             }
         }
         .background(Color(hex: "#1A1A1A"))
+    }
+
+    /// Commits whatever was typed on the bare wall as a word scrap, at the
+    /// caret. Empty input just closes the caret — typing nothing costs
+    /// nothing.
+    private func commitTypedWords() {
+        guard let caret = typingAt else { return }
+        let words = draftWords
+        typingAt = nil
+        draftWords = ""
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        let world = viewModel.transform.toWorld(caret)
+        Task { @MainActor in
+            await viewModel.absorb([.text(words)], at: world)
+        }
     }
 
     /// Reads dropped/pasted providers and hands the payloads to the board.

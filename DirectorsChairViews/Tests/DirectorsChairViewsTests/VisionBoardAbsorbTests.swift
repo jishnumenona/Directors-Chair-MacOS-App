@@ -312,3 +312,50 @@ final class VisionBoardAbsorbRotationTests: XCTestCase {
                      "mess is earned — existing scraps are never jittered")
     }
 }
+
+// MARK: - Collage defaults (The Wall, pass 1 — DC-0022)
+
+final class VisionBoardCollageDefaultsTests: XCTestCase {
+
+    func testScrapsLandWhereAskedAndAreAllowedToOverlap() {
+        // The old placement cascaded until nothing touched — the engine
+        // itself prevented the collage look. Overlap is now the point.
+        let neighbour = CGRect(x: 100, y: 100, width: 200, height: 200)
+        let origin = VisionCanvasGeometry.dropOrigin(
+            for: CGSize(width: 200, height: 200), over: [neighbour],
+            preferredOrigin: CGPoint(x: 180, y: 160))
+        XCTAssertEqual(origin, CGPoint(x: 180, y: 160),
+                       "a scrap that overlaps its neighbour is left exactly there")
+    }
+
+    func testAScrapNeverLandsPerfectlyHidingAnother() {
+        let buried = CGRect(x: 100, y: 100, width: 200, height: 200)
+        let origin = VisionCanvasGeometry.dropOrigin(
+            for: CGSize(width: 200, height: 200), over: [buried],
+            preferredOrigin: CGPoint(x: 100, y: 100))
+        XCTAssertNotEqual(origin, CGPoint(x: 100, y: 100),
+                          "an exact stack would hide the scrap beneath it")
+        XCTAssertEqual(origin, CGPoint(x: 126, y: 126), "nudged just enough")
+    }
+}
+
+@MainActor
+final class VisionBoardSnapDefaultTests: XCTestCase {
+
+    func testSnapIsOffSoTheWallDoesNotSelfAlign() {
+        XCTAssertFalse(VisionBoardViewModel().gridSnapEnabled,
+                       "a self-aligning wall is a slide deck")
+    }
+
+    func testDroppedScrapKeepsItsExactPositionWithSnapOff() async {
+        let viewModel = VisionBoardViewModel()
+        await viewModel.absorb([.text("dusk")], at: CGPoint(x: 137, y: 249))
+
+        let scrap = viewModel.cards[0]
+        // pileOrigins centres the first scrap on the drop point.
+        XCTAssertEqual(scrap.canvasX ?? 0, 137 - (scrap.canvasWidth ?? 0) / 2,
+                       accuracy: 0.001, "no grid rounding")
+        XCTAssertEqual(scrap.canvasY ?? 0, 249 - (scrap.canvasHeight ?? 0) / 2,
+                       accuracy: 0.001)
+    }
+}

@@ -50,8 +50,10 @@ public class VisionBoardViewModel: ObservableObject {
     /// Search query for filtering cards
     @Published public var searchQuery: String = ""
 
-    /// Whether grid snapping is enabled
-    @Published public var gridSnapEnabled: Bool = true
+    /// Whether grid snapping is enabled. OFF by default (The Wall): a wall
+    /// of scraps that self-aligns to a grid is a slide deck. Snap stays
+    /// available for the rare moment someone wants to tidy a row.
+    @Published public var gridSnapEnabled: Bool = false
 
     /// Grid snap size in points
     @Published public var gridSnapSize: CGFloat = 20.0
@@ -636,8 +638,8 @@ public class VisionBoardViewModel: ObservableObject {
             CGRect(x: $0.canvasX ?? 0, y: $0.canvasY ?? 0,
                    width: $0.canvasWidth ?? 200, height: $0.canvasHeight ?? 200)
         }
-        var origin = VisionCanvasGeometry.placement(
-            for: size, avoiding: existing, preferredOrigin: preferred)
+        var origin = VisionCanvasGeometry.dropOrigin(
+            for: size, over: existing, preferredOrigin: preferred)
         if gridSnapEnabled {
             origin.x = (origin.x / gridSnapSize).rounded() * gridSnapSize
             origin.y = (origin.y / gridSnapSize).rounded() * gridSnapSize
