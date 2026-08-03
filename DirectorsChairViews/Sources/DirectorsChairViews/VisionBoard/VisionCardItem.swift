@@ -744,7 +744,7 @@ public struct VisionCardItem: View {
                             zoom: zoomLevel))
                     }
             )
-            .help("Drag to turn this scrap")
+            .help("Drag to turn this element")
     }
 
     // MARK: - Label Overlay

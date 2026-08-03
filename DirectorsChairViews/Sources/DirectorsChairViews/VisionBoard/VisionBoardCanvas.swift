@@ -271,7 +271,7 @@ public struct VisionBoardCanvas: View {
             VStack {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.triangle.branch")
-                    Text("Click the other scrap to connect")
+                    Text("Click the element to connect it to")
                         .font(.system(size: 12, weight: .semibold))
                     Text("esc")
                         .font(.system(size: 10, weight: .bold))
@@ -559,48 +559,13 @@ public struct VisionBoardCanvas: View {
     // MARK: - Canvas Background with Dot Grid
 
     @ViewBuilder
-    /// The wall (The Wall, pass 2). A dot grid and a world-origin crosshair
-    /// told the user this was a CAD canvas; a vision board is a surface you
-    /// pin things to. Warm plaster, a faint grain so the light isn't flat,
-    /// and a soft vignette that keeps the eye in the middle — no rulers, no
-    /// origin, nothing to align to.
+    /// The wall itself — a surface that goes on forever
+    /// (VisionWallSurface: grain that scrolls with the pan, marks
+    /// generated per world cell, light that stays with the viewer).
     private var canvasBackground: some View {
-        ZStack {
-            LinearGradient(colors: VisionWallPalette.surface,
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            Image(nsImage: Self.grain)
-                .resizable(resizingMode: .tile)
-                .opacity(0.17)
-                .blendMode(.multiply)
-                .allowsHitTesting(false)
-            RadialGradient(colors: [.clear, Color(hex: "#4A3B26").opacity(0.18)],
-                           center: .center, startRadius: 240, endRadius: 900)
-                .allowsHitTesting(false)
-        }
-        .ignoresSafeArea()
+        VisionWallSurface(transform: viewModel.transform)
+            .ignoresSafeArea()
     }
-
-    /// One tileable grain swatch, generated once. Deterministic (a fixed
-    /// FNV walk, never `random`) so the wall looks identical every launch.
-    private static let grain: NSImage = {
-        let side = 96
-        let image = NSImage(size: NSSize(width: side, height: side))
-        image.lockFocus()
-        NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: side, height: side).fill()
-        var hash: UInt64 = 1469598103934665603
-        for y in 0..<side {
-            for x in 0..<side {
-                hash = (hash ^ UInt64(truncatingIfNeeded: x &* 31 &+ y)) &* 1099511628211
-                guard hash % 7 == 0 else { continue }
-                let alpha = Double((hash >> 8) % 40) / 400.0
-                NSColor(white: 0.35, alpha: alpha).setFill()
-                NSRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1).fill()
-            }
-        }
-        image.unlockFocus()
-        return image
-    }()
 
     // MARK: - Cards Layer
 

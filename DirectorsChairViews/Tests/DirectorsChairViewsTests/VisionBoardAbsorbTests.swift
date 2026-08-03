@@ -944,3 +944,69 @@ final class VisionScrapToolFeedbackTests: XCTestCase {
         XCTAssertFalse(viewModel.isPinned(id))
     }
 }
+
+// MARK: - A wall that goes on forever (owner report 2026-08-03)
+
+@MainActor
+final class VisionInfiniteWallTests: XCTestCase {
+
+    func testPanIsTrulyUnbounded() {
+        // Nothing clamps the offset — walk a long way out and the wall
+        // keeps going, in both directions.
+        let viewModel = VisionBoardViewModel()
+        viewModel.viewportSize = CGSize(width: 1200, height: 800)
+
+        for _ in 0..<400 { viewModel.scrollPan(deltaX: 900, deltaY: 600) }
+        XCTAssertEqual(viewModel.transform.offset.x, 360_000, accuracy: 1)
+        XCTAssertEqual(viewModel.transform.offset.y, 240_000, accuracy: 1)
+
+        for _ in 0..<800 { viewModel.scrollPan(deltaX: -900, deltaY: -600) }
+        XCTAssertEqual(viewModel.transform.offset.x, -360_000, accuracy: 1,
+                       "and just as far the other way")
+    }
+
+    func testADraggedPanIsAnchoredNoMatterHowFarYouGo() {
+        let viewModel = VisionBoardViewModel()
+        viewModel.scrollPan(deltaX: 50_000, deltaY: -20_000)
+        let start = viewModel.transform.offset
+
+        viewModel.beginPanIfNeeded()
+        viewModel.updatePan(translation: CGSize(width: 300, height: 120))
+        viewModel.updatePan(translation: CGSize(width: 300, height: 120))
+        viewModel.endPan()
+
+        XCTAssertEqual(viewModel.transform.offset.x, start.x + 300, accuracy: 0.001,
+                       "repeating the same translation must not compound")
+        XCTAssertEqual(viewModel.transform.offset.y, start.y + 120, accuracy: 0.001)
+    }
+
+    func testTheWallLooksTheSameEachTimeYouPassAPlace() {
+        // Marks are derived from world cell coordinates, so walking away
+        // and coming back shows the same wall — and neighbouring cells
+        // never share a pattern.
+        let far = VisionWallSurface.seed(column: 8_000, row: -12_345)
+        XCTAssertEqual(far, VisionWallSurface.seed(column: 8_000, row: -12_345))
+        XCTAssertNotEqual(far, VisionWallSurface.seed(column: 8_001, row: -12_345))
+        XCTAssertNotEqual(VisionWallSurface.seed(column: 3, row: 5),
+                          VisionWallSurface.seed(column: 5, row: 3),
+                          "x and y must not be interchangeable")
+    }
+
+    func testFarFromEverythingTheBoardOffersAWayBack() {
+        let viewModel = VisionBoardViewModel()
+        viewModel.viewportSize = CGSize(width: 1000, height: 700)
+        var card = VisionCard()
+        card.canvasX = 0; card.canvasY = 0
+        card.canvasWidth = 200; card.canvasHeight = 200
+        viewModel.addCard(card)
+        viewModel.fitToView(viewSize: viewModel.viewportSize)
+        XCTAssertTrue(viewModel.contentVisible)
+
+        viewModel.scrollPan(deltaX: -60_000, deltaY: -60_000)
+        XCTAssertFalse(viewModel.contentVisible,
+                       "wandering off is allowed — the rescue button appears")
+
+        viewModel.fitToView(viewSize: viewModel.viewportSize)
+        XCTAssertTrue(viewModel.contentVisible, "and brings you home")
+    }
+}
