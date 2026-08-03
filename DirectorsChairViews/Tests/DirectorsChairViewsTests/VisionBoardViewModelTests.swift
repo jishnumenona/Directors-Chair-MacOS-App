@@ -521,11 +521,13 @@ final class VisionBoardViewModelTests: XCTestCase {
     // MARK: - VisionCardType Enum
 
     func testVisionCardTypeAllCases() {
-        XCTAssertEqual(VisionCardType.allCases.count, 9)
+        XCTAssertEqual(VisionCardType.allCases.count, 10)
         XCTAssertTrue(VisionCardType.allCases.contains(.frame),
                       "section frames (roadmap #1)")
         XCTAssertTrue(VisionCardType.allCases.contains(.shotStrip),
                       "shot strips (roadmap #4)")
+        XCTAssertTrue(VisionCardType.allCases.contains(.link),
+                      "links pinned from the wall's tool ring (The Wall)")
     }
 
     func testVisionCardTypeDisplayNames() {

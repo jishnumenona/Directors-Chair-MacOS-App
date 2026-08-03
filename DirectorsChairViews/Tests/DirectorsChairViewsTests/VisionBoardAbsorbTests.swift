@@ -574,3 +574,168 @@ final class VisionScrapPhysicsTests: XCTestCase {
                        "a tack doesn't move between launches")
     }
 }
+
+// MARK: - The tool ring (The Wall, pass 2 — DC-0031)
+
+final class VisionWallToolsTests: XCTestCase {
+
+    func testTheRingStartsAtTheTopAndGoesClockwise() {
+        let points = VisionRadialGeometry.positions(count: 4, radius: 100)
+        XCTAssertEqual(points[0].x, 0, accuracy: 0.001)
+        XCTAssertEqual(points[0].y, -100, accuracy: 0.001, "first tool sits above the cursor")
+        XCTAssertEqual(points[1].x, 100, accuracy: 0.001, "then clockwise")
+        XCTAssertEqual(points[2].y, 100, accuracy: 0.001)
+        XCTAssertTrue(VisionRadialGeometry.positions(count: 0, radius: 100).isEmpty)
+    }
+
+    func testTheRingSlidesInwardNearAnEdge() {
+        let viewport = CGSize(width: 900, height: 600)
+        let clamped = VisionRadialGeometry.anchor(for: CGPoint(x: 4, y: 590),
+                                                  in: viewport, radius: 78)
+        XCTAssertGreaterThanOrEqual(clamped.x, 78)
+        XCTAssertLessThanOrEqual(clamped.y, 600 - 78)
+
+        let middle = VisionRadialGeometry.anchor(for: CGPoint(x: 450, y: 300),
+                                                 in: viewport, radius: 78)
+        XCTAssertEqual(middle, CGPoint(x: 450, y: 300), "room to bloom → unmoved")
+    }
+
+    func testEveryToolThatNeedsWordsAsksForThem() {
+        for tool in VisionWallTool.allCases {
+            switch tool {
+            case .imagine, .link, .video:
+                XCTAssertNotNil(tool.prompt, "\(tool) opens a caret")
+            case .write, .paste, .picture:
+                XCTAssertNil(tool.prompt)
+            }
+        }
+        XCTAssertEqual(Set(VisionWallTool.ringOrder), Set(VisionWallTool.allCases),
+                       "the ring shows every tool exactly once")
+    }
+}
+
+final class VisionLinkTests: XCTestCase {
+
+    func testItAcceptsWhatPeopleActuallyPaste() {
+        XCTAssertEqual(VisionLink.normalized("youtube.com/watch?v=abc")?.scheme,
+                       "https", "a bare host still becomes a link")
+        XCTAssertEqual(VisionLink.normalized("  https://vimeo.com/12345  ")?.host,
+                       "vimeo.com", "whitespace trimmed")
+        XCTAssertNil(VisionLink.normalized("not a link at all"))
+        XCTAssertNil(VisionLink.normalized("localhost"), "no dot, no host")
+    }
+
+    func testYouTubeInAllTheShapesPeopleShareIt() {
+        let expected = VisionLinkKind.youtube(id: "dQw4w9WgXcQ")
+        for raw in ["https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "https://youtu.be/dQw4w9WgXcQ",
+                    "https://www.youtube.com/embed/dQw4w9WgXcQ",
+                    "https://youtube.com/shorts/dQw4w9WgXcQ"] {
+            let url = try! XCTUnwrap(VisionLink.normalized(raw))
+            XCTAssertEqual(VisionLink.classify(url), expected, raw)
+        }
+    }
+
+    func testAYouTubeLinkBringsItsOwnStill() {
+        let url = VisionLink.normalized("youtu.be/abc123")!
+        let kind = VisionLink.classify(url)
+        XCTAssertTrue(kind.isVideo)
+        XCTAssertEqual(kind.thumbnailURL?.absoluteString,
+                       "https://img.youtube.com/vi/abc123/hqdefault.jpg",
+                       "the wall shows the frame, not the URL")
+    }
+
+    func testVimeoAndOrdinaryLinks() {
+        let vimeo = VisionLink.normalized("https://vimeo.com/987654")!
+        XCTAssertEqual(VisionLink.classify(vimeo), .vimeo(id: "987654"))
+        XCTAssertTrue(VisionLink.classify(vimeo).isVideo)
+        XCTAssertNil(VisionLink.classify(vimeo).thumbnailURL, "no still without an API call")
+
+        let article = VisionLink.normalized("https://example.com/notes/lighting")!
+        XCTAssertEqual(VisionLink.classify(article), .web)
+        XCTAssertFalse(VisionLink.classify(article).isVideo)
+    }
+
+    func testALinkIsNamedForWhereItPointsWhenNobodyTitlesIt() {
+        let article = VisionLink.normalized("https://www.example.com/notes/soft-key-light")!
+        XCTAssertEqual(VisionLink.displayName(for: article),
+                       "example.com · soft key light")
+        let bare = VisionLink.normalized("https://example.com")!
+        XCTAssertEqual(VisionLink.displayName(for: bare), "example.com")
+        let numeric = VisionLink.normalized("https://vimeo.com/987654")!
+        XCTAssertEqual(VisionLink.displayName(for: numeric), "vimeo.com",
+                       "an id is not a name")
+    }
+}
+
+@MainActor
+final class VisionWallToolActionTests: XCTestCase {
+
+    func testImagineLandsTheGeneratedPictureAsAnOrdinaryScrap() async throws {
+        let projectBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wall-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectBase,
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectBase) }
+
+        let image = NSImage(size: NSSize(width: 30, height: 20))
+        image.lockFocus()
+        NSColor.systemPink.drawSwatch(in: NSRect(x: 0, y: 0, width: 30, height: 20))
+        image.unlockFocus()
+        let png = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation))?
+            .representation(using: .png, properties: [:]))
+        let generated = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).png")
+        try png.write(to: generated)
+
+        let viewModel = VisionBoardViewModel()
+        viewModel.configureAssetStore(projectBase: projectBase)
+        var askedFor: String?
+        viewModel.onGenerateImage = { prompt, completion in
+            askedFor = prompt
+            completion(generated)
+        }
+
+        await viewModel.imagine("a rain-soaked neon street", at: .zero)
+
+        XCTAssertEqual(askedFor, "a rain-soaked neon street")
+        let scrap = try XCTUnwrap(viewModel.cards.first)
+        XCTAssertTrue((scrap.imagePath ?? "").hasPrefix("assets/visionboard/"),
+                      "generated art is imported like anything else")
+        XCTAssertEqual(scrap.description, "a rain-soaked neon street",
+                       "the prompt is kept — it's how the picture came to exist")
+        XCTAssertNotNil(scrap.rotation, "and it lands tilted, like every scrap")
+        XCTAssertFalse(viewModel.isGenerating)
+    }
+
+    func testImagineWithNothingToSayDoesNothing() async {
+        let viewModel = VisionBoardViewModel()
+        var called = false
+        viewModel.onGenerateImage = { _, completion in
+            called = true
+            completion(nil)
+        }
+        await viewModel.imagine("   ", at: .zero)
+        XCTAssertFalse(called)
+        XCTAssertTrue(viewModel.cards.isEmpty)
+    }
+
+    func testPinningLinksAndVideos() async {
+        let viewModel = VisionBoardViewModel()
+
+        await viewModel.pinLink("https://example.com/notes/lighting", at: .zero)
+        let link = viewModel.cards[0]
+        XCTAssertEqual(link.cardType, VisionCardType.link.rawValue)
+        XCTAssertEqual(link.sourceUrl, "https://example.com/notes/lighting")
+        XCTAssertNotNil(link.rotation, "links hang like everything else")
+
+        await viewModel.pinLink("youtu.be/abc123", at: .zero)
+        let video = viewModel.cards[1]
+        XCTAssertEqual(video.cardType, VisionCardType.video.rawValue,
+                       "a YouTube link is a video scrap, not a link scrap")
+        XCTAssertEqual(video.videoUrl, "https://youtu.be/abc123")
+
+        await viewModel.pinLink("gibberish", at: .zero)
+        XCTAssertEqual(viewModel.cards.count, 2, "nonsense pins nothing")
+    }
+}

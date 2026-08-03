@@ -294,6 +294,9 @@ public struct VisionCardItem: View {
     @ViewBuilder
     private var cardContent: some View {
         switch cardType {
+        case .link:
+            linkFace
+
         case .image:
             imageCardContent
         case .text:
@@ -699,6 +702,37 @@ public struct VisionCardItem: View {
     /// not a black tile (The Wall, pass 2).
     private var cardBackground: some View {
         VisionWallPalette.clipping
+    }
+
+    /// A link on the wall reads as a clipping with the site written on
+    /// it — a torn strip of a page, not a browser chrome preview.
+    private var linkFace: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: "link")
+                    .font(.system(size: 9, weight: .bold))
+                Text((card.sourceUrl.flatMap(URL.init(string:))?.host ?? "link")
+                        .replacingOccurrences(of: "www.", with: "")
+                        .uppercased())
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.2)
+            }
+            .foregroundColor(VisionWallPalette.greasePencil)
+
+            Text(card.title.isEmpty ? (card.sourceUrl ?? "") : card.title)
+                .font(.system(size: 14, weight: .medium, design: .serif))
+                .foregroundColor(VisionWallPalette.ink)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .minimumScaleFactor(0.6)
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(VisionWallPalette.clipping)
+        .clipShape(VisionTornPaper(torn: [.bottom],
+                                   seed: VisionTornPaper.seed(for: card.id)))
     }
 
     // MARK: - Rotate Handle

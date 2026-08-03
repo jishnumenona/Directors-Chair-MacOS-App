@@ -641,6 +641,14 @@ public struct VisionCardEditor: View {
     @ViewBuilder
     private var previewArea: some View {
         switch cardType {
+        case .link:
+            // Links are pinned from the wall's tool ring, not this editor
+            // (which retires in DC-0030).
+            Text(card.sourceUrl ?? "")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.gray)
+                .padding()
+
         case .image, .texture, .lighting, .location:
             if let image = previewImage {
                 Image(nsImage: image)

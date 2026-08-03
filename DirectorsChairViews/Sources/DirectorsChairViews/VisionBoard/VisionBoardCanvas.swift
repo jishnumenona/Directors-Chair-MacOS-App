@@ -25,6 +25,12 @@ public struct VisionBoardCanvas: View {
     @State private var typingAt: CGPoint?
     @State private var draftWords = ""
     @FocusState private var draftFocused: Bool
+    /// The wall itself must hold focus or no key ever reaches it —
+    /// .focusable() alone doesn't make a view first responder.
+    @FocusState private var wallFocused: Bool
+    /// The tool ring, and which tool is waiting on words.
+    @State private var toolRingAt: CGPoint?
+    @State private var awaitingTool: VisionWallTool?
 
     // MARK: - Constants
 
@@ -73,6 +79,10 @@ public struct VisionBoardCanvas: View {
                     },
                     onRightClick: { point in
                         viewModel.recordRightClick(atScreenPoint: point)
+                        typingAt = nil
+                        awaitingTool = nil
+                        toolRingAt = VisionRadialGeometry.anchor(
+                            for: point, in: viewSize, radius: 78)
                     }
                 )
             )
@@ -89,6 +99,7 @@ public struct VisionBoardCanvas: View {
             .onTapGesture {
                 if typingAt != nil { commitTypedWords() }
                 viewModel.clearSelection()
+                wallFocused = true
             }
             // The Wall, pass 1: drop anything and it lands where you let
             // go of it — no dialog, no type picker, nothing asked.
@@ -100,6 +111,7 @@ public struct VisionBoardCanvas: View {
             // ⌘V puts the clipboard on the wall at the centre of the view.
             .focusable()
             .focusEffectDisabled()
+            .focused($wallFocused)
             .onPasteCommand(of: VisionBoardAbsorb.acceptedTypes) { providers in
                 absorb(providers, atScreenPoint: nil)
             }
@@ -121,7 +133,8 @@ public struct VisionBoardCanvas: View {
             .onKeyPress(.downArrow) { nudge(dx: 0, dy: 1) }
             .overlay {
                 if let caret = typingAt {
-                    TextField("", text: $draftWords, axis: .vertical)
+                    TextField(awaitingTool?.prompt ?? "", text: $draftWords,
+                              axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 24, weight: .semibold))
                         .multilineTextAlignment(.center)
@@ -131,8 +144,36 @@ public struct VisionBoardCanvas: View {
                                     in: RoundedRectangle(cornerRadius: 6))
                         .focused($draftFocused)
                         .position(caret)
-                        .onSubmit { commitTypedWords() }
+                        .onSubmit { commitCaret(at: caret) }
                         .onExitCommand { typingAt = nil; draftWords = "" }
+                }
+            }
+            .overlay {
+                if let ring = toolRingAt {
+                    VisionRadialMenu(
+                        anchor: ring,
+                        onPick: { tool in
+                            toolRingAt = nil
+                            reachFor(tool, at: ring)
+                        },
+                        onDismiss: { toolRingAt = nil })
+                        .transition(.opacity)
+                }
+            }
+            .overlay {
+                if viewModel.isGenerating {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("Imagining…")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(VisionWallPalette.ink.opacity(0.7))
+                    }
+                    .padding(18)
+                    .background(VisionWallPalette.clipping,
+                                in: RoundedRectangle(cornerRadius: 10))
+                    .shadow(color: VisionWallPalette.scrapShadow, radius: 8, y: 3)
+                    .environment(\.colorScheme, .light)
+                    .allowsHitTesting(false)
                 }
             }
             .overlay {
@@ -144,30 +185,12 @@ public struct VisionBoardCanvas: View {
                 }
             }
             .animation(.easeOut(duration: 0.12), value: isDropTargeted)
-            // Nine card types used to live here. A wall doesn't ask what
-            // kind of thing you're pinning — these are just the two ways
-            // to put something up when your hands aren't already full.
-            .contextMenu {
-                Button {
-                    if let world = viewModel.consumeRightClickPoint() {
-                        draftWords = ""
-                        typingAt = viewModel.transform.toScreen(world)
-                        draftFocused = true
-                    }
-                } label: {
-                    Label("Write a word here", systemImage: "textformat")
-                }
-                Button {
-                    pasteFromClipboard()
-                } label: {
-                    Label("Paste what's on the clipboard", systemImage: "doc.on.clipboard")
-                }
-                Divider()
-                Toggle("Snap to a grid", isOn: $viewModel.gridSnapEnabled)
-            }
             .onAppear {
                 viewSize = geometry.size
                 viewModel.viewportSize = geometry.size
+                // Take focus so Delete, arrows and ⌘V work without the
+                // user having to guess that the wall needs clicking first.
+                DispatchQueue.main.async { wallFocused = true }
                 // First appearance: fit the board's content.
                 viewModel.fitToView(viewSize: geometry.size)
             }
@@ -206,6 +229,62 @@ public struct VisionBoardCanvas: View {
         let stride: CGFloat = NSEvent.modifierFlags.contains(.shift) ? 10 : 1
         viewModel.nudgeSelection(dx: dx * stride, dy: dy * stride)
         return .handled
+    }
+
+    /// A tool was picked off the ring. Some act at once; the ones that
+    /// need words open a caret right where the ring was.
+    private func reachFor(_ tool: VisionWallTool, at point: CGPoint) {
+        switch tool {
+        case .paste:
+            pasteFromClipboard()
+        case .picture:
+            importPictureFromDisk(at: point)
+        case .write, .imagine, .link, .video:
+            awaitingTool = tool
+            draftWords = ""
+            typingAt = point
+            draftFocused = true
+        }
+    }
+
+    /// Whatever the caret was asking for, delivered.
+    private func commitCaret(at caret: CGPoint) {
+        let words = draftWords
+        let tool = awaitingTool ?? .write
+        let world = viewModel.transform.toWorld(caret)
+        typingAt = nil
+        awaitingTool = nil
+        draftWords = ""
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+
+        Task { @MainActor in
+            switch tool {
+            case .write:
+                await viewModel.absorb([.text(words)], at: world)
+            case .imagine:
+                await viewModel.imagine(words, at: world)
+            case .link, .video:
+                await viewModel.pinLink(words, at: world)
+            case .paste, .picture:
+                break
+            }
+        }
+    }
+
+    /// A picture off the disk — the one place a file panel still belongs.
+    private func importPictureFromDisk(at point: CGPoint) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Pin to the wall"
+        guard panel.runModal() == .OK else { return }
+        let payloads = panel.urls.compactMap(VisionBoardAbsorb.payload(forFile:))
+        let world = viewModel.transform.toWorld(point)
+        Task { @MainActor in
+            await viewModel.absorb(payloads, at: world)
+        }
     }
 
     /// Commits whatever was typed on the bare wall as a word scrap, at the

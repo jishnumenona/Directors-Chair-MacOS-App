@@ -50,6 +50,9 @@ public class VisionBoardViewModel: ObservableObject {
     /// Search query for filtering cards
     @Published public var searchQuery: String = ""
 
+    /// An image is being imagined right now (the wall shows it working).
+    @Published public var isGenerating: Bool = false
+
     /// Whether grid snapping is enabled. OFF by default (The Wall): a wall
     /// of scraps that self-aligns to a grid is a slide deck. Snap stays
     /// available for the rare moment someone wants to tidy a row.
@@ -963,6 +966,71 @@ public class VisionBoardViewModel: ObservableObject {
         if moved { notifyChange() }
     }
 
+    // MARK: - Wall tools (The Wall, pass 2)
+
+    /// AI image generation, back on the wall itself. The generated file
+    /// rides the same absorb pipeline as anything you drop, so it lands as
+    /// an ordinary scrap — tilted, sized to its picture, imported into the
+    /// project.
+    public func imagine(_ description: String, at worldPoint: CGPoint?) async {
+        let prompt = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty, let generate = onGenerateImage else { return }
+        isGenerating = true
+        let url: URL? = await withCheckedContinuation { continuation in
+            generate(prompt) { generated in
+                continuation.resume(returning: generated)
+            }
+        }
+        isGenerating = false
+        guard let url else { return }
+        await absorb([.fileURL(url)], at: worldPoint)
+        // The prompt is worth keeping — it is how the image came to exist.
+        if let index = cards.indices.last {
+            cards[index].description = prompt
+            notifyChange()
+        }
+    }
+
+    /// A link pinned to the wall. YouTube and Vimeo become video scraps;
+    /// a YouTube still is fetched as the scrap's face so the wall shows
+    /// the frame, not a URL.
+    public func pinLink(_ raw: String, at worldPoint: CGPoint?) async {
+        guard let url = VisionLink.normalized(raw) else { return }
+        let kind = VisionLink.classify(url)
+
+        var card = VisionCard()
+        card.boardId = currentBoardId
+        card.title = VisionLink.displayName(for: url)
+        card.sourceUrl = url.absoluteString
+
+        if kind.isVideo {
+            card.cardType = VisionCardType.video.rawValue
+            card.videoUrl = url.absoluteString
+            card.canvasWidth = 280
+            card.canvasHeight = 158
+            if let thumbnail = kind.thumbnailURL, let store = assetStore {
+                card.imagePath = await store.normalizedForSave(thumbnail.absoluteString)
+            }
+        } else {
+            card.cardType = VisionCardType.link.rawValue
+            card.canvasWidth = 260
+            card.canvasHeight = 96
+        }
+
+        let centre = worldPoint ?? absorbCentre()
+        let size = CGSize(width: card.canvasWidth ?? 260,
+                          height: card.canvasHeight ?? 96)
+        let origin = VisionCanvasGeometry.pileOrigins(sizes: [size],
+                                                      around: centre)[0]
+        card.canvasX = origin.x
+        card.canvasY = origin.y
+        card.rotation = VisionBoardAbsorb.settleAngle(seed: card.id)
+        card.zOrder = maxZOrder + 1
+        cards.append(card)
+        selectedCardIds = [card.id]
+        notifyChange()
+    }
+
     /// Rewrites a word clipping in place (The Wall, pass 2). Empty text
     /// removes the scrap — a clipping with nothing on it is litter.
     public func rewriteClipping(_ cardId: String, words: String) {
@@ -1136,11 +1204,13 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
     case location = "location"
     case frame = "frame"
     case shotStrip = "shot_strip"
+    case link = "link"
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
+        case .link: return "Link"
         case .image: return "Image"
         case .text: return "Text"
         case .colorPalette: return "Color Palette"
@@ -1155,6 +1225,7 @@ public enum VisionCardType: String, CaseIterable, Identifiable {
 
     public var systemImage: String {
         switch self {
+        case .link: return "link"
         case .image: return "photo"
         case .text: return "textformat"
         case .colorPalette: return "paintpalette"
