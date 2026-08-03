@@ -103,6 +103,17 @@ public struct VisionBoardCanvas: View {
             .onPasteCommand(of: VisionBoardAbsorb.acceptedTypes) { providers in
                 absorb(providers, atScreenPoint: nil)
             }
+            // Hands on the wall: the board had no keyboard at all.
+            .onKeyPress(.delete) { deleteSelection() }
+            .onKeyPress(.deleteForward) { deleteSelection() }
+            .onKeyPress(.escape) {
+                viewModel.clearSelection()
+                return .handled
+            }
+            .onKeyPress(.leftArrow) { nudge(dx: -1, dy: 0) }
+            .onKeyPress(.rightArrow) { nudge(dx: 1, dy: 0) }
+            .onKeyPress(.upArrow) { nudge(dx: 0, dy: -1) }
+            .onKeyPress(.downArrow) { nudge(dx: 0, dy: 1) }
             .overlay {
                 if let caret = typingAt {
                     TextField("", text: $draftWords, axis: .vertical)
@@ -173,6 +184,24 @@ public struct VisionBoardCanvas: View {
         }
         .background(LinearGradient(colors: VisionWallPalette.surface,
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+
+    private func deleteSelection() -> KeyPress.Result {
+        guard !viewModel.selectedCardIds.isEmpty, typingAt == nil else {
+            return .ignored
+        }
+        viewModel.removeSelectedCards()
+        return .handled
+    }
+
+    /// Arrow keys walk a scrap across the wall; Shift strides.
+    private func nudge(dx: CGFloat, dy: CGFloat) -> KeyPress.Result {
+        guard !viewModel.selectedCardIds.isEmpty, typingAt == nil else {
+            return .ignored
+        }
+        let stride: CGFloat = NSEvent.modifierFlags.contains(.shift) ? 10 : 1
+        viewModel.nudgeSelection(dx: dx * stride, dy: dy * stride)
+        return .handled
     }
 
     /// Commits whatever was typed on the bare wall as a word scrap, at the

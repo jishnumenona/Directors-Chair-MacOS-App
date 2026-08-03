@@ -394,3 +394,105 @@ final class VisionTornPaperTests: XCTestCase {
         XCTAssertNotEqual(a.description, c.description, "different scraps differ")
     }
 }
+
+// MARK: - Hands on the wall (The Wall, pass 2 — DC-0026)
+
+final class VisionRotationGeometryTests: XCTestCase {
+
+    func testDraggingTheHandleSidewaysTurnsTheScrap() {
+        // Handle sits above the centre; dragging it right turns clockwise.
+        let delta = VisionCanvasGeometry.rotationDelta(
+            handleOffset: CGPoint(x: 0, y: -100),
+            translation: CGSize(width: 100, height: 0), zoom: 1)
+        XCTAssertEqual(delta, 45, accuracy: 0.01)
+    }
+
+    func testRotationIsAnchoredNotCumulative() {
+        // Same drag from the same start always yields the same angle —
+        // the runaway-feedback bug class the canvas was rebuilt to avoid.
+        let once = VisionCanvasGeometry.rotationDelta(
+            handleOffset: CGPoint(x: 0, y: -80),
+            translation: CGSize(width: 40, height: 10), zoom: 2)
+        let twice = VisionCanvasGeometry.rotationDelta(
+            handleOffset: CGPoint(x: 0, y: -80),
+            translation: CGSize(width: 40, height: 10), zoom: 2)
+        XCTAssertEqual(once, twice)
+    }
+
+    func testZoomDoesNotChangeTheAngleTheHandFeels() {
+        // Screen translation is divided by zoom, so a gesture that turns a
+        // scrap 30° at 100% turns it 30° at 200%.
+        let atOneX = VisionCanvasGeometry.rotationDelta(
+            handleOffset: CGPoint(x: 0, y: -100),
+            translation: CGSize(width: 50, height: 0), zoom: 1)
+        let atTwoX = VisionCanvasGeometry.rotationDelta(
+            handleOffset: CGPoint(x: 0, y: -100),
+            translation: CGSize(width: 100, height: 0), zoom: 2)
+        XCTAssertEqual(atOneX, atTwoX, accuracy: 0.001)
+    }
+}
+
+@MainActor
+final class VisionPinAndKeyboardTests: XCTestCase {
+
+    private func makeBoard() -> (VisionBoardViewModel, String) {
+        let viewModel = VisionBoardViewModel()
+        var card = VisionCard()
+        card.canvasX = 100
+        card.canvasY = 100
+        card.canvasWidth = 200
+        card.canvasHeight = 200
+        viewModel.addCard(card)
+        return (viewModel, viewModel.cards[0].id)
+    }
+
+    func testAPinnedScrapIsStuckToTheWall() {
+        let (viewModel, id) = makeBoard()
+        viewModel.togglePin(id)
+        XCTAssertTrue(viewModel.isPinned(id))
+
+        viewModel.beginCardDrag(anchor: id)
+        viewModel.endCardDrag(translation: CGSize(width: 80, height: 80))
+        XCTAssertEqual(viewModel.cards[0].canvasX, 100, "pinned scraps don't move")
+
+        viewModel.beginRotate(cardId: id)
+        viewModel.endRotate(delta: 30)
+        XCTAssertNil(viewModel.cards[0].rotation, "pinned scraps don't turn")
+
+        viewModel.beginResize(cardId: id, corner: .bottomRight)
+        viewModel.endResize(translation: CGSize(width: 50, height: 50))
+        XCTAssertEqual(viewModel.cards[0].canvasWidth, 200, "pinned scraps don't resize")
+
+        viewModel.togglePin(id)
+        viewModel.beginCardDrag(anchor: id)
+        viewModel.endCardDrag(translation: CGSize(width: 40, height: 0))
+        XCTAssertEqual(viewModel.cards[0].canvasX, 140, "unpinned, it moves again")
+    }
+
+    func testRotatingASrapAppliesTheDeltaToWhereItStarted() {
+        let (viewModel, id) = makeBoard()
+        viewModel.beginRotate(cardId: id)
+        viewModel.updateRotate(delta: 12)
+        XCTAssertEqual(viewModel.cards[0].rotation ?? 0, 12, accuracy: 0.001)
+        viewModel.endRotate(delta: 20)
+        XCTAssertEqual(viewModel.cards[0].rotation ?? 0, 20, accuracy: 0.001,
+                       "anchored: the last delta wins, deltas don't accumulate")
+
+        // A second gesture builds on the tilt the scrap already has.
+        viewModel.beginRotate(cardId: id)
+        viewModel.endRotate(delta: 5)
+        XCTAssertEqual(viewModel.cards[0].rotation ?? 0, 25, accuracy: 0.001)
+    }
+
+    func testArrowKeysWalkTheSelectionAndSkipPinnedScraps() {
+        let (viewModel, id) = makeBoard()
+        viewModel.selectCard(id)
+        viewModel.nudgeSelection(dx: -1, dy: 3)
+        XCTAssertEqual(viewModel.cards[0].canvasX, 99)
+        XCTAssertEqual(viewModel.cards[0].canvasY, 103)
+
+        viewModel.togglePin(id)
+        viewModel.nudgeSelection(dx: 10, dy: 10)
+        XCTAssertEqual(viewModel.cards[0].canvasX, 99, "a pinned scrap stays put")
+    }
+}

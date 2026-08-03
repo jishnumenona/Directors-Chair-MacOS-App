@@ -400,6 +400,8 @@ public class VisionBoardViewModel: ObservableObject {
     private var dragSessionOrigins: [String: CGPoint] = [:]
     private var dragSessionAnchorId: String?
     private var resizeSession: (cardId: String, corner: ResizeCorner, startRect: CGRect)?
+    /// Rotate session: the scrap and the tilt it started at.
+    private var rotateSession: (cardId: String, startRotation: Double)?
 
     /// True while a drag/resize gesture or the editor sheet is active
     /// (Slice 3 uses this to defer external reconciliation).
@@ -468,6 +470,7 @@ public class VisionBoardViewModel: ObservableObject {
     /// inside the frame at drag start move rigidly with it (membership is
     /// computed once per gesture, not re-evaluated mid-drag).
     public func beginCardDrag(anchor cardId: String) {
+        guard !isPinned(cardId) else { return }   // pinned = stuck to the wall
         dragSessionAnchorId = cardId
         var ids = selectedCardIds.contains(cardId) ? selectedCardIds : [cardId]
         if let anchor = cards.first(where: { $0.id == cardId }),
@@ -523,7 +526,8 @@ public class VisionBoardViewModel: ObservableObject {
     }
 
     public func beginResize(cardId: String, corner: ResizeCorner) {
-        guard let card = cards.first(where: { $0.id == cardId }) else { return }
+        guard !isPinned(cardId),
+              let card = cards.first(where: { $0.id == cardId }) else { return }
         resizeSession = (cardId, corner, CGRect(
             x: card.canvasX ?? 0, y: card.canvasY ?? 0,
             width: card.canvasWidth ?? Double(Self.defaultCardWidth),
@@ -905,6 +909,58 @@ public class VisionBoardViewModel: ObservableObject {
         guard viewportSize != .zero else { return transform.toWorld(.zero) }
         return transform.toWorld(CGPoint(x: viewportSize.width / 2,
                                          y: viewportSize.height / 2))
+    }
+
+    /// A pushpin holds a scrap where it is: no dragging, resizing or
+    /// rotating until it comes out.
+    public func isPinned(_ cardId: String) -> Bool {
+        cards.first(where: { $0.id == cardId })?.pinned ?? false
+    }
+
+    public func togglePin(_ cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        cards[index].pinned.toggle()
+        notifyChange()
+    }
+
+    // MARK: Rotate (The Wall, pass 2)
+
+    public func beginRotate(cardId: String) {
+        guard !isPinned(cardId),
+              let card = cards.first(where: { $0.id == cardId }) else { return }
+        rotateSession = (cardId, card.rotation ?? 0)
+    }
+
+    public func updateRotate(delta: Double) {
+        applyRotate(delta: delta)
+    }
+
+    public func endRotate(delta: Double) {
+        applyRotate(delta: delta)
+        rotateSession = nil
+        notifyChange()
+    }
+
+    private func applyRotate(delta: Double) {
+        guard let session = rotateSession,
+              let index = cards.firstIndex(where: { $0.id == session.cardId })
+        else { return }
+        cards[index].rotation = session.startRotation + delta
+    }
+
+    // MARK: Keyboard (The Wall, pass 2)
+
+    /// Arrow-key nudge, in world points.
+    public func nudgeSelection(dx: CGFloat, dy: CGFloat) {
+        guard !selectedCardIds.isEmpty else { return }
+        var moved = false
+        for id in selectedCardIds where !isPinned(id) {
+            guard let index = cards.firstIndex(where: { $0.id == id }) else { continue }
+            cards[index].canvasX = (cards[index].canvasX ?? 0) + Double(dx)
+            cards[index].canvasY = (cards[index].canvasY ?? 0) + Double(dy)
+            moved = true
+        }
+        if moved { notifyChange() }
     }
 
     /// Rewrites a word clipping in place (The Wall, pass 2). Empty text

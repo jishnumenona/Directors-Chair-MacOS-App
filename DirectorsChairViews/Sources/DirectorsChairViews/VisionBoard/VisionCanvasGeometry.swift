@@ -124,6 +124,27 @@ public enum VisionCanvasGeometry {
         return CGRect(origin: origin, size: CGSize(width: width, height: height))
     }
 
+    // MARK: Rotate (anchored, The Wall pass 2)
+
+    /// Degrees added while dragging a rotate handle. `handleOffset` is the
+    /// handle's position relative to the scrap's centre at gesture start,
+    /// in world points; `translation` is unscaled screen points. Anchored
+    /// like every other gesture: same drag from the same start, same angle.
+    public static func rotationDelta(handleOffset: CGPoint,
+                                     translation: CGSize,
+                                     zoom: CGFloat) -> Double {
+        guard zoom > 0 else { return 0 }
+        let current = CGPoint(x: handleOffset.x + translation.width / zoom,
+                              y: handleOffset.y + translation.height / zoom)
+        guard handleOffset != .zero, current != .zero else { return 0 }
+        let start = atan2(handleOffset.y, handleOffset.x)
+        let now = atan2(current.y, current.x)
+        var degrees = (now - start) * 180 / .pi
+        while degrees > 180 { degrees -= 360 }
+        while degrees < -180 { degrees += 360 }
+        return degrees
+    }
+
     // MARK: Fit / bounds
 
     public static func boundingBox(of cards: [VisionCard]) -> CGRect? {

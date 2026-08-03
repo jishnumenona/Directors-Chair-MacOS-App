@@ -33,6 +33,12 @@ public struct VisionCardItem: View {
     public var onCommitText: ((String) -> Void)?
     /// Cycles a clipping's cut.
     public var onCycleCut: (() -> Void)?
+    /// Corner-rotate: begin/update/end carry degrees of change.
+    public var onRotateBegan: (() -> Void)?
+    public var onRotateChanged: ((Double) -> Void)?
+    public var onRotateEnded: ((Double) -> Void)?
+    /// Pushpin: hold this scrap where it is.
+    public var onTogglePin: (() -> Void)?
     public var onDuplicate: (() -> Void)?
     public var onDelete: (() -> Void)?
     public var onExtractPalette: (() -> Void)?
@@ -86,6 +92,10 @@ public struct VisionCardItem: View {
         onDoubleClick: (() -> Void)? = nil,
         onCommitText: ((String) -> Void)? = nil,
         onCycleCut: (() -> Void)? = nil,
+        onRotateBegan: (() -> Void)? = nil,
+        onRotateChanged: ((Double) -> Void)? = nil,
+        onRotateEnded: ((Double) -> Void)? = nil,
+        onTogglePin: (() -> Void)? = nil,
         onDuplicate: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
         onExtractPalette: (() -> Void)? = nil,
@@ -107,6 +117,10 @@ public struct VisionCardItem: View {
         self.onDoubleClick = onDoubleClick
         self.onCommitText = onCommitText
         self.onCycleCut = onCycleCut
+        self.onRotateBegan = onRotateBegan
+        self.onRotateChanged = onRotateChanged
+        self.onRotateEnded = onRotateEnded
+        self.onTogglePin = onTogglePin
         self.onDuplicate = onDuplicate
         self.onDelete = onDelete
         self.onExtractPalette = onExtractPalette
@@ -119,6 +133,7 @@ public struct VisionCardItem: View {
         self.onResizeEnded = onResizeEnded
     }
 
+    @State private var isRotating = false
     @State private var isEditingInline = false
     @State private var draftWords = ""
     @FocusState private var inlineFocused: Bool
@@ -158,6 +173,12 @@ public struct VisionCardItem: View {
                         } label: {
                             Label("Change the cut", systemImage: "scissors")
                         }
+                    }
+                    Button {
+                        onTogglePin?()
+                    } label: {
+                        Label(card.pinned ? "Take the pin out" : "Pin to the wall",
+                              systemImage: card.pinned ? "pin.slash" : "pin")
                     }
                     Button {
                         onBeginConnector?()
@@ -206,6 +227,7 @@ public struct VisionCardItem: View {
             // Resize handles (visible when selected)
             if isSelected {
                 resizeHandles
+                if !card.pinned { rotateHandle }
             }
 
             // No label bar, no department badge: nothing on the wall
@@ -661,6 +683,40 @@ public struct VisionCardItem: View {
     /// not a black tile (The Wall, pass 2).
     private var cardBackground: some View {
         VisionWallPalette.clipping
+    }
+
+    // MARK: - Rotate Handle
+
+    /// Grab above the scrap and turn it. Counter-scaled like the resize
+    /// dots so it stays the same size at any zoom.
+    private var rotateHandle: some View {
+        let gap: CGFloat = 26 / max(zoomLevel, 0.01)
+        let offset = CGPoint(x: 0, y: -(cardHeight / 2 + gap))
+        return Image(systemName: "arrow.trianglehead.counterclockwise.rotate.90")
+            .font(.system(size: 10 / max(zoomLevel, 0.01), weight: .bold))
+            .foregroundColor(.white)
+            .padding(5 / max(zoomLevel, 0.01))
+            .background(Circle().fill(VisionWallPalette.greasePencil))
+            .position(x: cardWidth / 2, y: -gap)
+            .gesture(
+                DragGesture(coordinateSpace: .named(canvasSpaceName))
+                    .onChanged { value in
+                        if !isRotating {
+                            isRotating = true
+                            onRotateBegan?()
+                        }
+                        onRotateChanged?(VisionCanvasGeometry.rotationDelta(
+                            handleOffset: offset, translation: value.translation,
+                            zoom: zoomLevel))
+                    }
+                    .onEnded { value in
+                        isRotating = false
+                        onRotateEnded?(VisionCanvasGeometry.rotationDelta(
+                            handleOffset: offset, translation: value.translation,
+                            zoom: zoomLevel))
+                    }
+            )
+            .help("Drag to turn this scrap")
     }
 
     // MARK: - Label Overlay
