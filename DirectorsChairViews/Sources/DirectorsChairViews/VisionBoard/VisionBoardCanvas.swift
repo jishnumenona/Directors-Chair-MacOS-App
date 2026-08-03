@@ -691,6 +691,13 @@ public struct VisionBoardCanvas: View {
 
 /// A labeled dashed arrow between two world-space points. The label pill
 /// at the midpoint is the interaction target (edit label / delete).
+/// A connection between two elements: red thread run between their tacks,
+/// with a paper tag naming the relationship.
+///
+/// This used to be a dashed white arrow — correct on the old dark canvas,
+/// invisible on plaster, so connecting two elements looked like it had
+/// done nothing at all. String is also the truer object: on a real board
+/// you run thread between pins, and thread sags.
 private struct ConnectorArrow: View {
     let from: CGPoint
     let to: CGPoint
@@ -698,57 +705,84 @@ private struct ConnectorArrow: View {
     var onEditLabel: () -> Void
     var onDelete: () -> Void
 
+    /// How far the thread hangs between two pins — longer runs sag more,
+    /// the way string does.
+    private var sag: CGFloat {
+        min(46, hypot(to.x - from.x, to.y - from.y) * 0.14)
+    }
+
     var body: some View {
-        let minX = min(from.x, to.x) - 24
-        let minY = min(from.y, to.y) - 24
-        let width = abs(from.x - to.x) + 48
-        let height = abs(from.y - to.y) + 48
-        let localFrom = CGPoint(x: from.x - minX, y: from.y - minY)
-        let localTo = CGPoint(x: to.x - minX, y: to.y - minY)
-        let angle = atan2(to.y - from.y, to.x - from.x)
-        let mid = CGPoint(x: (localFrom.x + localTo.x) / 2,
-                          y: (localFrom.y + localTo.y) / 2)
+        let pad: CGFloat = 60
+        let minX = min(from.x, to.x) - pad
+        let minY = min(from.y, to.y) - pad
+        let width = abs(from.x - to.x) + pad * 2
+        let height = abs(from.y - to.y) + pad * 2
+        let a = CGPoint(x: from.x - minX, y: from.y - minY)
+        let b = CGPoint(x: to.x - minX, y: to.y - minY)
+        let control = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + sag * 2)
+        // The hanging point of a quadratic curve, where the tag rides.
+        let mid = CGPoint(x: (a.x + 2 * control.x + b.x) / 4,
+                          y: (a.y + 2 * control.y + b.y) / 4)
+
+        let thread = Path { path in
+            path.move(to: a)
+            path.addQuadCurve(to: b, control: control)
+        }
 
         ZStack(alignment: .topLeading) {
-            Path { path in
-                path.move(to: localFrom)
-                path.addLine(to: localTo)
-            }
-            .stroke(Color.white.opacity(0.45),
-                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            // The shadow the thread casts on the wall.
+            thread
+                .stroke(Color.black.opacity(0.16),
+                        style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                .offset(x: 1, y: 2.5)
+                .blur(radius: 1.2)
 
-            Image(systemName: "arrowtriangle.right.fill")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.55))
-                .rotationEffect(.radians(angle))
-                .position(x: localTo.x - cos(angle) * 14,
-                          y: localTo.y - sin(angle) * 14)
+            thread
+                .stroke(Color(hex: "#A8362C"),
+                        style: StrokeStyle(lineWidth: 1.9, lineCap: .round))
 
-            HStack(spacing: 3) {
-                if label.isEmpty {
-                    Image(systemName: "character.cursor.ibeam")
-                        .font(.system(size: 8))
-                } else {
-                    Text(label)
-                        .font(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
+            // A lighter twist along the top of the thread.
+            thread
+                .stroke(Color(hex: "#D9695C").opacity(0.55),
+                        style: StrokeStyle(lineWidth: 0.7, lineCap: .round))
+                .offset(y: -0.5)
+
+            tag
+                .position(mid)
+                .onTapGesture(count: 2, perform: onEditLabel)
+                .contextMenu {
+                    Button("Name this connection…", action: onEditLabel)
+                    Divider()
+                    Button("Cut the thread", role: .destructive, action: onDelete)
                 }
-            }
-            .foregroundColor(.white.opacity(0.85))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Color(hex: "#2A2A2A")))
-            .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
-            .position(mid)
-            .onTapGesture(count: 2, perform: onEditLabel)
-            .contextMenu {
-                Button("Edit Label…", action: onEditLabel)
-                Divider()
-                Button("Delete Connector", role: .destructive, action: onDelete)
-            }
         }
         .frame(width: width, height: height)
         .position(x: minX + width / 2, y: minY + height / 2)
+    }
+
+    /// A luggage-tag of paper knotted onto the thread.
+    private var tag: some View {
+        HStack(spacing: 3) {
+            if label.isEmpty {
+                Image(systemName: "pencil")
+                    .font(.system(size: 8, weight: .bold))
+            } else {
+                Text(label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+            }
+        }
+        .foregroundColor(VisionWallPalette.ink.opacity(0.8))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(VisionPaper.cream.base)
+        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .overlay(
+            RoundedRectangle(cornerRadius: 2)
+                .strokeBorder(Color.black.opacity(0.12), lineWidth: 0.8)
+        )
+        .shadow(color: VisionWallPalette.scrapShadow, radius: 2.5, y: 1.5)
+        .rotationEffect(.degrees(-1.5))
     }
 }
 
