@@ -133,6 +133,13 @@ public struct VisionCardItem: View {
         self.onResizeEnded = onResizeEnded
     }
 
+    /// The pendulum: how far the paper currently hangs off its own tilt,
+    /// its angular velocity, and the frame clock that settles it.
+    @State private var swing: Double = 0
+    @State private var swingVelocity: Double = 0
+    @State private var settling = false
+    @State private var lastDragTranslation: CGSize = .zero
+    @State private var lastDragTime: Date?
     @State private var isRotating = false
     @State private var isEditingInline = false
     @State private var draftWords = ""
@@ -224,6 +231,14 @@ public struct VisionCardItem: View {
                     .onExitCommand { isEditingInline = false }
             }
 
+            // The tack that holds this scrap to the wall. Offset, never
+            // .position — a positioned child claims all available space and
+            // would resize the scrap's own frame.
+            VisionThumbtack(size: tackSize, pressed: card.pinned)
+                .offset(x: cardWidth * tackAnchor.x - tackSize / 2,
+                        y: cardHeight * tackAnchor.y - tackSize / 2)
+                .allowsHitTesting(false)
+
             // Resize handles (visible when selected)
             if isSelected {
                 resizeHandles
@@ -240,9 +255,10 @@ public struct VisionCardItem: View {
                 pinnedIndicator
             }
         }
-        // A scrap lies on the wall at a slight tilt (The Wall, pass 1);
-        // rotation happens before positioning so the centre stays put.
-        .rotationEffect(.degrees(card.rotation ?? 0))
+        // The tack is the pivot: paper turns around the pin that holds it,
+        // never around its own middle (The Wall, pass 2).
+        .rotationEffect(.degrees((card.rotation ?? 0) + swing),
+                        anchor: UnitPoint(x: tackAnchor.x, y: tackAnchor.y))
         // World coordinates only — the cards layer applies zoom+offset once.
         .position(x: cardPosition.x + cardWidth / 2, y: cardPosition.y + cardHeight / 2)
         .onHover { hovering in
@@ -844,15 +860,73 @@ public struct VisionCardItem: View {
                 guard !isResizing else { return }
                 if !isDragging {
                     isDragging = true
+                    settling = false
+                    lastDragTranslation = .zero
+                    lastDragTime = nil
                     onDragBegan?()
                 }
+                trackSwing(translation: value.translation)
                 onDragChanged?(value.translation)
             }
             .onEnded { value in
                 guard isDragging else { return }
                 isDragging = false
                 onDragEnded?(value.translation)
+                startSettling()
             }
+    }
+
+    /// Head size, counter-scaled so the tack looks the same at any zoom.
+    private var tackSize: CGFloat { 15 / max(zoomLevel, 0.01) }
+
+    /// Where the tack goes through this particular sheet.
+    private var tackAnchor: CGPoint {
+        VisionScrapPhysics.tackAnchor(seed: card.id)
+    }
+
+    /// While the hand moves the tack, the paper trails behind it.
+    private func trackSwing(translation: CGSize) {
+        let now = Date()
+        defer {
+            lastDragTranslation = translation
+            lastDragTime = now
+        }
+        guard let last = lastDragTime else { return }
+        let dt = now.timeIntervalSince(last)
+        guard dt > 0.001 else { return }
+        let dx = (translation.width - lastDragTranslation.width) / max(zoomLevel, 0.01)
+        let velocity = CGFloat(Double(dx) / dt)
+        // Ease toward the target lag so a jittery trackpad doesn't buzz.
+        let target = VisionScrapPhysics.swing(horizontalVelocity: velocity)
+        swing += (target - swing) * 0.35
+        swingVelocity = 0
+    }
+
+    /// Let go and the paper swings a couple of times around the tack, then
+    /// friction in the pin holds it at the tilt it already had.
+    private func startSettling() {
+        guard !settling else { return }
+        settling = true
+        Task { @MainActor in
+            let frame = Duration.milliseconds(16)
+            let dt = 1.0 / 60.0
+            var guardCounter = 0
+            while settling, guardCounter < 240 {
+                guardCounter += 1
+                let next = VisionScrapPhysics.step(
+                    angle: swing, velocity: swingVelocity, target: 0, dt: dt)
+                swing = next.angle
+                swingVelocity = next.velocity
+                if VisionScrapPhysics.atRest(angle: swing,
+                                             velocity: swingVelocity, target: 0) {
+                    break
+                }
+                try? await Task.sleep(for: frame)
+            }
+            swing = 0
+            swingVelocity = 0
+            settling = false
+        }
     }
 
     private func loadImageIfNeeded() {

@@ -496,3 +496,81 @@ final class VisionPinAndKeyboardTests: XCTestCase {
         XCTAssertEqual(viewModel.cards[0].canvasX, 99, "a pinned scrap stays put")
     }
 }
+
+// MARK: - Paper on a pin (The Wall, pass 2 — DC-0032)
+
+final class VisionScrapPhysicsTests: XCTestCase {
+
+    func testPaperTrailsBehindTheHandThatMovesIt() {
+        // Carry the tack right and the sheet lags left, and vice versa.
+        XCTAssertLessThan(VisionScrapPhysics.swing(horizontalVelocity: 400), 0)
+        XCTAssertGreaterThan(VisionScrapPhysics.swing(horizontalVelocity: -400), 0)
+        XCTAssertEqual(VisionScrapPhysics.swing(horizontalVelocity: 0), 0)
+    }
+
+    func testPaperNeverFoldsBackOnItself() {
+        for velocity in [CGFloat(5_000), -5_000, 50_000] {
+            XCTAssertLessThanOrEqual(
+                abs(VisionScrapPhysics.swing(horizontalVelocity: velocity)), 11)
+        }
+    }
+
+    func testTheSwingActuallySwings() {
+        // Underdamped: released off-centre it must cross the rest angle at
+        // least once — a scrap that just eases back isn't swinging.
+        var angle = 9.0
+        var velocity = 0.0
+        var crossings = 0
+        var previous = angle
+        for _ in 0..<240 {
+            let next = VisionScrapPhysics.step(angle: angle, velocity: velocity,
+                                               target: 0, dt: 1.0 / 60.0)
+            angle = next.angle
+            velocity = next.velocity
+            if previous > 0, angle < 0 { crossings += 1 }
+            if previous < 0, angle > 0 { crossings += 1 }
+            previous = angle
+        }
+        XCTAssertGreaterThanOrEqual(crossings, 1, "the paper must oscillate")
+    }
+
+    func testItComesToRestAndStaysThere() {
+        var angle = 9.0
+        var velocity = 0.0
+        var steps = 0
+        while steps < 600,
+              !VisionScrapPhysics.atRest(angle: angle, velocity: velocity, target: 0) {
+            let next = VisionScrapPhysics.step(angle: angle, velocity: velocity,
+                                               target: 0, dt: 1.0 / 60.0)
+            angle = next.angle
+            velocity = next.velocity
+            steps += 1
+        }
+        XCTAssertLessThan(steps, 240, "settles inside the frame budget (~4s)")
+        XCTAssertEqual(angle, 0, accuracy: 0.06)
+        // And the integrator is stable — no energy gained over a long run.
+        for _ in 0..<600 {
+            let next = VisionScrapPhysics.step(angle: angle, velocity: velocity,
+                                               target: 0, dt: 1.0 / 60.0)
+            angle = next.angle
+            velocity = next.velocity
+        }
+        XCTAssertEqual(angle, 0, accuracy: 0.06, "no runaway oscillation")
+    }
+
+    func testTacksSitNearTheTopAndOffCentre() {
+        let anchors = (0..<40).map {
+            VisionScrapPhysics.tackAnchor(seed: "scrap-\($0)")
+        }
+        for anchor in anchors {
+            XCTAssertEqual(anchor.y, 0.055, accuracy: 0.0001, "near the top edge")
+            XCTAssertGreaterThan(anchor.x, 0.32)
+            XCTAssertLessThan(anchor.x, 0.68)
+        }
+        XCTAssertGreaterThan(Set(anchors.map(\.x)).count, 30,
+                             "tacks aren't machine-placed in a line")
+        XCTAssertEqual(VisionScrapPhysics.tackAnchor(seed: "same"),
+                       VisionScrapPhysics.tackAnchor(seed: "same"),
+                       "a tack doesn't move between launches")
+    }
+}
