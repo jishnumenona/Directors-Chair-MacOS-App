@@ -1010,3 +1010,47 @@ final class VisionInfiniteWallTests: XCTestCase {
         XCTAssertTrue(viewModel.contentVisible, "and brings you home")
     }
 }
+
+// MARK: - Thread runs between the pins (owner report 2026-08-03)
+
+final class VisionThreadEndpointTests: XCTestCase {
+
+    /// Mirrors the canvas's tackPoint: thread is wound round the pin, and
+    /// because the tack is the pivot the element turns about, this point
+    /// holds still however far the paper swings.
+    private func tackPoint(_ card: VisionCard) -> CGPoint {
+        let anchor = VisionScrapPhysics.tackAnchor(seed: card.id)
+        return CGPoint(x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) * anchor.x,
+                       y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) * anchor.y)
+    }
+
+    func testThreadEndsAtThePinNotTheMiddleOfTheSheet() {
+        var card = VisionCard(id: "sheet")
+        card.canvasX = 100
+        card.canvasY = 200
+        card.canvasWidth = 300
+        card.canvasHeight = 400
+
+        let pin = tackPoint(card)
+        let middle = CGPoint(x: 250, y: 400)
+        XCTAssertNotEqual(pin, middle, "string is wound on the tack")
+        // The tack sits near the top edge, so the thread lands high on the
+        // sheet rather than at its centre.
+        XCTAssertLessThan(pin.y, middle.y)
+        XCTAssertEqual(pin.y, 200 + 400 * 0.055, accuracy: 0.001)
+        XCTAssertGreaterThan(pin.x, 100)
+        XCTAssertLessThan(pin.x, 400)
+    }
+
+    func testThePinStaysPutHoweverTheSheetIsTilted() {
+        // Rotation anchors at the tack, so a swinging element never drags
+        // its end of the thread around with it.
+        var still = VisionCard(id: "sheet")
+        still.canvasX = 0; still.canvasY = 0
+        still.canvasWidth = 200; still.canvasHeight = 200
+        var swung = still
+        swung.rotation = -37
+
+        XCTAssertEqual(tackPoint(still), tackPoint(swung))
+    }
+}

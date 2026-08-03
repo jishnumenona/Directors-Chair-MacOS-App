@@ -548,12 +548,18 @@ public struct VisionBoardCanvas: View {
         }
     }
 
-    private func cardCenter(_ cardId: String) -> CGPoint? {
+    /// Where an element's tack sits in the world. Thread is wound around
+    /// pins, not tied to the middle of a sheet — and because the tack is
+    /// the pivot the paper turns about, this point holds still however far
+    /// the element swings.
+    private func tackPoint(_ cardId: String) -> CGPoint? {
         guard let card = viewModel.cards.first(where: { $0.id == cardId }) else {
             return nil
         }
-        return CGPoint(x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
-                       y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
+        let anchor = VisionScrapPhysics.tackAnchor(seed: card.id)
+        return CGPoint(
+            x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) * anchor.x,
+            y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) * anchor.y)
     }
 
     // MARK: - Canvas Background with Dot Grid
@@ -572,11 +578,15 @@ public struct VisionBoardCanvas: View {
     @ViewBuilder
     private var cardsLayer: some View {
         ZStack(alignment: .topLeading) {
-            // Arrows render under cards; endpoints are card centers, so
-            // the cards themselves occlude the line ends naturally.
+            ForEach(viewModel.filteredCards) { card in
+                scrapView(card)
+            }
+
+            // Thread lies ON the wall over the paper — string wound round
+            // a pin sits on top of the sheet, it doesn't run beneath it.
             ForEach(viewModel.boardConnectors) { connector in
-                if let from = cardCenter(connector.fromCardId),
-                   let to = cardCenter(connector.toCardId) {
+                if let from = tackPoint(connector.fromCardId),
+                   let to = tackPoint(connector.toCardId) {
                     ConnectorArrow(
                         from: from, to: to, label: connector.label,
                         onEditLabel: {
@@ -586,10 +596,6 @@ public struct VisionBoardCanvas: View {
                             viewModel.removeConnector(connector.id)
                         })
                 }
-            }
-
-            ForEach(viewModel.filteredCards) { card in
-                scrapView(card)
             }
         }
         // The ONE place zoom and offset touch the render tree.
@@ -691,13 +697,12 @@ public struct VisionBoardCanvas: View {
 
 /// A labeled dashed arrow between two world-space points. The label pill
 /// at the midpoint is the interaction target (edit label / delete).
-/// A connection between two elements: red thread run between their tacks,
-/// with a paper tag naming the relationship.
+/// Thread strung between two pins, wound at each end.
 ///
-/// This used to be a dashed white arrow — correct on the old dark canvas,
-/// invisible on plaster, so connecting two elements looked like it had
-/// done nothing at all. String is also the truer object: on a real board
-/// you run thread between pins, and thread sags.
+/// It began as a dashed white arrow between element centres — invisible on
+/// plaster, and tied to the wrong place. Real string is thick enough to
+/// see across a room, hangs under its own weight, is twisted from strands,
+/// and is wound around the tacks rather than the paper.
 private struct ConnectorArrow: View {
     let from: CGPoint
     let to: CGPoint
@@ -705,14 +710,16 @@ private struct ConnectorArrow: View {
     var onEditLabel: () -> Void
     var onDelete: () -> Void
 
-    /// How far the thread hangs between two pins — longer runs sag more,
-    /// the way string does.
+    /// Twine, in world points — thick enough to read as cord, not a hairline.
+    private static let thickness: CGFloat = 5.0
+
+    /// Longer runs hang lower, the way string does under its own weight.
     private var sag: CGFloat {
-        min(46, hypot(to.x - from.x, to.y - from.y) * 0.14)
+        min(58, hypot(to.x - from.x, to.y - from.y) * 0.15)
     }
 
     var body: some View {
-        let pad: CGFloat = 60
+        let pad: CGFloat = 80
         let minX = min(from.x, to.x) - pad
         let minY = min(from.y, to.y) - pad
         let width = abs(from.x - to.x) + pad * 2
@@ -728,24 +735,46 @@ private struct ConnectorArrow: View {
             path.move(to: a)
             path.addQuadCurve(to: b, control: control)
         }
+        let t = Self.thickness
 
         ZStack(alignment: .topLeading) {
-            // The shadow the thread casts on the wall.
+            // Cast on the wall, offset the way the light falls.
             thread
-                .stroke(Color.black.opacity(0.16),
-                        style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
-                .offset(x: 1, y: 2.5)
-                .blur(radius: 1.2)
+                .stroke(Color.black.opacity(0.22),
+                        style: StrokeStyle(lineWidth: t * 1.15, lineCap: .round))
+                .offset(x: 1.5, y: 3.5)
+                .blur(radius: 2)
 
-            thread
-                .stroke(Color(hex: "#A8362C"),
-                        style: StrokeStyle(lineWidth: 1.9, lineCap: .round))
+            // The cord.
+            thread.stroke(Color(hex: "#8E2C24"),
+                          style: StrokeStyle(lineWidth: t, lineCap: .round))
 
-            // A lighter twist along the top of the thread.
+            // Shaded underside and lit top edge give it a round body.
             thread
-                .stroke(Color(hex: "#D9695C").opacity(0.55),
-                        style: StrokeStyle(lineWidth: 0.7, lineCap: .round))
-                .offset(y: -0.5)
+                .stroke(Color.black.opacity(0.30),
+                        style: StrokeStyle(lineWidth: t * 0.38, lineCap: .round))
+                .offset(y: t * 0.28)
+                .blur(radius: 0.6)
+            thread
+                .stroke(Color(hex: "#E0796A").opacity(0.75),
+                        style: StrokeStyle(lineWidth: t * 0.3, lineCap: .round))
+                .offset(y: -t * 0.28)
+                .blur(radius: 0.4)
+
+            // Twist: short dashes running along the cord read as strands
+            // wound together, at a fraction of the cost of drawing fibres.
+            thread
+                .stroke(Color(hex: "#5E1A14").opacity(0.55),
+                        style: StrokeStyle(lineWidth: t * 0.72, lineCap: .butt,
+                                           dash: [1.6, 4.4]))
+            thread
+                .stroke(Color(hex: "#C9584A").opacity(0.45),
+                        style: StrokeStyle(lineWidth: t * 0.5, lineCap: .butt,
+                                           dash: [1.4, 4.6], dashPhase: 2.6))
+                .offset(y: -t * 0.18)
+
+            knot.position(a)
+            knot.position(b)
 
             tag
                 .position(mid)
@@ -760,7 +789,25 @@ private struct ConnectorArrow: View {
         .position(x: minX + width / 2, y: minY + height / 2)
     }
 
-    /// A luggage-tag of paper knotted onto the thread.
+    /// Where the cord is wound round the pin: a couple of turns, sitting
+    /// under the tack head that is drawn on the element itself.
+    private var knot: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(Color(hex: "#7A241D"),
+                              lineWidth: Self.thickness * 0.85)
+                .frame(width: Self.thickness * 3.1,
+                       height: Self.thickness * 3.1)
+            Circle()
+                .strokeBorder(Color(hex: "#C9584A").opacity(0.5),
+                              lineWidth: Self.thickness * 0.3)
+                .frame(width: Self.thickness * 3.5,
+                       height: Self.thickness * 3.5)
+        }
+        .shadow(color: Color.black.opacity(0.25), radius: 1.5, y: 1.5)
+    }
+
+    /// A luggage tag of paper knotted onto the thread.
     private var tag: some View {
         HStack(spacing: 3) {
             if label.isEmpty {
