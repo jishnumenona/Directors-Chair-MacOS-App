@@ -13,6 +13,9 @@ public struct VisionCardItem: View {
 
     public let card: VisionCard
     public let isSelected: Bool
+    /// A connector is looking for its other end: this scrap is a target,
+    /// so it highlights and takes a plain click instead of a drag.
+    public let isConnectTarget: Bool
     public let zoomLevel: CGFloat
     public let showLabel: Bool
     /// Named coordinate space of the canvas container — drag translations
@@ -84,6 +87,7 @@ public struct VisionCardItem: View {
     public init(
         card: VisionCard,
         isSelected: Bool = false,
+        isConnectTarget: Bool = false,
         zoomLevel: CGFloat = 1.0,
         showLabel: Bool = true,
         canvasSpaceName: String = "visionCanvas",
@@ -109,6 +113,7 @@ public struct VisionCardItem: View {
     ) {
         self.card = card
         self.isSelected = isSelected
+        self.isConnectTarget = isConnectTarget
         self.zoomLevel = zoomLevel
         self.showLabel = showLabel
         self.canvasSpaceName = canvasSpaceName
@@ -163,6 +168,13 @@ public struct VisionCardItem: View {
                         .strokeBorder(VisionWallPalette.greasePencil,
                                       lineWidth: isSelected ? 2 : 0)
                         .opacity(isSelected ? 1 : 0)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .strokeBorder(VisionWallPalette.greasePencil,
+                                      style: StrokeStyle(lineWidth: isHovering ? 3 : 2,
+                                                         dash: [6, 4]))
+                        .opacity(isConnectTarget ? (isHovering ? 1 : 0.55) : 0)
                 )
                 .shadow(color: VisionWallPalette.scrapShadow,
                         radius: isSelected ? 11 : 7,
@@ -237,7 +249,7 @@ public struct VisionCardItem: View {
         .onTapGesture {
             onSelect?(NSEvent.modifierFlags.contains(.shift))
         }
-        .gesture(dragGesture)
+        .gesture(isConnectTarget ? nil : dragGesture)
         .onAppear {
             loadImageIfNeeded()
         }

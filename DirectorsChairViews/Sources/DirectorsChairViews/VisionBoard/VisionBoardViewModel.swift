@@ -307,11 +307,13 @@ public class VisionBoardViewModel: ObservableObject {
         }
     }
 
-    /// Clear all selection
+    /// Clear all selection. Deliberately does NOT disarm a pending
+    /// connector: selection changes constantly, and having it silently
+    /// cancel the tool made "Connect" look broken — you'd click the second
+    /// scrap and merely select it. Only esc, a bare-wall click, or
+    /// completing the link puts the tool down.
     public func clearSelection() {
         selectedCardIds.removeAll()
-        // Clicking empty canvas also disarms a pending connector.
-        pendingConnectorSource = nil
     }
 
     /// Select all cards on current board

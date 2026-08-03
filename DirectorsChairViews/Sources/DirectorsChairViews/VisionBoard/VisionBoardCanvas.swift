@@ -109,6 +109,11 @@ public struct VisionBoardCanvas: View {
             }
             .onTapGesture {
                 if typingAt != nil { commitTypedWords() }
+                // Clicking bare wall is how you put the connector tool
+                // down — clicking a scrap is how you finish the link.
+                if viewModel.pendingConnectorSource != nil {
+                    viewModel.cancelConnector()
+                }
                 viewModel.clearSelection()
                 wallFocused = true
             }

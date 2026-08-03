@@ -322,9 +322,14 @@ final class VisionBoardSessionTests: XCTestCase {
         viewModel.completeConnector(to: "b")
         XCTAssertEqual(viewModel.connectors.count, 1)
 
-        // Clicking empty canvas disarms.
+        // Selection no longer disarms the tool. It used to, and that made
+        // Connect look broken: clicking the second scrap selected it (and
+        // silently cancelled) instead of drawing the link. Putting the
+        // tool down is now explicit — esc, a bare-wall click, or drawing.
         viewModel.beginConnector(from: "b")
         viewModel.clearSelection()
+        XCTAssertEqual(viewModel.pendingConnectorSource, "b", "still aiming")
+        viewModel.cancelConnector()
         XCTAssertNil(viewModel.pendingConnectorSource)
 
         viewModel.setConnectorLabel(viewModel.connectors[0].id,

@@ -904,6 +904,34 @@ final class VisionScrapToolFeedbackTests: XCTestCase {
         XCTAssertEqual(viewModel.connectors.count, 1)
     }
 
+    func testSelectingSomethingDoesNotSilentlyPutTheConnectorDown() {
+        // The reported bug: arm Connect, click the second scrap, and it
+        // merely selected — because clearSelection() was disarming the
+        // tool behind your back.
+        let (viewModel, source, target) = board()
+        viewModel.beginConnector(from: source)
+
+        viewModel.clearSelection()
+        XCTAssertEqual(viewModel.pendingConnectorSource, source,
+                       "still aiming")
+
+        viewModel.selectCard(target)
+        XCTAssertEqual(viewModel.pendingConnectorSource, source)
+
+        viewModel.completeConnector(to: target)
+        XCTAssertEqual(viewModel.connectors.count, 1, "the link is drawn")
+        XCTAssertEqual(viewModel.connectors[0].fromCardId, source)
+        XCTAssertEqual(viewModel.connectors[0].toCardId, target)
+    }
+
+    func testAScrapCannotBeConnectedToItself() {
+        let (viewModel, source, _) = board()
+        viewModel.beginConnector(from: source)
+        viewModel.completeConnector(to: source)
+        XCTAssertTrue(viewModel.connectors.isEmpty)
+        XCTAssertNil(viewModel.pendingConnectorSource, "and the tool is put down")
+    }
+
     func testPinTogglesAndTheScrapKnowsIt() {
         let (viewModel, id, _) = board()
         XCTAssertFalse(viewModel.isPinned(id))
