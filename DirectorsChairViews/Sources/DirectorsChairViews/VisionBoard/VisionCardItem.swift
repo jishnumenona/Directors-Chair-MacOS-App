@@ -169,14 +169,19 @@ public struct VisionCardItem: View {
                         x: 0, y: isSelected ? 5 : 3)
 
             if isEditingInline {
+                // Editing must not shrink the words: the face auto-fits
+                // huge type to the scrap, so the field matches the scrap's
+                // own scale instead of a fixed point size.
                 TextField("", text: $draftWords, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: max(13, min(cardWidth, cardHeight) * 0.26),
+                                  weight: .black))
+                    .minimumScaleFactor(0.15)
                     .multilineTextAlignment(.center)
-                    .foregroundColor(VisionWallPalette.ink)
-                    .padding(10)
+                    .foregroundColor(VisionPaper.resolve(card.paper).ink)
+                    .padding(12)
                     .frame(width: cardWidth, height: cardHeight)
-                    .background(VisionWallPalette.clipping)
+                    .background(VisionPaper.resolve(card.paper).base)
                     .focused($inlineFocused)
                     .onAppear { inlineFocused = true }
                     .onSubmit {
@@ -189,7 +194,9 @@ public struct VisionCardItem: View {
             // The tack that holds this scrap to the wall. Offset, never
             // .position — a positioned child claims all available space and
             // would resize the scrap's own frame.
-            VisionThumbtack(size: tackSize, pressed: card.pinned)
+            VisionThumbtack(size: tackSize, pressed: card.pinned,
+                            tint: card.pinned ? Color(hex: "#B08A3C")
+                                              : VisionWallPalette.greasePencil)
                 .offset(x: cardWidth * tackAnchor.x - tackSize / 2,
                         y: cardHeight * tackAnchor.y - tackSize / 2)
                 .allowsHitTesting(false)
@@ -404,7 +411,8 @@ public struct VisionCardItem: View {
                     content: content,
                     style: VisionTextStyle.resolve(card.textStyle),
                     colorHex: card.textColor,
-                                seedID: card.id)
+                                seedID: card.id,
+                                paper: VisionPaper.resolve(card.paper))
             }
         }
     }
@@ -685,7 +693,10 @@ public struct VisionCardItem: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(VisionWallPalette.clipping)
+        .background(ZStack {
+            VisionPaper.resolve(card.paper).base
+            VisionPaperTexture(paper: VisionPaper.resolve(card.paper))
+        })
         .clipShape(VisionTornPaper(torn: [.bottom],
                                    seed: VisionTornPaper.seed(for: card.id)))
     }

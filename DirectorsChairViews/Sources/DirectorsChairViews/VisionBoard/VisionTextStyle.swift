@@ -68,28 +68,42 @@ public struct VisionTextCardFace: View {
     public let colorHex: String
     /// Stable per-scrap variation for the tear; pass the card id.
     public let seedID: String
+    /// The stock this clipping is cut from.
+    public let paper: VisionPaper
 
     public init(content: String, style: VisionTextStyle, colorHex: String,
-                seedID: String = "clipping") {
+                seedID: String = "clipping", paper: VisionPaper = .cream) {
         self.content = content
         self.style = style
         self.colorHex = colorHex
         self.seedID = seedID
+        self.paper = paper
     }
 
     /// Stored colours default to white, which would be invisible as ink on
     /// paper; near-white falls back to the wall's ink.
-    private var ink: Color { VisionWallPalette.inkColor(fromStored: colorHex) }
+    /// Stored colours default to white, which would be invisible on any
+    /// of these stocks; near-white falls back to the paper's own ink.
+    private var ink: Color {
+        let stored = VisionWallPalette.inkColor(fromStored: colorHex)
+        return stored == VisionWallPalette.ink ? paper.ink : stored
+    }
 
     public var body: some View {
         clipping
-            .background(paper)
+            .background(sheet)
             .clipShape(VisionTornPaper(torn: style.tornEdges,
                                        seed: VisionTornPaper.seed(for: seedID)))
     }
 
-    private var paper: some View {
-        VisionWallPalette.clipping
+    private var sheet: some View {
+        ZStack {
+            paper.base
+            VisionPaperTexture(paper: paper)
+            // The light catches a real sheet at its edge.
+            RoundedRectangle(cornerRadius: 1)
+                .strokeBorder(Color.black.opacity(paper.edgeShade), lineWidth: 1)
+        }
     }
 
     @ViewBuilder

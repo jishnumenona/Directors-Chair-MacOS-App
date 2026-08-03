@@ -1044,6 +1044,18 @@ public class VisionBoardViewModel: ObservableObject {
         notifyChange()
     }
 
+    /// Put the connector tool down without drawing anything.
+    public func cancelConnector() {
+        pendingConnectorSource = nil
+    }
+
+    /// Cuts this scrap from a different stock.
+    public func setPaper(_ cardId: String, paper: VisionPaper) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        cards[index].paper = paper.rawValue
+        notifyChange()
+    }
+
     /// Cycles a clipping through the cuts (poster → torn strip → editorial
     /// → caption → note → label).
     public func cycleClippingCut(_ cardId: String) {

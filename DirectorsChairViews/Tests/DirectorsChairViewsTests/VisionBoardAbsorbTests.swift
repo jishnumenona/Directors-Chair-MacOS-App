@@ -807,3 +807,112 @@ final class VisionScrapToolTests: XCTestCase {
                        "pin.slash")
     }
 }
+
+// MARK: - Paper stock (owner request 2026-08-03)
+
+final class VisionPaperTests: XCTestCase {
+
+    func testEveryStockStaysReadable() {
+        // Ink and paper must not collapse into each other on any stock.
+        for stock in VisionPaper.allCases {
+            XCTAssertNotEqual(stock.ink, stock.base, stock.displayName)
+            XCTAssertFalse(stock.displayName.isEmpty)
+        }
+    }
+
+    func testUnknownAndMissingStockFallsBackToCream() {
+        XCTAssertEqual(VisionPaper.resolve(nil), .cream)
+        XCTAssertEqual(VisionPaper.resolve("papyrus"), .cream,
+                       "a stock we no longer ship must not blank the scrap")
+        XCTAssertEqual(VisionPaper.resolve("kraft"), .kraft)
+    }
+
+    func testThickerStocksCatchMoreLightAtTheEdge() {
+        XCTAssertGreaterThan(VisionPaper.kraft.edgeShade, VisionPaper.bond.edgeShade)
+    }
+
+    func testPaperIsOfferedOnlyForThingsMadeOfIt() {
+        let words = VisionScrapTool.ring(isText: true, hasPicture: false,
+                                         isPaper: true)
+        XCTAssertTrue(words.contains(.paper))
+        let picture = VisionScrapTool.ring(isText: false, hasPicture: true,
+                                           isPaper: false)
+        XCTAssertFalse(picture.contains(.paper),
+                       "a photograph is not cut from notepaper")
+    }
+}
+
+@MainActor
+final class VisionPaperViewModelTests: XCTestCase {
+
+    func testChoosingAStockSticksAndSurvivesAReload() throws {
+        let viewModel = VisionBoardViewModel()
+        var card = VisionCard()
+        card.cardType = VisionCardType.text.rawValue
+        card.text = "dusk"
+        viewModel.addCard(card)
+        let id = viewModel.cards[0].id
+
+        viewModel.setPaper(id, paper: .ruled)
+        XCTAssertEqual(viewModel.cards[0].paper, "ruled")
+
+        // Round-trips like every other field, so a stack of notes reopens
+        // on the paper it was written on.
+        let data = try JSONEncoder().encode(viewModel.cards[0])
+        let decoded = try JSONDecoder().decode(VisionCard.self, from: data)
+        XCTAssertEqual(VisionPaper.resolve(decoded.paper), .ruled)
+    }
+
+    func testCardsSavedBeforePaperExistedOpenOnCream() throws {
+        let legacy = try JSONDecoder().decode(
+            VisionCard.self, from: Data(#"{"text":"old note"}"#.utf8))
+        XCTAssertNil(legacy.paper)
+        XCTAssertEqual(VisionPaper.resolve(legacy.paper), .cream)
+    }
+}
+
+// MARK: - Tools that visibly do something (owner report 2026-08-03)
+
+@MainActor
+final class VisionScrapToolFeedbackTests: XCTestCase {
+
+    private func board() -> (VisionBoardViewModel, String, String) {
+        let viewModel = VisionBoardViewModel()
+        var first = VisionCard()
+        first.canvasX = 0; first.canvasY = 0
+        var second = VisionCard()
+        second.canvasX = 400; second.canvasY = 0
+        viewModel.addCard(first)
+        viewModel.addCard(second)
+        return (viewModel, viewModel.cards[0].id, viewModel.cards[1].id)
+    }
+
+    func testConnectArmsAndCanBePutDownAgain() {
+        let (viewModel, source, target) = board()
+
+        viewModel.beginConnector(from: source)
+        XCTAssertEqual(viewModel.pendingConnectorSource, source,
+                       "armed — the wall shows a hint while this holds")
+
+        viewModel.cancelConnector()
+        XCTAssertNil(viewModel.pendingConnectorSource, "esc puts the tool down")
+        XCTAssertTrue(viewModel.connectors.isEmpty)
+
+        viewModel.beginConnector(from: source)
+        viewModel.completeConnector(to: target)
+        XCTAssertNil(viewModel.pendingConnectorSource, "disarmed once drawn")
+        XCTAssertEqual(viewModel.connectors.count, 1)
+    }
+
+    func testPinTogglesAndTheScrapKnowsIt() {
+        let (viewModel, id, _) = board()
+        XCTAssertFalse(viewModel.isPinned(id))
+
+        viewModel.togglePin(id)
+        XCTAssertTrue(viewModel.isPinned(id), "the tack presses in and turns brass")
+        XCTAssertTrue(viewModel.cards.first { $0.id == id }?.pinned == true)
+
+        viewModel.togglePin(id)
+        XCTAssertFalse(viewModel.isPinned(id))
+    }
+}

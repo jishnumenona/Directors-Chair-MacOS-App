@@ -33,6 +33,9 @@ public struct VisionBoardCanvas: View {
     @State private var awaitingTool: VisionWallTool?
     /// Non-nil when the ring belongs to a scrap rather than the wall.
     @State private var ringScrap: VisionCard?
+    /// The scrap whose paper is being chosen, and where to show the stock.
+    @State private var paperFor: VisionCard?
+    @State private var paperAt: CGPoint = .zero
 
     // MARK: - Constants
 
@@ -132,6 +135,22 @@ public struct VisionBoardCanvas: View {
                 return .handled
             }
             .onKeyPress(.escape) {
+                // Escape backs out of whatever is open — a half-typed
+                // word, the tool ring, the paper strip — and only clears
+                // the selection when nothing else is in the way.
+                if typingAt != nil || awaitingTool != nil {
+                    typingAt = nil
+                    awaitingTool = nil
+                    draftWords = ""
+                    wallFocused = true
+                    return .handled
+                }
+                if toolRingAt != nil { dismissRing(); return .handled }
+                if viewModel.pendingConnectorSource != nil {
+                    viewModel.cancelConnector()
+                    return .handled
+                }
+                if paperFor != nil { paperFor = nil; return .handled }
                 viewModel.clearSelection()
                 return .handled
             }
@@ -159,6 +178,8 @@ public struct VisionBoardCanvas: View {
             .overlay { ringOverlay }
             .overlay { generatingOverlay }
             .overlay { caretOverlay }
+            .overlay { connectingOverlay }
+            .overlay { paperOverlay }
             .overlay { dropOverlay }
             .animation(.easeOut(duration: 0.12), value: isDropTargeted)
             .onAppear {
@@ -228,8 +249,108 @@ public struct VisionBoardCanvas: View {
                 .focused($draftFocused)
                 .position(caret)
                 .onSubmit { commitCaret(at: caret) }
-                .onExitCommand { typingAt = nil; awaitingTool = nil; draftWords = "" }
+                .onExitCommand {
+                    typingAt = nil
+                    awaitingTool = nil
+                    draftWords = ""
+                    wallFocused = true
+                }
         }
+    }
+
+    /// Connect arms a mode that waits for a second click. Without this it
+    /// looked like the tool did nothing at all.
+    @ViewBuilder
+    private var connectingOverlay: some View {
+        if viewModel.pendingConnectorSource != nil {
+            VStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.branch")
+                    Text("Click the other scrap to connect")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("esc")
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(VisionWallPalette.ink.opacity(0.1),
+                                    in: RoundedRectangle(cornerRadius: 3))
+                }
+                .foregroundStyle(VisionWallPalette.ink)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(VisionWallPalette.clipping,
+                            in: Capsule())
+                .shadow(color: VisionWallPalette.scrapShadow, radius: 7, y: 3)
+                .environment(\.colorScheme, .light)
+                .padding(.top, 64)
+                Spacer()
+            }
+            .allowsHitTesting(false)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// The stock this scrap could be cut from — real swatches, so you
+    /// pick by eye rather than by name.
+    @ViewBuilder
+    private var paperOverlay: some View {
+        if let scrap = paperFor {
+            ZStack {
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture { paperFor = nil }
+
+                VStack(spacing: 8) {
+                    Text("Paper")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundStyle(VisionWallPalette.ink.opacity(0.55))
+                    HStack(spacing: 7) {
+                        ForEach(VisionPaper.allCases) { stock in
+                            paperSwatch(stock, for: scrap)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(VisionWallPalette.clipping,
+                            in: RoundedRectangle(cornerRadius: 10))
+                .shadow(color: VisionWallPalette.scrapShadow, radius: 10, y: 4)
+                .environment(\.colorScheme, .light)
+                .position(paperAt)
+            }
+            .ignoresSafeArea()
+            .onExitCommand { paperFor = nil }
+        }
+    }
+
+    private func paperSwatch(_ stock: VisionPaper, for scrap: VisionCard) -> some View {
+        let chosen = VisionPaper.resolve(scrap.paper) == stock
+        return VStack(spacing: 4) {
+            ZStack {
+                stock.base
+                VisionPaperTexture(paper: stock)
+                Text("Aa")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(stock.ink)
+            }
+            .frame(width: 40, height: 46)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(chosen ? VisionWallPalette.greasePencil : .clear,
+                                  lineWidth: 2)
+            )
+            .shadow(color: VisionWallPalette.scrapShadow, radius: 3, y: 1)
+
+            Text(stock.displayName)
+                .font(.system(size: 8.5, weight: .medium))
+                .foregroundStyle(VisionWallPalette.ink.opacity(0.6))
+        }
+        .onTapGesture {
+            viewModel.setPaper(scrap.id, paper: stock)
+            paperFor = nil
+        }
+        .accessibilityLabel(stock.displayName)
     }
 
     @ViewBuilder
@@ -254,7 +375,9 @@ public struct VisionBoardCanvas: View {
         }
         let isText = scrap.cardType == VisionCardType.text.rawValue
         let hasPicture = !(scrap.imagePath ?? "").isEmpty
-        return VisionScrapTool.ring(isText: isText, hasPicture: hasPicture).map {
+        let isPaper = isText || scrap.cardType == VisionCardType.link.rawValue
+        return VisionScrapTool.ring(isText: isText, hasPicture: hasPicture,
+                                    isPaper: isPaper).map {
             VisionRingItem(id: $0.rawValue,
                            title: $0.title(pinned: scrap.pinned, isText: isText),
                            systemImage: $0.systemImage(pinned: scrap.pinned,
@@ -270,6 +393,7 @@ public struct VisionBoardCanvas: View {
 
     private func pickTool(_ id: String, at point: CGPoint) {
         let scrap = ringScrap
+        paperAt = point
         dismissRing()
         if let scrap, let tool = VisionScrapTool(rawValue: id) {
             reachFor(tool, on: scrap)
@@ -294,6 +418,8 @@ public struct VisionBoardCanvas: View {
             } else {
                 viewModel.extractPalette(fromCardId: scrap.id)
             }
+        case .paper:
+            paperFor = scrap
         case .details:
             onCardEdit?(scrap)
         case .remove:
