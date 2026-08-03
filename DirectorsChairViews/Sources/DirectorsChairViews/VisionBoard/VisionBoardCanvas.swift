@@ -31,6 +31,8 @@ public struct VisionBoardCanvas: View {
     /// The tool ring, and which tool is waiting on words.
     @State private var toolRingAt: CGPoint?
     @State private var awaitingTool: VisionWallTool?
+    /// Non-nil when the ring belongs to a scrap rather than the wall.
+    @State private var ringScrap: VisionCard?
 
     // MARK: - Constants
 
@@ -81,6 +83,12 @@ public struct VisionBoardCanvas: View {
                         viewModel.recordRightClick(atScreenPoint: point)
                         typingAt = nil
                         awaitingTool = nil
+                        // What the click landed on decides the ring — a
+                        // scrap gets its own tools, bare wall gets the
+                        // making tools. Never both menus at once.
+                        ringScrap = VisionWallHitTest.scrap(
+                            at: viewModel.transform.toWorld(point),
+                            cards: viewModel.filteredCards)
                         toolRingAt = VisionRadialGeometry.anchor(
                             for: point, in: viewSize, radius: 78)
                     }
@@ -148,42 +156,10 @@ public struct VisionBoardCanvas: View {
                         .onExitCommand { typingAt = nil; draftWords = "" }
                 }
             }
-            .overlay {
-                if let ring = toolRingAt {
-                    VisionRadialMenu(
-                        anchor: ring,
-                        onPick: { tool in
-                            toolRingAt = nil
-                            reachFor(tool, at: ring)
-                        },
-                        onDismiss: { toolRingAt = nil })
-                        .transition(.opacity)
-                }
-            }
-            .overlay {
-                if viewModel.isGenerating {
-                    VStack(spacing: 8) {
-                        ProgressView()
-                        Text("Imagining…")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(VisionWallPalette.ink.opacity(0.7))
-                    }
-                    .padding(18)
-                    .background(VisionWallPalette.clipping,
-                                in: RoundedRectangle(cornerRadius: 10))
-                    .shadow(color: VisionWallPalette.scrapShadow, radius: 8, y: 3)
-                    .environment(\.colorScheme, .light)
-                    .allowsHitTesting(false)
-                }
-            }
-            .overlay {
-                if isDropTargeted {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 3)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-            }
+            .overlay { ringOverlay }
+            .overlay { generatingOverlay }
+            .overlay { caretOverlay }
+            .overlay { dropOverlay }
             .animation(.easeOut(duration: 0.12), value: isDropTargeted)
             .onAppear {
                 viewSize = geometry.size
@@ -201,6 +177,128 @@ public struct VisionBoardCanvas: View {
         }
         .background(LinearGradient(colors: VisionWallPalette.surface,
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+
+
+    // MARK: - Overlays
+    //
+    // Split out of `body`: inline, the modifier chain defeats the
+    // type-checker.
+
+    @ViewBuilder
+    private var ringOverlay: some View {
+        if let ring = toolRingAt {
+            VisionRadialMenu(anchor: ring, items: ringItems,
+                             onPick: { pickTool($0, at: ring) },
+                             onDismiss: dismissRing)
+        }
+    }
+
+    @ViewBuilder
+    private var generatingOverlay: some View {
+        if viewModel.isGenerating {
+            VStack(spacing: 8) {
+                ProgressView()
+                Text("Imagining…")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(VisionWallPalette.ink.opacity(0.7))
+            }
+            .padding(18)
+            .background(VisionWallPalette.clipping,
+                        in: RoundedRectangle(cornerRadius: 10))
+            .shadow(color: VisionWallPalette.scrapShadow, radius: 8, y: 3)
+            .environment(\.colorScheme, .light)
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var caretOverlay: some View {
+        if let caret = typingAt {
+            TextField(awaitingTool?.prompt ?? "", text: $draftWords, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 20, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .frame(width: 300)
+                .padding(11)
+                .background(VisionWallPalette.clipping,
+                            in: RoundedRectangle(cornerRadius: 6))
+                .shadow(color: VisionWallPalette.scrapShadow, radius: 8, y: 3)
+                .environment(\.colorScheme, .light)
+                .focused($draftFocused)
+                .position(caret)
+                .onSubmit { commitCaret(at: caret) }
+                .onExitCommand { typingAt = nil; awaitingTool = nil; draftWords = "" }
+        }
+    }
+
+    @ViewBuilder
+    private var dropOverlay: some View {
+        if isDropTargeted {
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(VisionWallPalette.greasePencil.opacity(0.5), lineWidth: 3)
+                .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: - Which ring
+
+    /// The wall's ring makes things; a scrap's ring acts on the thing you
+    /// clicked. One right-click, one menu — never both.
+    private var ringItems: [VisionRingItem] {
+        guard let scrap = ringScrap else {
+            return VisionWallTool.ringOrder.map {
+                VisionRingItem(id: $0.rawValue, title: $0.title,
+                               systemImage: $0.systemImage)
+            }
+        }
+        let isText = scrap.cardType == VisionCardType.text.rawValue
+        let hasPicture = !(scrap.imagePath ?? "").isEmpty
+        return VisionScrapTool.ring(isText: isText, hasPicture: hasPicture).map {
+            VisionRingItem(id: $0.rawValue,
+                           title: $0.title(pinned: scrap.pinned, isText: isText),
+                           systemImage: $0.systemImage(pinned: scrap.pinned,
+                                                       isText: isText),
+                           destructive: $0 == .remove)
+        }
+    }
+
+    private func dismissRing() {
+        toolRingAt = nil
+        ringScrap = nil
+    }
+
+    private func pickTool(_ id: String, at point: CGPoint) {
+        let scrap = ringScrap
+        dismissRing()
+        if let scrap, let tool = VisionScrapTool(rawValue: id) {
+            reachFor(tool, on: scrap)
+        } else if let tool = VisionWallTool(rawValue: id) {
+            reachFor(tool, at: point)
+        }
+    }
+
+    /// Tools that act on the scrap you right-clicked.
+    private func reachFor(_ tool: VisionScrapTool, on scrap: VisionCard) {
+        switch tool {
+        case .connect:
+            viewModel.beginConnector(from: scrap.id)
+        case .duplicate:
+            viewModel.selectCard(scrap.id)
+            viewModel.duplicateSelectedCards()
+        case .pin:
+            viewModel.togglePin(scrap.id)
+        case .restyle:
+            if scrap.cardType == VisionCardType.text.rawValue {
+                viewModel.cycleClippingCut(scrap.id)
+            } else {
+                viewModel.extractPalette(fromCardId: scrap.id)
+            }
+        case .details:
+            onCardEdit?(scrap)
+        case .remove:
+            viewModel.removeCard(scrap.id)
+        }
     }
 
     /// Menu paste: read the clipboard directly (the menu carries no

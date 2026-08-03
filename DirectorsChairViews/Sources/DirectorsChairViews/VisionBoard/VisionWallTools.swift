@@ -10,6 +10,7 @@
 
 import CoreGraphics
 import Foundation
+import DirectorsChairCore
 
 // MARK: - The tools
 
@@ -62,6 +63,52 @@ public enum VisionWallTool: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Tools for a scrap
+
+/// What you reach for when the right-click landed ON something. The wall's
+/// ring makes things; this one acts on the thing already there.
+public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
+    case connect
+    case duplicate
+    case pin
+    case restyle          // palette from a picture, or a new cut for words
+    case details
+    case remove
+
+    public var id: String { rawValue }
+
+    public func title(pinned: Bool, isText: Bool) -> String {
+        switch self {
+        case .connect: return "Connect"
+        case .duplicate: return "Copy"
+        case .pin: return pinned ? "Unpin" : "Pin"
+        case .restyle: return isText ? "Cut" : "Palette"
+        case .details: return "Details"
+        case .remove: return "Remove"
+        }
+    }
+
+    public func systemImage(pinned: Bool, isText: Bool) -> String {
+        switch self {
+        case .connect: return "arrow.triangle.branch"
+        case .duplicate: return "plus.square.on.square"
+        case .pin: return pinned ? "pin.slash" : "pin"
+        case .restyle: return isText ? "scissors" : "eyedropper.halffull"
+        case .details: return "info.circle"
+        case .remove: return "trash"
+        }
+    }
+
+    /// Restyle only means something for pictures and words; a link or a
+    /// frame gets a five-tool ring instead of a dead chip.
+    public static func ring(isText: Bool, hasPicture: Bool) -> [VisionScrapTool] {
+        var tools: [VisionScrapTool] = [.connect, .duplicate, .pin]
+        if isText || hasPicture { tools.append(.restyle) }
+        tools.append(contentsOf: [.details, .remove])
+        return tools
+    }
+}
+
 // MARK: - Ring geometry
 
 public enum VisionRadialGeometry {
@@ -86,6 +133,30 @@ public enum VisionRadialGeometry {
         }
         return CGPoint(x: min(max(point.x, inset), viewport.width - inset),
                        y: min(max(point.y, inset), viewport.height - inset))
+    }
+}
+
+// MARK: - What the click landed on
+
+public enum VisionWallHitTest {
+
+    /// The topmost scrap under a point, or nil for bare wall. Walks in
+    /// draw order so the sheet you can see is the one you get; frames sit
+    /// under everything and are only hit where nothing else covers them.
+    public static func scrap(at worldPoint: CGPoint,
+                             cards: [VisionCard],
+                             frameTypeRaw: String = "frame") -> VisionCard? {
+        let ordered = cards.sorted { left, right in
+            let leftFrame = left.cardType == frameTypeRaw
+            let rightFrame = right.cardType == frameTypeRaw
+            if leftFrame != rightFrame { return rightFrame }   // frames last
+            return left.zOrder > right.zOrder                  // topmost first
+        }
+        return ordered.first { card in
+            CGRect(x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                   width: card.canvasWidth ?? 200,
+                   height: card.canvasHeight ?? 200).contains(worldPoint)
+        }
     }
 }
 

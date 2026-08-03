@@ -739,3 +739,71 @@ final class VisionWallToolActionTests: XCTestCase {
         XCTAssertEqual(viewModel.cards.count, 2, "nonsense pins nothing")
     }
 }
+
+// MARK: - One right-click, one ring (owner report 2026-08-03)
+
+final class VisionWallHitTestTests: XCTestCase {
+
+    private func scrap(_ id: String, x: Double, y: Double, z: Double,
+                       type: String = "image") -> VisionCard {
+        var card = VisionCard(id: id)
+        card.cardType = type
+        card.canvasX = x
+        card.canvasY = y
+        card.canvasWidth = 200
+        card.canvasHeight = 200
+        card.zOrder = z
+        return card
+    }
+
+    func testBareWallHitsNothing() {
+        let cards = [scrap("a", x: 0, y: 0, z: 1)]
+        XCTAssertNil(VisionWallHitTest.scrap(at: CGPoint(x: 500, y: 500),
+                                             cards: cards))
+    }
+
+    func testTheSheetYouCanSeeIsTheOneYouGet() {
+        // Two scraps overlapping: the right-click belongs to the top one.
+        let cards = [scrap("under", x: 0, y: 0, z: 1),
+                     scrap("over", x: 50, y: 50, z: 9)]
+        XCTAssertEqual(VisionWallHitTest.scrap(at: CGPoint(x: 100, y: 100),
+                                               cards: cards)?.id, "over")
+        // Where only the lower one lies, it wins.
+        XCTAssertEqual(VisionWallHitTest.scrap(at: CGPoint(x: 20, y: 20),
+                                               cards: cards)?.id, "under")
+    }
+
+    func testFramesOnlyCatchClicksNothingElseCovers() {
+        let cards = [scrap("frame", x: 0, y: 0, z: 99, type: "frame"),
+                     scrap("photo", x: 0, y: 0, z: 1)]
+        XCTAssertEqual(VisionWallHitTest.scrap(at: CGPoint(x: 50, y: 50),
+                                               cards: cards)?.id, "photo",
+                       "a frame must not swallow the scraps inside it")
+    }
+}
+
+final class VisionScrapToolTests: XCTestCase {
+
+    func testAScrapsRingFitsWhatTheScrapIs() {
+        let words = VisionScrapTool.ring(isText: true, hasPicture: false)
+        XCTAssertTrue(words.contains(.restyle))
+        XCTAssertEqual(VisionScrapTool.restyle.title(pinned: false, isText: true),
+                       "Cut", "words are re-cut")
+
+        let picture = VisionScrapTool.ring(isText: false, hasPicture: true)
+        XCTAssertTrue(picture.contains(.restyle))
+        XCTAssertEqual(VisionScrapTool.restyle.title(pinned: false, isText: false),
+                       "Palette", "pictures give up their colours")
+
+        let link = VisionScrapTool.ring(isText: false, hasPicture: false)
+        XCTAssertFalse(link.contains(.restyle), "no dead chip on a link scrap")
+        XCTAssertEqual(link.count, 5)
+    }
+
+    func testThePinChipSaysWhatItWillDo() {
+        XCTAssertEqual(VisionScrapTool.pin.title(pinned: false, isText: false), "Pin")
+        XCTAssertEqual(VisionScrapTool.pin.title(pinned: true, isText: false), "Unpin")
+        XCTAssertEqual(VisionScrapTool.pin.systemImage(pinned: true, isText: false),
+                       "pin.slash")
+    }
+}

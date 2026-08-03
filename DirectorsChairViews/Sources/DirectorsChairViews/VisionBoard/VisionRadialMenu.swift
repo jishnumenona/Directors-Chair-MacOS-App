@@ -9,19 +9,28 @@
 
 import SwiftUI
 
+/// One chip on a ring. Both rings — the wall's and a scrap's — are the
+/// same object with different contents.
+struct VisionRingItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let systemImage: String
+    var destructive: Bool = false
+}
+
 struct VisionRadialMenu: View {
     /// Where the ring is centred, in canvas (screen) points.
     let anchor: CGPoint
-    let onPick: (VisionWallTool) -> Void
+    let items: [VisionRingItem]
+    let onPick: (String) -> Void
     let onDismiss: () -> Void
 
     @State private var bloomed = false
-    @State private var hovered: VisionWallTool?
+    @State private var hovered: String?
 
     private static let radius: CGFloat = 78
     private static let chip: CGFloat = 46
 
-    private var tools: [VisionWallTool] { VisionWallTool.ringOrder }
 
     var body: some View {
         ZStack {
@@ -33,8 +42,8 @@ struct VisionRadialMenu: View {
 
             ZStack {
                 centreDot
-                ForEach(Array(tools.enumerated()), id: \.element) { index, tool in
-                    chipView(tool, at: offset(for: index))
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    chipView(item, at: offset(for: index))
                 }
             }
             .position(anchor)
@@ -49,7 +58,7 @@ struct VisionRadialMenu: View {
     }
 
     private func offset(for index: Int) -> CGPoint {
-        VisionRadialGeometry.positions(count: tools.count,
+        VisionRadialGeometry.positions(count: items.count,
                                        radius: Self.radius)[index]
     }
 
@@ -62,25 +71,25 @@ struct VisionRadialMenu: View {
             .opacity(bloomed ? 1 : 0)
     }
 
-    private func chipView(_ tool: VisionWallTool, at point: CGPoint) -> some View {
-        let isHovered = hovered == tool
+    private func chipView(_ item: VisionRingItem, at point: CGPoint) -> some View {
+        let isHovered = hovered == item.id
+        let accent = item.destructive ? Color(hex: "#B3352C")
+                                      : VisionWallPalette.greasePencil
         return VStack(spacing: 5) {
             ZStack {
                 Circle()
-                    .fill(isHovered
-                          ? VisionWallPalette.greasePencil
-                          : VisionWallPalette.clipping)
+                    .fill(isHovered ? accent : VisionWallPalette.clipping)
                     .shadow(color: VisionWallPalette.scrapShadow,
                             radius: isHovered ? 9 : 5,
                             y: isHovered ? 4 : 2)
-                Image(systemName: tool.systemImage)
+                Image(systemName: item.systemImage)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(isHovered ? VisionWallPalette.clipping
                                                : VisionWallPalette.ink)
             }
             .frame(width: Self.chip, height: Self.chip)
 
-            Text(tool.title)
+            Text(item.title)
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(VisionWallPalette.ink.opacity(isHovered ? 1 : 0.72))
                 .fixedSize()
@@ -90,9 +99,9 @@ struct VisionRadialMenu: View {
         .opacity(bloomed ? 1 : 0)
         .animation(.spring(response: 0.22, dampingFraction: 0.7), value: isHovered)
         .onHover { hovering in
-            hovered = hovering ? tool : (hovered == tool ? nil : hovered)
+            hovered = hovering ? item.id : (hovered == item.id ? nil : hovered)
         }
-        .onTapGesture { onPick(tool) }
-        .accessibilityLabel(tool.title)
+        .onTapGesture { onPick(item.id) }
+        .accessibilityLabel(item.title)
     }
 }

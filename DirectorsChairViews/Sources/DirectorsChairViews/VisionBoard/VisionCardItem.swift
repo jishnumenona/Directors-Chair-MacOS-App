@@ -154,51 +154,6 @@ public struct VisionCardItem: View {
                 .frame(width: cardWidth, height: cardHeight)
                 .background(cardBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
-                .contextMenu {
-                    Button {
-                        onDoubleClick?()
-                    } label: {
-                        Label("Edit Card", systemImage: "pencil")
-                    }
-                    Button {
-                        onDuplicate?()
-                    } label: {
-                        Label("Duplicate", systemImage: "plus.square.on.square")
-                    }
-                    if [.image, .texture, .lighting, .location].contains(cardType),
-                       !(card.imagePath ?? "").isEmpty {
-                        Button {
-                            onExtractPalette?()
-                        } label: {
-                            Label("Extract Color Palette",
-                                  systemImage: "eyedropper.halffull")
-                        }
-                    }
-                    if cardType == .text {
-                        Button {
-                            onCycleCut?()
-                        } label: {
-                            Label("Change the cut", systemImage: "scissors")
-                        }
-                    }
-                    Button {
-                        onTogglePin?()
-                    } label: {
-                        Label(card.pinned ? "Take the pin out" : "Pin to the wall",
-                              systemImage: card.pinned ? "pin.slash" : "pin")
-                    }
-                    Button {
-                        onBeginConnector?()
-                    } label: {
-                        Label("Connect to…", systemImage: "arrow.right")
-                    }
-                    Divider()
-                    Button(role: .destructive) {
-                        onDelete?()
-                    } label: {
-                        Label("Delete Card", systemImage: "trash")
-                    }
-                }
                 // The Wall, pass 2: a scrap IS the picture. No border, no
                 // header, no badge — only the shadow of a thing lying on a
                 // surface. Selection is a grease-pencil ring, the one
