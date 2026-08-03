@@ -158,8 +158,33 @@ public enum VisionCanvasGeometry {
 
     // MARK: Placement
 
+    /// Where a single new scrap lands (The Wall): right where it was asked
+    /// for. Overlap is the point — scraps lying over each other is what a
+    /// wall looks like — so the only thing corrected is a scrap landing
+    /// *exactly* on top of another, where it would hide it completely.
+    /// Deterministic for a given input.
+    public static func dropOrigin(for size: CGSize, over existing: [CGRect],
+                                  preferredOrigin: CGPoint,
+                                  nudge: CGFloat = 26,
+                                  maxNudges: Int = 12) -> CGPoint {
+        var origin = preferredOrigin
+        var nudges = 0
+        while nudges < maxNudges,
+              existing.contains(where: {
+                  abs($0.origin.x - origin.x) < nudge / 2 &&
+                  abs($0.origin.y - origin.y) < nudge / 2
+              }) {
+            origin.x += nudge
+            origin.y += nudge
+            nudges += 1
+        }
+        return origin
+    }
+
     /// Cascades from a preferred origin by `step` until the rect intersects
-    /// no existing card. Deterministic for a given input.
+    /// no existing card. Deterministic for a given input. Retained for
+    /// programmatic callers that genuinely want no overlap; the wall's own
+    /// placement uses `dropOrigin`.
     public static func placement(for size: CGSize, avoiding existing: [CGRect],
                                  preferredOrigin: CGPoint,
                                  step: CGFloat = 24) -> CGPoint {
@@ -175,6 +200,22 @@ public enum VisionCanvasGeometry {
             attempts += 1
         }
         return origin
+    }
+
+    /// Where a handful of dropped scraps land: a loose pile around the
+    /// drop point, NOT a grid. Positions follow a golden-angle spiral, so
+    /// the scatter reads as hand-dropped yet is deterministic (same drop,
+    /// same arrangement — and unit-testable). The first scrap sits exactly
+    /// under the cursor; later ones fan outward.
+    public static func pileOrigins(sizes: [CGSize], around center: CGPoint,
+                                   spread: CGFloat = 44) -> [CGPoint] {
+        let goldenAngle: CGFloat = 2.399963229728653
+        return sizes.enumerated().map { index, size in
+            let radius = spread * sqrt(CGFloat(index))
+            let angle = goldenAngle * CGFloat(index)
+            return CGPoint(x: center.x + cos(angle) * radius - size.width / 2,
+                           y: center.y + sin(angle) * radius - size.height / 2)
+        }
     }
 
     /// Row-major scan over a grid; returns the first slot whose rect

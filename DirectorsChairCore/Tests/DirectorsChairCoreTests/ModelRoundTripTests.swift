@@ -1332,6 +1332,15 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.size, "medium")
         XCTAssertNil(decoded.canvasX)
         XCTAssertNil(decoded.textStyle, "pre-preset cards have no style")
+        XCTAssertNil(decoded.rotation, "cards saved before The Wall lie flat")
+    }
+
+    func testVisionCardRotationRoundTrip() throws {
+        var card = VisionCard(title: "Tilted scrap")
+        card.rotation = -2.4
+        XCTAssertEqual(try roundTrip(card).rotation, -2.4)
+        card.rotation = nil
+        XCTAssertNil(try roundTrip(card).rotation, "flat stays flat")
     }
 
     func testVisionCardTextStyleRoundTrip() throws {

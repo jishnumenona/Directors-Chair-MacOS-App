@@ -50,8 +50,10 @@ public class VisionBoardViewModel: ObservableObject {
     /// Search query for filtering cards
     @Published public var searchQuery: String = ""
 
-    /// Whether grid snapping is enabled
-    @Published public var gridSnapEnabled: Bool = true
+    /// Whether grid snapping is enabled. OFF by default (The Wall): a wall
+    /// of scraps that self-aligns to a grid is a slide deck. Snap stays
+    /// available for the rare moment someone wants to tidy a row.
+    @Published public var gridSnapEnabled: Bool = false
 
     /// Grid snap size in points
     @Published public var gridSnapSize: CGFloat = 20.0
@@ -636,8 +638,8 @@ public class VisionBoardViewModel: ObservableObject {
             CGRect(x: $0.canvasX ?? 0, y: $0.canvasY ?? 0,
                    width: $0.canvasWidth ?? 200, height: $0.canvasHeight ?? 200)
         }
-        var origin = VisionCanvasGeometry.placement(
-            for: size, avoiding: existing, preferredOrigin: preferred)
+        var origin = VisionCanvasGeometry.dropOrigin(
+            for: size, over: existing, preferredOrigin: preferred)
         if gridSnapEnabled {
             origin.x = (origin.x / gridSnapSize).rounded() * gridSnapSize
             origin.y = (origin.y / gridSnapSize).rounded() * gridSnapSize
@@ -796,6 +798,113 @@ public class VisionBoardViewModel: ObservableObject {
     public func consumeRightClickPoint() -> CGPoint? {
         defer { lastRightClickWorldPoint = nil }
         return lastRightClickWorldPoint
+    }
+
+    // MARK: - Absorb (The Wall, pass 1)
+
+    /// One gesture, no questions: drop or paste anything and it lands on
+    /// the wall. Files are imported, clipboard pixels staged, remote images
+    /// downloaded — all through the existing asset pipeline
+    /// (`normalizedForSave`) — and words become text scraps. Several items
+    /// at once scatter into a loose pile around the drop point.
+    ///
+    /// `worldPoint` is where the cursor was; nil falls back to the visible
+    /// centre. Returns the ids of the scraps that landed.
+    @discardableResult
+    public func absorb(_ payloads: [AbsorbPayload],
+                       at worldPoint: CGPoint? = nil) async -> [String] {
+        guard !payloads.isEmpty else { return [] }
+
+        var drafts: [VisionCard] = []
+        for payload in payloads {
+            if let draft = await scrap(from: payload) { drafts.append(draft) }
+        }
+        guard !drafts.isEmpty else { return [] }
+
+        let centre = worldPoint ?? absorbCentre()
+        let sizes = drafts.map {
+            CGSize(width: $0.canvasWidth ?? Double(Self.defaultCardWidth),
+                   height: $0.canvasHeight ?? Double(Self.defaultCardHeight))
+        }
+        let origins = VisionCanvasGeometry.pileOrigins(sizes: sizes, around: centre)
+
+        var top = maxZOrder
+        var landed: [String] = []
+        for (index, var draft) in drafts.enumerated() {
+            draft.boardId = currentBoardId
+            draft.canvasX = origins[index].x
+            draft.canvasY = origins[index].y
+            draft.rotation = VisionBoardAbsorb.settleAngle(seed: draft.id)
+            top += 1
+            draft.zOrder = top
+            cards.append(draft)
+            landed.append(draft.id)
+        }
+        selectedCardIds = Set(landed)
+        notifyChange()
+        return landed
+    }
+
+    /// Turns one payload into an unplaced scrap. Images ride the tested
+    /// asset pipeline: whatever reference the payload gives us is handed to
+    /// `normalizedForSave`, which imports, finalizes, or downloads as
+    /// needed and leaves the project self-contained.
+    private func scrap(from payload: AbsorbPayload) async -> VisionCard? {
+        var card = VisionCard()
+        card.boardId = currentBoardId
+
+        switch payload {
+        case .text(let words):
+            let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            card.cardType = VisionCardType.text.rawValue
+            card.text = trimmed
+            card.textStyle = UserDefaults.standard.string(forKey: Self.lastTextStyleKey)
+            card.canvasWidth = 260
+            card.canvasHeight = 140
+            return card
+
+        case .fileURL(let url):
+            card.cardType = VisionCardType.image.rawValue
+            card.imagePath = url.path
+
+        case .remoteURL(let url):
+            card.cardType = VisionCardType.image.rawValue
+            card.imagePath = url.absoluteString
+
+        case .imageData(let data):
+            card.cardType = VisionCardType.image.rawValue
+            guard let store = assetStore,
+                  let staged = try? store.stagePastedPNG(data) else { return nil }
+            card.imagePath = staged.path
+        }
+
+        if let store = assetStore {
+            card.imagePath = await store.normalizedForSave(card.imagePath)
+        }
+        let size = VisionBoardAbsorb.scrapSize(aspectRatio: scrapAspectRatio(card.imagePath))
+        card.canvasWidth = Double(size.width)
+        card.canvasHeight = Double(size.height)
+        return card
+    }
+
+    private func scrapAspectRatio(_ imagePath: String?) -> CGFloat? {
+        #if canImport(AppKit)
+        guard let url = VisionBoardImagePath.resolveImageURL(imagePath,
+                                                             projectBase: projectBase)
+        else { return nil }
+        return VisionBoardAbsorb.aspectRatio(ofImageAt: url)
+        #else
+        return nil
+        #endif
+    }
+
+    /// Where a pile lands when the gesture didn't carry a point (menu
+    /// paste, tests): the middle of what the user is looking at.
+    private func absorbCentre() -> CGPoint {
+        guard viewportSize != .zero else { return transform.toWorld(.zero) }
+        return transform.toWorld(CGPoint(x: viewportSize.width / 2,
+                                         y: viewportSize.height / 2))
     }
 
     /// Open editor for existing card

@@ -95,6 +95,9 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
     public var zOrder: Double  // Z-order for stacking (higher values on top)
     public var canvasWidth: Double?  // Width of card on canvas
     public var canvasHeight: Double?  // Height of card on canvas
+    /// Degrees of tilt on the wall. A scrap is a physical thing lying on a
+    /// surface — perfect alignment reads as a slide deck. nil = flat.
+    public var rotation: Double?
 
     // Text Card Specific
     public var textColor: String  // Hex color code for text cards
@@ -130,6 +133,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         zOrder: Double = 0,
         canvasWidth: Double? = nil,
         canvasHeight: Double? = nil,
+        rotation: Double? = nil,
         textColor: String = "#FFFFFF",
         textStyle: String? = nil,
         referenceNote: String? = nil,
@@ -162,6 +166,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         self.zOrder = zOrder
         self.canvasWidth = canvasWidth
         self.canvasHeight = canvasHeight
+        self.rotation = rotation
         self.textColor = textColor
         self.textStyle = textStyle
         self.referenceNote = referenceNote
@@ -186,6 +191,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         case zOrder = "z_order"
         case canvasWidth = "canvas_width"
         case canvasHeight = "canvas_height"
+        case rotation
         case textColor = "text_color"
         case textStyle = "text_style"
         case referenceNote = "reference_note"
@@ -238,6 +244,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         zOrder = try container.decodeIfPresent(Double.self, forKey: .zOrder) ?? 0
         canvasWidth = try container.decodeIfPresent(Double.self, forKey: .canvasWidth)
         canvasHeight = try container.decodeIfPresent(Double.self, forKey: .canvasHeight)
+        rotation = try container.decodeIfPresent(Double.self, forKey: .rotation)
 
         // Text card specific
         textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"

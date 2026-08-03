@@ -80,6 +80,7 @@ public enum VisionBoardExporter {
                     ExportCardView(card: card, image: images[card.id],
                                    projectBase: projectBase)
                         .frame(width: frame.width, height: frame.height)
+                        .rotationEffect(.degrees(card.rotation ?? 0))
                         .offset(x: frame.minX, y: frame.minY)
                 }
             }
