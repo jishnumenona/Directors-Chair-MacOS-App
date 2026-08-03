@@ -19,6 +19,8 @@ public struct VisionBoardCanvas: View {
     // MARK: - State
 
     @State private var viewSize: CGSize = .zero
+    /// A drag is hovering over the wall (The Wall, pass 1).
+    @State private var isDropTargeted = false
 
     // MARK: - Constants
 
@@ -77,6 +79,28 @@ public struct VisionBoardCanvas: View {
             .onTapGesture {
                 viewModel.clearSelection()
             }
+            // The Wall, pass 1: drop anything and it lands where you let
+            // go of it — no dialog, no type picker, nothing asked.
+            .onDrop(of: VisionBoardAbsorb.acceptedTypes,
+                    isTargeted: $isDropTargeted) { providers, location in
+                absorb(providers, atScreenPoint: location)
+                return true
+            }
+            // ⌘V puts the clipboard on the wall at the centre of the view.
+            .focusable()
+            .focusEffectDisabled()
+            .onPasteCommand(of: VisionBoardAbsorb.acceptedTypes) { providers in
+                absorb(providers, atScreenPoint: nil)
+            }
+            .overlay {
+                if isDropTargeted {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 3)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: isDropTargeted)
             .contextMenu {
                 Section("Add to board") {
                     ForEach(VisionCardType.allCases) { type in
@@ -121,6 +145,22 @@ public struct VisionBoardCanvas: View {
             }
         }
         .background(Color(hex: "#1A1A1A"))
+    }
+
+    /// Reads dropped/pasted providers and hands the payloads to the board.
+    /// `screenPoint` is nil for a paste (no cursor to land under), which
+    /// the view model resolves to the centre of the view.
+    private func absorb(_ providers: [NSItemProvider], atScreenPoint screenPoint: CGPoint?) {
+        let world = screenPoint.map { viewModel.transform.toWorld($0) }
+        Task { @MainActor in
+            var payloads: [AbsorbPayload] = []
+            for provider in providers {
+                if let payload = await VisionBoardAbsorb.payload(from: provider) {
+                    payloads.append(payload)
+                }
+            }
+            await viewModel.absorb(payloads, at: world)
+        }
     }
 
     private func cardCenter(_ cardId: String) -> CGPoint? {

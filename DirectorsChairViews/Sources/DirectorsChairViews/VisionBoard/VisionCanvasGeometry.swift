@@ -177,6 +177,22 @@ public enum VisionCanvasGeometry {
         return origin
     }
 
+    /// Where a handful of dropped scraps land: a loose pile around the
+    /// drop point, NOT a grid. Positions follow a golden-angle spiral, so
+    /// the scatter reads as hand-dropped yet is deterministic (same drop,
+    /// same arrangement — and unit-testable). The first scrap sits exactly
+    /// under the cursor; later ones fan outward.
+    public static func pileOrigins(sizes: [CGSize], around center: CGPoint,
+                                   spread: CGFloat = 44) -> [CGPoint] {
+        let goldenAngle: CGFloat = 2.399963229728653
+        return sizes.enumerated().map { index, size in
+            let radius = spread * sqrt(CGFloat(index))
+            let angle = goldenAngle * CGFloat(index)
+            return CGPoint(x: center.x + cos(angle) * radius - size.width / 2,
+                           y: center.y + sin(angle) * radius - size.height / 2)
+        }
+    }
+
     /// Row-major scan over a grid; returns the first slot whose rect
     /// intersects no existing card. Used for programmatic placement (the
     /// assistant has no viewport).
