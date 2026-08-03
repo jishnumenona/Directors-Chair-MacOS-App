@@ -180,6 +180,7 @@ public struct VisionBoardCanvas: View {
                         .onExitCommand { typingAt = nil; draftWords = "" }
                 }
             }
+            .overlay { hintOverlay }
             .overlay { ringOverlay }
             .overlay { generatingOverlay }
             .overlay { caretOverlay }
@@ -187,6 +188,7 @@ public struct VisionBoardCanvas: View {
             .overlay { paperOverlay }
             .overlay { dropOverlay }
             .animation(.easeOut(duration: 0.12), value: isDropTargeted)
+            .animation(.easeOut(duration: 0.22), value: viewModel.filteredCards.isEmpty)
             .onAppear {
                 viewSize = geometry.size
                 viewModel.viewportSize = geometry.size
@@ -210,6 +212,16 @@ public struct VisionBoardCanvas: View {
     //
     // Split out of `body`: inline, the modifier chain defeats the
     // type-checker.
+
+    /// A bare wall says nothing on its own — this is the note already
+    /// pinned to it, which comes down by itself once anything is up.
+    @ViewBuilder
+    private var hintOverlay: some View {
+        if viewModel.filteredCards.isEmpty && !viewModel.isGenerating {
+            VisionWallHint()
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        }
+    }
 
     @ViewBuilder
     private var ringOverlay: some View {
