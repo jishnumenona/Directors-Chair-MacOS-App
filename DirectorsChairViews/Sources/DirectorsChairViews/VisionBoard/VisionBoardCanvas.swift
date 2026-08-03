@@ -106,6 +106,11 @@ public struct VisionBoardCanvas: View {
             // Hands on the wall: the board had no keyboard at all.
             .onKeyPress(.delete) { deleteSelection() }
             .onKeyPress(.deleteForward) { deleteSelection() }
+            .onKeyPress(KeyEquivalent("a"), phases: .down) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                viewModel.selectAllCards()
+                return .handled
+            }
             .onKeyPress(.escape) {
                 viewModel.clearSelection()
                 return .handled
@@ -139,37 +144,26 @@ public struct VisionBoardCanvas: View {
                 }
             }
             .animation(.easeOut(duration: 0.12), value: isDropTargeted)
+            // Nine card types used to live here. A wall doesn't ask what
+            // kind of thing you're pinning — these are just the two ways
+            // to put something up when your hands aren't already full.
             .contextMenu {
-                Section("Add to board") {
-                    ForEach(VisionCardType.allCases) { type in
-                        if type == .text {
-                            // Presets discoverable at creation time
-                            // (research 2026-07).
-                            Menu {
-                                ForEach(VisionTextStyle.allCases) { style in
-                                    Button(style.displayName) {
-                                        viewModel.createNewCard(
-                                            type: .text,
-                                            at: viewModel.consumeRightClickPoint(),
-                                            textStyle: style.rawValue)
-                                    }
-                                }
-                            } label: {
-                                Label(type.displayName,
-                                      systemImage: type.systemImage)
-                            }
-                        } else {
-                            Button {
-                                viewModel.createNewCard(
-                                    type: type,
-                                    at: viewModel.consumeRightClickPoint())
-                            } label: {
-                                Label(type.displayName,
-                                      systemImage: type.systemImage)
-                            }
-                        }
+                Button {
+                    if let world = viewModel.consumeRightClickPoint() {
+                        draftWords = ""
+                        typingAt = viewModel.transform.toScreen(world)
+                        draftFocused = true
                     }
+                } label: {
+                    Label("Write a word here", systemImage: "textformat")
                 }
+                Button {
+                    pasteFromClipboard()
+                } label: {
+                    Label("Paste what's on the clipboard", systemImage: "doc.on.clipboard")
+                }
+                Divider()
+                Toggle("Snap to a grid", isOn: $viewModel.gridSnapEnabled)
             }
             .onAppear {
                 viewSize = geometry.size
@@ -184,6 +178,16 @@ public struct VisionBoardCanvas: View {
         }
         .background(LinearGradient(colors: VisionWallPalette.surface,
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+
+    /// Menu paste: read the clipboard directly (the menu carries no
+    /// providers) and drop it where the click was.
+    private func pasteFromClipboard() {
+        let payloads = VisionBoardAbsorb.payloads(from: .general)
+        guard !payloads.isEmpty else { return }
+        Task { @MainActor in
+            await viewModel.absorb(payloads, at: nil)
+        }
     }
 
     private func deleteSelection() -> KeyPress.Result {

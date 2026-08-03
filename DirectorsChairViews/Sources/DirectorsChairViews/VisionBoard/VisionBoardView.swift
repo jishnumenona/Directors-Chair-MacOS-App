@@ -99,6 +99,8 @@ public struct VisionBoardView: View {
                 HStack {
                     Spacer()
                     zoomControls
+                        .foregroundStyle(VisionWallPalette.ink)
+                        .environment(\.colorScheme, .light)
                 }
             }
             .padding()
@@ -136,6 +138,8 @@ public struct VisionBoardView: View {
                     Spacer()
                     HStack {
                         selectionInfo
+                            .foregroundStyle(VisionWallPalette.ink)
+                            .environment(\.colorScheme, .light)
                         Spacer()
                     }
                 }
@@ -231,41 +235,41 @@ public struct VisionBoardView: View {
 
     @ViewBuilder
     private var toolbar: some View {
+        // The Wall, pass 2: the board carried ~13 controls — an add-card
+        // menu, search, type filter, department filter, labels, snap,
+        // select-all, export. Everything that structured the wall is gone.
+        // Capture is the drop/paste/type gesture, so there is no Add
+        // button; filters belong to a database, not a wall. What's left is
+        // which wall you're looking at, and how to get work off it.
+        // Two small things resting ON the wall, not a chrome bar across
+        // it. Paper-toned and forced light, because the wall is always
+        // plaster — dark-mode chrome floating on it looked like the CAD
+        // canvas we just removed.
         HStack(spacing: 12) {
-            // Board selector
             boardSelector
-
-            Divider()
-                .frame(height: 24)
-
-            // Add card buttons
-            addCardButtons
-
-            Divider()
-                .frame(height: 24)
-
-            // Filter controls
-            filterControls
+                .fixedSize()
+                .padding(.horizontal, 13)
+                .padding(.vertical, 7)
+                .background(wallPill)
 
             Spacer()
 
-            // View options
-            viewOptions
-
-            Divider()
-                .frame(height: 24)
-
-            // Actions
             actionButtons
+                .padding(.horizontal, 13)
+                .padding(.vertical, 7)
+                .background(wallPill)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(hex: "#2A2A2A").opacity(0.95))
-                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-        )
+        .foregroundStyle(VisionWallPalette.ink)
+        .tint(VisionWallPalette.greasePencil)
+        .environment(\.colorScheme, .light)
         .padding()
+    }
+
+    /// A scrap of paper the controls sit on.
+    private var wallPill: some View {
+        Capsule()
+            .fill(VisionWallPalette.clipping.opacity(0.93))
+            .shadow(color: VisionWallPalette.scrapShadow, radius: 6, y: 2)
     }
 
     // MARK: - Board Selector
@@ -479,17 +483,7 @@ public struct VisionBoardView: View {
     @ViewBuilder
     private var actionButtons: some View {
         HStack(spacing: 8) {
-            // Select all
-            Button {
-                viewModel.selectAllCards()
-            } label: {
-                Image(systemName: "checkmark.square")
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.white)
-            .help("Select All")
-
-            // Export
+            // Select-all moved to ⌘A; the wall shows one tool.
             Button {
                 showingExportOptions = true
             } label: {
@@ -588,12 +582,12 @@ public struct VisionBoardView: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
-            .background(Color(hex: "#2A2A2A"))
+            .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
 
             Text("\(Int(viewModel.zoomLevel * 100))%")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(.gray)
+                .foregroundColor(VisionWallPalette.ink.opacity(0.55))
 
             Button {
                 viewModel.zoomOut()
@@ -602,7 +596,7 @@ public struct VisionBoardView: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
-            .background(Color(hex: "#2A2A2A"))
+            .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
 
             Divider()
@@ -616,7 +610,7 @@ public struct VisionBoardView: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
-            .background(Color(hex: "#2A2A2A"))
+            .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
             .help("Reset to 100%")
 
@@ -627,16 +621,16 @@ public struct VisionBoardView: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
-            .background(Color(hex: "#2A2A2A"))
+            .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
             .help("Fit all cards in view")
         }
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color(hex: "#1E1E1E").opacity(0.9))
+                .fill(VisionWallPalette.clipping.opacity(0.93))
         )
-        .foregroundColor(.white)
+        .foregroundColor(VisionWallPalette.ink)
     }
 
     // MARK: - Selection Info
@@ -646,7 +640,7 @@ public struct VisionBoardView: View {
         HStack(spacing: 12) {
             Text("\(viewModel.selectedCardIds.count) selected")
                 .font(.caption)
-                .foregroundColor(.white)
+                .foregroundColor(VisionWallPalette.ink)
 
             Divider()
                 .frame(height: 16)
@@ -658,7 +652,7 @@ public struct VisionBoardView: View {
                     .font(.caption)
             }
             .buttonStyle(.plain)
-            .foregroundColor(.white)
+            .foregroundColor(VisionWallPalette.ink)
 
             Button {
                 viewModel.bringToFront()
@@ -667,7 +661,7 @@ public struct VisionBoardView: View {
                     .font(.caption)
             }
             .buttonStyle(.plain)
-            .foregroundColor(.white)
+            .foregroundColor(VisionWallPalette.ink)
 
             Button {
                 viewModel.sendToBack()
@@ -676,7 +670,7 @@ public struct VisionBoardView: View {
                     .font(.caption)
             }
             .buttonStyle(.plain)
-            .foregroundColor(.white)
+            .foregroundColor(VisionWallPalette.ink)
 
             Divider()
                 .frame(height: 16)
@@ -694,7 +688,7 @@ public struct VisionBoardView: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color(hex: "#2A2A2A").opacity(0.95))
+                .fill(VisionWallPalette.clipping.opacity(0.93).opacity(0.95))
         )
     }
 }
