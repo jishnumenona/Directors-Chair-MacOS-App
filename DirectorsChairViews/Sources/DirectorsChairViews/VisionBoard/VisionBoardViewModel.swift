@@ -55,13 +55,26 @@ public class VisionBoardViewModel: ObservableObject {
     /// arrives. Several can be in flight at once.
     @Published public private(set) var pendingImagines: [PendingImagine] = []
 
-    /// Elements currently being redrawn from marks — shown on the element
-    /// itself, not over the whole wall.
-    @Published public private(set) var redrawing: Set<String> = []
+    /// Elements with work in flight. Named for the state, not the task,
+    /// so anything slow done TO an element (redrawing it from marks today,
+    /// whatever comes next) says so in the same place: a turning badge in
+    /// that element's own corner.
+    @Published public private(set) var working: Set<String> = []
+
+    public func isWorking(_ cardId: String) -> Bool { working.contains(cardId) }
+
+    /// Marks an element as busy for the duration of some work.
+    public func whileWorking<T>(_ cardId: String,
+                                _ body: () async -> T) async -> T {
+        working.insert(cardId)
+        let result = await body()
+        working.remove(cardId)
+        return result
+    }
 
     /// Anything at all in flight (the hint note stays down while so).
     public var isGenerating: Bool {
-        !pendingImagines.isEmpty || !redrawing.isEmpty
+        !pendingImagines.isEmpty || !working.isEmpty
     }
 
     /// Whether grid snapping is enabled. OFF by default (The Wall): a wall
@@ -1047,13 +1060,13 @@ public class VisionBoardViewModel: ObservableObject {
             ? instructions
             : instructions + "\n\nOriginal prompt: " + original
 
-        redrawing.insert(cardId)
-        let url: URL? = await withCheckedContinuation { continuation in
-            edit(VisionImageEdit(prompt: combined, baseImage: baseImage)) {
-                continuation.resume(returning: $0)
+        let url: URL? = await whileWorking(cardId) {
+            await withCheckedContinuation { continuation in
+                edit(VisionImageEdit(prompt: combined, baseImage: baseImage)) {
+                    continuation.resume(returning: $0)
+                }
             }
         }
-        redrawing.remove(cardId)
         guard let url, let store = assetStore,
               let stored = await store.normalizedForSave(url.path),
               let target = cards.firstIndex(where: { $0.id == cardId })

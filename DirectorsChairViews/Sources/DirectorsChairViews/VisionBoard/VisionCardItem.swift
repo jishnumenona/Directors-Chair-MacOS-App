@@ -208,19 +208,9 @@ public struct VisionCardItem: View {
             }
 
             if isRedrawing {
-                ZStack {
-                    VisionWallPalette.clipping.opacity(0.55)
-                    VStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Redrawing…")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(VisionWallPalette.ink.opacity(0.75))
-                    }
-                }
-                .frame(width: cardWidth, height: cardHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .environment(\.colorScheme, .light)
-                .allowsHitTesting(false)
+                VisionWorkingBadge(size: 22 / max(zoomLevel, 0.01))
+                    .offset(x: cardWidth - 26 / max(zoomLevel, 0.01),
+                            y: cardHeight - 26 / max(zoomLevel, 0.01))
             }
 
             // A note is a slip of paper taped under the element, not

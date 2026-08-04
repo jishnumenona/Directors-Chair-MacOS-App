@@ -1388,7 +1388,7 @@ final class VisionNonBlockingImagineTests: XCTestCase {
 
         var markedWhileWorking: Set<String> = []
         viewModel.onEditImage = { _, completion in
-            markedWhileWorking = viewModel.redrawing
+            markedWhileWorking = viewModel.working
             completion(generated)
         }
 
@@ -1396,6 +1396,47 @@ final class VisionNonBlockingImagineTests: XCTestCase {
 
         XCTAssertEqual(markedWhileWorking, [id],
                        "only that element says it is working")
-        XCTAssertTrue(viewModel.redrawing.isEmpty)
+        XCTAssertTrue(viewModel.working.isEmpty)
+    }
+}
+
+// MARK: - Work shows on the element it's happening to (owner request)
+
+@MainActor
+final class VisionWorkingBadgeTests: XCTestCase {
+
+    func testAnElementIsMarkedForTheDurationOfTheWorkAndNoLonger() async {
+        let viewModel = VisionBoardViewModel()
+        viewModel.addCard(VisionCard())
+        let id = viewModel.cards[0].id
+        XCTAssertFalse(viewModel.isWorking(id))
+
+        var seenDuring = false
+        let result = await viewModel.whileWorking(id) { () -> Int in
+            seenDuring = viewModel.isWorking(id)
+            return 7
+        }
+
+        XCTAssertTrue(seenDuring, "the badge turns while the work runs")
+        XCTAssertEqual(result, 7, "and the work's result comes back out")
+        XCTAssertFalse(viewModel.isWorking(id), "the badge stops after")
+    }
+
+    func testSeveralElementsCanBeWorkingAtOnce() async {
+        let viewModel = VisionBoardViewModel()
+        viewModel.addCard(VisionCard())
+        viewModel.addCard(VisionCard())
+        let first = viewModel.cards[0].id
+        let second = viewModel.cards[1].id
+
+        await viewModel.whileWorking(first) {
+            await viewModel.whileWorking(second) {
+                XCTAssertEqual(viewModel.working, [first, second],
+                               "each says so in its own corner")
+            }
+            XCTAssertEqual(viewModel.working, [first],
+                           "and stops independently")
+        }
+        XCTAssertTrue(viewModel.working.isEmpty)
     }
 }
