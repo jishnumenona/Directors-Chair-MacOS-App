@@ -802,6 +802,10 @@ public struct VisionBoardCanvas: View {
             VisionCardItem(
                 card: card,
                 isSelected: viewModel.selectedCardIds.contains(card.id),
+                // The badge is only ever as good as this line: the element
+                // has always been able to show it, and for three reports
+                // running nobody passed it.
+                isRedrawing: viewModel.isWorking(card.id),
                 zoomLevel: viewModel.zoomLevel,
                 showLabel: viewModel.showLabels,
                 canvasSpaceName: Self.canvasSpaceName,
