@@ -1440,3 +1440,71 @@ final class VisionWorkingBadgeTests: XCTestCase {
         XCTAssertTrue(viewModel.working.isEmpty)
     }
 }
+
+// MARK: - Work that can't run says so (owner report: "I still don't see it")
+
+@MainActor
+final class VisionWorkFeedbackTests: XCTestCase {
+
+    func testAQuickResultIsStillSeen() async {
+        // A badge that flashes for eighty milliseconds is a badge nobody
+        // sees — which is exactly what "nothing happened" looks like.
+        let viewModel = VisionBoardViewModel()
+        viewModel.addCard(VisionCard())
+        let id = viewModel.cards[0].id
+
+        let clock = ContinuousClock()
+        let started = clock.now
+        await viewModel.whileWorking(id, minimumVisible: .milliseconds(300)) { }
+        let elapsed = clock.now - started
+
+        XCTAssertGreaterThan(elapsed, .milliseconds(250),
+                             "instant work still shows the badge long enough to read")
+        XCTAssertFalse(viewModel.isWorking(id))
+    }
+
+    func testSlowWorkIsNotPaddedFurther() async {
+        let viewModel = VisionBoardViewModel()
+        viewModel.addCard(VisionCard())
+        let id = viewModel.cards[0].id
+
+        let clock = ContinuousClock()
+        let started = clock.now
+        await viewModel.whileWorking(id, minimumVisible: .milliseconds(50)) {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        XCTAssertLessThan(clock.now - started, .milliseconds(500),
+                          "no needless waiting on top of real work")
+    }
+
+    func testRedrawWithNoGeneratorSaysSoInsteadOfDoingNothing() async {
+        let viewModel = VisionBoardViewModel()
+        var card = VisionCard()
+        card.imagePath = "assets/visionboard/a.png"
+        viewModel.addCard(card)
+
+        await viewModel.redraw(viewModel.cards[0].id, instructions: "warmer",
+                               baseImage: Data([0x1]))
+
+        XCTAssertNotNil(viewModel.lastWorkProblem,
+                        "silence reads as a broken tool")
+    }
+
+    func testRedrawWithNowhereToSaveSaysSo() async {
+        let viewModel = VisionBoardViewModel()   // no asset store configured
+        var card = VisionCard()
+        card.imagePath = "assets/visionboard/a.png"
+        viewModel.addCard(card)
+        viewModel.onEditImage = { _, completion in
+            completion(FileManager.default.temporaryDirectory
+                .appendingPathComponent("nope.png"))
+        }
+
+        await viewModel.redraw(viewModel.cards[0].id, instructions: "warmer",
+                               baseImage: Data([0x1]))
+
+        let problem = viewModel.lastWorkProblem ?? ""
+        XCTAssertTrue(problem.contains("Save the project"),
+                      "and it says what to do about it: \(problem)")
+    }
+}

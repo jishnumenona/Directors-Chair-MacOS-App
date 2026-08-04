@@ -186,13 +186,7 @@ public struct VisionBoardCanvas: View {
                         .onExitCommand { typingAt = nil; draftWords = "" }
                 }
             }
-            .overlay { hintOverlay }
-            .overlay { ringOverlay }
-            .overlay { generatingOverlay }
-            .overlay { caretOverlay }
-            .overlay { connectingOverlay }
-            .overlay { paperOverlay }
-            .overlay { promptOverlay }
+            .overlay { wallOverlays }
             .sheet(isPresented: Binding(
                 get: { annotating != nil },
                 set: { if !$0 { annotating = nil } })) {
@@ -231,6 +225,22 @@ public struct VisionBoardCanvas: View {
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
     }
 
+
+    /// Everything drawn over the wall, in one place: the modifier chain
+    /// defeats the type-checker once it grows past a handful.
+    @ViewBuilder
+    private var wallOverlays: some View {
+        ZStack {
+            hintOverlay
+            ringOverlay
+            generatingOverlay
+            caretOverlay
+            connectingOverlay
+            paperOverlay
+            promptOverlay
+            problemOverlay
+        }
+    }
 
     // MARK: - Overlays
     //
@@ -335,6 +345,34 @@ public struct VisionBoardCanvas: View {
             }
             .allowsHitTesting(false)
             .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// When something asked for doesn't happen, the wall says so rather
+    /// than leaving you watching an element that never changes.
+    @ViewBuilder
+    private var problemOverlay: some View {
+        if let problem = viewModel.lastWorkProblem {
+            VStack {
+                Spacer()
+                Text(problem)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(VisionWallPalette.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(VisionWallPalette.clipping, in: Capsule())
+                    .overlay(Capsule().strokeBorder(
+                        VisionWallPalette.greasePencil.opacity(0.5), lineWidth: 1))
+                    .shadow(color: VisionWallPalette.scrapShadow, radius: 7, y: 3)
+                    .environment(\.colorScheme, .light)
+                    .padding(.bottom, 24)
+            }
+            .allowsHitTesting(false)
+            .transition(.opacity)
+            .task(id: problem) {
+                try? await Task.sleep(for: .seconds(4))
+                viewModel.lastWorkProblem = nil
+            }
         }
     }
 

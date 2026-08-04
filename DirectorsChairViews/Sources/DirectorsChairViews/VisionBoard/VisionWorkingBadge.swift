@@ -12,16 +12,27 @@ import SwiftUI
 
 struct VisionWorkingBadge: View {
     /// Diameter in world points before the canvas zoom is applied.
-    var size: CGFloat = 22
+    var size: CGFloat = 30
 
     @State private var turning = false
 
     var body: some View {
         ZStack {
+            // A soft pulse so the eye is caught even when the badge sits
+            // on a busy picture.
+            Circle()
+                .fill(VisionWallPalette.greasePencil.opacity(0.22))
+                .scaleEffect(turning ? 1.5 : 1.05)
+                .opacity(turning ? 0 : 0.9)
+
             Circle()
                 .fill(VisionWallPalette.clipping)
                 .shadow(color: VisionWallPalette.scrapShadow,
-                        radius: size * 0.14, y: size * 0.07)
+                        radius: size * 0.2, y: size * 0.1)
+
+            Circle()
+                .strokeBorder(VisionWallPalette.greasePencil.opacity(0.35),
+                              lineWidth: 1)
 
             // The track it turns against.
             Circle()

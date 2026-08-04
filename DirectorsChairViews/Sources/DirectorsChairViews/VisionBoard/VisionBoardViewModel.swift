@@ -63,11 +63,25 @@ public class VisionBoardViewModel: ObservableObject {
 
     public func isWorking(_ cardId: String) -> Bool { working.contains(cardId) }
 
-    /// Marks an element as busy for the duration of some work.
+    /// Something that was asked for didn't happen, said plainly. Cleared
+    /// by the wall a few seconds after it is shown.
+    @Published public var lastWorkProblem: String?
+
+    /// Marks an element as busy for the duration of some work — and for a
+    /// beat longer if the work was quick. A badge that flashes for eighty
+    /// milliseconds is a badge nobody sees, which reads as nothing having
+    /// happened at all.
     public func whileWorking<T>(_ cardId: String,
+                                minimumVisible: Duration = .milliseconds(650),
                                 _ body: () async -> T) async -> T {
         working.insert(cardId)
+        let clock = ContinuousClock()
+        let started = clock.now
         let result = await body()
+        let elapsed = clock.now - started
+        if elapsed < minimumVisible {
+            try? await Task.sleep(for: minimumVisible - elapsed)
+        }
         working.remove(cardId)
         return result
     }
@@ -1053,8 +1067,12 @@ public class VisionBoardViewModel: ObservableObject {
     /// it in place and keeping the words that made it.
     public func redraw(_ cardId: String, instructions: String,
                        baseImage: Data) async {
-        guard let index = cards.firstIndex(where: { $0.id == cardId }),
-              let edit = onEditImage else { return }
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        guard let edit = onEditImage else {
+            // Silence here reads as "the tool is broken". Say so instead.
+            lastWorkProblem = "Redrawing isn't available in this window."
+            return
+        }
         let original = cards[index].description
         let combined = original.isEmpty
             ? instructions
@@ -1067,10 +1085,21 @@ public class VisionBoardViewModel: ObservableObject {
                 }
             }
         }
-        guard let url, let store = assetStore,
-              let stored = await store.normalizedForSave(url.path),
+        guard let url else {
+            lastWorkProblem = "The picture couldn't be redrawn. Try again."
+            return
+        }
+        guard let store = assetStore else {
+            lastWorkProblem = "Save the project first — there's nowhere to "
+                            + "keep the new picture yet."
+            return
+        }
+        guard let stored = await store.normalizedForSave(url.path),
               let target = cards.firstIndex(where: { $0.id == cardId })
-        else { return }
+        else {
+            lastWorkProblem = "The new picture couldn't be saved into the project."
+            return
+        }
         cards[target].imagePath = stored
         cards[target].description = combined
         notifyChange()

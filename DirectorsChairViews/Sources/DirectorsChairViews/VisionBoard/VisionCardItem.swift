@@ -208,9 +208,9 @@ public struct VisionCardItem: View {
             }
 
             if isRedrawing {
-                VisionWorkingBadge(size: 22 / max(zoomLevel, 0.01))
-                    .offset(x: cardWidth - 26 / max(zoomLevel, 0.01),
-                            y: cardHeight - 26 / max(zoomLevel, 0.01))
+                VisionWorkingBadge(size: 30 / max(zoomLevel, 0.01))
+                    .offset(x: cardWidth - 19 / max(zoomLevel, 0.01),
+                            y: cardHeight - 19 / max(zoomLevel, 0.01))
             }
 
             // A note is a slip of paper taped under the element, not
