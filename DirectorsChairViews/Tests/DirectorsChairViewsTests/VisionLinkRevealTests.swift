@@ -186,3 +186,57 @@ final class VisionLinkRevealTests: XCTestCase {
         XCTAssertNil(viewModel.cards[0].linkedLabel)
     }
 }
+
+// MARK: - The drop pipeline end to end (minus the gesture)
+
+/// The gesture itself can't be exercised offscreen, but everything after
+/// it can: what an NSItemProvider carrying our URI turns into, and
+/// whether that survives the same classification an image or a stray line
+/// of text goes through. This is the seam the link kept falling into.
+@MainActor
+final class VisionLinkDropPipelineTests: XCTestCase {
+
+    private func payload(for text: String) async -> AbsorbPayload? {
+        await VisionBoardAbsorb.payload(from: NSItemProvider(object: text as NSString))
+    }
+
+    func testADraggedSceneArrivesAsSomethingWeCanRecognise() async {
+        let ref = VisionCardLinkRef(kind: .scene, id: "scene-7",
+                                    label: "Scene 3")
+        let arrived = await payload(for: ref.dragText)
+
+        // Whichever way the pasteboard classifies it, the address has to
+        // still be readable — that is the whole contract.
+        let text: String?
+        switch arrived {
+        case .text(let value): text = value
+        case .remoteURL(let url): text = url.absoluteString
+        default: text = nil
+        }
+        XCTAssertNotNil(text, "a dragged scene must survive classification")
+        XCTAssertEqual(VisionCardLinkRef.parse(text ?? ""), ref)
+    }
+
+    func testADraggedShotArrivesTheSameWay() async {
+        let ref = VisionCardLinkRef(kind: .shot, id: "shot-2",
+                                    label: "SHOT 4B", sceneId: "scene-7")
+        let arrived = await payload(for: ref.dragText)
+        let text: String?
+        switch arrived {
+        case .text(let value): text = value
+        case .remoteURL(let url): text = url.absoluteString
+        default: text = nil
+        }
+        XCTAssertEqual(VisionCardLinkRef.parse(text ?? ""), ref,
+                       "shots were the ones that would not drag at all")
+    }
+
+    func testOrdinaryDraggedWordsStillBecomeAClipping() async {
+        let arrived = await payload(for: "cold, wide, unforgiving")
+        guard case .text(let value) = arrived else {
+            return XCTFail("plain words must still arrive as words")
+        }
+        XCTAssertNil(VisionCardLinkRef.parse(value),
+                     "and must not be mistaken for a link")
+    }
+}
