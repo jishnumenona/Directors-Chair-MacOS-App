@@ -533,11 +533,12 @@ struct SceneRow: View {
                     coordinator.selectScene(scene)
                 })
                 .overlay(alignment: .trailing) {
-                    if let element = VisionLinkLookup.element(
-                        forScene: scene.id, in: projectViewModel.project.beats) {
-                        RevealOnWallButton(cardId: element.id, compact: true)
-                            .padding(.trailing, 6)
-                    }
+                    WallLinksButton(
+                        elements: VisionLinkLookup.elements(
+                            forScene: scene.id,
+                            in: projectViewModel.project.beats),
+                        compact: true)
+                        .padding(.trailing, 6)
                 }
                 // Drag a scene onto an element of the vision board to
                 // pin the two together.
@@ -765,11 +766,11 @@ struct ShotRow: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("shot-row-\(shot.id)")
         .overlay(alignment: .trailing) {
-            if let element = VisionLinkLookup.element(
-                forShot: shot.id, in: projectViewModel.project.beats) {
-                RevealOnWallButton(cardId: element.id, compact: true)
-                    .padding(.trailing, 6)
-            }
+            WallLinksButton(
+                elements: VisionLinkLookup.elements(
+                    forShot: shot.id, in: projectViewModel.project.beats),
+                compact: true)
+                .padding(.trailing, 6)
         }
         .onDrag {
             NSItemProvider(object: VisionCardLinkRef(

@@ -49,6 +49,8 @@ public struct VisionBoardView: View {
     /// arrive here from a scene or a shot.
     public var revealCardId: String?
     public var onRevealHandled: (() -> Void)?
+    /// Tapping an element's tag opens the scene or shot behind it.
+    public var onOpenLink: ((VisionCardLinkRef) -> Void)?
 
     @State private var showingBoardPicker: Bool = false
     @State private var newBoardName: String = ""
@@ -72,7 +74,8 @@ public struct VisionBoardView: View {
         projectBasePath: URL? = nil,
         locations: [Location] = [],
         revealCardId: String? = nil,
-        onRevealHandled: (() -> Void)? = nil
+        onRevealHandled: (() -> Void)? = nil,
+        onOpenLink: ((VisionCardLinkRef) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
             cards: cards, boards: boards, connectors: connectors))
@@ -85,6 +88,7 @@ public struct VisionBoardView: View {
         self.projectBasePath = projectBasePath
         self.revealCardId = revealCardId
         self.onRevealHandled = onRevealHandled
+        self.onOpenLink = onOpenLink
         self.locations = locations
     }
 
@@ -106,7 +110,8 @@ public struct VisionBoardView: View {
                 viewModel: viewModel,
                 onCardEdit: { card in
                     viewModel.editCard(card)
-                }
+                },
+                onOpenLink: { onOpenLink?($0) }
             )
 
             // Floating toolbar at top

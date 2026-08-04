@@ -250,6 +250,25 @@ class AppCoordinator: ObservableObject {
         navigateTo(.visionBoard)
     }
 
+    /// A tag on a vision-board element was tapped: go to the scene or
+    /// shot it belongs to. Silent if the thing has since been deleted —
+    /// better a dead tag than navigating somewhere arbitrary.
+    func openLinked(_ ref: VisionCardLinkRef, in project: Project) {
+        switch ref.kind {
+        case .scene:
+            guard let scene = project.sequences
+                .flatMap(\.scenes).first(where: { $0.id == ref.id })
+            else { return }
+            selectScene(scene)
+            navigateTo(.scenes)
+        case .shot:
+            guard let shot = project.sequences.flatMap(\.scenes)
+                .flatMap(\.shots).first(where: { $0.id == ref.id })
+            else { return }
+            selectShot(shot)
+        }
+    }
+
     func navigateTo(_ view: AppView) {
         // Skip if already on this view
         guard selectedView != view else {

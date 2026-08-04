@@ -18,6 +18,8 @@ public struct VisionCardItem: View {
     public let isConnectTarget: Bool
     /// This element's picture is being redrawn right now.
     public var isRedrawing: Bool = false
+    /// Tapping the tag opens the scene or shot this element belongs to.
+    public var onOpenLink: (() -> Void)?
     public let zoomLevel: CGFloat
     public let showLabel: Bool
     /// Named coordinate space of the canvas container — drag translations
@@ -91,6 +93,7 @@ public struct VisionCardItem: View {
         isSelected: Bool = false,
         isConnectTarget: Bool = false,
         isRedrawing: Bool = false,
+        onOpenLink: (() -> Void)? = nil,
         zoomLevel: CGFloat = 1.0,
         showLabel: Bool = true,
         canvasSpaceName: String = "visionCanvas",
@@ -118,6 +121,7 @@ public struct VisionCardItem: View {
         self.isSelected = isSelected
         self.isConnectTarget = isConnectTarget
         self.isRedrawing = isRedrawing
+        self.onOpenLink = onOpenLink
         self.zoomLevel = zoomLevel
         self.showLabel = showLabel
         self.canvasSpaceName = canvasSpaceName
@@ -207,28 +211,40 @@ public struct VisionCardItem: View {
                     .onExitCommand { isEditingInline = false }
             }
 
-            // A scene or shot pinned here shows as a filing tab clipped
-            // to the top edge — the way a physical board marks which
-            // sheet belongs to which part of the picture.
-            if let linked = card.linkedLabel, !linked.isEmpty {
-                Text(linked)
-                    .font(.system(size: 9 / max(zoomLevel, 0.01),
-                                  weight: .heavy))
-                    .fontWidth(.condensed)
-                    .tracking(0.6 / max(zoomLevel, 0.01))
+            // A scene or shot pinned here shows as a filing tab on the
+            // top edge — and the tab is the way back to it, so the link
+            // reads in both directions rather than being a label you
+            // can't do anything with.
+            if let linked = card.linkedRef {
+                Button(action: { onOpenLink?() }) {
+                    HStack(spacing: 3 / max(zoomLevel, 0.01)) {
+                        Image(systemName: linked.kind == .shot
+                              ? "camera.fill" : "film.fill")
+                            .symbolRenderingMode(.monochrome)
+                            .font(.system(size: 8 / max(zoomLevel, 0.01),
+                                          weight: .bold))
+                        Text(linked.label.isEmpty ? "Linked" : linked.label)
+                            .font(.system(size: 10 / max(zoomLevel, 0.01),
+                                          weight: .heavy))
+                            .fontWidth(.condensed)
+                            .lineLimit(1)
+                    }
                     .foregroundStyle(VisionWallPalette.clipping)
-                    .lineLimit(1)
-                    .padding(.horizontal, 6 / max(zoomLevel, 0.01))
-                    .padding(.vertical, 2.5 / max(zoomLevel, 0.01))
+                    .padding(.horizontal, 7 / max(zoomLevel, 0.01))
+                    .padding(.vertical, 3.5 / max(zoomLevel, 0.01))
                     .background(VisionWallPalette.greasePencil,
                                 in: RoundedRectangle(
-                                    cornerRadius: 2 / max(zoomLevel, 0.01)))
+                                    cornerRadius: 3 / max(zoomLevel, 0.01)))
                     .shadow(color: VisionWallPalette.scrapShadow,
-                            radius: 2 / max(zoomLevel, 0.01),
-                            y: 1 / max(zoomLevel, 0.01))
-                    .offset(x: 7 / max(zoomLevel, 0.01),
-                            y: -7 / max(zoomLevel, 0.01))
-                    .accessibilityLabel("Linked to \(linked)")
+                            radius: 2.5 / max(zoomLevel, 0.01),
+                            y: 1.5 / max(zoomLevel, 0.01))
+                }
+                .buttonStyle(.plain)
+                .offset(x: 8 / max(zoomLevel, 0.01),
+                        y: -9 / max(zoomLevel, 0.01))
+                .help(linked.kind == .shot ? "Open this shot"
+                                           : "Open this scene")
+                .accessibilityLabel("Open \(linked.label)")
             }
 
             if isRedrawing {

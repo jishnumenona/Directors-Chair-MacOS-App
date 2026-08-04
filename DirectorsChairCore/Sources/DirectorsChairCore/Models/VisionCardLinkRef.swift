@@ -70,3 +70,20 @@ public struct VisionCardLinkRef: Equatable, Hashable, Sendable {
                                  label: label, sceneId: sceneId)
     }
 }
+
+public extension VisionCard {
+    /// The scene or shot pinned to this element, if any. A shot wins over
+    /// its scene, because linking a shot records both and the shot is the
+    /// more specific of the two.
+    var linkedRef: VisionCardLinkRef? {
+        let label = linkedLabel ?? ""
+        if let shotId = linkedShotId, !shotId.isEmpty {
+            return VisionCardLinkRef(kind: .shot, id: shotId,
+                                     label: label, sceneId: linkedSceneId)
+        }
+        if let sceneId = linkedSceneId, !sceneId.isEmpty {
+            return VisionCardLinkRef(kind: .scene, id: sceneId, label: label)
+        }
+        return nil
+    }
+}

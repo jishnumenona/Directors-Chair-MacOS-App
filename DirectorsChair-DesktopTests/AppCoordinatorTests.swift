@@ -390,3 +390,88 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.connectionsHighlightItemId, "act-1")
     }
 }
+
+// MARK: - Scenes and shots on the wall
+//
+// The reverse direction: standing on a scene or a shot, what is it pinned
+// to? The owner asked for hyperlinks (plural) because one scene can be up
+// on the wall several times — a location reference, a lighting note, a
+// costume swatch — and a control that only reached the first would
+// quietly hide the rest.
+//
+// Lives here rather than in its own file because the test target's
+// synchronized folder group does not pick up new files.
+
+final class VisionWallLinksTests: XCTestCase {
+
+    private func element(id: String, scene: String? = nil,
+                         shot: String? = nil, title: String = "") -> VisionCard {
+        var card = VisionCard()
+        card.id = id
+        card.title = title
+        card.linkedSceneId = scene
+        card.linkedShotId = shot
+        return card
+    }
+
+    func testEveryElementPinnedToASceneIsListed() {
+        let cards = [element(id: "a", scene: "scene-7"),
+                     element(id: "b", scene: "scene-7"),
+                     element(id: "c", scene: "scene-9")]
+
+        let found = VisionLinkLookup.elements(forScene: "scene-7", in: cards)
+
+        XCTAssertEqual(found.map(\.id), ["a", "b"],
+                       "a scene can be up on the wall more than once")
+    }
+
+    func testAScenesListExcludesElementsThatAreReallyAboutOneOfItsShots() {
+        // Linking a shot records its scene too. Asking for the SCENE's
+        // elements must not sweep those in, or every shot reference would
+        // masquerade as a scene reference.
+        let cards = [element(id: "a", scene: "scene-7"),
+                     element(id: "b", scene: "scene-7", shot: "shot-2")]
+
+        XCTAssertEqual(
+            VisionLinkLookup.elements(forScene: "scene-7", in: cards).map(\.id),
+            ["a"])
+        XCTAssertEqual(
+            VisionLinkLookup.elements(forShot: "shot-2", in: cards).map(\.id),
+            ["b"])
+    }
+
+    func testNothingPinnedMeansNoLinks() {
+        XCTAssertTrue(VisionLinkLookup.elements(forScene: "scene-7",
+                                                in: []).isEmpty)
+        XCTAssertTrue(VisionLinkLookup.elements(
+            forShot: "shot-2", in: [element(id: "a", scene: "scene-7")]).isEmpty)
+    }
+
+    // MARK: - What a link is called
+
+    func testAnElementIsNamedByItsTitleWhenItHasOne() {
+        let card = element(id: "a", scene: "s", title: "Golden hour ref")
+        XCTAssertEqual(WallLinksButton.name(of: card), "Golden hour ref")
+    }
+
+    func testAnUntitledElementIsNamedByWhatItIs() {
+        var card = element(id: "a", scene: "s")
+        card.cardType = "image"
+        XCTAssertEqual(WallLinksButton.name(of: card), "Picture",
+                       "never a bare id in front of a person")
+    }
+
+    func testAWordClippingIsNamedByItsWords() {
+        var card = element(id: "a", scene: "s")
+        card.cardType = "text"
+        card.text = "COLD, WIDE, UNFORGIVING"
+        XCTAssertEqual(WallLinksButton.name(of: card), "COLD, WIDE, UNFORGIVING")
+    }
+
+    func testAVeryLongClippingIsTrimmedRatherThanFillingTheMenu() {
+        var card = element(id: "a", scene: "s")
+        card.cardType = "text"
+        card.text = String(repeating: "long ", count: 40)
+        XCTAssertLessThanOrEqual(WallLinksButton.name(of: card).count, 38)
+    }
+}

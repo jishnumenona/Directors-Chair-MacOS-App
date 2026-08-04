@@ -140,40 +140,78 @@ enum VisionLinkLookup {
     /// SHOT also carries that shot's scene id, so this deliberately
     /// excludes those — asking for the scene's element should not return
     /// an element that is really about one of its shots.
-    static func element(forScene sceneId: String,
-                        in cards: [VisionCard]) -> VisionCard? {
-        cards.first { $0.linkedSceneId == sceneId && $0.linkedShotId == nil }
+    static func elements(forScene sceneId: String,
+                         in cards: [VisionCard]) -> [VisionCard] {
+        cards.filter { $0.linkedSceneId == sceneId && $0.linkedShotId == nil }
     }
 
-    static func element(forShot shotId: String,
-                        in cards: [VisionCard]) -> VisionCard? {
-        cards.first { $0.linkedShotId == shotId }
+    static func elements(forShot shotId: String,
+                         in cards: [VisionCard]) -> [VisionCard] {
+        cards.filter { $0.linkedShotId == shotId }
     }
 }
 
-/// The button that takes you to the wall. Shows up only when the thing
-/// has actually been pinned somewhere, because a control that is present
-/// but inert teaches people to ignore controls.
-struct RevealOnWallButton: View {
+/// A list of every element a scene or shot is pinned to, as links. Plural
+/// deliberately: the same scene can be up on the wall several times —
+/// a location reference, a lighting note, a costume swatch — and a
+/// control that only ever reaches the first of them would be lying.
+struct WallLinksButton: View {
     @EnvironmentObject var coordinator: AppCoordinator
-    let cardId: String
+    @EnvironmentObject var projectViewModel: ProjectViewModel
+
+    let elements: [VisionCard]
     var compact: Bool = false
 
     var body: some View {
-        Button {
-            coordinator.revealOnVisionBoard(cardId: cardId)
-        } label: {
-            if compact {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.accentColor)
-            } else {
-                Label("On the vision board", systemImage: "pin.fill")
-                    .font(.system(size: 11, weight: .medium))
+        if elements.count == 1, let only = elements.first {
+            Button {
+                coordinator.revealOnVisionBoard(cardId: only.id)
+            } label: { label(for: only.linkedLabel ?? "the vision board") }
+            .buttonStyle(.plain)
+            .help("Show this on the vision board")
+        } else if elements.count > 1 {
+            Menu {
+                ForEach(elements, id: \.id) { element in
+                    Button(WallLinksButton.name(of: element)) {
+                        coordinator.revealOnVisionBoard(cardId: element.id)
+                    }
+                }
+            } label: {
+                label(for: "\(elements.count) on the wall")
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Show these on the vision board")
         }
-        .buttonStyle(.plain)
-        .help("Show this on the vision board")
-        .accessibilityLabel("Show on the vision board")
+    }
+
+    @ViewBuilder
+    private func label(for text: String) -> some View {
+        if compact {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.accentColor)
+        } else {
+            Label(text, systemImage: "pin.fill")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.accentColor)
+        }
+    }
+
+    /// What to call an element in a list of links. Its own title if it has
+    /// one, otherwise what kind of thing it is — never a bare id.
+    static func name(of element: VisionCard) -> String {
+        let title = element.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { return title }
+        if !element.text.isEmpty {
+            return String(element.text.prefix(38))
+        }
+        switch element.cardType {
+        case "image": return "Picture"
+        case "video": return "Video"
+        case "color_palette": return "Palette"
+        case "link": return "Link"
+        default: return "Element"
+        }
     }
 }

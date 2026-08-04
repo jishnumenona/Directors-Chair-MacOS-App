@@ -184,7 +184,11 @@ struct CentralViewStack: View {
                 projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
                 locations: projectViewModel.project.locations,
                 revealCardId: coordinator.revealVisionCardId,
-                onRevealHandled: { coordinator.revealVisionCardId = nil }
+                onRevealHandled: { coordinator.revealVisionCardId = nil },
+                onOpenLink: { ref in
+                    coordinator.openLinked(ref,
+                                           in: projectViewModel.project)
+                }
             )
             .onAppear { debugLog("📱 VisionBoardView appeared") }
         case .shotList:

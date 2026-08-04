@@ -115,6 +115,66 @@ final class VisionLinkRevealTests: XCTestCase {
         XCTAssertEqual(viewModel.cards[0].linkedSceneId, "scene-9")
     }
 
+    // MARK: - A link is never words
+
+    func testASceneDroppedOnAnElementLinksRatherThanPinningUpItsURI() {
+        // The owner's report, exactly: dropping a shot pinned up a tiny
+        // clipping reading "DCREF://SHOT/…?LABEL=SHOT%204B". Two nested
+        // drop targets meant the wall answered before the element did.
+        // Now one path decides, by hit-testing where you let go.
+        let (viewModel, card) = board()
+        let ref = VisionCardLinkRef(kind: .shot, id: "shot-2",
+                                    label: "SHOT 4B", sceneId: "scene-7")
+        let overTheElement = CGPoint(x: (card.canvasX ?? 0) + 120,
+                                     y: (card.canvasY ?? 0) + 80)
+
+        let target = VisionWallHitTest.scrap(at: overTheElement,
+                                             cards: viewModel.filteredCards)
+        XCTAssertEqual(target?.id, card.id,
+                       "the element under the cursor is the one that links")
+
+        viewModel.link(try! XCTUnwrap(target).id, to: ref)
+        XCTAssertEqual(viewModel.cards.count, 1,
+                       "and no clipping of the raw URI joins the wall")
+        XCTAssertEqual(viewModel.cards[0].linkedShotId, "shot-2")
+    }
+
+    func testDroppingOnBareWallHitsNothingToLink() {
+        let (viewModel, _) = board()
+        let emptyWall = CGPoint(x: -900, y: -900)
+        XCTAssertNil(VisionWallHitTest.scrap(at: emptyWall,
+                                             cards: viewModel.filteredCards),
+                     "which is what makes the wall say where to drop it")
+    }
+
+    // MARK: - The tag is a way back
+
+    func testAnElementKnowsWhatItIsPinnedTo() {
+        let (viewModel, card) = board()
+        viewModel.link(card.id, to: VisionCardLinkRef(
+            kind: .shot, id: "shot-2", label: "SHOT 4B", sceneId: "scene-7"))
+
+        let ref = viewModel.cards[0].linkedRef
+        XCTAssertEqual(ref?.kind, .shot)
+        XCTAssertEqual(ref?.id, "shot-2")
+        XCTAssertEqual(ref?.label, "SHOT 4B",
+                       "the tag shows a name, not an id")
+    }
+
+    func testAShotWinsOverItsSceneOnTheTag() {
+        // Linking a shot records both ids; the tag must open the SHOT,
+        // the more specific of the two.
+        let (viewModel, card) = board()
+        viewModel.link(card.id, to: VisionCardLinkRef(
+            kind: .shot, id: "shot-2", label: "SHOT 4B", sceneId: "scene-7"))
+        XCTAssertEqual(viewModel.cards[0].linkedRef?.kind, .shot)
+    }
+
+    func testAnUnlinkedElementHasNoTag() {
+        let (viewModel, _) = board()
+        XCTAssertNil(viewModel.cards[0].linkedRef)
+    }
+
     func testUnlinkingClearsBothEndsAndTheTab() {
         let (viewModel, card) = board()
         viewModel.link(card.id, to: VisionCardLinkRef(
