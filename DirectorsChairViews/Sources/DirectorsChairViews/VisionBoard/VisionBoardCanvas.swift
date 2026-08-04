@@ -33,6 +33,9 @@ public struct VisionBoardCanvas: View {
     @State private var awaitingTool: VisionWallTool?
     /// Non-nil when the ring belongs to a scrap rather than the wall.
     @State private var ringScrap: VisionCard?
+    /// Non-nil when the right-click landed on a cord: the thread's own
+    /// ring opens instead, and nothing else does.
+    @State private var ringThread: VisionConnector?
     /// The scrap whose paper is being chosen, and where to show the stock.
     @State private var paperFor: VisionCard?
     /// The element whose note is being written at the caret.
@@ -41,9 +44,6 @@ public struct VisionBoardCanvas: View {
     @State private var annotating: (card: VisionCard, image: NSImage)?
     @State private var promptFor: VisionCard?
     @State private var paperAt: CGPoint = .zero
-    /// The cord whose twine is being chosen, and where to show the reel.
-    @State private var threadFor: VisionConnector?
-    @State private var threadAt: CGPoint = .zero
 
     // MARK: - Constants
 
@@ -97,11 +97,22 @@ public struct VisionBoardCanvas: View {
                         // What the click landed on decides the ring — a
                         // scrap gets its own tools, bare wall gets the
                         // making tools. Never both menus at once.
-                        ringScrap = VisionWallHitTest.scrap(
-                            at: viewModel.transform.toWorld(point),
-                            cards: viewModel.filteredCards)
+                        let world = viewModel.transform.toWorld(point)
+                        // A cord is thin and usually crosses the very
+                        // sheets it connects, so it is asked first — and
+                        // when it answers, neither other ring opens.
+                        ringThread = VisionWallHitTest.thread(
+                            at: world,
+                            connectors: viewModel.boardConnectors,
+                            tack: { tackPoint($0) },
+                            tolerance: 13 / max(viewModel.transform.zoom, 0.05))
+                        ringScrap = ringThread == nil
+                            ? VisionWallHitTest.scrap(at: world,
+                                                      cards: viewModel.filteredCards)
+                            : nil
                         toolRingAt = VisionRadialGeometry.anchor(
-                            for: point, in: viewSize, radius: 78)
+                            for: point, in: viewSize,
+                            radius: ringThread != nil ? 116 : 78)
                     }
                 )
             )
@@ -165,7 +176,6 @@ public struct VisionBoardCanvas: View {
                     return .handled
                 }
                 if paperFor != nil { paperFor = nil; return .handled }
-                if threadFor != nil { threadFor = nil; return .handled }
                 viewModel.clearSelection()
                 return .handled
             }
@@ -242,7 +252,6 @@ public struct VisionBoardCanvas: View {
             connectingOverlay
             paperOverlay
             promptOverlay
-            threadOverlay
             problemOverlay
         }
     }
@@ -264,7 +273,27 @@ public struct VisionBoardCanvas: View {
 
     @ViewBuilder
     private var ringOverlay: some View {
-        if let ring = toolRingAt {
+        if let ring = toolRingAt, let cord = ringThread {
+            // A cord gets its own tools. The wall's making tools have
+            // nothing to say about a piece of string, and showing both
+            // rings at once — which is what used to happen — says the
+            // app doesn't know what you clicked.
+            VisionThreadRing(
+                anchor: ring,
+                connector: viewModel.boardConnectors
+                    .first { $0.id == cord.id } ?? cord,
+                onPickThread: { viewModel.setThread(cord.id, to: $0) },
+                onSetThickness: { viewModel.setThreadThickness(cord.id, to: $0) },
+                onRename: {
+                    dismissRing()
+                    viewModel.editingConnectorId = cord.id
+                },
+                onCut: {
+                    dismissRing()
+                    viewModel.removeConnector(cord.id)
+                },
+                onDismiss: dismissRing)
+        } else if let ring = toolRingAt {
             VisionRadialMenu(anchor: ring, items: ringItems,
                              onPick: { pickTool($0, at: ring) },
                              onDismiss: dismissRing)
@@ -457,77 +486,6 @@ public struct VisionBoardCanvas: View {
         }
     }
 
-    /// Twine to string this cord with — shown as actual cord, because a
-    /// swatch of flat colour tells you nothing about how it will look
-    /// wound round a pin and hanging across the wall.
-    @ViewBuilder
-    private var threadOverlay: some View {
-        if let connector = threadFor {
-            ZStack {
-                Color.black.opacity(0.001)
-                    .contentShape(Rectangle())
-                    .onTapGesture { threadFor = nil }
-
-                VStack(spacing: 8) {
-                    Text("Thread")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(1.4)
-                        .foregroundStyle(VisionWallPalette.ink.opacity(0.55))
-                    HStack(spacing: 7) {
-                        ForEach(VisionThread.allCases) { twine in
-                            threadSwatch(twine, for: connector)
-                        }
-                    }
-                }
-                .padding(12)
-                .background(VisionWallPalette.clipping,
-                            in: RoundedRectangle(cornerRadius: 10))
-                .shadow(color: VisionWallPalette.scrapShadow, radius: 10, y: 4)
-                .environment(\.colorScheme, .light)
-                .position(threadAt)
-            }
-            .ignoresSafeArea()
-            .onExitCommand { threadFor = nil }
-        }
-    }
-
-    /// A short length of the real cord, drawn by the real cord view.
-    private func threadSwatch(_ twine: VisionThread,
-                              for connector: VisionConnector) -> some View {
-        let chosen = VisionThread.resolve(connector.thread) == twine
-        let sample = Path { path in
-            path.move(to: CGPoint(x: 5, y: 13))
-            path.addQuadCurve(to: CGPoint(x: 43, y: 13),
-                              control: CGPoint(x: 24, y: 30))
-        }
-        return VStack(spacing: 4) {
-            VisionCordStrokes(cord: sample, thickness: 5, thread: twine)
-                .frame(width: 48, height: 30)
-                .background(VisionWallPalette.surface.first ?? .gray)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 3)
-                        .strokeBorder(chosen ? VisionWallPalette.greasePencil : .clear,
-                                      lineWidth: 2)
-                )
-            Text(twine.displayName)
-                .font(.system(size: 8.5, weight: chosen ? .bold : .regular))
-                .foregroundStyle(VisionWallPalette.ink.opacity(chosen ? 0.9 : 0.55))
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            viewModel.setThread(connector.id, to: twine)
-            threadFor = nil
-        }
-        .accessibilityLabel("\(twine.displayName) thread")
-    }
-
-    /// Where the picker opens: on the cord you right-clicked.
-    private func midpoint(from: CGPoint, to: CGPoint) -> CGPoint {
-        let world = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
-        return viewModel.transform.toScreen(world)
-    }
-
     /// The stock this scrap could be cut from — real swatches, so you
     /// pick by eye rather than by name.
     @ViewBuilder
@@ -626,6 +584,7 @@ public struct VisionBoardCanvas: View {
     }
 
     private func dismissRing() {
+        ringThread = nil
         toolRingAt = nil
         ringScrap = nil
     }
@@ -863,10 +822,7 @@ public struct VisionBoardCanvas: View {
                         onDelete: {
                             viewModel.removeConnector(connector.id)
                         },
-                        onRecolour: {
-                            threadAt = midpoint(from: from, to: to)
-                            threadFor = connector
-                        },
+                        thickness: CGFloat(connector.thickness ?? 5),
                         thread: VisionThread.resolve(connector.thread))
                 }
             }
@@ -1037,7 +993,6 @@ struct ConnectorArrow: View {
     let label: String
     var onEditLabel: () -> Void
     var onDelete: () -> Void
-    var onRecolour: () -> Void = {}
 
     /// Twine, in world points — thick enough to read as cord, not a
     /// hairline. Exports of a large board scale everything down, so the
@@ -1084,13 +1039,7 @@ struct ConnectorArrow: View {
                     cord.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
                                                    lineCap: .round)))
                 .onTapGesture(count: 2, perform: onEditLabel)
-                .contextMenu {
-                    Button("Name this connection…", action: onEditLabel)
-                    Button("Change the thread…", action: onRecolour)
-                    Divider()
-                    Button("Cut the thread", role: .destructive, action: onDelete)
-                }
-                .help("Double-click to name it · right-click to recolour or cut it")
+                .help("Double-click to name it · right-click for thread and weight")
 
             knot.position(a)
             knot.position(b)
@@ -1098,12 +1047,6 @@ struct ConnectorArrow: View {
             tag
                 .position(mid)
                 .onTapGesture(count: 2, perform: onEditLabel)
-                .contextMenu {
-                    Button("Name this connection…", action: onEditLabel)
-                    Button("Change the thread…", action: onRecolour)
-                    Divider()
-                    Button("Cut the thread", role: .destructive, action: onDelete)
-                }
         }
         .frame(width: width, height: height)
         .position(x: minX + width / 2, y: minY + height / 2)

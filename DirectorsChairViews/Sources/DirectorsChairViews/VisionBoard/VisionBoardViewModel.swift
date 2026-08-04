@@ -1182,6 +1182,16 @@ public class VisionBoardViewModel: ObservableObject {
         notifyChange()
     }
 
+    /// How heavy this cord is. Weight is per thread like colour, because
+    /// a board where one connection matters more than another says so by
+    /// how it is strung.
+    public func setThreadThickness(_ connectorId: String, to thickness: Double) {
+        guard let index = connectors.firstIndex(where: { $0.id == connectorId })
+        else { return }
+        connectors[index].thickness = thickness
+        notifyChange()
+    }
+
     public func setPaper(_ cardId: String, paper: VisionPaper) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         cards[index].paper = paper.rawValue

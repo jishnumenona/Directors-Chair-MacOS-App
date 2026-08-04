@@ -143,3 +143,120 @@ final class VisionThreadColourTests: XCTestCase {
                        "no two twines share a colour")
     }
 }
+
+// MARK: - A cord has its own tools
+
+/// Right-clicking a thread used to bloom the wall's making tools AND a
+/// system context menu on top. The rule that fixes it is a routing rule,
+/// so it is pinned as one — the ring that opens is decided by what the
+/// click landed on, and exactly one thing can be under it.
+@MainActor
+final class VisionThreadRingTests: XCTestCase {
+
+    private let leftTack = CGPoint(x: 100, y: 100)
+    private let rightTack = CGPoint(x: 400, y: 100)
+
+    private func connector() -> VisionConnector {
+        VisionConnector(fromCardId: "a", toCardId: "b")
+    }
+
+    private func tack(_ id: String) -> CGPoint? {
+        id == "a" ? leftTack : (id == "b" ? rightTack : nil)
+    }
+
+    func testClickingOnTheCordFindsIt() {
+        // The cord SAGS, so its middle is well below the straight line
+        // between the pins — clicking the straight line must miss, and
+        // clicking the sag must hit, or you'd be aiming at a cord that
+        // isn't where it's drawn.
+        //
+        // 300pt run → sag 45 → control y = 100 + 90 = 190, and the
+        // midpoint of a quadratic sits at a quarter/half/quarter blend:
+        // 0.25·100 + 0.5·190 + 0.25·100 = 145. Forty-five points below
+        // the pins, which is the whole point of testing it.
+        let sagged = CGPoint(x: 250, y: 145)
+
+        let hit = VisionWallHitTest.thread(at: sagged, connectors: [connector()],
+                                           tack: tack, tolerance: 13)
+        XCTAssertNotNil(hit)
+    }
+
+    func testClickingWellAwayFromTheCordFindsNothing() {
+        let empty = CGPoint(x: 250, y: 400)
+        XCTAssertNil(VisionWallHitTest.thread(at: empty, connectors: [connector()],
+                                              tack: tack, tolerance: 13))
+    }
+
+    func testTheStraightLineBetweenPinsIsNotTheCord() {
+        // Midway, the drawn cord hangs ~45pt lower. A hit-test that used
+        // a straight line would light up here, where there is no thread.
+        let straight = CGPoint(x: 250, y: 100)
+        XCTAssertNil(VisionWallHitTest.thread(at: straight,
+                                              connectors: [connector()],
+                                              tack: tack, tolerance: 13),
+                     "the clickable cord must follow the drawn curve")
+    }
+
+    func testTheNearestOfSeveralCordsWins() {
+        let first = VisionConnector(id: "one", fromCardId: "a", toCardId: "b")
+        let second = VisionConnector(id: "two", fromCardId: "b", toCardId: "a")
+        // Both cords occupy the same curve here, so this only asserts the
+        // search returns one of them rather than throwing or picking none.
+        let hit = VisionWallHitTest.thread(at: CGPoint(x: 250, y: 145),
+                                           connectors: [first, second],
+                                           tack: tack, tolerance: 20)
+        XCTAssertNotNil(hit)
+    }
+
+    func testAConnectorWithAMissingEndIsSkipped() {
+        // A card can be deleted while its cord is still in the array.
+        let orphan = VisionConnector(fromCardId: "a", toCardId: "gone")
+        XCTAssertNil(VisionWallHitTest.thread(at: CGPoint(x: 250, y: 145),
+                                              connectors: [orphan],
+                                              tack: tack, tolerance: 20))
+    }
+
+    // MARK: - Weight
+
+    func testWeightStepsThroughRealStringSizes() {
+        XCTAssertEqual(VisionThreadRing.step(from: 5, by: 1), 7)
+        XCTAssertEqual(VisionThreadRing.step(from: 5, by: -1), 4)
+    }
+
+    func testWeightStopsAtTheEnds() {
+        let thinnest = VisionThreadRing.weights.first!
+        let thickest = VisionThreadRing.weights.last!
+        XCTAssertEqual(VisionThreadRing.step(from: thinnest, by: -1), thinnest)
+        XCTAssertEqual(VisionThreadRing.step(from: thickest, by: 1), thickest)
+    }
+
+    func testAnOddStoredWeightSnapsToTheNearestNotch() {
+        // A board hand-edited, or written by a later version.
+        XCTAssertEqual(VisionThreadRing.step(from: 6.9, by: 0), 7)
+    }
+
+    func testWeightIsNamedNotNumbered() {
+        XCTAssertEqual(VisionThreadRing.weightName(2.5), "Fine")
+        XCTAssertEqual(VisionThreadRing.weightName(5), "Twine")
+        XCTAssertEqual(VisionThreadRing.weightName(9.5), "Rope")
+    }
+
+    func testWeightIsPerThreadAndSurvivesReload() throws {
+        let viewModel = VisionBoardViewModel()
+        let cord = connector()
+        viewModel.connectors = [cord]
+        viewModel.setThreadThickness(cord.id, to: 9.5)
+
+        let data = try JSONEncoder().encode(viewModel.connectors[0])
+        let reloaded = try JSONDecoder().decode(VisionConnector.self, from: data)
+        XCTAssertEqual(reloaded.thickness, 9.5)
+    }
+
+    func testACordSavedBeforeWeightsStillOpens() throws {
+        let legacy = """
+        {"id":"c1","from_card_id":"a","to_card_id":"b","label":""}
+        """.data(using: .utf8)!
+        let cord = try JSONDecoder().decode(VisionConnector.self, from: legacy)
+        XCTAssertNil(cord.thickness, "and draws at the standard 5 it always did")
+    }
+}

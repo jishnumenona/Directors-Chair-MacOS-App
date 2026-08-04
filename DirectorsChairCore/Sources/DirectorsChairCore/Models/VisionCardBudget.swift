@@ -34,19 +34,24 @@ public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
     /// is how several lines of thinking stay apart without labels.
     /// nil = crimson, which is what every existing cord already was.
     public var thread: String?
+    /// How heavy the cord is, in world points. nil = the standard twine
+    /// every existing cord was drawn at.
+    public var thickness: Double?
 
     public init(id: String = UUID().uuidString,
                 boardId: String = "master",
                 fromCardId: String,
                 toCardId: String,
                 label: String = "",
-                thread: String? = nil) {
+                thread: String? = nil,
+                thickness: Double? = nil) {
         self.id = id
         self.boardId = boardId
         self.fromCardId = fromCardId
         self.toCardId = toCardId
         self.label = label
         self.thread = thread
+        self.thickness = thickness
     }
 
     enum CodingKeys: String, CodingKey {
@@ -56,6 +61,7 @@ public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
         case toCardId = "to_card_id"
         case label
         case thread
+        case thickness
     }
 
     public init(from decoder: Decoder) throws {
@@ -68,6 +74,7 @@ public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
         label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
         // Boards written before threads had colour must still open.
         thread = try container.decodeIfPresent(String.self, forKey: .thread)
+        thickness = try container.decodeIfPresent(Double.self, forKey: .thickness)
     }
 }
 

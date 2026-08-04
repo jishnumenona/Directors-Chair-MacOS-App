@@ -180,6 +180,53 @@ public enum VisionWallHitTest {
                    height: card.canvasHeight ?? 200).contains(worldPoint)
         }
     }
+
+    /// The cord under a point, if the click landed on one.
+    ///
+    /// Thread hangs in a sagging curve between two pins, and it is thin,
+    /// so this walks the same quadratic the cord is drawn along and takes
+    /// the closest sample. Checked BEFORE scraps: a cord usually crosses
+    /// the very sheets it connects, and a click within a few points of
+    /// something that thin was meant for it.
+    public static func thread(at worldPoint: CGPoint,
+                              connectors: [VisionConnector],
+                              tack: (String) -> CGPoint?,
+                              tolerance: CGFloat) -> VisionConnector? {
+        var best: (connector: VisionConnector, distance: CGFloat)?
+        for connector in connectors {
+            guard let from = tack(connector.fromCardId),
+                  let to = tack(connector.toCardId) else { continue }
+            let distance = distanceToCord(worldPoint, from: from, to: to)
+            guard distance <= tolerance else { continue }
+            if best == nil || distance < best!.distance {
+                best = (connector, distance)
+            }
+        }
+        return best?.connector
+    }
+
+    /// Distance from a point to the hanging cord between two pins. The
+    /// sag MUST match ConnectorArrow's or the cord you can see is not the
+    /// cord you can click.
+    static func distanceToCord(_ point: CGPoint,
+                               from: CGPoint, to: CGPoint,
+                               samples: Int = 24) -> CGFloat {
+        let sag = min(58, hypot(to.x - from.x, to.y - from.y) * 0.15)
+        let control = CGPoint(x: (from.x + to.x) / 2,
+                              y: (from.y + to.y) / 2 + sag * 2)
+        var closest = CGFloat.greatestFiniteMagnitude
+        for step in 0...samples {
+            let t = CGFloat(step) / CGFloat(samples)
+            let inverse = 1 - t
+            // Quadratic Bezier, the curve the cord is stroked along.
+            let x = inverse * inverse * from.x
+                + 2 * inverse * t * control.x + t * t * to.x
+            let y = inverse * inverse * from.y
+                + 2 * inverse * t * control.y + t * t * to.y
+            closest = min(closest, hypot(point.x - x, point.y - y))
+        }
+        return closest
+    }
 }
 
 // MARK: - Links
