@@ -150,7 +150,10 @@ public enum VisionBoardExporter {
                    let to = tack(connector.toCardId) {
                     ConnectorArrow(from: from, to: to, label: connector.label,
                                    onEditLabel: {}, onDelete: {},
-                                   thickness: 5 * detail)
+                                   thickness: 5 * detail,
+                                   // The export is the wall, so a cord
+                                   // prints in the twine it was strung in.
+                                   thread: VisionThread.resolve(connector.thread))
                 }
             }
         }

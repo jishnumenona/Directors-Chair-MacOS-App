@@ -30,17 +30,23 @@ public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
     public var fromCardId: String
     public var toCardId: String
     public var label: String
+    /// Which dyed twine this cord is strung with. On a real board colour
+    /// is how several lines of thinking stay apart without labels.
+    /// nil = crimson, which is what every existing cord already was.
+    public var thread: String?
 
     public init(id: String = UUID().uuidString,
                 boardId: String = "master",
                 fromCardId: String,
                 toCardId: String,
-                label: String = "") {
+                label: String = "",
+                thread: String? = nil) {
         self.id = id
         self.boardId = boardId
         self.fromCardId = fromCardId
         self.toCardId = toCardId
         self.label = label
+        self.thread = thread
     }
 
     enum CodingKeys: String, CodingKey {
@@ -49,6 +55,19 @@ public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
         case fromCardId = "from_card_id"
         case toCardId = "to_card_id"
         case label
+        case thread
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        boardId = try container.decodeIfPresent(String.self, forKey: .boardId)
+            ?? "master"
+        fromCardId = try container.decode(String.self, forKey: .fromCardId)
+        toCardId = try container.decode(String.self, forKey: .toCardId)
+        label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        // Boards written before threads had colour must still open.
+        thread = try container.decodeIfPresent(String.self, forKey: .thread)
     }
 }
 

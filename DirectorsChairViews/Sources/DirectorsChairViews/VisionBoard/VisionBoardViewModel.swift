@@ -1172,6 +1172,16 @@ public class VisionBoardViewModel: ObservableObject {
     }
 
     /// Cuts this scrap from a different stock.
+    /// Restrings one cord in a different twine. Colour is the only way a
+    /// board with several lines of thinking stays readable, so this is
+    /// per-thread — never a board-wide setting.
+    public func setThread(_ connectorId: String, to thread: VisionThread) {
+        guard let index = connectors.firstIndex(where: { $0.id == connectorId })
+        else { return }
+        connectors[index].thread = thread.rawValue
+        notifyChange()
+    }
+
     public func setPaper(_ cardId: String, paper: VisionPaper) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         cards[index].paper = paper.rawValue

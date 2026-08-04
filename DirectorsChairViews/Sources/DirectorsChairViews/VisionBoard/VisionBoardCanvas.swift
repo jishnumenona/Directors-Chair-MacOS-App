@@ -41,6 +41,9 @@ public struct VisionBoardCanvas: View {
     @State private var annotating: (card: VisionCard, image: NSImage)?
     @State private var promptFor: VisionCard?
     @State private var paperAt: CGPoint = .zero
+    /// The cord whose twine is being chosen, and where to show the reel.
+    @State private var threadFor: VisionConnector?
+    @State private var threadAt: CGPoint = .zero
 
     // MARK: - Constants
 
@@ -162,6 +165,7 @@ public struct VisionBoardCanvas: View {
                     return .handled
                 }
                 if paperFor != nil { paperFor = nil; return .handled }
+                if threadFor != nil { threadFor = nil; return .handled }
                 viewModel.clearSelection()
                 return .handled
             }
@@ -238,6 +242,7 @@ public struct VisionBoardCanvas: View {
             connectingOverlay
             paperOverlay
             promptOverlay
+            threadOverlay
             problemOverlay
         }
     }
@@ -450,6 +455,77 @@ public struct VisionBoardCanvas: View {
             await viewModel.redraw(card.id, instructions: instructions,
                                    baseImage: png)
         }
+    }
+
+    /// Twine to string this cord with — shown as actual cord, because a
+    /// swatch of flat colour tells you nothing about how it will look
+    /// wound round a pin and hanging across the wall.
+    @ViewBuilder
+    private var threadOverlay: some View {
+        if let connector = threadFor {
+            ZStack {
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture { threadFor = nil }
+
+                VStack(spacing: 8) {
+                    Text("Thread")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundStyle(VisionWallPalette.ink.opacity(0.55))
+                    HStack(spacing: 7) {
+                        ForEach(VisionThread.allCases) { twine in
+                            threadSwatch(twine, for: connector)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(VisionWallPalette.clipping,
+                            in: RoundedRectangle(cornerRadius: 10))
+                .shadow(color: VisionWallPalette.scrapShadow, radius: 10, y: 4)
+                .environment(\.colorScheme, .light)
+                .position(threadAt)
+            }
+            .ignoresSafeArea()
+            .onExitCommand { threadFor = nil }
+        }
+    }
+
+    /// A short length of the real cord, drawn by the real cord view.
+    private func threadSwatch(_ twine: VisionThread,
+                              for connector: VisionConnector) -> some View {
+        let chosen = VisionThread.resolve(connector.thread) == twine
+        let sample = Path { path in
+            path.move(to: CGPoint(x: 5, y: 13))
+            path.addQuadCurve(to: CGPoint(x: 43, y: 13),
+                              control: CGPoint(x: 24, y: 30))
+        }
+        return VStack(spacing: 4) {
+            VisionCordStrokes(cord: sample, thickness: 5, thread: twine)
+                .frame(width: 48, height: 30)
+                .background(VisionWallPalette.surface.first ?? .gray)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .strokeBorder(chosen ? VisionWallPalette.greasePencil : .clear,
+                                      lineWidth: 2)
+                )
+            Text(twine.displayName)
+                .font(.system(size: 8.5, weight: chosen ? .bold : .regular))
+                .foregroundStyle(VisionWallPalette.ink.opacity(chosen ? 0.9 : 0.55))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            viewModel.setThread(connector.id, to: twine)
+            threadFor = nil
+        }
+        .accessibilityLabel("\(twine.displayName) thread")
+    }
+
+    /// Where the picker opens: on the cord you right-clicked.
+    private func midpoint(from: CGPoint, to: CGPoint) -> CGPoint {
+        let world = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+        return viewModel.transform.toScreen(world)
     }
 
     /// The stock this scrap could be cut from — real swatches, so you
@@ -786,7 +862,12 @@ public struct VisionBoardCanvas: View {
                         },
                         onDelete: {
                             viewModel.removeConnector(connector.id)
-                        })
+                        },
+                        onRecolour: {
+                            threadAt = midpoint(from: from, to: to)
+                            threadFor = connector
+                        },
+                        thread: VisionThread.resolve(connector.thread))
                 }
             }
         }
@@ -899,17 +980,72 @@ public struct VisionBoardCanvas: View {
 /// plaster, and tied to the wrong place. Real string is thick enough to
 /// see across a room, hangs under its own weight, is twisted from strands,
 /// and is wound around the tacks rather than the paper.
+/// How a cord LOOKS, in one place. The arrow on the wall and the swatch
+/// in the picker both draw through this — a picker that drew its own
+/// approximation of twine would be a third renderer of the same thing,
+/// which is the drift that has already cost this board its pins and its
+/// thread in export once.
+struct VisionCordStrokes: View {
+    let cord: Path
+    let thickness: CGFloat
+    let thread: VisionThread
+
+    var body: some View {
+        let t = thickness
+        ZStack(alignment: .topLeading) {
+            // Cast on the wall, offset the way the light falls.
+            cord
+                .stroke(Color.black.opacity(thread.castOpacity),
+                        style: StrokeStyle(lineWidth: t * 1.15, lineCap: .round))
+                .offset(x: 1.5, y: 3.5)
+                .blur(radius: 2)
+
+            // The dyed fibre.
+            cord.stroke(thread.cord,
+                        style: StrokeStyle(lineWidth: t, lineCap: .round))
+
+            // Shaded underside and lit top edge give it a round body.
+            cord
+                .stroke(Color.black.opacity(0.30),
+                        style: StrokeStyle(lineWidth: t * 0.38, lineCap: .round))
+                .offset(y: t * 0.28)
+                .blur(radius: 0.6)
+            cord
+                .stroke(thread.lit.opacity(0.75),
+                        style: StrokeStyle(lineWidth: t * 0.3, lineCap: .round))
+                .offset(y: -t * 0.28)
+                .blur(radius: 0.4)
+
+            // Twist: short dashes running along the cord read as strands
+            // wound together, at a fraction of the cost of drawing fibres.
+            cord
+                .stroke(thread.twistShade.opacity(0.55),
+                        style: StrokeStyle(lineWidth: t * 0.72, lineCap: .butt,
+                                           dash: [1.6, 4.4]))
+            cord
+                .stroke(thread.twistLight.opacity(0.45),
+                        style: StrokeStyle(lineWidth: t * 0.5, lineCap: .butt,
+                                           dash: [1.4, 4.6], dashPhase: 2.6))
+                .offset(y: -t * 0.18)
+        }
+    }
+}
+
 struct ConnectorArrow: View {
     let from: CGPoint
     let to: CGPoint
     let label: String
     var onEditLabel: () -> Void
     var onDelete: () -> Void
+    var onRecolour: () -> Void = {}
 
     /// Twine, in world points — thick enough to read as cord, not a
     /// hairline. Exports of a large board scale everything down, so the
     /// exporter passes a bigger value to keep the cord legible.
     var thickness: CGFloat = 5.0
+
+    /// Which twine this cord is strung with.
+    var thread: VisionThread = .crimson
 
     /// Longer runs hang lower, the way string does under its own weight.
     private var sag: CGFloat {
@@ -929,64 +1065,32 @@ struct ConnectorArrow: View {
         let mid = CGPoint(x: (a.x + 2 * control.x + b.x) / 4,
                           y: (a.y + 2 * control.y + b.y) / 4)
 
-        let thread = Path { path in
+        let cord = Path { path in
             path.move(to: a)
             path.addQuadCurve(to: b, control: control)
         }
         let t = thickness
 
         ZStack(alignment: .topLeading) {
-            // Cast on the wall, offset the way the light falls.
-            thread
-                .stroke(Color.black.opacity(0.22),
-                        style: StrokeStyle(lineWidth: t * 1.15, lineCap: .round))
-                .offset(x: 1.5, y: 3.5)
-                .blur(radius: 2)
-
-            // The cord.
-            thread.stroke(Color(hex: "#8E2C24"),
-                          style: StrokeStyle(lineWidth: t, lineCap: .round))
-
-            // Shaded underside and lit top edge give it a round body.
-            thread
-                .stroke(Color.black.opacity(0.30),
-                        style: StrokeStyle(lineWidth: t * 0.38, lineCap: .round))
-                .offset(y: t * 0.28)
-                .blur(radius: 0.6)
-            thread
-                .stroke(Color(hex: "#E0796A").opacity(0.75),
-                        style: StrokeStyle(lineWidth: t * 0.3, lineCap: .round))
-                .offset(y: -t * 0.28)
-                .blur(radius: 0.4)
-
-            // Twist: short dashes running along the cord read as strands
-            // wound together, at a fraction of the cost of drawing fibres.
-            thread
-                .stroke(Color(hex: "#5E1A14").opacity(0.55),
-                        style: StrokeStyle(lineWidth: t * 0.72, lineCap: .butt,
-                                           dash: [1.6, 4.4]))
-            thread
-                .stroke(Color(hex: "#C9584A").opacity(0.45),
-                        style: StrokeStyle(lineWidth: t * 0.5, lineCap: .butt,
-                                           dash: [1.4, 4.6], dashPhase: 2.6))
-                .offset(y: -t * 0.18)
+            VisionCordStrokes(cord: cord, thickness: t, thread: thread)
 
             // The whole length of cord is a target, not just the tag —
             // an invisible fat stroke over it takes the right-click.
-            thread
+            cord
                 .stroke(Color.white.opacity(0.001),
                         style: StrokeStyle(lineWidth: max(16, t * 3.4),
                                            lineCap: .round))
                 .contentShape(
-                    thread.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
+                    cord.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
                                                    lineCap: .round)))
                 .onTapGesture(count: 2, perform: onEditLabel)
                 .contextMenu {
                     Button("Name this connection…", action: onEditLabel)
+                    Button("Change the thread…", action: onRecolour)
                     Divider()
                     Button("Cut the thread", role: .destructive, action: onDelete)
                 }
-                .help("Double-click to name it · right-click to cut it")
+                .help("Double-click to name it · right-click to recolour or cut it")
 
             knot.position(a)
             knot.position(b)
@@ -996,6 +1100,7 @@ struct ConnectorArrow: View {
                 .onTapGesture(count: 2, perform: onEditLabel)
                 .contextMenu {
                     Button("Name this connection…", action: onEditLabel)
+                    Button("Change the thread…", action: onRecolour)
                     Divider()
                     Button("Cut the thread", role: .destructive, action: onDelete)
                 }
@@ -1011,11 +1116,11 @@ struct ConnectorArrow: View {
             // Sized to sit UNDER the tack head, so the cord reads as
             // wound round the pin's shaft rather than covering the pin.
             Circle()
-                .strokeBorder(Color(hex: "#7A241D"),
+                .strokeBorder(thread.twistShade,
                               lineWidth: thickness * 0.8)
                 .frame(width: thickness * 2.3, height: thickness * 2.3)
             Circle()
-                .strokeBorder(Color(hex: "#C9584A").opacity(0.45),
+                .strokeBorder(thread.twistLight.opacity(0.45),
                               lineWidth: thickness * 0.26)
                 .frame(width: thickness * 2.7, height: thickness * 2.7)
         }
