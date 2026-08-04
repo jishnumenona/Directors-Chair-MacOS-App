@@ -436,10 +436,16 @@ public struct VisionBoardCanvas: View {
         annotating = nil
         let instructions = ImageAnnotationEditor.buildEditPrompt(
             from: marks, context: "image")
-        guard !instructions.isEmpty,
-              let tiff = image.tiffRepresentation,
+        guard !instructions.isEmpty else {
+            viewModel.lastWorkProblem = "Add a mark and say what to change there."
+            return
+        }
+        guard let tiff = image.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?
-                  .representation(using: .png, properties: [:]) else { return }
+                  .representation(using: .png, properties: [:]) else {
+            viewModel.lastWorkProblem = "This picture couldn't be read for redrawing."
+            return
+        }
         Task { @MainActor in
             await viewModel.redraw(card.id, instructions: instructions,
                                    baseImage: png)
