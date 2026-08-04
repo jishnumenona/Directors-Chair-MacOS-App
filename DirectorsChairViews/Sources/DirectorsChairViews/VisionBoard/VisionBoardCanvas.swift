@@ -37,6 +37,9 @@ public struct VisionBoardCanvas: View {
     @State private var paperFor: VisionCard?
     /// The element whose note is being written at the caret.
     @State private var noteFor: VisionCard?
+    /// The picture being marked up, and the words that made it.
+    @State private var annotating: (card: VisionCard, image: NSImage)?
+    @State private var promptFor: VisionCard?
     @State private var paperAt: CGPoint = .zero
 
     // MARK: - Constants
@@ -189,6 +192,24 @@ public struct VisionBoardCanvas: View {
             .overlay { caretOverlay }
             .overlay { connectingOverlay }
             .overlay { paperOverlay }
+            .overlay { promptOverlay }
+            .sheet(isPresented: Binding(
+                get: { annotating != nil },
+                set: { if !$0 { annotating = nil } })) {
+                if let session = annotating {
+                    ImageAnnotationEditor(
+                        image: session.image,
+                        title: "EDIT THIS PICTURE",
+                        subtitle: "Drop a pin on what should change, and say how.",
+                        isPresented: Binding(
+                            get: { annotating != nil },
+                            set: { if !$0 { annotating = nil } }),
+                        onApplyEdits: { marks in
+                            applyMarks(marks, to: session.card,
+                                       image: session.image)
+                        })
+                }
+            }
             .overlay { dropOverlay }
             .animation(.easeOut(duration: 0.12), value: isDropTargeted)
             .animation(.easeOut(duration: 0.22), value: viewModel.filteredCards.isEmpty)
@@ -312,6 +333,76 @@ public struct VisionBoardCanvas: View {
         }
     }
 
+    /// The words that made a picture, kept with it — read them, copy
+    /// them, or use them as the starting point for another.
+    @ViewBuilder
+    private var promptOverlay: some View {
+        if let element = promptFor {
+            ZStack {
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture { promptFor = nil }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("The words that made this")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(1.3)
+                        .foregroundStyle(VisionWallPalette.ink.opacity(0.55))
+                    Text(element.description)
+                        .font(.system(size: 12.5, design: .serif))
+                        .foregroundStyle(VisionWallPalette.ink)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        Button("Copy") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(element.description,
+                                                           forType: .string)
+                        }
+                        Button("Imagine another") {
+                            promptFor = nil
+                            awaitingTool = .imagine
+                            draftWords = element.description
+                            typingAt = viewModel.transform.toScreen(
+                                CGPoint(x: (element.canvasX ?? 0)
+                                            + (element.canvasWidth ?? 200) / 2,
+                                        y: (element.canvasY ?? 0)
+                                            + (element.canvasHeight ?? 200) + 40))
+                            draftFocused = true
+                        }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                }
+                .padding(16)
+                .frame(width: 340, alignment: .leading)
+                .background(VisionWallPalette.clipping,
+                            in: RoundedRectangle(cornerRadius: 8))
+                .shadow(color: VisionWallPalette.scrapShadow, radius: 10, y: 4)
+                .environment(\.colorScheme, .light)
+                .position(paperAt)
+            }
+            .ignoresSafeArea()
+            .onExitCommand { promptFor = nil }
+        }
+    }
+
+    /// Marks become instructions, and the picture is redrawn from them
+    /// with the current image as the reference.
+    private func applyMarks(_ marks: [KeyframeAnnotation],
+                            to card: VisionCard, image: NSImage) {
+        annotating = nil
+        let instructions = ImageAnnotationEditor.buildEditPrompt(
+            from: marks, context: "image")
+        guard !instructions.isEmpty,
+              let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?
+                  .representation(using: .png, properties: [:]) else { return }
+        Task { @MainActor in
+            await viewModel.redraw(card.id, instructions: instructions,
+                                   baseImage: png)
+        }
+    }
+
     /// The stock this scrap could be cut from — real swatches, so you
     /// pick by eye rather than by name.
     @ViewBuilder
@@ -399,7 +490,8 @@ public struct VisionBoardCanvas: View {
         let hasPicture = !(scrap.imagePath ?? "").isEmpty
         let isPaper = isText || scrap.cardType == VisionCardType.link.rawValue
         return VisionScrapTool.ring(isText: isText, hasPicture: hasPicture,
-                                    isPaper: isPaper).map {
+                                    isPaper: isPaper,
+                                    hasPrompt: !scrap.description.isEmpty).map {
             VisionRingItem(id: $0.rawValue,
                            title: $0.title(pinned: scrap.pinned, isText: isText),
                            systemImage: $0.systemImage(pinned: scrap.pinned,
@@ -442,6 +534,14 @@ public struct VisionBoardCanvas: View {
             }
         case .paper:
             paperFor = scrap
+        case .annotate:
+            if let url = VisionBoardImagePath.resolveImageURL(
+                scrap.imagePath, projectBase: viewModel.projectBase),
+               let image = NSImage(contentsOf: url) {
+                annotating = (scrap, image)
+            }
+        case .prompt:
+            promptFor = scrap
         case .note:
             // The caret opens with whatever is already written there.
             noteFor = scrap

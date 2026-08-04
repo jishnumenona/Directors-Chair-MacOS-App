@@ -114,9 +114,11 @@ public enum VisionBoardExporter {
                                     radius: 7, y: 3)
                         if let note = card.referenceNote, !note.isEmpty {
                             VisionNoteSlip(text: note, detail: detail)
-                                .frame(width: frame.width * 0.86)
-                                .offset(x: frame.width * 0.07,
-                                        y: frame.height - 4)
+                                .frame(width: min(max(frame.width * 0.5,
+                                                      96 * detail),
+                                                  168 * detail))
+                                .offset(x: frame.width * 0.5,
+                                        y: frame.height * 0.56)
                         }
                         VisionThumbtack(
                             size: 15 * detail,

@@ -1176,3 +1176,105 @@ final class VisionElementNoteTests: XCTestCase {
                           "a note on the wall is a note on the printout")
     }
 }
+
+// MARK: - Marking up a picture (owner request 2026-08-03)
+
+@MainActor
+final class VisionAnnotateTests: XCTestCase {
+
+    private func projectBase() throws -> URL {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wall-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: base,
+                                                withIntermediateDirectories: true)
+        return base
+    }
+
+    private func png() throws -> Data {
+        let image = NSImage(size: NSSize(width: 20, height: 20))
+        image.lockFocus()
+        NSColor.systemIndigo.drawSwatch(in: NSRect(x: 0, y: 0, width: 20, height: 20))
+        image.unlockFocus()
+        return try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation))?
+            .representation(using: .png, properties: [:]))
+    }
+
+    func testAnnotateAndPromptAppearOnlyWhereTheyMeanSomething() {
+        let picture = VisionScrapTool.ring(isText: false, hasPicture: true,
+                                           hasPrompt: true)
+        XCTAssertTrue(picture.contains(.annotate))
+        XCTAssertTrue(picture.contains(.prompt))
+
+        let words = VisionScrapTool.ring(isText: true, hasPicture: false,
+                                         isPaper: true)
+        XCTAssertFalse(words.contains(.annotate), "nothing to mark up")
+        XCTAssertFalse(words.contains(.prompt), "nothing made it")
+
+        let uploaded = VisionScrapTool.ring(isText: false, hasPicture: true)
+        XCTAssertTrue(uploaded.contains(.annotate),
+                      "a dropped picture can be marked up too")
+        XCTAssertFalse(uploaded.contains(.prompt), "but no words made it")
+    }
+
+    func testMarksBecomeInstructionsAndTheOriginalPromptIsKept() async throws {
+        let base = try projectBase()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let bytes = try png()
+        // The generator writes to the system temp dir, OUTSIDE the project,
+        // so the asset pipeline imports it — a file already inside the
+        // project would merely be relativized.
+        let replacement = FileManager.default.temporaryDirectory
+            .appendingPathComponent("redrawn-\(UUID().uuidString).png")
+        try bytes.write(to: replacement)
+        defer { try? FileManager.default.removeItem(at: replacement) }
+
+        let viewModel = VisionBoardViewModel()
+        viewModel.configureAssetStore(projectBase: base)
+        var card = VisionCard()
+        card.description = "a rain-soaked neon street"
+        card.imagePath = "assets/visionboard/old.png"
+        viewModel.addCard(card)
+        let id = viewModel.cards[0].id
+
+        var sentPrompt: String?
+        var sentImage: Data?
+        viewModel.onEditImage = { edit, completion in
+            sentPrompt = edit.prompt
+            sentImage = edit.baseImage
+            completion(replacement)
+        }
+
+        let instructions = ImageAnnotationEditor.buildEditPrompt(
+            from: [KeyframeAnnotation(id: "1", normalizedX: 0.3,
+                                      normalizedY: 0.6, text: "brighter window",
+                                      number: 1)],
+            context: "image")
+        await viewModel.redraw(id, instructions: instructions, baseImage: bytes)
+
+        let prompt = try XCTUnwrap(sentPrompt)
+        XCTAssertTrue(prompt.contains("At (30%, 60%): brighter window"),
+                      "a pin's position and words become the instruction")
+        XCTAssertTrue(prompt.contains("Original prompt: a rain-soaked neon street"),
+                      "the words that made it are carried along")
+        XCTAssertEqual(sentImage, bytes,
+                       "the picture itself goes as the reference — an edit, "
+                       + "not a fresh invention")
+        XCTAssertTrue((viewModel.cards[0].imagePath ?? "")
+                        .hasPrefix("assets/visionboard/"),
+                      "the redrawn picture replaces it in place")
+        XCTAssertEqual(viewModel.cards[0].description, prompt,
+                       "and the element remembers how it got here")
+    }
+
+    func testRedrawingDoesNothingWithoutAGenerator() async throws {
+        let viewModel = VisionBoardViewModel()
+        var card = VisionCard()
+        card.imagePath = "assets/visionboard/a.png"
+        viewModel.addCard(card)
+        await viewModel.redraw(viewModel.cards[0].id,
+                               instructions: "make it warmer",
+                               baseImage: try png())
+        XCTAssertEqual(viewModel.cards[0].imagePath, "assets/visionboard/a.png")
+        XCTAssertFalse(viewModel.isGenerating)
+    }
+}

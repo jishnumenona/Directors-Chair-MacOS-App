@@ -1006,6 +1006,39 @@ public class VisionBoardViewModel: ObservableObject {
         }
     }
 
+    /// Redrawing a picture from marks made on it. The current image goes
+    /// along as the reference, so the result is an EDIT of what is there
+    /// rather than a fresh invention — the same contract the shot and
+    /// scene surfaces use.
+    public var onEditImage: ((VisionImageEdit, @escaping (URL?) -> Void) -> Void)?
+
+    /// Applies annotation instructions to an element's picture, replacing
+    /// it in place and keeping the words that made it.
+    public func redraw(_ cardId: String, instructions: String,
+                       baseImage: Data) async {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }),
+              let edit = onEditImage else { return }
+        let original = cards[index].description
+        let combined = original.isEmpty
+            ? instructions
+            : instructions + "\n\nOriginal prompt: " + original
+
+        isGenerating = true
+        let url: URL? = await withCheckedContinuation { continuation in
+            edit(VisionImageEdit(prompt: combined, baseImage: baseImage)) {
+                continuation.resume(returning: $0)
+            }
+        }
+        isGenerating = false
+        guard let url, let store = assetStore,
+              let stored = await store.normalizedForSave(url.path),
+              let target = cards.firstIndex(where: { $0.id == cardId })
+        else { return }
+        cards[target].imagePath = stored
+        cards[target].description = combined
+        notifyChange()
+    }
+
     /// A link pinned to the wall. YouTube and Vimeo become video scraps;
     /// a YouTube still is fetched as the scrap's face so the wall shows
     /// the frame, not a URL.

@@ -74,6 +74,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     case restyle          // palette from a picture, or a new cut for words
     case paper            // what the words are written on
     case note             // a slip of paper stuck under it
+    case annotate         // mark up a picture and regenerate it
+    case prompt           // read the words that made it
     case details
     case remove
 
@@ -87,6 +89,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .restyle: return isText ? "Cut" : "Palette"
         case .paper: return "Paper"
         case .note: return "Note"
+        case .annotate: return "Annotate"
+        case .prompt: return "Prompt"
         case .details: return "Details"
         case .remove: return "Remove"
         }
@@ -100,6 +104,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .restyle: return isText ? "scissors" : "eyedropper.halffull"
         case .paper: return "doc.plaintext"
         case .note: return "note.text"
+        case .annotate: return "pencil.and.outline"
+        case .prompt: return "text.quote"
         case .details: return "info.circle"
         case .remove: return "trash"
         }
@@ -109,9 +115,15 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     /// frame gets a five-tool ring instead of a dead chip.
     /// Restyle only means something for pictures and words; paper only
     /// for the things actually made of it. A scrap never shows a dead chip.
+    /// A ring only ever shows tools that mean something for what you
+    /// clicked: no palette on a link, no paper under a photograph, and no
+    /// annotating or prompt-reading unless there is a picture to work on.
     public static func ring(isText: Bool, hasPicture: Bool,
-                            isPaper: Bool = false) -> [VisionScrapTool] {
+                            isPaper: Bool = false,
+                            hasPrompt: Bool = false) -> [VisionScrapTool] {
         var tools: [VisionScrapTool] = [.connect, .duplicate, .pin, .note]
+        if hasPicture { tools.append(.annotate) }
+        if hasPrompt { tools.append(.prompt) }
         if isText || hasPicture { tools.append(.restyle) }
         if isPaper { tools.append(.paper) }
         tools.append(contentsOf: [.details, .remove])
@@ -249,5 +261,22 @@ public enum VisionLink {
             .replacingOccurrences(of: "-", with: " ")
             .replacingOccurrences(of: "_", with: " ")
         return "\(host) · \(words)"
+    }
+}
+
+
+// MARK: - Redrawing a picture
+
+/// An instruction to redraw an existing picture: what to change, and the
+/// picture to change. The board hands this to the app, which owns the
+/// generation client.
+public struct VisionImageEdit: Sendable {
+    public let prompt: String
+    /// PNG bytes of the picture being edited, sent as the reference.
+    public let baseImage: Data
+
+    public init(prompt: String, baseImage: Data) {
+        self.prompt = prompt
+        self.baseImage = baseImage
     }
 }

@@ -32,6 +32,9 @@ public struct VisionBoardView: View {
     /// Callback for AI image generation
     public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
 
+    /// Redraws an existing picture from marks made on it (annotate).
+    public var onEditImage: ((VisionImageEdit, @escaping (URL?) -> Void) -> Void)?
+
     /// Project locations for the Location-card picker.
     public var locations: [Location]
 
@@ -61,6 +64,7 @@ public struct VisionBoardView: View {
         onBoardsChanged: (([VisionBoardMeta]) -> Void)? = nil,
         onConnectorsChanged: (([VisionConnector]) -> Void)? = nil,
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
+        onEditImage: ((VisionImageEdit, @escaping (URL?) -> Void) -> Void)? = nil,
         projectBasePath: URL? = nil,
         locations: [Location] = []
     ) {
@@ -71,6 +75,7 @@ public struct VisionBoardView: View {
         self.onBoardsChanged = onBoardsChanged
         self.onConnectorsChanged = onConnectorsChanged
         self.onGenerateImage = onGenerateImage
+        self.onEditImage = onEditImage
         self.projectBasePath = projectBasePath
         self.locations = locations
     }
@@ -228,6 +233,7 @@ public struct VisionBoardView: View {
             viewModel.onBoardsChanged = onBoardsChanged
             viewModel.onConnectorsChanged = onConnectorsChanged
             viewModel.onGenerateImage = onGenerateImage
+            viewModel.onEditImage = onEditImage
         }
     }
 

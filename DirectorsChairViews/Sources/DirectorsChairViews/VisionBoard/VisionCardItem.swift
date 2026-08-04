@@ -207,8 +207,8 @@ public struct VisionCardItem: View {
             // metadata behind an inspector.
             if let note = card.referenceNote, !note.isEmpty, !isEditingInline {
                 VisionNoteSlip(text: note)
-                    .frame(width: cardWidth * 0.86)
-                    .offset(x: cardWidth * 0.07, y: cardHeight - 4)
+                    .frame(width: min(max(cardWidth * 0.5, 96), 168))
+                    .offset(x: cardWidth * 0.5, y: cardHeight * 0.56)
                     .allowsHitTesting(false)
             }
 

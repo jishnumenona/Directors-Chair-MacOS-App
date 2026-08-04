@@ -178,6 +178,9 @@ struct CentralViewStack: View {
                 onGenerateImage: { prompt, completion in
                     generateVisionBoardImage(prompt: prompt, completion: completion)
                 },
+                onEditImage: { edit, completion in
+                    redrawVisionBoardImage(edit: edit, completion: completion)
+                },
                 projectBasePath: projectViewModel.projectPath?.deletingLastPathComponent(),
                 locations: projectViewModel.project.locations
             )
@@ -310,6 +313,52 @@ struct CentralViewStack: View {
                 await MainActor.run {
                     projectViewModel.errorAlert = ErrorAlert(
                         error: error, title: "Image Generation Failed")
+                    completion(nil)
+                }
+            }
+        }
+    }
+
+    /// Redraws an existing vision-board picture from marks made on it.
+    /// The picture itself rides along as the reference, so the model edits
+    /// what is there instead of inventing something new — the same
+    /// contract the shot and scene surfaces use.
+    private func redrawVisionBoardImage(edit: VisionImageEdit,
+                                        completion: @escaping (URL?) -> Void) {
+        Task {
+            let client = AIServiceClient.shared
+            do {
+                let request = ImageGenerationRequest(
+                    prompt: edit.prompt,
+                    provider: .googleImagen,
+                    aspectRatio: "16:9",
+                    referenceImages: [
+                        ReferenceImage(
+                            base64: edit.baseImage.base64EncodedString(),
+                            mimeType: "image/png",
+                            label: "Current image to edit")
+                    ]
+                )
+                let response = try await client.generateImage(request)
+                guard let data = response.images.first else {
+                    await MainActor.run {
+                        projectViewModel.errorAlert = ErrorAlert(
+                            title: "Could not redraw the picture",
+                            message: "The AI service returned no image.")
+                        completion(nil)
+                    }
+                    return
+                }
+                let fileURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        "vision_edit_\(Int(Date().timeIntervalSince1970)).png")
+                try data.write(to: fileURL)
+                await MainActor.run { completion(fileURL) }
+            } catch {
+                debugLog("📱 Vision board image edit failed: \(error)")
+                await MainActor.run {
+                    projectViewModel.errorAlert = ErrorAlert(
+                        error: error, title: "Could not redraw the picture")
                     completion(nil)
                 }
             }
