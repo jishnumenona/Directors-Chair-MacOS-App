@@ -141,7 +141,13 @@ struct VisionThreadRing: View {
                 }
             }
 
-            HStack(spacing: 8) {
+            // Every change here is already on the cord — there is no
+            // pending state to commit. But a ring that stays open with no
+            // word about it reads as "nothing happened yet", so Done says
+            // plainly that you are finished, and gets out of the way so
+            // you can see the thread you just changed.
+            HStack(spacing: 6) {
+                textButton("Done", prominent: true, action: onDismiss)
                 textButton("Name", action: onRename)
                 textButton("Cut", destructive: true, action: onCut)
             }
@@ -176,15 +182,18 @@ struct VisionThreadRing: View {
     }
 
     private func textButton(_ title: String, destructive: Bool = false,
+                            prominent: Bool = false,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(destructive ? Color(hex: "#B3352C")
-                                             : VisionWallPalette.ink.opacity(0.7))
+                .font(.system(size: 9.5, weight: prominent ? .bold : .semibold))
+                .foregroundStyle(prominent ? VisionWallPalette.clipping
+                                 : (destructive ? Color(hex: "#B3352C")
+                                    : VisionWallPalette.ink.opacity(0.7)))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(VisionWallPalette.ink.opacity(0.06),
+                .background(prominent ? AnyShapeStyle(VisionWallPalette.greasePencil)
+                                      : AnyShapeStyle(VisionWallPalette.ink.opacity(0.06)),
                             in: Capsule())
         }
         .buttonStyle(.plain)

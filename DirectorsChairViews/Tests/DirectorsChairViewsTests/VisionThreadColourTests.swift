@@ -216,6 +216,28 @@ final class VisionThreadRingTests: XCTestCase {
                                               tack: tack, tolerance: 20))
     }
 
+    // MARK: - Naming a cord
+
+    func testTheNameSitsWhereTheCordActuallyHangs() {
+        // The tag rides the lowest point of the sag, not the midpoint of
+        // the straight line — otherwise the field to name a cord floats
+        // in the air above it.
+        let mid = VisionWallHitTest.cordMidpoint(from: leftTack, to: rightTack)
+
+        XCTAssertEqual(mid.x, 250, accuracy: 0.01)
+        XCTAssertEqual(mid.y, 145, accuracy: 0.01,
+                       "45pt of sag below the pins on a 300pt run")
+    }
+
+    func testAShortCordSagsLessThanALongOne() {
+        let short = VisionWallHitTest.cordMidpoint(from: .zero,
+                                                   to: CGPoint(x: 60, y: 0))
+        let long = VisionWallHitTest.cordMidpoint(from: .zero,
+                                                  to: CGPoint(x: 600, y: 0))
+        XCTAssertLessThan(short.y, long.y, "string hangs under its own weight")
+        XCTAssertLessThanOrEqual(long.y, 58, "and the sag is capped")
+    }
+
     // MARK: - Weight
 
     func testWeightStepsThroughRealStringSizes() {

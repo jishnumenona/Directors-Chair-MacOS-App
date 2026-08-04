@@ -51,7 +51,6 @@ public struct VisionBoardView: View {
     @State private var showingDeleteAlert: Bool = false
     @State private var showingExportOptions: Bool = false
     @State private var exportError: String?
-    @State private var connectorLabelDraft: String = ""
 
 
     // MARK: - Init
@@ -178,28 +177,6 @@ public struct VisionBoardView: View {
         }
         .onChange(of: cards) { _, newCards in
             viewModel.reconcileExternalCards(newCards)
-        }
-        .alert("Connector Label", isPresented: Binding(
-            get: { viewModel.editingConnectorId != nil },
-            set: { if !$0 { viewModel.editingConnectorId = nil } })) {
-            TextField("Label", text: $connectorLabelDraft)
-            Button("Save") {
-                if let id = viewModel.editingConnectorId {
-                    viewModel.setConnectorLabel(id, label: connectorLabelDraft)
-                }
-                viewModel.editingConnectorId = nil
-                connectorLabelDraft = ""
-            }
-            Button("Cancel", role: .cancel) {
-                viewModel.editingConnectorId = nil
-                connectorLabelDraft = ""
-            }
-        } message: {
-            Text("Name the relationship, e.g. \"this palette → night exteriors\"")
-        }
-        .onChange(of: viewModel.editingConnectorId) { _, id in
-            connectorLabelDraft = viewModel.connectors
-                .first { $0.id == id }?.label ?? ""
         }
         .alert("Export Failed", isPresented: Binding(
             get: { exportError != nil },

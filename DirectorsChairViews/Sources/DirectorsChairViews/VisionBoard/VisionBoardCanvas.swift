@@ -36,6 +36,9 @@ public struct VisionBoardCanvas: View {
     /// Non-nil when the right-click landed on a cord: the thread's own
     /// ring opens instead, and nothing else does.
     @State private var ringThread: VisionConnector?
+    /// Naming a cord happens ON the cord — see nameTagOverlay.
+    @State private var nameDraft = ""
+    @FocusState private var nameFocused: Bool
     /// The scrap whose paper is being chosen, and where to show the stock.
     @State private var paperFor: VisionCard?
     /// The element whose note is being written at the caret.
@@ -170,6 +173,10 @@ public struct VisionBoardCanvas: View {
                     wallFocused = true
                     return .handled
                 }
+                if viewModel.editingConnectorId != nil {
+                    viewModel.editingConnectorId = nil
+                    return .handled
+                }
                 if toolRingAt != nil { dismissRing(); return .handled }
                 if viewModel.pendingConnectorSource != nil {
                     viewModel.cancelConnector()
@@ -252,6 +259,7 @@ public struct VisionBoardCanvas: View {
             connectingOverlay
             paperOverlay
             promptOverlay
+            nameTagOverlay
             problemOverlay
         }
     }
@@ -282,7 +290,14 @@ public struct VisionBoardCanvas: View {
                 anchor: ring,
                 connector: viewModel.boardConnectors
                     .first { $0.id == cord.id } ?? cord,
-                onPickThread: { viewModel.setThread(cord.id, to: $0) },
+                // Picking a colour is a finished choice, so the ring
+                // closes on it — you see the cord change instead of
+                // staring at the tools that changed it. Weight keeps the
+                // ring open, because stepping through it is a dial.
+                onPickThread: {
+                    viewModel.setThread(cord.id, to: $0)
+                    dismissRing()
+                },
                 onSetThickness: { viewModel.setThreadThickness(cord.id, to: $0) },
                 onRename: {
                     dismissRing()
@@ -408,6 +423,70 @@ public struct VisionBoardCanvas: View {
                 viewModel.lastWorkProblem = nil
             }
         }
+    }
+
+    /// Naming a connection used to open a system alert — app icon, dark
+    /// chrome, a blue Save button — which belongs to a different program
+    /// than the one the wall is. A cord's name is written on the luggage
+    /// tag that hangs from it, in place, on paper.
+    @ViewBuilder
+    private var nameTagOverlay: some View {
+        if let id = viewModel.editingConnectorId,
+           let cord = viewModel.boardConnectors.first(where: { $0.id == id }),
+           let from = tackPoint(cord.fromCardId),
+           let to = tackPoint(cord.toCardId) {
+            let at = viewModel.transform.toScreen(
+                VisionWallHitTest.cordMidpoint(from: from, to: to))
+            ZStack {
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture { commitCordName(id) }
+
+                TextField("Name this connection…", text: $nameDraft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(VisionWallPalette.ink)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 168)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(
+                        ZStack {
+                            VisionPaper.cream.base
+                            VisionPaperTexture(paper: .cream)
+                        }
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .overlay(RoundedRectangle(cornerRadius: 3)
+                        .strokeBorder(VisionWallPalette.greasePencil.opacity(0.7),
+                                      lineWidth: 1.5))
+                    .shadow(color: VisionWallPalette.scrapShadow, radius: 7, y: 3)
+                    // A tag hangs a little crooked, like everything else
+                    // pinned up here.
+                    .rotationEffect(.degrees(-1.6))
+                    .environment(\.colorScheme, .light)
+                    .focused($nameFocused)
+                    .onSubmit { commitCordName(id) }
+                    .onExitCommand {
+                        viewModel.editingConnectorId = nil
+                        wallFocused = true
+                    }
+                    .position(x: at.x, y: at.y + 20)
+                    .onAppear {
+                        nameDraft = cord.label
+                        nameFocused = true
+                    }
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    private func commitCordName(_ id: String) {
+        viewModel.setConnectorLabel(id, label: nameDraft.trimmingCharacters(
+            in: .whitespacesAndNewlines))
+        viewModel.editingConnectorId = nil
+        nameDraft = ""
+        wallFocused = true
     }
 
     /// The words that made a picture, kept with it — read them, copy

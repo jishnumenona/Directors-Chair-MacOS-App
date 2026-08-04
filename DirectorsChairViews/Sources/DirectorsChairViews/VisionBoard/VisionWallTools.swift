@@ -205,6 +205,14 @@ public enum VisionWallHitTest {
         return best?.connector
     }
 
+    /// Where the cord hangs lowest — the point its luggage tag rides on,
+    /// and where a name for it belongs. Falls out of the quadratic: the
+    /// curve's midpoint is the pins' midpoint plus the sag.
+    public static func cordMidpoint(from: CGPoint, to: CGPoint) -> CGPoint {
+        let sag = min(58, hypot(to.x - from.x, to.y - from.y) * 0.15)
+        return CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 + sag)
+    }
+
     /// Distance from a point to the hanging cord between two pins. The
     /// sag MUST match ConnectorArrow's or the cord you can see is not the
     /// cord you can click.
