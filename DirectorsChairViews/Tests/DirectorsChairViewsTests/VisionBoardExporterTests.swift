@@ -131,3 +131,75 @@ final class VisionBoardExportFidelityTests: XCTestCase {
         XCTAssertNotEqual(a, c, "so does the paper it is written on")
     }
 }
+
+
+// MARK: - Pins and thread survive a big board (owner report 2026-08-03)
+
+@MainActor
+final class VisionExportDetailScaleTests: XCTestCase {
+
+    func testPinsAndThreadScaleWithTheBoard() {
+        // A whole wall exported onto one page is scaled way down; at fixed
+        // size the tacks vanished entirely from the owner's PDF.
+        let small = VisionBoardExporter.detailScale(
+            for: CGSize(width: 600, height: 400))
+        let real = VisionBoardExporter.detailScale(
+            for: CGSize(width: 2400, height: 1500))
+        XCTAssertEqual(small, 1, accuracy: 0.001, "a small board is left alone")
+        XCTAssertGreaterThan(real, 1.5, "a wall-sized board gets bigger pins")
+    }
+
+    func testDetailNeverRunsAway() {
+        let enormous = VisionBoardExporter.detailScale(
+            for: CGSize(width: 40_000, height: 30_000))
+        XCTAssertLessThanOrEqual(enormous, 3.4,
+                                 "pins must never dominate the work")
+    }
+}
+
+@MainActor
+final class VisionLookbookThreadTests: XCTestCase {
+
+    func testTheLookbookCarriesItsThread() throws {
+        // renderPDF never passed connectors, so a printed lookbook showed
+        // elements with nothing tying them together.
+        var frame = VisionCard(id: "frame")
+        frame.cardType = "frame"
+        frame.title = "Act one"
+        frame.canvasX = 0; frame.canvasY = 0
+        frame.canvasWidth = 900; frame.canvasHeight = 600
+
+        var a = VisionCard(id: "a")
+        a.canvasX = 60; a.canvasY = 60
+        a.canvasWidth = 200; a.canvasHeight = 150
+        var b = VisionCard(id: "b")
+        b.canvasX = 420; b.canvasY = 60
+        b.canvasWidth = 200; b.canvasHeight = 150
+
+        let thread = VisionConnector(boardId: "master", fromCardId: "a",
+                                     toCardId: "b", label: "echo")
+
+        let plain = try XCTUnwrap(VisionBoardLookbook.renderPDF(
+            cards: [frame, a, b], connectors: [], projectBase: nil))
+        let strung = try XCTUnwrap(VisionBoardLookbook.renderPDF(
+            cards: [frame, a, b], connectors: [thread], projectBase: nil))
+        XCTAssertNotEqual(plain, strung, "thread must reach the page")
+    }
+
+    func testAThreadLeavingThePageIsNotDrawn() throws {
+        // Both ends must be on the page; a cord running off to an element
+        // printed elsewhere would be a lie.
+        var here = VisionCard(id: "here")
+        here.canvasX = 0; here.canvasY = 0
+        here.canvasWidth = 200; here.canvasHeight = 150
+
+        let dangling = VisionConnector(boardId: "master", fromCardId: "here",
+                                       toCardId: "elsewhere", label: "?")
+        let withDangling = try XCTUnwrap(VisionBoardLookbook.renderPDF(
+            cards: [here], connectors: [dangling], projectBase: nil))
+        let without = try XCTUnwrap(VisionBoardLookbook.renderPDF(
+            cards: [here], connectors: [], projectBase: nil))
+        XCTAssertEqual(withDangling.count, without.count, accuracy: 2048,
+                       "a half-connected page renders the same")
+    }
+}

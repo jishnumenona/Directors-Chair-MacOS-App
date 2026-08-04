@@ -69,14 +69,22 @@ public enum VisionBoardLookbook {
     /// fails to render.
     @MainActor
     public static func renderPDF(cards: [VisionCard],
+                                 connectors: [VisionConnector] = [],
                                  projectBase: URL?) -> Data? {
         let bookPages = pages(cards: cards)
         guard !bookPages.isEmpty else { return nil }
 
         let document = PDFDocument()
         for page in bookPages {
+            // Only the thread whose BOTH ends are on this page — a
+            // dangling cord to an element printed elsewhere is a mistake.
+            let ids = Set(page.cards.map(\.id))
+            let pageThread = connectors.filter {
+                ids.contains($0.fromCardId) && ids.contains($0.toCardId)
+            }
             guard let png = VisionBoardExporter.renderPNG(
-                cards: page.cards, projectBase: projectBase),
+                cards: page.cards, connectors: pageThread,
+                projectBase: projectBase),
                   let image = NSImage(data: png),
                   let pdfPage = PDFPage(image: image) else { continue }
             document.insert(pdfPage, at: document.pageCount)

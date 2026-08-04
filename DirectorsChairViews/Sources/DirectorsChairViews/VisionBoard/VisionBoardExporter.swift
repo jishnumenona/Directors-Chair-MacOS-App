@@ -39,6 +39,15 @@ public enum VisionBoardExporter {
                       frames: frames)
     }
 
+    /// Pins and thread are physical objects a few points across on screen.
+    /// A whole wall exported onto one page is scaled way down, so at fixed
+    /// size they vanish — the owner's PDF showed no tacks at all. Scale
+    /// them with the board, clamped so they never dominate a small one.
+    public static func detailScale(for canvas: CGSize) -> CGFloat {
+        let longest = max(canvas.width, canvas.height)
+        return min(max(longest / 1400, 1), 3.4)
+    }
+
     /// Preferred 2× render scale, capped so the longest bitmap dimension
     /// never exceeds maxPixels.
     public static func renderScale(for size: CGSize,
@@ -89,6 +98,8 @@ public enum VisionBoardExporter {
                            y: frame.minY + frame.height * anchor.y)
         }
 
+        let detail = detailScale(for: layout.canvasSize)
+
         let content = ZStack(alignment: .topLeading) {
             VisionWallSurface(transform: CanvasTransform(zoom: 1, offset: .zero))
 
@@ -102,15 +113,17 @@ public enum VisionBoardExporter {
                             .shadow(color: VisionWallPalette.scrapShadow,
                                     radius: 7, y: 3)
                         VisionThumbtack(
-                            size: 15,
+                            size: 15 * detail,
                             pressed: card.pinned,
                             tint: card.pinned ? Color(hex: "#B08A3C")
                                               : VisionWallPalette.greasePencil)
                             .offset(
                                 x: frame.width
-                                    * VisionScrapPhysics.tackAnchor(seed: card.id).x - 7.5,
+                                    * VisionScrapPhysics.tackAnchor(seed: card.id).x
+                                    - 7.5 * detail,
                                 y: frame.height
-                                    * VisionScrapPhysics.tackAnchor(seed: card.id).y - 7.5)
+                                    * VisionScrapPhysics.tackAnchor(seed: card.id).y
+                                    - 7.5 * detail)
                     }
                     .frame(width: frame.width, height: frame.height,
                            alignment: .topLeading)
@@ -128,7 +141,8 @@ public enum VisionBoardExporter {
                 if let from = tack(connector.fromCardId),
                    let to = tack(connector.toCardId) {
                     ConnectorArrow(from: from, to: to, label: connector.label,
-                                   onEditLabel: {}, onDelete: {})
+                                   onEditLabel: {}, onDelete: {},
+                                   thickness: 5 * detail)
                 }
             }
         }

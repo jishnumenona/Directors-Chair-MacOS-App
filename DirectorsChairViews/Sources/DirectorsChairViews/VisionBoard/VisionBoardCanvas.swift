@@ -722,8 +722,10 @@ struct ConnectorArrow: View {
     var onEditLabel: () -> Void
     var onDelete: () -> Void
 
-    /// Twine, in world points — thick enough to read as cord, not a hairline.
-    private static let thickness: CGFloat = 5.0
+    /// Twine, in world points — thick enough to read as cord, not a
+    /// hairline. Exports of a large board scale everything down, so the
+    /// exporter passes a bigger value to keep the cord legible.
+    var thickness: CGFloat = 5.0
 
     /// Longer runs hang lower, the way string does under its own weight.
     private var sag: CGFloat {
@@ -747,7 +749,7 @@ struct ConnectorArrow: View {
             path.move(to: a)
             path.addQuadCurve(to: b, control: control)
         }
-        let t = Self.thickness
+        let t = thickness
 
         ZStack(alignment: .topLeading) {
             // Cast on the wall, offset the way the light falls.
@@ -822,16 +824,16 @@ struct ConnectorArrow: View {
     /// under the tack head that is drawn on the element itself.
     private var knot: some View {
         ZStack {
+            // Sized to sit UNDER the tack head, so the cord reads as
+            // wound round the pin's shaft rather than covering the pin.
             Circle()
                 .strokeBorder(Color(hex: "#7A241D"),
-                              lineWidth: Self.thickness * 0.85)
-                .frame(width: Self.thickness * 3.1,
-                       height: Self.thickness * 3.1)
+                              lineWidth: thickness * 0.8)
+                .frame(width: thickness * 2.3, height: thickness * 2.3)
             Circle()
-                .strokeBorder(Color(hex: "#C9584A").opacity(0.5),
-                              lineWidth: Self.thickness * 0.3)
-                .frame(width: Self.thickness * 3.5,
-                       height: Self.thickness * 3.5)
+                .strokeBorder(Color(hex: "#C9584A").opacity(0.45),
+                              lineWidth: thickness * 0.26)
+                .frame(width: thickness * 2.7, height: thickness * 2.7)
         }
         .shadow(color: Color.black.opacity(0.25), radius: 1.5, y: 1.5)
     }

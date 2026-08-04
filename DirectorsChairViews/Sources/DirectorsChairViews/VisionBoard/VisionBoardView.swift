@@ -534,7 +534,8 @@ public struct VisionBoardView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         guard let data = VisionBoardLookbook.renderPDF(
-            cards: boardCards, projectBase: projectBasePath) else {
+            cards: boardCards, connectors: viewModel.boardConnectors,
+            projectBase: projectBasePath) else {
             exportError = "Could not render the lookbook."
             return
         }
