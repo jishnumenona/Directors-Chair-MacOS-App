@@ -9,6 +9,14 @@ import Combine
 
 // MARK: - Vision Board ViewModel
 
+/// Where the viewer stands. Published separately from the board's data
+/// so a 120Hz pan doesn't invalidate views that only care about content.
+@MainActor
+public final class VisionWallCamera: ObservableObject {
+    @Published public var transform = CanvasTransform()
+    public init() {}
+}
+
 @MainActor
 public class VisionBoardViewModel: ObservableObject {
     // MARK: - Published Properties
@@ -20,7 +28,21 @@ public class VisionBoardViewModel: ObservableObject {
     @Published public var selectedCardIds: Set<String> = []
 
     /// The single canvas transform: screen = world × zoom + offset (Slice 1).
-    @Published public var transform = CanvasTransform()
+    /// The camera is its OWN observable object, deliberately outside this
+    /// one. Pan and zoom mutate it at up to 120Hz, and when it lived here
+    /// as a @Published property every tick re-evaluated every view that
+    /// observes the view model — the whole wall, every element, every
+    /// cord. Measured on a 150-element board: 33ms per pan tick against a
+    /// 8.3ms frame budget. Only the handful of views that genuinely
+    /// follow the camera observe it.
+    public let camera = VisionWallCamera()
+
+    /// Compatibility accessor — every existing caller and test keeps
+    /// working; writes publish through the camera.
+    public var transform: CanvasTransform {
+        get { camera.transform }
+        set { camera.transform = newValue }
+    }
 
     /// Viewport size, published by the canvas view; used by zoom/fit anchors.
     public var viewportSize: CGSize = .zero

@@ -826,8 +826,10 @@ public struct VisionBoardCanvas: View {
     /// The wall itself — a surface that goes on forever
     /// (VisionWallSurface: grain that scrolls with the pan, marks
     /// generated per world cell, light that stays with the viewer).
+    /// Observes the camera by itself so a pan repaints the plaster
+    /// without re-evaluating the rest of the canvas.
     private var canvasBackground: some View {
-        VisionWallSurface(transform: viewModel.transform)
+        WallSurfaceLayer(camera: viewModel.camera)
             .ignoresSafeArea()
     }
 
@@ -835,53 +837,75 @@ public struct VisionBoardCanvas: View {
 
     @ViewBuilder
     private var cardsLayer: some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(viewModel.filteredCards) { card in
-                scrapView(card)
-            }
-
-            // Space held while a picture is imagined — on the wall, in the
-            // world, never over the top of your work.
-            ForEach(viewModel.pendingImagines) { pending in
-                VisionPendingSheet(pending: pending)
-                    .position(x: pending.origin.x + pending.size.width / 2,
-                              y: pending.origin.y + pending.size.height / 2)
-            }
-
-            // Thread lies ON the wall over the paper — string wound round
-            // a pin sits on top of the sheet, it doesn't run beneath it.
-            ForEach(viewModel.boardConnectors) { connector in
-                if let from = tackPoint(connector.fromCardId),
-                   let to = tackPoint(connector.toCardId) {
-                    ConnectorArrow(
-                        from: from, to: to, label: connector.label,
-                        onEditLabel: {
-                            ringThread = connector
-                            toolRingAt = VisionRadialGeometry.anchor(
-                                for: viewModel.transform.toScreen(
-                                    VisionWallHitTest.cordMidpoint(from: from,
-                                                                   to: to)),
-                                in: viewSize, radius: 116)
-                        },
-                        onDelete: {
-                            viewModel.removeConnector(connector.id)
-                        },
-                        thickness: VisionCordStrokes.drawn(
-                            connector.thickness ?? 5,
-                            zoom: viewModel.transform.zoom),
-                        thread: VisionThread.resolve(connector.thread))
+        // This body must never READ the camera: reading it would put the
+        // whole ForEach back on the 120Hz invalidation path that made the
+        // wall stutter. The wrapper below observes it alone, applies the
+        // transform, and feeds zoom to the few screen-constant adornments
+        // through the environment.
+        WallCameraApplied(camera: viewModel.camera) {
+            ZStack(alignment: .topLeading) {
+                ForEach(viewModel.filteredCards) { card in
+                    scrapView(card).equatable()
                 }
+
+                // Space held while a picture is imagined — on the wall,
+                // in the world, never over the top of your work.
+                ForEach(viewModel.pendingImagines) { pending in
+                    VisionPendingSheet(pending: pending)
+                        .position(x: pending.origin.x + pending.size.width / 2,
+                                  y: pending.origin.y + pending.size.height / 2)
+                }
+
+                // Thread lies ON the wall over the paper — string wound
+                // round a pin sits on top of the sheet, it doesn't run
+                // beneath it. The layer observes the camera itself (cord
+                // weight is zoom-boosted) — a handful of cords, not the
+                // whole wall.
+                WallCordsLayer(
+                    camera: viewModel.camera,
+                    strands: viewModel.boardConnectors.compactMap { connector in
+                        guard let from = tackPoint(connector.fromCardId),
+                              let to = tackPoint(connector.toCardId)
+                        else { return nil }
+                        return WallCordsLayer.Strand(connector: connector,
+                                                     from: from, to: to)
+                    },
+                    onEditLabel: { connector, from, to in
+                        ringThread = connector
+                        toolRingAt = VisionRadialGeometry.anchor(
+                            for: viewModel.transform.toScreen(
+                                VisionWallHitTest.cordMidpoint(from: from,
+                                                               to: to)),
+                            in: viewSize, radius: 116)
+                    },
+                    onDelete: { viewModel.removeConnector($0.id) })
             }
         }
-        // The ONE place zoom and offset touch the render tree.
-        .scaleEffect(viewModel.transform.zoom, anchor: .topLeading)
-        .offset(x: viewModel.transform.offset.x, y: viewModel.transform.offset.y)
     }
 
-    /// One scrap on the wall. Split out of `cardsLayer` because the
-    /// closure list defeats the type-checker when inlined.
+    /// One scrap on the wall, wrapped so SwiftUI can SKIP it.
+    ///
+    /// The twenty closures below defeat structural diffing — closures
+    /// are never equal, so before this wrapper every publish re-rendered
+    /// every element on the wall: 28ms per tick on a 150-element board,
+    /// for a selection change. WallScrap's == compares only what draws
+    /// (the card and its flags), so an untouched element is skipped
+    /// wholesale, shadows and all.
+    private func scrapView(_ card: VisionCard) -> WallScrap<some View> {
+        WallScrap(
+            card: card,
+            isSelected: viewModel.selectedCardIds.contains(card.id),
+            isConnectTarget: viewModel.pendingConnectorSource != nil
+                && viewModel.pendingConnectorSource != card.id,
+            isWorking: viewModel.isWorking(card.id),
+            showLabel: viewModel.showLabels,
+            item: { buildItem(for: $0) })
+    }
+
+    /// The fully-wired element — built only when its WallScrap decides
+    /// something visible changed.
     @ViewBuilder
-    private func scrapView(_ card: VisionCard) -> some View {
+    private func buildItem(for card: VisionCard) -> some View {
             VisionCardItem(
                 card: card,
                 isSelected: viewModel.selectedCardIds.contains(card.id),
@@ -892,7 +916,6 @@ public struct VisionBoardCanvas: View {
                 onOpenLink: {
                     if let ref = card.linkedRef { onOpenLink?(ref) }
                 },
-                zoomLevel: viewModel.zoomLevel,
                 showLabel: viewModel.showLabels,
                 canvasSpaceName: Self.canvasSpaceName,
                 projectBase: viewModel.projectBase,
@@ -948,6 +971,9 @@ public struct VisionBoardCanvas: View {
             )
     }
 
+    // MARK: - Gestures (moved marker)
+
+
     // MARK: - Gestures
 
     /// Plain gesture (not simultaneous): card-attached gestures are deeper
@@ -985,6 +1011,156 @@ public struct VisionBoardCanvas: View {
 /// plaster, and tied to the wrong place. Real string is thick enough to
 /// see across a room, hangs under its own weight, is twisted from strands,
 /// and is wound around the tacks rather than the paper.
+// MARK: - The camera's own views
+//
+// Pan and zoom arrive at up to 120Hz. Everything in this section exists
+// so that those ticks touch ONLY: the plaster (which must scroll), the
+// transform modifiers (which Core Animation applies to cached layer
+// content), the cords (whose weight is zoom-boosted), and the few
+// screen-constant adornments (fed through \.wallZoom). The elements
+// themselves — shadows, textures, torn edges — are not re-rendered by
+// moving the viewer.
+
+private struct WallZoomKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1
+}
+
+extension EnvironmentValues {
+    /// The camera's zoom, for adornments that keep a constant screen
+    /// size (working badge, link tag, rotate handle). Reading this — and
+    /// only this — is what re-lays them out during a pinch.
+    var wallZoom: CGFloat {
+        get { self[WallZoomKey.self] }
+        set { self[WallZoomKey.self] = newValue }
+    }
+}
+
+/// The one view that puts the camera's transform on the world.
+struct WallCameraApplied<Content: View>: View {
+    @ObservedObject var camera: VisionWallCamera
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .scaleEffect(camera.transform.zoom, anchor: .topLeading)
+            .offset(x: camera.transform.offset.x,
+                    y: camera.transform.offset.y)
+            .environment(\.wallZoom, camera.transform.zoom)
+    }
+}
+
+/// The plaster follows the camera by itself.
+struct WallSurfaceLayer: View {
+    @ObservedObject var camera: VisionWallCamera
+    var body: some View {
+        #if DEBUG
+        RenderProbe.surface()
+        #endif
+        return VisionWallSurface(transform: camera.transform)
+    }
+}
+
+/// Temporary diagnostics — how many bodies run per publish.
+public enum RenderProbe {
+    nonisolated(unsafe) public static var onItem: (() -> Void)?
+    nonisolated(unsafe) public static var onCord: (() -> Void)?
+    nonisolated(unsafe) public static var onSurface: (() -> Void)?
+    public static func item() { onItem?() }
+    public static func cord() { onCord?() }
+    public static func surface() { onSurface?() }
+}
+
+/// Every cord on the wall. Endpoints arrive as data (they move when
+/// cards move, which the canvas body already re-evaluates for); the
+/// camera is observed here for the zoom-boosted weight.
+struct WallCordsLayer: View {
+    struct Strand: Identifiable {
+        let connector: VisionConnector
+        let from: CGPoint
+        let to: CGPoint
+        var id: String { connector.id }
+    }
+
+    @ObservedObject var camera: VisionWallCamera
+    let strands: [Strand]
+    let onEditLabel: (VisionConnector, CGPoint, CGPoint) -> Void
+    let onDelete: (VisionConnector) -> Void
+
+    var body: some View {
+        #if DEBUG
+        RenderProbe.cord()
+        #endif
+        // drawn() folds zoom into the weight, so during a pan (offset
+        // only) every strand's inputs are unchanged and its == skips the
+        // eight stroked paths; a zoom re-strokes them, which is real work
+        // the boost genuinely requires.
+        return ForEach(strands) { strand in
+            WallCordStrand(
+                connector: strand.connector,
+                from: strand.from, to: strand.to,
+                thickness: VisionCordStrokes.drawn(
+                    strand.connector.thickness ?? 5,
+                    zoom: camera.transform.zoom),
+                onEditLabel: {
+                    onEditLabel(strand.connector, strand.from, strand.to)
+                },
+                onDelete: { onDelete(strand.connector) })
+            .equatable()
+        }
+    }
+}
+
+/// One cord, skippable. Equality is over the drawn inputs; the closures
+/// are excluded for the same reason as WallScrap's.
+struct WallCordStrand: View, Equatable {
+    let connector: VisionConnector
+    let from: CGPoint
+    let to: CGPoint
+    let thickness: CGFloat
+    let onEditLabel: () -> Void
+    let onDelete: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.connector == rhs.connector
+            && lhs.from == rhs.from && lhs.to == rhs.to
+            && lhs.thickness == rhs.thickness
+    }
+
+    var body: some View {
+        ConnectorArrow(
+            from: from, to: to, label: connector.label,
+            onEditLabel: onEditLabel,
+            onDelete: onDelete,
+            thickness: thickness,
+            thread: VisionThread.resolve(connector.thread))
+    }
+}
+
+/// One element plus everything SwiftUI needs to decide whether to skip
+/// re-rendering it. Equality is over what DRAWS; the `item` closure is
+/// deliberately excluded — it is never equal, and including it is what
+/// used to force every element to re-render on every publish.
+struct WallScrap<Item: View>: View, Equatable {
+    let card: VisionCard
+    let isSelected: Bool
+    let isConnectTarget: Bool
+    let isWorking: Bool
+    let showLabel: Bool
+    let item: (VisionCard) -> Item
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.card == rhs.card
+            && lhs.isSelected == rhs.isSelected
+            && lhs.isConnectTarget == rhs.isConnectTarget
+            && lhs.isWorking == rhs.isWorking
+            && lhs.showLabel == rhs.showLabel
+    }
+
+    var body: some View {
+        item(card)
+    }
+}
+
 /// How a cord LOOKS, in one place. The arrow on the wall and the swatch
 /// in the picker both draw through this — a picker that drew its own
 /// approximation of twine would be a third renderer of the same thing,
@@ -1016,28 +1192,34 @@ struct VisionCordStrokes: View {
     var body: some View {
         let t = thickness
         ZStack(alignment: .topLeading) {
-            // Cast on the wall, offset the way the light falls.
+            // Cast on the wall, offset the way the light falls. Two
+            // nested strokes fake the soft edge a .blur used to give —
+            // every blur is an offscreen render pass PER CORD, and they
+            // were a measurable share of the zoom cost.
             cord
-                .stroke(Color.black.opacity(thread.castOpacity),
+                .stroke(Color.black.opacity(thread.castOpacity * 0.45),
+                        style: StrokeStyle(lineWidth: t * 1.9, lineCap: .round))
+                .offset(x: 1.5, y: 3.5)
+            cord
+                .stroke(Color.black.opacity(thread.castOpacity * 0.6),
                         style: StrokeStyle(lineWidth: t * 1.15, lineCap: .round))
                 .offset(x: 1.5, y: 3.5)
-                .blur(radius: 2)
 
             // The dyed fibre.
             cord.stroke(thread.cord,
                         style: StrokeStyle(lineWidth: t, lineCap: .round))
 
             // Shaded underside and lit top edge give it a round body.
+            // Sub-point blurs on these thin strokes were invisible at
+            // any zoom; the strokes alone read the same.
             cord
                 .stroke(Color.black.opacity(0.30),
                         style: StrokeStyle(lineWidth: t * 0.38, lineCap: .round))
                 .offset(y: t * 0.28)
-                .blur(radius: 0.6)
             cord
                 .stroke(thread.lit.opacity(0.75),
                         style: StrokeStyle(lineWidth: t * 0.3, lineCap: .round))
                 .offset(y: -t * 0.28)
-                .blur(radius: 0.4)
 
             // Twist: short dashes running along the cord read as strands
             // wound together, at a fraction of the cost of drawing fibres.

@@ -20,7 +20,15 @@ public struct VisionCardItem: View {
     public var isRedrawing: Bool = false
     /// Tapping the tag opens the scene or shot this element belongs to.
     public var onOpenLink: (() -> Void)?
+    /// Explicit zoom for callers outside the wall (snapshot tests). On
+    /// the wall itself the live zoom arrives through \.wallZoom, read
+    /// ONLY by the leaf adornments — the item never reads it, so a pinch
+    /// doesn't re-render every element.
     public let zoomLevel: CGFloat
+
+    /// nil when the caller passed the default — the leaves then follow
+    /// the environment.
+    fileprivate var zoomOverride: CGFloat? { zoomLevel == 1 ? nil : zoomLevel }
     public let showLabel: Bool
     /// Named coordinate space of the canvas container — drag translations
     /// arrive in unscaled screen points so the VM's `translation / zoom`
@@ -161,7 +169,10 @@ public struct VisionCardItem: View {
     // MARK: - Body
 
     public var body: some View {
-        ZStack(alignment: .topLeading) {
+        #if DEBUG
+        RenderProbe.item()
+        #endif
+        return ZStack(alignment: .topLeading) {
             // Main card content
             cardContent
                 .frame(width: cardWidth, height: cardHeight)
@@ -214,43 +225,17 @@ public struct VisionCardItem: View {
             // A scene or shot pinned here shows as a filing tab on the
             // top edge — and the tab is the way back to it, so the link
             // reads in both directions rather than being a label you
-            // can't do anything with.
+            // can't do anything with. A leaf view, so only IT re-lays
+            // out when the zoom changes.
             if let linked = card.linkedRef {
-                Button(action: { onOpenLink?() }) {
-                    HStack(spacing: 3 / max(zoomLevel, 0.01)) {
-                        Image(systemName: linked.kind == .shot
-                              ? "camera.fill" : "film.fill")
-                            .symbolRenderingMode(.monochrome)
-                            .font(.system(size: 8 / max(zoomLevel, 0.01),
-                                          weight: .bold))
-                        Text(linked.label.isEmpty ? "Linked" : linked.label)
-                            .font(.system(size: 10 / max(zoomLevel, 0.01),
-                                          weight: .heavy))
-                            .fontWidth(.condensed)
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(VisionWallPalette.clipping)
-                    .padding(.horizontal, 7 / max(zoomLevel, 0.01))
-                    .padding(.vertical, 3.5 / max(zoomLevel, 0.01))
-                    .background(VisionWallPalette.greasePencil,
-                                in: RoundedRectangle(
-                                    cornerRadius: 3 / max(zoomLevel, 0.01)))
-                    .shadow(color: VisionWallPalette.scrapShadow,
-                            radius: 2.5 / max(zoomLevel, 0.01),
-                            y: 1.5 / max(zoomLevel, 0.01))
-                }
-                .buttonStyle(.plain)
-                .offset(x: 8 / max(zoomLevel, 0.01),
-                        y: -9 / max(zoomLevel, 0.01))
-                .help(linked.kind == .shot ? "Open this shot"
-                                           : "Open this scene")
-                .accessibilityLabel("Open \(linked.label)")
+                ScrapLinkTag(linked: linked, zoomOverride: zoomOverride,
+                             onOpen: { onOpenLink?() })
             }
 
             if isRedrawing {
-                VisionWorkingBadge(size: 30 / max(zoomLevel, 0.01))
-                    .offset(x: cardWidth - 19 / max(zoomLevel, 0.01),
-                            y: cardHeight - 19 / max(zoomLevel, 0.01))
+                ScrapWorkingBadge(cardWidth: cardWidth,
+                                  cardHeight: cardHeight,
+                                  zoomOverride: zoomOverride)
             }
 
             // A note is a slip of paper taped under the element, not
@@ -775,35 +760,16 @@ public struct VisionCardItem: View {
     // MARK: - Rotate Handle
 
     /// Grab above the scrap and turn it. Counter-scaled like the resize
-    /// dots so it stays the same size at any zoom.
+    /// dots so it stays the same size at any zoom — a leaf view, so only
+    /// IT re-lays out when the zoom changes.
     private var rotateHandle: some View {
-        let gap: CGFloat = 26 / max(zoomLevel, 0.01)
-        let offset = CGPoint(x: 0, y: -(cardHeight / 2 + gap))
-        return Image(systemName: "arrow.trianglehead.counterclockwise.rotate.90")
-            .font(.system(size: 10 / max(zoomLevel, 0.01), weight: .bold))
-            .foregroundColor(.white)
-            .padding(5 / max(zoomLevel, 0.01))
-            .background(Circle().fill(VisionWallPalette.greasePencil))
-            .position(x: cardWidth / 2, y: -gap)
-            .gesture(
-                DragGesture(coordinateSpace: .named(canvasSpaceName))
-                    .onChanged { value in
-                        if !isRotating {
-                            isRotating = true
-                            onRotateBegan?()
-                        }
-                        onRotateChanged?(VisionCanvasGeometry.rotationDelta(
-                            handleOffset: offset, translation: value.translation,
-                            zoom: zoomLevel))
-                    }
-                    .onEnded { value in
-                        isRotating = false
-                        onRotateEnded?(VisionCanvasGeometry.rotationDelta(
-                            handleOffset: offset, translation: value.translation,
-                            zoom: zoomLevel))
-                    }
-            )
-            .help("Drag to turn this element")
+        ScrapRotateHandle(
+            cardWidth: cardWidth, cardHeight: cardHeight,
+            canvasSpaceName: canvasSpaceName, zoomOverride: zoomOverride,
+            isRotating: $isRotating,
+            onRotateBegan: onRotateBegan,
+            onRotateChanged: onRotateChanged,
+            onRotateEnded: onRotateEnded)
     }
 
     // MARK: - Label Overlay
@@ -1126,5 +1092,103 @@ private struct ShotStripFrame: View {
             let thumbnail = await ThumbnailImageCache.shared.thumbnail(url, maxPixel: 320)
             await MainActor.run { image = thumbnail }
         }
+    }
+}
+
+// MARK: - Screen-constant adornments
+//
+// These are the only pieces of an element whose LAYOUT depends on zoom
+// (they hold a constant screen size while the world scales). Each is a
+// leaf that reads \.wallZoom itself, so a pinch re-lays out these few
+// views — not every element on the wall.
+
+private struct ScrapLinkTag: View {
+    let linked: VisionCardLinkRef
+    var zoomOverride: CGFloat?
+    let onOpen: () -> Void
+    @Environment(\.wallZoom) private var wallZoom
+
+    var body: some View {
+        let zoom = max(zoomOverride ?? wallZoom, 0.01)
+        Button(action: onOpen) {
+            HStack(spacing: 3 / zoom) {
+                Image(systemName: linked.kind == .shot
+                      ? "camera.fill" : "film.fill")
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 8 / zoom, weight: .bold))
+                Text(linked.label.isEmpty ? "Linked" : linked.label)
+                    .font(.system(size: 10 / zoom, weight: .heavy))
+                    .fontWidth(.condensed)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(VisionWallPalette.clipping)
+            .padding(.horizontal, 7 / zoom)
+            .padding(.vertical, 3.5 / zoom)
+            .background(VisionWallPalette.greasePencil,
+                        in: RoundedRectangle(cornerRadius: 3 / zoom))
+            .shadow(color: VisionWallPalette.scrapShadow,
+                    radius: 2.5 / zoom, y: 1.5 / zoom)
+        }
+        .buttonStyle(.plain)
+        .offset(x: 8 / zoom, y: -9 / zoom)
+        .help(linked.kind == .shot ? "Open this shot" : "Open this scene")
+        .accessibilityLabel("Open \(linked.label)")
+    }
+}
+
+private struct ScrapWorkingBadge: View {
+    let cardWidth: CGFloat
+    let cardHeight: CGFloat
+    var zoomOverride: CGFloat?
+    @Environment(\.wallZoom) private var wallZoom
+
+    var body: some View {
+        let zoom = max(zoomOverride ?? wallZoom, 0.01)
+        VisionWorkingBadge(size: 30 / zoom)
+            .offset(x: cardWidth - 19 / zoom, y: cardHeight - 19 / zoom)
+    }
+}
+
+private struct ScrapRotateHandle: View {
+    let cardWidth: CGFloat
+    let cardHeight: CGFloat
+    let canvasSpaceName: String
+    var zoomOverride: CGFloat?
+    @Binding var isRotating: Bool
+    let onRotateBegan: (() -> Void)?
+    let onRotateChanged: ((Double) -> Void)?
+    let onRotateEnded: ((Double) -> Void)?
+    @Environment(\.wallZoom) private var wallZoom
+
+    var body: some View {
+        let zoom = max(zoomOverride ?? wallZoom, 0.01)
+        let gap: CGFloat = 26 / zoom
+        let offset = CGPoint(x: 0, y: -(cardHeight / 2 + gap))
+        Image(systemName: "arrow.trianglehead.counterclockwise.rotate.90")
+            .font(.system(size: 10 / zoom, weight: .bold))
+            .foregroundColor(.white)
+            .padding(5 / zoom)
+            .background(Circle().fill(VisionWallPalette.greasePencil))
+            .position(x: cardWidth / 2, y: -gap)
+            .gesture(
+                DragGesture(coordinateSpace: .named(canvasSpaceName))
+                    .onChanged { value in
+                        if !isRotating {
+                            isRotating = true
+                            onRotateBegan?()
+                        }
+                        onRotateChanged?(VisionCanvasGeometry.rotationDelta(
+                            handleOffset: offset,
+                            translation: value.translation,
+                            zoom: zoom))
+                    }
+                    .onEnded { value in
+                        isRotating = false
+                        onRotateEnded?(VisionCanvasGeometry.rotationDelta(
+                            handleOffset: offset,
+                            translation: value.translation,
+                            zoom: zoom))
+                    }
+            )
     }
 }

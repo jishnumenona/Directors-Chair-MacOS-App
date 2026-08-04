@@ -52,6 +52,12 @@ public struct VisionBoardView: View {
     /// Tapping an element's tag opens the scene or shot behind it.
     public var onOpenLink: ((VisionCardLinkRef) -> Void)?
 
+    /// The toolbar's zoom readout, quantized to whole percent so the
+    /// chrome re-renders a handful of times per pinch instead of at
+    /// 120Hz. Fed by onReceive below; the camera itself stays out of
+    /// this view's observation.
+    @State private var zoomPercent: Int = 100
+
     @State private var showingBoardPicker: Bool = false
     @State private var newBoardName: String = ""
     @State private var showingNewBoardAlert: Bool = false
@@ -191,6 +197,11 @@ public struct VisionBoardView: View {
                     locations: locations
                 )
             }
+        }
+        .onReceive(viewModel.camera.$transform
+            .map { Int($0.zoom * 100) }
+            .removeDuplicates()) { percent in
+            zoomPercent = percent
         }
         .onChange(of: revealCardId) { _, id in
             guard let id else { return }
@@ -613,7 +624,10 @@ public struct VisionBoardView: View {
                     viewModel.fitToView(viewSize: viewModel.viewportSize)
                 }
             } label: {
-                Text("\(Int(viewModel.zoomLevel * 100))%")
+                // Reads the COARSE percent, not the camera: the strip
+                // must not re-render at 120Hz during a pinch, and the
+                // percent only changes a handful of times per gesture.
+                Text("\(zoomPercent)%")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(VisionWallPalette.ink.opacity(0.7))
                     .frame(width: 34)
@@ -670,6 +684,7 @@ public struct VisionBoardView: View {
         )
         .foregroundColor(VisionWallPalette.ink)
     }
+
 
     // MARK: - Selection Info
 
@@ -763,3 +778,5 @@ struct VisionBoardView_Previews: PreviewProvider {
     }
 }
 #endif
+
+
