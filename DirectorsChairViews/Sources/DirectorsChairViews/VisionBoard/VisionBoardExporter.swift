@@ -112,6 +112,12 @@ public enum VisionBoardExporter {
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                             .shadow(color: VisionWallPalette.scrapShadow,
                                     radius: 7, y: 3)
+                        if let note = card.referenceNote, !note.isEmpty {
+                            VisionNoteSlip(text: note, detail: detail)
+                                .frame(width: frame.width * 0.86)
+                                .offset(x: frame.width * 0.07,
+                                        y: frame.height - 4)
+                        }
                         VisionThumbtack(
                             size: 15 * detail,
                             pressed: card.pinned,

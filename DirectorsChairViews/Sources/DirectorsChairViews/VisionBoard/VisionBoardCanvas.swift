@@ -35,6 +35,8 @@ public struct VisionBoardCanvas: View {
     @State private var ringScrap: VisionCard?
     /// The scrap whose paper is being chosen, and where to show the stock.
     @State private var paperFor: VisionCard?
+    /// The element whose note is being written at the caret.
+    @State private var noteFor: VisionCard?
     @State private var paperAt: CGPoint = .zero
 
     // MARK: - Constants
@@ -143,9 +145,10 @@ public struct VisionBoardCanvas: View {
                 // Escape backs out of whatever is open — a half-typed
                 // word, the tool ring, the paper strip — and only clears
                 // the selection when nothing else is in the way.
-                if typingAt != nil || awaitingTool != nil {
+                if typingAt != nil || awaitingTool != nil || noteFor != nil {
                     typingAt = nil
                     awaitingTool = nil
+                    noteFor = nil
                     draftWords = ""
                     wallFocused = true
                     return .handled
@@ -253,7 +256,8 @@ public struct VisionBoardCanvas: View {
     @ViewBuilder
     private var caretOverlay: some View {
         if let caret = typingAt {
-            TextField(awaitingTool?.prompt ?? "", text: $draftWords, axis: .vertical)
+            TextField(noteFor != nil ? "Write a note…" : (awaitingTool?.prompt ?? ""),
+                      text: $draftWords, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 20, weight: .semibold))
                 .multilineTextAlignment(.center)
@@ -269,6 +273,7 @@ public struct VisionBoardCanvas: View {
                 .onExitCommand {
                     typingAt = nil
                     awaitingTool = nil
+                    noteFor = nil
                     draftWords = ""
                     wallFocused = true
                 }
@@ -437,6 +442,14 @@ public struct VisionBoardCanvas: View {
             }
         case .paper:
             paperFor = scrap
+        case .note:
+            // The caret opens with whatever is already written there.
+            noteFor = scrap
+            draftWords = scrap.referenceNote ?? ""
+            typingAt = viewModel.transform.toScreen(
+                CGPoint(x: (scrap.canvasX ?? 0) + (scrap.canvasWidth ?? 200) / 2,
+                        y: (scrap.canvasY ?? 0) + (scrap.canvasHeight ?? 200)))
+            draftFocused = true
         case .details:
             onCardEdit?(scrap)
         case .remove:
@@ -491,6 +504,16 @@ public struct VisionBoardCanvas: View {
     /// Whatever the caret was asking for, delivered.
     private func commitCaret(at caret: CGPoint) {
         let words = draftWords
+        // A note commits to the element it belongs to — including an empty
+        // one, which takes the slip back off.
+        if let element = noteFor {
+            noteFor = nil
+            typingAt = nil
+            draftWords = ""
+            viewModel.setNote(element.id, text: words)
+            wallFocused = true
+            return
+        }
         let tool = awaitingTool ?? .write
         let world = viewModel.transform.toWorld(caret)
         typingAt = nil

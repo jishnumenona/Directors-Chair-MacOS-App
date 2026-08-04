@@ -73,6 +73,7 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     case pin
     case restyle          // palette from a picture, or a new cut for words
     case paper            // what the words are written on
+    case note             // a slip of paper stuck under it
     case details
     case remove
 
@@ -85,6 +86,7 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .pin: return pinned ? "Unpin" : "Pin"
         case .restyle: return isText ? "Cut" : "Palette"
         case .paper: return "Paper"
+        case .note: return "Note"
         case .details: return "Details"
         case .remove: return "Remove"
         }
@@ -97,6 +99,7 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .pin: return pinned ? "pin.slash" : "pin"
         case .restyle: return isText ? "scissors" : "eyedropper.halffull"
         case .paper: return "doc.plaintext"
+        case .note: return "note.text"
         case .details: return "info.circle"
         case .remove: return "trash"
         }
@@ -108,7 +111,7 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     /// for the things actually made of it. A scrap never shows a dead chip.
     public static func ring(isText: Bool, hasPicture: Bool,
                             isPaper: Bool = false) -> [VisionScrapTool] {
-        var tools: [VisionScrapTool] = [.connect, .duplicate, .pin]
+        var tools: [VisionScrapTool] = [.connect, .duplicate, .pin, .note]
         if isText || hasPicture { tools.append(.restyle) }
         if isPaper { tools.append(.paper) }
         tools.append(contentsOf: [.details, .remove])

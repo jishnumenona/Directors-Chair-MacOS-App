@@ -1064,6 +1064,14 @@ public class VisionBoardViewModel: ObservableObject {
         pendingConnectorSource = nil
     }
 
+    /// Writes (or erases) the slip of paper stuck under an element.
+    public func setNote(_ cardId: String, text: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        cards[index].referenceNote = trimmed.isEmpty ? nil : trimmed
+        notifyChange()
+    }
+
     /// Cuts this scrap from a different stock.
     public func setPaper(_ cardId: String, paper: VisionPaper) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }

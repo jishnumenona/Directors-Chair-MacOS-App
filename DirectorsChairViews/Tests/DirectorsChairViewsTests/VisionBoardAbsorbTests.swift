@@ -797,7 +797,8 @@ final class VisionScrapToolTests: XCTestCase {
 
         let link = VisionScrapTool.ring(isText: false, hasPicture: false)
         XCTAssertFalse(link.contains(.restyle), "no dead chip on a link scrap")
-        XCTAssertEqual(link.count, 5)
+        // connect · copy · pin · note · details · remove
+        XCTAssertEqual(link.count, 6)
     }
 
     func testThePinChipSaysWhatItWillDo() {
@@ -1110,5 +1111,68 @@ final class VisionZoomRangeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(presets.first ?? 1,
                                     VisionBoardViewModel.minZoom)
         XCTAssertLessThanOrEqual(presets.last ?? 1, VisionBoardViewModel.maxZoom)
+    }
+}
+
+// MARK: - Notes on an element (owner request 2026-08-03)
+
+@MainActor
+final class VisionElementNoteTests: XCTestCase {
+
+    private func board() -> (VisionBoardViewModel, String) {
+        let viewModel = VisionBoardViewModel()
+        var card = VisionCard()
+        card.canvasX = 0; card.canvasY = 0
+        card.canvasWidth = 260; card.canvasHeight = 180
+        viewModel.addCard(card)
+        return (viewModel, viewModel.cards[0].id)
+    }
+
+    func testWritingAndErasingANote() throws {
+        let (viewModel, id) = board()
+        XCTAssertNil(viewModel.cards[0].referenceNote)
+
+        viewModel.setNote(id, text: "  the light here, not the action  ")
+        XCTAssertEqual(viewModel.cards[0].referenceNote,
+                       "the light here, not the action", "trimmed")
+
+        // Clearing the caret takes the slip back off, rather than leaving
+        // an empty slip stuck under the element.
+        viewModel.setNote(id, text: "   ")
+        XCTAssertNil(viewModel.cards[0].referenceNote)
+    }
+
+    func testANoteSurvivesAReload() throws {
+        let (viewModel, id) = board()
+        viewModel.setNote(id, text: "shot on the 35")
+        let data = try JSONEncoder().encode(viewModel.cards[0])
+        let decoded = try JSONDecoder().decode(VisionCard.self, from: data)
+        XCTAssertEqual(decoded.referenceNote, "shot on the 35")
+        XCTAssertEqual(decoded.id, id)
+    }
+
+    func testEveryElementCanTakeANote() {
+        // Notes are not just for pictures — a word, a link and a frame can
+        // all carry one, so the tool is on every ring.
+        for ring in [VisionScrapTool.ring(isText: true, hasPicture: false,
+                                          isPaper: true),
+                     VisionScrapTool.ring(isText: false, hasPicture: true),
+                     VisionScrapTool.ring(isText: false, hasPicture: false)] {
+            XCTAssertTrue(ring.contains(.note))
+        }
+    }
+
+    func testTheNoteReachesTheExportedBoard() throws {
+        var card = VisionCard(id: "note-carrier")
+        card.canvasX = 0; card.canvasY = 0
+        card.canvasWidth = 300; card.canvasHeight = 200
+
+        let bare = try XCTUnwrap(VisionBoardExporter.renderPNG(
+            cards: [card], projectBase: nil))
+        card.referenceNote = "the light here, not the action"
+        let annotated = try XCTUnwrap(VisionBoardExporter.renderPNG(
+            cards: [card], projectBase: nil))
+        XCTAssertNotEqual(bare, annotated,
+                          "a note on the wall is a note on the printout")
     }
 }

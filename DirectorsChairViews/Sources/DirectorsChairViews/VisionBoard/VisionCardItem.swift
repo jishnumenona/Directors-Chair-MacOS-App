@@ -203,6 +203,15 @@ public struct VisionCardItem: View {
                     .onExitCommand { isEditingInline = false }
             }
 
+            // A note is a slip of paper taped under the element, not
+            // metadata behind an inspector.
+            if let note = card.referenceNote, !note.isEmpty, !isEditingInline {
+                VisionNoteSlip(text: note)
+                    .frame(width: cardWidth * 0.86)
+                    .offset(x: cardWidth * 0.07, y: cardHeight - 4)
+                    .allowsHitTesting(false)
+            }
+
             // The tack that holds this scrap to the wall. Offset, never
             // .position — a positioned child claims all available space and
             // would resize the scrap's own frame.
