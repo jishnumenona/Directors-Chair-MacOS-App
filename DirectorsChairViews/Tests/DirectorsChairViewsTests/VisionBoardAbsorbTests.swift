@@ -1054,3 +1054,61 @@ final class VisionThreadEndpointTests: XCTestCase {
         XCTAssertEqual(tackPoint(still), tackPoint(swung))
     }
 }
+
+// MARK: - Standing back far enough (owner request 2026-08-03)
+
+@MainActor
+final class VisionZoomRangeTests: XCTestCase {
+
+    func testYouCanStandFurtherBackThanTenPercent() {
+        let viewModel = VisionBoardViewModel()
+        viewModel.viewportSize = CGSize(width: 1200, height: 800)
+        for _ in 0..<40 { viewModel.zoomOut() }
+        XCTAssertLessThan(viewModel.zoomLevel, 0.1,
+                          "10% was one screenful, not an overview")
+        XCTAssertEqual(viewModel.zoomLevel, VisionBoardViewModel.minZoom,
+                       accuracy: 0.0001, "and it stops somewhere sane")
+    }
+
+    func testZoomStepsProportionallySoBothEndsAreUsable() {
+        let viewModel = VisionBoardViewModel()
+        viewModel.viewportSize = CGSize(width: 1000, height: 700)
+
+        // Far out, a step must be small; a fixed 0.25 would hit the floor.
+        viewModel.setZoomLevel(0.08)
+        viewModel.zoomOut()
+        XCTAssertGreaterThan(viewModel.zoomLevel, 0.05)
+        XCTAssertLessThan(viewModel.zoomLevel, 0.08)
+
+        // Far in, a step must be big; 0.25 would be a crawl.
+        viewModel.setZoomLevel(4)
+        viewModel.zoomOut()
+        XCTAssertLessThan(viewModel.zoomLevel, 3.5)
+    }
+
+    func testJumpingStraightToALevel() {
+        let viewModel = VisionBoardViewModel()
+        viewModel.viewportSize = CGSize(width: 1000, height: 700)
+
+        viewModel.setZoomLevel(0.1)
+        XCTAssertEqual(viewModel.zoomLevel, 0.1, accuracy: 0.0001,
+                       "one click back to a 10% overview")
+
+        viewModel.setZoomLevel(99)
+        XCTAssertEqual(viewModel.zoomLevel, VisionBoardViewModel.maxZoom,
+                       accuracy: 0.0001, "clamped like every other zoom path")
+        viewModel.setZoomLevel(0)
+        XCTAssertEqual(viewModel.zoomLevel, VisionBoardViewModel.minZoom,
+                       accuracy: 0.0001)
+    }
+
+    func testThePresetsCoverOverviewToCloseInspection() {
+        let presets = VisionBoardViewModel.zoomPresets
+        XCTAssertEqual(presets, presets.sorted())
+        XCTAssertTrue(presets.contains(0.1), "the 10% overview the owner asked for")
+        XCTAssertTrue(presets.contains(1.0), "and 1:1")
+        XCTAssertGreaterThanOrEqual(presets.first ?? 1,
+                                    VisionBoardViewModel.minZoom)
+        XCTAssertLessThanOrEqual(presets.last ?? 1, VisionBoardViewModel.maxZoom)
+    }
+}

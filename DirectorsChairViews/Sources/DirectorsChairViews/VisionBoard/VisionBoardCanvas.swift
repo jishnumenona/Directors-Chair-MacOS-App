@@ -715,7 +715,7 @@ public struct VisionBoardCanvas: View {
 /// plaster, and tied to the wrong place. Real string is thick enough to
 /// see across a room, hangs under its own weight, is twisted from strands,
 /// and is wound around the tacks rather than the paper.
-private struct ConnectorArrow: View {
+struct ConnectorArrow: View {
     let from: CGPoint
     let to: CGPoint
     let label: String

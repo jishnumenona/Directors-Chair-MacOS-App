@@ -559,7 +559,8 @@ public struct VisionBoardView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         guard let data = VisionBoardExporter.renderPNG(
-            cards: boardCards, projectBase: projectBasePath) else {
+            cards: boardCards, connectors: viewModel.boardConnectors,
+            projectBase: projectBasePath) else {
             exportError = "Could not render the board."
             return
         }
@@ -585,9 +586,28 @@ public struct VisionBoardView: View {
             .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
 
-            Text("\(Int(viewModel.zoomLevel * 100))%")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(VisionWallPalette.ink.opacity(0.55))
+            // The readout is the fastest way back: click it for the
+            // useful levels instead of hammering minus.
+            Menu {
+                ForEach(VisionBoardViewModel.zoomPresets, id: \.self) { level in
+                    Button("\(Int(level * 100))%") {
+                        viewModel.setZoomLevel(level)
+                    }
+                }
+                Divider()
+                Button("Fit everything") {
+                    viewModel.fitToView(viewSize: viewModel.viewportSize)
+                }
+            } label: {
+                Text("\(Int(viewModel.zoomLevel * 100))%")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(VisionWallPalette.ink.opacity(0.7))
+                    .frame(width: 34)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Zoom level — click to jump")
 
             Button {
                 viewModel.zoomOut()

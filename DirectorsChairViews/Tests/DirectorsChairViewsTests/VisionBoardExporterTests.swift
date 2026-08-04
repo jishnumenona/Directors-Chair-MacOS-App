@@ -77,3 +77,57 @@ final class VisionBoardExporterTests: XCTestCase {
         XCTAssertNil(VisionBoardExporter.renderPNG(cards: [], projectBase: nil))
     }
 }
+
+
+// MARK: - The export IS the wall (owner report 2026-08-03)
+
+@MainActor
+final class VisionBoardExportFidelityTests: XCTestCase {
+
+    private func card(_ id: String, x: Double, y: Double) -> VisionCard {
+        var card = VisionCard(id: id)
+        card.canvasX = x; card.canvasY = y
+        card.canvasWidth = 200; card.canvasHeight = 150
+        return card
+    }
+
+    func testThreadIsExportedWithTheBoard() throws {
+        // The export drew its own thing — black ground, bare rectangles,
+        // no pins and no thread — because it kept a private renderer that
+        // never learned about the wall. Connections must reach the file.
+        let a = card("a", x: 0, y: 0)
+        let b = card("b", x: 400, y: 0)
+        let thread = VisionConnector(boardId: "master", fromCardId: "a",
+                                     toCardId: "b", label: "the look")
+
+        let plain = try XCTUnwrap(VisionBoardExporter.renderPNG(
+            cards: [a, b], connectors: [], projectBase: nil))
+        let strung = try XCTUnwrap(VisionBoardExporter.renderPNG(
+            cards: [a, b], connectors: [thread], projectBase: nil))
+
+        XCTAssertNotEqual(plain, strung,
+                          "a board with thread on it must not export identically")
+    }
+
+    func testExportedElementsCarryTheirTiltAndStock() throws {
+        var flat = card("s", x: 0, y: 0)
+        flat.cardType = "text"
+        flat.text = "dusk"
+
+        var tilted = flat
+        tilted.rotation = -6
+
+        var onKraft = flat
+        onKraft.paper = "kraft"
+
+        let a = try XCTUnwrap(VisionBoardExporter.renderPNG(
+            cards: [flat], projectBase: nil))
+        let b = try XCTUnwrap(VisionBoardExporter.renderPNG(
+            cards: [tilted], projectBase: nil))
+        let c = try XCTUnwrap(VisionBoardExporter.renderPNG(
+            cards: [onKraft], projectBase: nil))
+
+        XCTAssertNotEqual(a, b, "tilt reaches the file")
+        XCTAssertNotEqual(a, c, "so does the paper it is written on")
+    }
+}

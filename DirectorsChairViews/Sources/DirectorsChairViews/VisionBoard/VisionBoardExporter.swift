@@ -49,10 +49,17 @@ public enum VisionBoardExporter {
         return min(preferred, maxPixels / longest)
     }
 
-    /// Renders the cards to PNG data; nil when there are no cards or the
-    /// renderer fails.
+    /// Renders the wall to PNG data; nil when there is nothing on it or
+    /// the renderer fails.
+    ///
+    /// The export used to draw its own thing — a black background and bare
+    /// rectangles — because it kept a private card renderer that never
+    /// learned about the wall. It now composes the SAME pieces the board
+    /// itself uses: plaster, tilt, torn paper, the paper stock, the tacks
+    /// and the thread. What you export is what is on your wall.
     @MainActor
     public static func renderPNG(cards: [VisionCard],
+                                 connectors: [VisionConnector] = [],
                                  projectBase: URL?) -> Data? {
         guard let layout = layout(cards: cards) else { return nil }
 
@@ -73,20 +80,61 @@ public enum VisionBoardExporter {
             return $0.zOrder < $1.zOrder
         }
 
+        // Where each element's tack sits in export space, so thread is
+        // strung between pins exactly as it is on the board.
+        func tack(_ cardId: String) -> CGPoint? {
+            guard let frame = layout.frames[cardId] else { return nil }
+            let anchor = VisionScrapPhysics.tackAnchor(seed: cardId)
+            return CGPoint(x: frame.minX + frame.width * anchor.x,
+                           y: frame.minY + frame.height * anchor.y)
+        }
+
         let content = ZStack(alignment: .topLeading) {
-            Color(hex: "#1A1A1A")
+            VisionWallSurface(transform: CanvasTransform(zoom: 1, offset: .zero))
+
             ForEach(ordered, id: \.id) { card in
                 if let frame = layout.frames[card.id] {
-                    ExportCardView(card: card, image: images[card.id],
-                                   projectBase: projectBase)
-                        .frame(width: frame.width, height: frame.height)
-                        .rotationEffect(.degrees(card.rotation ?? 0))
-                        .offset(x: frame.minX, y: frame.minY)
+                    ZStack(alignment: .topLeading) {
+                        ExportCardView(card: card, image: images[card.id],
+                                       projectBase: projectBase)
+                            .frame(width: frame.width, height: frame.height)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                            .shadow(color: VisionWallPalette.scrapShadow,
+                                    radius: 7, y: 3)
+                        VisionThumbtack(
+                            size: 15,
+                            pressed: card.pinned,
+                            tint: card.pinned ? Color(hex: "#B08A3C")
+                                              : VisionWallPalette.greasePencil)
+                            .offset(
+                                x: frame.width
+                                    * VisionScrapPhysics.tackAnchor(seed: card.id).x - 7.5,
+                                y: frame.height
+                                    * VisionScrapPhysics.tackAnchor(seed: card.id).y - 7.5)
+                    }
+                    .frame(width: frame.width, height: frame.height,
+                           alignment: .topLeading)
+                    // Turns about the tack, exactly as on the wall.
+                    .rotationEffect(
+                        .degrees(card.rotation ?? 0),
+                        anchor: UnitPoint(
+                            x: VisionScrapPhysics.tackAnchor(seed: card.id).x,
+                            y: VisionScrapPhysics.tackAnchor(seed: card.id).y))
+                    .offset(x: frame.minX, y: frame.minY)
+                }
+            }
+
+            ForEach(connectors, id: \.id) { connector in
+                if let from = tack(connector.fromCardId),
+                   let to = tack(connector.toCardId) {
+                    ConnectorArrow(from: from, to: to, label: connector.label,
+                                   onEditLabel: {}, onDelete: {})
                 }
             }
         }
         .frame(width: layout.canvasSize.width,
                height: layout.canvasSize.height)
+        .environment(\.colorScheme, .light)
 
         let renderer = ImageRenderer(content: content)
         renderer.scale = renderScale(for: layout.canvasSize)
@@ -111,7 +159,9 @@ struct ExportCardView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "#2A2A2A")
+            // Paper, not the old near-black: it shows through a torn edge
+            // and stands in for an image that can't be loaded.
+            VisionPaper.resolve(card.paper).base
             switch type {
             case .shotStrip:
                 // One-shot render: synchronous loads are fine here.
@@ -126,7 +176,7 @@ struct ExportCardView: View {
                                 .aspectRatio(contentMode: .fill)
                                 .clipped()
                         } else {
-                            Color(hex: "#1A1A1A")
+                            VisionWallPalette.ink.opacity(0.08)
                         }
                     }
                 }

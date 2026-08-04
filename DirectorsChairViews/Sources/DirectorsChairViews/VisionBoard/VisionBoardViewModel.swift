@@ -107,7 +107,9 @@ public class VisionBoardViewModel: ObservableObject {
 
     // MARK: - Constants
 
-    public static let minZoom: CGFloat = 0.1
+    /// Far enough out to take in a whole wall of work at once. Zooming
+    /// stopped at 10%, which is roughly one screenful — not an overview.
+    public static let minZoom: CGFloat = 0.02
     public static let maxZoom: CGFloat = 5.0
     public static let zoomStep: CGFloat = 0.25
     public static let defaultCardWidth: CGFloat = 200.0
@@ -580,17 +582,28 @@ public class VisionBoardViewModel: ObservableObject {
 
     /// Zoom in by step
     public func zoomIn() {
-        setZoom(min(Self.maxZoom, zoomLevel + Self.zoomStep))
+        setZoom(min(Self.maxZoom, zoomLevel * 1.25))
     }
 
     /// Zoom out by step
+    /// Proportional, not a fixed 0.25: subtracting a quarter is a single
+    /// step from 25% to the floor, and a crawl coming back from 400%.
     public func zoomOut() {
-        setZoom(max(Self.minZoom, zoomLevel - Self.zoomStep))
+        setZoom(max(Self.minZoom, zoomLevel / 1.25))
     }
 
     /// Reset zoom to 100%
     public func resetZoom() {
         setZoom(1.0)
+    }
+
+    /// Jump straight to a level — the zoom readout offers the useful ones
+    /// (a 10% overview through 400%) so getting back is one click, not
+    /// twenty presses of the minus button.
+    public static let zoomPresets: [CGFloat] = [0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 4.0]
+
+    public func setZoomLevel(_ level: CGFloat) {
+        setZoom(min(max(level, Self.minZoom), Self.maxZoom))
     }
 
     /// Fit the current board's cards in the viewport (one formula for
