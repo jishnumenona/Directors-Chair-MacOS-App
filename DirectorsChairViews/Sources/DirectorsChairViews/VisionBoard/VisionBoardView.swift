@@ -585,17 +585,19 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
+            .keyboardShortcut("=", modifiers: .command)
+            .help("Zoom in  ⌘+")
 
             // The readout is the fastest way back: click it for the
             // useful levels instead of hammering minus.
             Menu {
                 ForEach(VisionBoardViewModel.zoomPresets, id: \.self) { level in
-                    Button("\(Int(level * 100))%") {
+                    Button(level == 1 ? "100%  ⌘0" : "\(Int(level * 100))%") {
                         viewModel.setZoomLevel(level)
                     }
                 }
                 Divider()
-                Button("Fit everything") {
+                Button("Fit everything  ⇧⌘0") {
                     viewModel.fitToView(viewSize: viewModel.viewportSize)
                 }
             } label: {
@@ -618,6 +620,8 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
+            .keyboardShortcut("-", modifiers: .command)
+            .help("Zoom out  ⌘−")
 
             Divider()
                 .frame(width: 20)
@@ -632,7 +636,8 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
-            .help("Reset to 100%")
+            .keyboardShortcut("0", modifiers: .command)
+            .help("Reset to 100%  ⌘0")
 
             Button {
                 viewModel.fitToView(viewSize: viewModel.viewportSize)
@@ -643,7 +648,8 @@ public struct VisionBoardView: View {
             .buttonStyle(.plain)
             .background(VisionWallPalette.clipping.opacity(0.93))
             .cornerRadius(4)
-            .help("Fit all cards in view")
+            .keyboardShortcut("0", modifiers: [.command, .shift])
+            .help("Fit everything on the wall  ⇧⌘0")
         }
         .padding(8)
         .background(
