@@ -207,6 +207,30 @@ public struct VisionCardItem: View {
                     .onExitCommand { isEditingInline = false }
             }
 
+            // A scene or shot pinned here shows as a filing tab clipped
+            // to the top edge — the way a physical board marks which
+            // sheet belongs to which part of the picture.
+            if let linked = card.linkedLabel, !linked.isEmpty {
+                Text(linked)
+                    .font(.system(size: 9 / max(zoomLevel, 0.01),
+                                  weight: .heavy))
+                    .fontWidth(.condensed)
+                    .tracking(0.6 / max(zoomLevel, 0.01))
+                    .foregroundStyle(VisionWallPalette.clipping)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6 / max(zoomLevel, 0.01))
+                    .padding(.vertical, 2.5 / max(zoomLevel, 0.01))
+                    .background(VisionWallPalette.greasePencil,
+                                in: RoundedRectangle(
+                                    cornerRadius: 2 / max(zoomLevel, 0.01)))
+                    .shadow(color: VisionWallPalette.scrapShadow,
+                            radius: 2 / max(zoomLevel, 0.01),
+                            y: 1 / max(zoomLevel, 0.01))
+                    .offset(x: 7 / max(zoomLevel, 0.01),
+                            y: -7 / max(zoomLevel, 0.01))
+                    .accessibilityLabel("Linked to \(linked)")
+            }
+
             if isRedrawing {
                 VisionWorkingBadge(size: 30 / max(zoomLevel, 0.01))
                     .offset(x: cardWidth - 19 / max(zoomLevel, 0.01),

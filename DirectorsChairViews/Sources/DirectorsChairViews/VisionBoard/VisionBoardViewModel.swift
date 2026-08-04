@@ -644,6 +644,49 @@ public class VisionBoardViewModel: ObservableObject {
         setZoom(min(max(level, Self.minZoom), Self.maxZoom))
     }
 
+    /// Brings one element to the middle of the screen — the far end of
+    /// "show me this on the vision board" from a scene or a shot. Switches
+    /// board if the element lives on a different wall, so the answer is
+    /// never a blank screen.
+    @discardableResult
+    public func reveal(cardId: String, viewSize: CGSize? = nil) -> Bool {
+        guard let card = cards.first(where: { $0.id == cardId }) else {
+            return false
+        }
+        if card.boardId != currentBoardId, boardIds.contains(card.boardId) {
+            currentBoardId = card.boardId
+        }
+        let viewport = viewSize ?? viewportSize
+        let frame = CGRect(x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                           width: card.canvasWidth ?? 200,
+                           height: card.canvasHeight ?? 200)
+        transform = VisionCanvasGeometry.revealTransform(element: frame,
+                                                         viewport: viewport)
+        selectedCardIds = [cardId]
+        return true
+    }
+
+    /// Pins a scene or a shot to an element, or takes it off again.
+    public func link(_ cardId: String, to ref: VisionCardLinkRef?) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else {
+            return
+        }
+        switch ref?.kind {
+        case .scene:
+            cards[index].linkedSceneId = ref?.id
+            cards[index].linkedShotId = nil
+        case .shot:
+            cards[index].linkedShotId = ref?.id
+            // A shot carries its scene, so linking one links both.
+            cards[index].linkedSceneId = ref?.sceneId
+        case nil:
+            cards[index].linkedSceneId = nil
+            cards[index].linkedShotId = nil
+        }
+        cards[index].linkedLabel = ref?.label
+        notifyChange()
+    }
+
     /// Fit the current board's cards in the viewport (one formula for
     /// fit / first-appear / board switch — Slice 1).
     public func fitToView(viewSize: CGSize) {

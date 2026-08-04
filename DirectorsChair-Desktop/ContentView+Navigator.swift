@@ -124,3 +124,56 @@ enum NavigatorTab: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 }
+
+// MARK: - Scenes and shots on the wall
+//
+// Both ends of "this scene lives on the vision board". Dragging out of
+// the outline and jumping back from it are the same relationship read in
+// opposite directions, so they share one place: the lookup that decides
+// whether a link exists, and the little button that appears only when
+// there is somewhere to go. They live beside the navigator because the
+// rows that use them do.
+
+enum VisionLinkLookup {
+
+    /// The element a scene was dropped on, if any. A card linked to a
+    /// SHOT also carries that shot's scene id, so this deliberately
+    /// excludes those — asking for the scene's element should not return
+    /// an element that is really about one of its shots.
+    static func element(forScene sceneId: String,
+                        in cards: [VisionCard]) -> VisionCard? {
+        cards.first { $0.linkedSceneId == sceneId && $0.linkedShotId == nil }
+    }
+
+    static func element(forShot shotId: String,
+                        in cards: [VisionCard]) -> VisionCard? {
+        cards.first { $0.linkedShotId == shotId }
+    }
+}
+
+/// The button that takes you to the wall. Shows up only when the thing
+/// has actually been pinned somewhere, because a control that is present
+/// but inert teaches people to ignore controls.
+struct RevealOnWallButton: View {
+    @EnvironmentObject var coordinator: AppCoordinator
+    let cardId: String
+    var compact: Bool = false
+
+    var body: some View {
+        Button {
+            coordinator.revealOnVisionBoard(cardId: cardId)
+        } label: {
+            if compact {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.accentColor)
+            } else {
+                Label("On the vision board", systemImage: "pin.fill")
+                    .font(.system(size: 11, weight: .medium))
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Show this on the vision board")
+        .accessibilityLabel("Show on the vision board")
+    }
+}

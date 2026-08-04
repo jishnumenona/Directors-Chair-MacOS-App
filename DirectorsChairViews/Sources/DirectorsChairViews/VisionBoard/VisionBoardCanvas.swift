@@ -843,6 +843,35 @@ public struct VisionBoardCanvas: View {
         .offset(x: viewModel.transform.offset.x, y: viewModel.transform.offset.y)
     }
 
+    /// A scene or a shot dragged from the outline onto this element.
+    /// Anything else that lands here is passed to the wall, so dropping a
+    /// picture over an element still behaves the way it always has.
+    private func absorbOntoElement(_ providers: [NSItemProvider],
+                                   card: VisionCard) -> Bool {
+        let provider = providers.first { $0.canLoadObject(ofClass: NSString.self) }
+        guard let provider else {
+            absorb(providers, atScreenPoint: elementCentre(card))
+            return true
+        }
+        _ = provider.loadObject(ofClass: NSString.self) { text, _ in
+            let string = (text as? String) ?? ""
+            Task { @MainActor in
+                if let ref = VisionCardLinkRef.parse(string) {
+                    viewModel.link(card.id, to: ref)
+                } else {
+                    absorb(providers, atScreenPoint: elementCentre(card))
+                }
+            }
+        }
+        return true
+    }
+
+    private func elementCentre(_ card: VisionCard) -> CGPoint {
+        viewModel.transform.toScreen(
+            CGPoint(x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
+                    y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2))
+    }
+
     /// One scrap on the wall. Split out of `cardsLayer` because the
     /// closure list defeats the type-checker when inlined.
     @ViewBuilder
@@ -908,6 +937,13 @@ public struct VisionBoardCanvas: View {
                     viewModel.endResize(translation: translation)
                 }
             )
+            // Drag a scene or a shot out of the outline and let go of it
+            // over an element — that is the link.
+            .onDrop(of: [.text, .plainText, .utf8PlainText, .url, .image,
+                         .fileURL],
+                    isTargeted: nil) { providers in
+                absorbOntoElement(providers, card: card)
+            }
     }
 
     // MARK: - Gestures

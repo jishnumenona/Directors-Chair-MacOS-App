@@ -45,6 +45,11 @@ public struct VisionBoardView: View {
 
     // MARK: - State
 
+    /// An element to bring to the middle of the screen, set when you
+    /// arrive here from a scene or a shot.
+    public var revealCardId: String?
+    public var onRevealHandled: (() -> Void)?
+
     @State private var showingBoardPicker: Bool = false
     @State private var newBoardName: String = ""
     @State private var showingNewBoardAlert: Bool = false
@@ -65,7 +70,9 @@ public struct VisionBoardView: View {
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
         onEditImage: ((VisionImageEdit, @escaping (URL?) -> Void) -> Void)? = nil,
         projectBasePath: URL? = nil,
-        locations: [Location] = []
+        locations: [Location] = [],
+        revealCardId: String? = nil,
+        onRevealHandled: (() -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
             cards: cards, boards: boards, connectors: connectors))
@@ -76,10 +83,21 @@ public struct VisionBoardView: View {
         self.onGenerateImage = onGenerateImage
         self.onEditImage = onEditImage
         self.projectBasePath = projectBasePath
+        self.revealCardId = revealCardId
+        self.onRevealHandled = onRevealHandled
         self.locations = locations
     }
 
     // MARK: - Body
+
+    /// Arriving from a scene or a shot: centre the element, then tell the
+    /// app the trip is over so coming back later still works.
+    private func revealElement(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.35)) {
+            _ = viewModel.reveal(cardId: id)
+        }
+        onRevealHandled?()
+    }
 
     public var body: some View {
         ZStack {
@@ -169,8 +187,13 @@ public struct VisionBoardView: View {
                 )
             }
         }
+        .onChange(of: revealCardId) { _, id in
+            guard let id else { return }
+            revealElement(id)
+        }
         .onAppear {
             viewModel.configureAssetStore(projectBase: projectBasePath)
+            if let revealCardId { revealElement(revealCardId) }
         }
         .onChange(of: projectBasePath) { _, newBase in
             viewModel.configureAssetStore(projectBase: newBase)

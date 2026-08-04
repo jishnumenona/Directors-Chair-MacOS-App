@@ -127,6 +127,12 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
     /// Which paper stock a clipping is cut from (cream, kraft, legal pad…).
     /// nil = the default cream.
     public var paper: String?
+    /// A scene or shot pinned to this element by dragging it from the
+    /// outline. Ids, so a rename doesn't break the link; the label is
+    /// what the board shows, refreshed from the project when it can be.
+    public var linkedSceneId: String?
+    public var linkedShotId: String?
+    public var linkedLabel: String?
 
     // Text Card Specific
     public var textColor: String  // Hex color code for text cards
@@ -223,6 +229,9 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         case canvasWidth = "canvas_width"
         case canvasHeight = "canvas_height"
         case rotation, paper
+        case linkedSceneId = "linked_scene_id"
+        case linkedShotId = "linked_shot_id"
+        case linkedLabel = "linked_label"
         case textColor = "text_color"
         case textStyle = "text_style"
         case referenceNote = "reference_note"
@@ -277,6 +286,13 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         canvasHeight = try container.decodeIfPresent(Double.self, forKey: .canvasHeight)
         rotation = try container.decodeIfPresent(Double.self, forKey: .rotation)
         paper = try container.decodeIfPresent(String.self, forKey: .paper)
+        // Boards written before elements could carry a scene or a shot.
+        linkedSceneId = try container.decodeIfPresent(String.self,
+                                                      forKey: .linkedSceneId)
+        linkedShotId = try container.decodeIfPresent(String.self,
+                                                     forKey: .linkedShotId)
+        linkedLabel = try container.decodeIfPresent(String.self,
+                                                    forKey: .linkedLabel)
 
         // Text card specific
         textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"

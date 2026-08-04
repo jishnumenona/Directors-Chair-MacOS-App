@@ -532,6 +532,20 @@ struct SceneRow: View {
                 .simultaneousGesture(TapGesture(count: 1).onEnded {
                     coordinator.selectScene(scene)
                 })
+                .overlay(alignment: .trailing) {
+                    if let element = VisionLinkLookup.element(
+                        forScene: scene.id, in: projectViewModel.project.beats) {
+                        RevealOnWallButton(cardId: element.id, compact: true)
+                            .padding(.trailing, 6)
+                    }
+                }
+                // Drag a scene onto an element of the vision board to
+                // pin the two together.
+                .onDrag {
+                    NSItemProvider(object: VisionCardLinkRef(
+                        kind: .scene, id: scene.id,
+                        label: sceneNumber).dragText as NSString)
+                }
                 .contextMenu {
                     Button {
                         renameText = scene.name
@@ -750,6 +764,18 @@ struct ShotRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("shot-row-\(shot.id)")
+        .overlay(alignment: .trailing) {
+            if let element = VisionLinkLookup.element(
+                forShot: shot.id, in: projectViewModel.project.beats) {
+                RevealOnWallButton(cardId: element.id, compact: true)
+                    .padding(.trailing, 6)
+            }
+        }
+        .onDrag {
+            NSItemProvider(object: VisionCardLinkRef(
+                kind: .shot, id: shot.id, label: "SHOT \(shot.shotId)",
+                sceneId: sceneId).dragText as NSString)
+        }
         .contextMenu {
             Button {
                 if let shotLabel = timelineViewModel.shotLabels.first(where: { $0.shotId == shot.shotId }) {
