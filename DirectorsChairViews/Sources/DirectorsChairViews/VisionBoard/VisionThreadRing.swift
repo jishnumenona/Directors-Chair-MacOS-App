@@ -19,12 +19,16 @@ struct VisionThreadRing: View {
     let connector: VisionConnector
     let onPickThread: (VisionThread) -> Void
     let onSetThickness: (Double) -> Void
-    let onRename: () -> Void
+    let onSetName: (String) -> Void
     let onCut: () -> Void
     let onDismiss: () -> Void
 
     @State private var bloomed = false
     @State private var hovered: VisionThread?
+    /// The cord's name, typed in the hub itself. A second popup to enter
+    /// one word, on top of the tools already open, is one window too many.
+    @State private var name = ""
+    @FocusState private var naming: Bool
 
     private static let radius: CGFloat = 116
     private static let chip: CGFloat = 40
@@ -32,7 +36,7 @@ struct VisionThreadRing: View {
     /// The weights a cord comes in: button thread through to parcel
     /// string. Stepped, not a slider — you are choosing a material, and
     /// there is no meaningful difference between 5.0 and 5.2.
-    static let weights: [Double] = [2.5, 4, 5, 7, 9.5]
+    static let weights: [Double] = [2.5, 4, 6, 9, 13]
 
     private var thread: VisionThread {
         VisionThread.resolve(connector.thread)
@@ -46,7 +50,7 @@ struct VisionThreadRing: View {
         ZStack {
             Color.black.opacity(0.001)
                 .contentShape(Rectangle())
-                .onTapGesture { onDismiss() }
+                .onTapGesture { finish() }
 
             ZStack {
                 centre
@@ -63,7 +67,15 @@ struct VisionThreadRing: View {
                 bloomed = true
             }
         }
-        .onExitCommand(perform: onDismiss)
+        .onAppear { name = connector.label }
+        .onExitCommand(perform: finish)
+    }
+
+    /// Everything in this ring is already live on the cord except the
+    /// name, which is being typed — so every way out saves it first.
+    private func finish() {
+        onSetName(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        onDismiss()
     }
 
     private func offset(for index: Int) -> CGPoint {
@@ -106,7 +118,12 @@ struct VisionThreadRing: View {
         .onHover { hovering in
             hovered = hovering ? twine : (hovered == twine ? nil : hovered)
         }
-        .onTapGesture { onPickThread(twine) }
+        .onTapGesture {
+            // Whatever has been typed goes with it — closing the ring
+            // must never be how you lose a name.
+            onSetName(name.trimmingCharacters(in: .whitespacesAndNewlines))
+            onPickThread(twine)
+        }
         .help(twine.displayName)
         .accessibilityLabel("\(twine.displayName) thread")
     }
@@ -115,10 +132,24 @@ struct VisionThreadRing: View {
 
     private var centre: some View {
         VStack(spacing: 6) {
-            Text(hovered?.displayName ?? thread.displayName)
-                .font(.system(size: 9.5, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(VisionWallPalette.ink.opacity(0.6))
+            // The name of the connection, written here rather than in a
+            // window of its own.
+            TextField("Name this connection…", text: $name)
+                .textFieldStyle(.plain)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(VisionWallPalette.ink)
+                .multilineTextAlignment(.center)
+                .focused($naming)
+                .onSubmit(finish)
+                .frame(width: 116)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(VisionWallPalette.ink.opacity(0.05),
+                            in: RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(naming ? VisionWallPalette.greasePencil.opacity(0.8)
+                                         : VisionWallPalette.ink.opacity(0.12),
+                                  lineWidth: 1))
 
             // The cord you are changing, at the weight you are choosing.
             VisionCordStrokes(cord: Path { path in
@@ -127,6 +158,11 @@ struct VisionThreadRing: View {
                                   control: CGPoint(x: 34, y: 24))
             }, thickness: CGFloat(thickness), thread: hovered ?? thread)
                 .frame(width: 68, height: 24)
+
+            Text(hovered?.displayName ?? thread.displayName)
+                .font(.system(size: 8.5, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(VisionWallPalette.ink.opacity(0.5))
 
             HStack(spacing: 10) {
                 weightButton("minus", enabled: thickness > Self.weights.first!) {
@@ -147,8 +183,7 @@ struct VisionThreadRing: View {
             // plainly that you are finished, and gets out of the way so
             // you can see the thread you just changed.
             HStack(spacing: 6) {
-                textButton("Done", prominent: true, action: onDismiss)
-                textButton("Name", action: onRename)
+                textButton("Done", prominent: true, action: finish)
                 textButton("Cut", destructive: true, action: onCut)
             }
         }
@@ -214,9 +249,9 @@ struct VisionThreadRing: View {
     static func weightName(_ thickness: Double) -> String {
         switch thickness {
         case ..<3.2: return "Fine"
-        case ..<4.5: return "Light"
-        case ..<6: return "Twine"
-        case ..<8.2: return "Heavy"
+        case ..<5: return "Light"
+        case ..<7.5: return "Twine"
+        case ..<11: return "Heavy"
         default: return "Rope"
         }
     }

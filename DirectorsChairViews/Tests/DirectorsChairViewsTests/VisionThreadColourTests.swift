@@ -241,8 +241,8 @@ final class VisionThreadRingTests: XCTestCase {
     // MARK: - Weight
 
     func testWeightStepsThroughRealStringSizes() {
-        XCTAssertEqual(VisionThreadRing.step(from: 5, by: 1), 7)
-        XCTAssertEqual(VisionThreadRing.step(from: 5, by: -1), 4)
+        XCTAssertEqual(VisionThreadRing.step(from: 6, by: 1), 9)
+        XCTAssertEqual(VisionThreadRing.step(from: 6, by: -1), 4)
     }
 
     func testWeightStopsAtTheEnds() {
@@ -254,13 +254,55 @@ final class VisionThreadRingTests: XCTestCase {
 
     func testAnOddStoredWeightSnapsToTheNearestNotch() {
         // A board hand-edited, or written by a later version.
-        XCTAssertEqual(VisionThreadRing.step(from: 6.9, by: 0), 7)
+        XCTAssertEqual(VisionThreadRing.step(from: 8.6, by: 0), 9)
+    }
+
+    // MARK: - Weight you can actually see
+
+    func testWeightsStayApartWhenStandingBackFromTheWall() {
+        // The owner's report: "I changed the thickness and I see the same
+        // thread for twine and rope." Both were sub-pixel at working zoom.
+        let zoom: CGFloat = 0.25
+        let twine = VisionCordStrokes.drawn(6, zoom: zoom) * zoom
+        let rope = VisionCordStrokes.drawn(13, zoom: zoom) * zoom
+
+        XCTAssertGreaterThan(twine, 2.5, "the middle weight must be visible")
+        XCTAssertGreaterThan(rope - twine, 2,
+            "and rope must be visibly fatter than twine on screen, not "
+            + "\(rope) vs \(twine)")
+    }
+
+    func testTheRatioBetweenWeightsIsPreserved() {
+        // Boosting must not flatten the range into one thickness — that
+        // would trade one invisible difference for another.
+        for zoom in [CGFloat(0.05), 0.25, 1, 3] {
+            let thin = VisionCordStrokes.drawn(2.5, zoom: zoom)
+            let thick = VisionCordStrokes.drawn(13, zoom: zoom)
+            XCTAssertEqual(thick / thin, 13 / 2.5, accuracy: 0.001,
+                           "ratio held at zoom \(zoom)")
+        }
+    }
+
+    func testCloseUpACordIsDrawnAtItsRealWeight() {
+        // Zoomed in it is already legible, so it scales like the physical
+        // thing it is — no correction at all.
+        XCTAssertEqual(VisionCordStrokes.drawn(6, zoom: 2), 6, accuracy: 0.001)
+        XCTAssertEqual(VisionCordStrokes.drawn(6, zoom: 1.2), 6, accuracy: 0.001)
+    }
+
+    func testTheThinnestCordSurvivesAnExtremeZoomOut() {
+        let zoom: CGFloat = 0.02
+        let onScreen = VisionCordStrokes.drawn(2.5, zoom: zoom) * zoom
+        // The floor was tuned DOWN from 3 to 2.4 after rendering: at 3,
+        // boosted rope wound a knot wider than the elements it tied.
+        XCTAssertGreaterThanOrEqual(onScreen, 2.3,
+                                    "a cord is never a vanishing hairline")
     }
 
     func testWeightIsNamedNotNumbered() {
         XCTAssertEqual(VisionThreadRing.weightName(2.5), "Fine")
-        XCTAssertEqual(VisionThreadRing.weightName(5), "Twine")
-        XCTAssertEqual(VisionThreadRing.weightName(9.5), "Rope")
+        XCTAssertEqual(VisionThreadRing.weightName(6), "Twine")
+        XCTAssertEqual(VisionThreadRing.weightName(13), "Rope")
     }
 
     func testWeightIsPerThreadAndSurvivesReload() throws {

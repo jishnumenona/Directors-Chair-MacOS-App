@@ -36,9 +36,6 @@ public struct VisionBoardCanvas: View {
     /// Non-nil when the right-click landed on a cord: the thread's own
     /// ring opens instead, and nothing else does.
     @State private var ringThread: VisionConnector?
-    /// Naming a cord happens ON the cord — see nameTagOverlay.
-    @State private var nameDraft = ""
-    @FocusState private var nameFocused: Bool
     /// The scrap whose paper is being chosen, and where to show the stock.
     @State private var paperFor: VisionCard?
     /// The element whose note is being written at the caret.
@@ -173,10 +170,6 @@ public struct VisionBoardCanvas: View {
                     wallFocused = true
                     return .handled
                 }
-                if viewModel.editingConnectorId != nil {
-                    viewModel.editingConnectorId = nil
-                    return .handled
-                }
                 if toolRingAt != nil { dismissRing(); return .handled }
                 if viewModel.pendingConnectorSource != nil {
                     viewModel.cancelConnector()
@@ -259,7 +252,6 @@ public struct VisionBoardCanvas: View {
             connectingOverlay
             paperOverlay
             promptOverlay
-            nameTagOverlay
             problemOverlay
         }
     }
@@ -299,10 +291,7 @@ public struct VisionBoardCanvas: View {
                     dismissRing()
                 },
                 onSetThickness: { viewModel.setThreadThickness(cord.id, to: $0) },
-                onRename: {
-                    dismissRing()
-                    viewModel.editingConnectorId = cord.id
-                },
+                onSetName: { viewModel.setConnectorLabel(cord.id, label: $0) },
                 onCut: {
                     dismissRing()
                     viewModel.removeConnector(cord.id)
@@ -423,70 +412,6 @@ public struct VisionBoardCanvas: View {
                 viewModel.lastWorkProblem = nil
             }
         }
-    }
-
-    /// Naming a connection used to open a system alert — app icon, dark
-    /// chrome, a blue Save button — which belongs to a different program
-    /// than the one the wall is. A cord's name is written on the luggage
-    /// tag that hangs from it, in place, on paper.
-    @ViewBuilder
-    private var nameTagOverlay: some View {
-        if let id = viewModel.editingConnectorId,
-           let cord = viewModel.boardConnectors.first(where: { $0.id == id }),
-           let from = tackPoint(cord.fromCardId),
-           let to = tackPoint(cord.toCardId) {
-            let at = viewModel.transform.toScreen(
-                VisionWallHitTest.cordMidpoint(from: from, to: to))
-            ZStack {
-                Color.black.opacity(0.001)
-                    .contentShape(Rectangle())
-                    .onTapGesture { commitCordName(id) }
-
-                TextField("Name this connection…", text: $nameDraft)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(VisionWallPalette.ink)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 168)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 7)
-                    .background(
-                        ZStack {
-                            VisionPaper.cream.base
-                            VisionPaperTexture(paper: .cream)
-                        }
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                    .overlay(RoundedRectangle(cornerRadius: 3)
-                        .strokeBorder(VisionWallPalette.greasePencil.opacity(0.7),
-                                      lineWidth: 1.5))
-                    .shadow(color: VisionWallPalette.scrapShadow, radius: 7, y: 3)
-                    // A tag hangs a little crooked, like everything else
-                    // pinned up here.
-                    .rotationEffect(.degrees(-1.6))
-                    .environment(\.colorScheme, .light)
-                    .focused($nameFocused)
-                    .onSubmit { commitCordName(id) }
-                    .onExitCommand {
-                        viewModel.editingConnectorId = nil
-                        wallFocused = true
-                    }
-                    .position(x: at.x, y: at.y + 20)
-                    .onAppear {
-                        nameDraft = cord.label
-                        nameFocused = true
-                    }
-            }
-            .ignoresSafeArea()
-        }
-    }
-
-    private func commitCordName(_ id: String) {
-        viewModel.setConnectorLabel(id, label: nameDraft.trimmingCharacters(
-            in: .whitespacesAndNewlines))
-        viewModel.editingConnectorId = nil
-        nameDraft = ""
-        wallFocused = true
     }
 
     /// The words that made a picture, kept with it — read them, copy
@@ -896,12 +821,19 @@ public struct VisionBoardCanvas: View {
                     ConnectorArrow(
                         from: from, to: to, label: connector.label,
                         onEditLabel: {
-                            viewModel.editingConnectorId = connector.id
+                            ringThread = connector
+                            toolRingAt = VisionRadialGeometry.anchor(
+                                for: viewModel.transform.toScreen(
+                                    VisionWallHitTest.cordMidpoint(from: from,
+                                                                   to: to)),
+                                in: viewSize, radius: 116)
                         },
                         onDelete: {
                             viewModel.removeConnector(connector.id)
                         },
-                        thickness: CGFloat(connector.thickness ?? 5),
+                        thickness: VisionCordStrokes.drawn(
+                            connector.thickness ?? 5,
+                            zoom: viewModel.transform.zoom),
                         thread: VisionThread.resolve(connector.thread))
                 }
             }
@@ -1025,6 +957,24 @@ struct VisionCordStrokes: View {
     let thickness: CGFloat
     let thread: VisionThread
 
+    /// How thick to DRAW a cord of a given weight at a given zoom.
+    ///
+    /// Cords live in world points, so standing back from the wall shrinks
+    /// them with everything else — and past a point every weight collapses
+    /// into the same hairline, which is what the owner saw: rope and twine
+    /// drawn identically because both were under a pixel.
+    ///
+    /// So the whole set is scaled up together once the thinnest would stop
+    /// reading, which keeps every weight visible AND keeps the ratios
+    /// between them intact. Zoomed in, where they are already legible,
+    /// nothing is touched and a cord scales like the physical thing it is.
+    static func drawn(_ stored: Double, zoom: CGFloat) -> CGFloat {
+        let thinnest = VisionThreadRing.weights.first ?? 2.5
+        let readable: CGFloat = 2.4        // screen points
+        let boost = max(1, readable / (CGFloat(thinnest) * max(zoom, 0.02)))
+        return CGFloat(stored) * boost
+    }
+
     var body: some View {
         let t = thickness
         ZStack(alignment: .topLeading) {
@@ -1134,17 +1084,21 @@ struct ConnectorArrow: View {
     /// Where the cord is wound round the pin: a couple of turns, sitting
     /// under the tack head that is drawn on the element itself.
     private var knot: some View {
-        ZStack {
+        // The turns round the pin are the same cord, so they grow with
+        // it — but only so far. Boosted rope at a distance would wind a
+        // knot wider than the elements it ties together.
+        let wind = min(thickness, 9)
+        return ZStack {
             // Sized to sit UNDER the tack head, so the cord reads as
             // wound round the pin's shaft rather than covering the pin.
             Circle()
                 .strokeBorder(thread.twistShade,
-                              lineWidth: thickness * 0.8)
-                .frame(width: thickness * 2.3, height: thickness * 2.3)
+                              lineWidth: wind * 0.8)
+                .frame(width: wind * 2.3, height: wind * 2.3)
             Circle()
                 .strokeBorder(thread.twistLight.opacity(0.45),
-                              lineWidth: thickness * 0.26)
-                .frame(width: thickness * 2.7, height: thickness * 2.7)
+                              lineWidth: wind * 0.26)
+                .frame(width: wind * 2.7, height: wind * 2.7)
         }
         .shadow(color: Color.black.opacity(0.25), radius: 1.5, y: 1.5)
     }
