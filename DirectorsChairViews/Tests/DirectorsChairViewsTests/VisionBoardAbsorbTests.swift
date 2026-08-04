@@ -1278,3 +1278,124 @@ final class VisionAnnotateTests: XCTestCase {
         XCTAssertFalse(viewModel.isGenerating)
     }
 }
+
+// MARK: - Imagining doesn't stop the wall (owner report 2026-08-03)
+
+@MainActor
+final class VisionNonBlockingImagineTests: XCTestCase {
+
+    private func base() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wall-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url,
+                                                withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makePNG() throws -> URL {
+        let image = NSImage(size: NSSize(width: 24, height: 16))
+        image.lockFocus()
+        NSColor.systemGreen.drawSwatch(in: NSRect(x: 0, y: 0, width: 24, height: 16))
+        image.unlockFocus()
+        let data = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation))?
+            .representation(using: .png, properties: [:]))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).png")
+        try data.write(to: url)
+        return url
+    }
+
+    func testSpaceIsHeldOnTheWallWhileItWorks() async throws {
+        let projectBase = try base()
+        defer { try? FileManager.default.removeItem(at: projectBase) }
+        let generated = try makePNG()
+
+        let viewModel = VisionBoardViewModel()
+        viewModel.configureAssetStore(projectBase: projectBase)
+
+        var heldWhileWorking: [PendingImagine] = []
+        viewModel.onGenerateImage = { _, completion in
+            // Whatever the wall looks like mid-flight is what the user sees.
+            heldWhileWorking = viewModel.pendingImagines
+            completion(generated)
+        }
+
+        await viewModel.imagine("a rain-soaked neon street",
+                                at: CGPoint(x: 500, y: 300))
+
+        XCTAssertEqual(heldWhileWorking.count, 1,
+                       "a blank sheet goes up immediately")
+        let held = try XCTUnwrap(heldWhileWorking.first)
+        XCTAssertEqual(held.prompt, "a rain-soaked neon street",
+                       "and it says what it is waiting for")
+        XCTAssertEqual(held.origin.x + held.size.width / 2, 500, accuracy: 0.001,
+                       "exactly where the picture will land")
+
+        XCTAssertTrue(viewModel.pendingImagines.isEmpty, "the sheet comes down")
+        XCTAssertEqual(viewModel.cards.count, 1, "and the picture takes its place")
+        XCTAssertEqual(viewModel.cards[0].description, "a rain-soaked neon street")
+    }
+
+    func testTheWallStaysUsableWhileAPictureIsComing() async throws {
+        let projectBase = try base()
+        defer { try? FileManager.default.removeItem(at: projectBase) }
+        let generated = try makePNG()
+
+        let viewModel = VisionBoardViewModel()
+        viewModel.configureAssetStore(projectBase: projectBase)
+        viewModel.onGenerateImage = { _, completion in
+            // Mid-flight the board still takes work: write a word, pan.
+            Task { @MainActor in
+                await viewModel.absorb([.text("dusk")], at: .zero)
+                viewModel.scrollPan(deltaX: 120, deltaY: 40)
+                completion(generated)
+            }
+        }
+
+        await viewModel.imagine("a lit window", at: .zero)
+
+        XCTAssertEqual(viewModel.cards.count, 2,
+                       "the word written mid-flight survived")
+        XCTAssertTrue(viewModel.cards.contains { $0.text == "dusk" })
+        XCTAssertEqual(viewModel.transform.offset.x, 120, accuracy: 0.001,
+                       "and the pan taken mid-flight held")
+    }
+
+    func testAFailedImaginingLeavesNoEmptySheetBehind() async {
+        let viewModel = VisionBoardViewModel()
+        viewModel.onGenerateImage = { _, completion in completion(nil) }
+
+        await viewModel.imagine("something impossible", at: .zero)
+
+        XCTAssertTrue(viewModel.pendingImagines.isEmpty,
+                      "the held space is given back")
+        XCTAssertTrue(viewModel.cards.isEmpty)
+        XCTAssertFalse(viewModel.isGenerating)
+    }
+
+    func testARedrawMarksItsOwnElementNotTheWholeWall() async throws {
+        let projectBase = try base()
+        defer { try? FileManager.default.removeItem(at: projectBase) }
+        let generated = try makePNG()
+        let bytes = try Data(contentsOf: generated)
+
+        let viewModel = VisionBoardViewModel()
+        viewModel.configureAssetStore(projectBase: projectBase)
+        var card = VisionCard()
+        card.imagePath = "assets/visionboard/a.png"
+        viewModel.addCard(card)
+        let id = viewModel.cards[0].id
+
+        var markedWhileWorking: Set<String> = []
+        viewModel.onEditImage = { _, completion in
+            markedWhileWorking = viewModel.redrawing
+            completion(generated)
+        }
+
+        await viewModel.redraw(id, instructions: "brighter", baseImage: bytes)
+
+        XCTAssertEqual(markedWhileWorking, [id],
+                       "only that element says it is working")
+        XCTAssertTrue(viewModel.redrawing.isEmpty)
+    }
+}

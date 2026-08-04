@@ -16,6 +16,8 @@ public struct VisionCardItem: View {
     /// A connector is looking for its other end: this scrap is a target,
     /// so it highlights and takes a plain click instead of a drag.
     public let isConnectTarget: Bool
+    /// This element's picture is being redrawn right now.
+    public var isRedrawing: Bool = false
     public let zoomLevel: CGFloat
     public let showLabel: Bool
     /// Named coordinate space of the canvas container — drag translations
@@ -88,6 +90,7 @@ public struct VisionCardItem: View {
         card: VisionCard,
         isSelected: Bool = false,
         isConnectTarget: Bool = false,
+        isRedrawing: Bool = false,
         zoomLevel: CGFloat = 1.0,
         showLabel: Bool = true,
         canvasSpaceName: String = "visionCanvas",
@@ -114,6 +117,7 @@ public struct VisionCardItem: View {
         self.card = card
         self.isSelected = isSelected
         self.isConnectTarget = isConnectTarget
+        self.isRedrawing = isRedrawing
         self.zoomLevel = zoomLevel
         self.showLabel = showLabel
         self.canvasSpaceName = canvasSpaceName
@@ -201,6 +205,22 @@ public struct VisionCardItem: View {
                         isEditingInline = false
                     }
                     .onExitCommand { isEditingInline = false }
+            }
+
+            if isRedrawing {
+                ZStack {
+                    VisionWallPalette.clipping.opacity(0.55)
+                    VStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Redrawing…")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(VisionWallPalette.ink.opacity(0.75))
+                    }
+                }
+                .frame(width: cardWidth, height: cardHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .environment(\.colorScheme, .light)
+                .allowsHitTesting(false)
             }
 
             // A note is a slip of paper taped under the element, not

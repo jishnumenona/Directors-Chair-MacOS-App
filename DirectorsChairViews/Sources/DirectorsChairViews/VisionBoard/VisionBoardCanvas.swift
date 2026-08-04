@@ -256,20 +256,25 @@ public struct VisionBoardCanvas: View {
         }
     }
 
+    /// Nothing blocks the wall any more: a picture being imagined holds
+    /// its own space (VisionPendingSheet) and a picture being redrawn says
+    /// so on itself. This is only the quiet count when several are in
+    /// flight at once and some are off-screen.
     @ViewBuilder
     private var generatingOverlay: some View {
-        if viewModel.isGenerating {
-            VStack(spacing: 8) {
-                ProgressView()
-                Text("Imagining…")
+        if viewModel.pendingImagines.count > 1 {
+            VStack {
+                Spacer()
+                Text("Imagining \(viewModel.pendingImagines.count) pictures…")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(VisionWallPalette.ink.opacity(0.7))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(VisionWallPalette.clipping, in: Capsule())
+                    .shadow(color: VisionWallPalette.scrapShadow, radius: 5, y: 2)
+                    .environment(\.colorScheme, .light)
+                    .padding(.bottom, 18)
             }
-            .padding(18)
-            .background(VisionWallPalette.clipping,
-                        in: RoundedRectangle(cornerRadius: 10))
-            .shadow(color: VisionWallPalette.scrapShadow, radius: 8, y: 3)
-            .environment(\.colorScheme, .light)
             .allowsHitTesting(false)
         }
     }
@@ -715,6 +720,14 @@ public struct VisionBoardCanvas: View {
         ZStack(alignment: .topLeading) {
             ForEach(viewModel.filteredCards) { card in
                 scrapView(card)
+            }
+
+            // Space held while a picture is imagined — on the wall, in the
+            // world, never over the top of your work.
+            ForEach(viewModel.pendingImagines) { pending in
+                VisionPendingSheet(pending: pending)
+                    .position(x: pending.origin.x + pending.size.width / 2,
+                              y: pending.origin.y + pending.size.height / 2)
             }
 
             // Thread lies ON the wall over the paper — string wound round

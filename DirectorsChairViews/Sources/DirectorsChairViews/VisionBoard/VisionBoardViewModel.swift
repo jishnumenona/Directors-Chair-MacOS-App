@@ -50,8 +50,19 @@ public class VisionBoardViewModel: ObservableObject {
     /// Search query for filtering cards
     @Published public var searchQuery: String = ""
 
-    /// An image is being imagined right now (the wall shows it working).
-    @Published public var isGenerating: Bool = false
+    /// Space held on the wall while a picture is being imagined. Nothing
+    /// blocks: you keep working, and the sheet fills itself in when it
+    /// arrives. Several can be in flight at once.
+    @Published public private(set) var pendingImagines: [PendingImagine] = []
+
+    /// Elements currently being redrawn from marks — shown on the element
+    /// itself, not over the whole wall.
+    @Published public private(set) var redrawing: Set<String> = []
+
+    /// Anything at all in flight (the hint note stays down while so).
+    public var isGenerating: Bool {
+        !pendingImagines.isEmpty || !redrawing.isEmpty
+    }
 
     /// Whether grid snapping is enabled. OFF by default (The Wall): a wall
     /// of scraps that self-aligns to a grid is a slide deck. Snap stays
@@ -990,17 +1001,30 @@ public class VisionBoardViewModel: ObservableObject {
     public func imagine(_ description: String, at worldPoint: CGPoint?) async {
         let prompt = description.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, let generate = onGenerateImage else { return }
-        isGenerating = true
+
+        // Hold the space immediately: a blank sheet goes up where the
+        // picture will land, and the wall stays usable while it works.
+        let size = CGSize(width: 260, height: 146)
+        let centre = worldPoint ?? absorbCentre()
+        let held = PendingImagine(
+            id: UUID().uuidString, prompt: prompt,
+            origin: CGPoint(x: centre.x - size.width / 2,
+                            y: centre.y - size.height / 2),
+            size: size)
+        pendingImagines.append(held)
+
         let url: URL? = await withCheckedContinuation { continuation in
             generate(prompt) { generated in
                 continuation.resume(returning: generated)
             }
         }
-        isGenerating = false
+        pendingImagines.removeAll { $0.id == held.id }
         guard let url else { return }
-        await absorb([.fileURL(url)], at: worldPoint)
-        // The prompt is worth keeping — it is how the image came to exist.
-        if let index = cards.indices.last {
+
+        let landed = await absorb([.fileURL(url)], at: centre)
+        // The prompt is worth keeping — it is how the picture came to exist.
+        if let id = landed.first,
+           let index = cards.firstIndex(where: { $0.id == id }) {
             cards[index].description = prompt
             notifyChange()
         }
@@ -1023,13 +1047,13 @@ public class VisionBoardViewModel: ObservableObject {
             ? instructions
             : instructions + "\n\nOriginal prompt: " + original
 
-        isGenerating = true
+        redrawing.insert(cardId)
         let url: URL? = await withCheckedContinuation { continuation in
             edit(VisionImageEdit(prompt: combined, baseImage: baseImage)) {
                 continuation.resume(returning: $0)
             }
         }
-        isGenerating = false
+        redrawing.remove(cardId)
         guard let url, let store = assetStore,
               let stored = await store.normalizedForSave(url.path),
               let target = cards.firstIndex(where: { $0.id == cardId })

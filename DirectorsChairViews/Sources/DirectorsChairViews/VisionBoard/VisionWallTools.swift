@@ -280,3 +280,23 @@ public struct VisionImageEdit: Sendable {
         self.baseImage = baseImage
     }
 }
+
+
+// MARK: - Space held while a picture is imagined
+
+/// A blank sheet pinned up where a picture will land. It exists only
+/// while the work is in flight — nothing is written to the project — so
+/// closing or panning away costs nothing.
+public struct PendingImagine: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let prompt: String
+    public var origin: CGPoint
+    public var size: CGSize
+
+    public init(id: String, prompt: String, origin: CGPoint, size: CGSize) {
+        self.id = id
+        self.prompt = prompt
+        self.origin = origin
+        self.size = size
+    }
+}
