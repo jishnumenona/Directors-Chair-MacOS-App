@@ -140,7 +140,7 @@ pictures and clippings), plus code review of every O(N) path.
    stroke along its whole length.
 4. **Every element retains its decoded thumbnail in @State** (~0.9MB at
    card size), so resident memory scaled with the project, not the
-   screen: ~900MB для 1,000 pictures. (The decode cache itself was
+   screen: ~900MB for 1,000 pictures. (The decode cache itself was
    already bounded and off-main — this was view-state retention.)
 5. **A ⌘A drag was quadratic** — one array search per dragged card per
    tick.
