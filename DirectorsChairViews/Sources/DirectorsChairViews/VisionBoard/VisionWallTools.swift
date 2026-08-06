@@ -76,6 +76,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     case note             // a slip of paper stuck under it
     case annotate         // mark up a picture and regenerate it
     case prompt           // read the words that made it
+    case stick            // onto the element beneath — they travel as one
+    case peel             // off it again
     case details
     case remove
 
@@ -91,6 +93,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .note: return "Note"
         case .annotate: return "Annotate"
         case .prompt: return "Prompt"
+        case .stick: return "Stick"
+        case .peel: return "Peel off"
         case .details: return "Details"
         case .remove: return "Remove"
         }
@@ -106,6 +110,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .note: return "note.text"
         case .annotate: return "pencil.and.outline"
         case .prompt: return "text.quote"
+        case .stick: return "square.2.layers.3d.bottom.filled"
+        case .peel: return "square.2.layers.3d.top.filled"
         case .details: return "info.circle"
         case .remove: return "trash"
         }
@@ -120,12 +126,18 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     /// annotating or prompt-reading unless there is a picture to work on.
     public static func ring(isText: Bool, hasPicture: Bool,
                             isPaper: Bool = false,
-                            hasPrompt: Bool = false) -> [VisionScrapTool] {
+                            hasPrompt: Bool = false,
+                            canStick: Bool = false,
+                            isStuck: Bool = false) -> [VisionScrapTool] {
         var tools: [VisionScrapTool] = [.connect, .duplicate, .pin, .note]
         if hasPicture { tools.append(.annotate) }
         if hasPrompt { tools.append(.prompt) }
         if isText || hasPicture { tools.append(.restyle) }
         if isPaper { tools.append(.paper) }
+        // Stick appears only when there is genuinely something beneath
+        // to stick to; Peel only when stuck. Never both, never a dead chip.
+        if isStuck { tools.append(.peel) }
+        else if canStick { tools.append(.stick) }
         tools.append(contentsOf: [.details, .remove])
         return tools
     }
@@ -179,6 +191,31 @@ public enum VisionWallHitTest {
                    width: card.canvasWidth ?? 200,
                    height: card.canvasHeight ?? 200).contains(worldPoint)
         }
+    }
+
+    /// The element BENEATH one — what it would stick to. The topmost
+    /// element that overlaps it from below in draw order, because that is
+    /// the sheet it is visually lying on. Frames don't count: sticking to
+    /// a section frame is what frames already do on their own.
+    public static func elementBeneath(_ card: VisionCard,
+                                      in cards: [VisionCard],
+                                      frameTypeRaw: String = "frame")
+        -> VisionCard? {
+        let rect = CGRect(x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                          width: card.canvasWidth ?? 200,
+                          height: card.canvasHeight ?? 200)
+        return cards
+            .filter { other in
+                other.id != card.id
+                    && other.boardId == card.boardId
+                    && other.cardType != frameTypeRaw
+                    && other.zOrder < card.zOrder
+                    && rect.intersects(CGRect(
+                        x: other.canvasX ?? 0, y: other.canvasY ?? 0,
+                        width: other.canvasWidth ?? 200,
+                        height: other.canvasHeight ?? 200))
+            }
+            .max { $0.zOrder < $1.zOrder }
     }
 
     /// The cord under a point, if the click landed on one.

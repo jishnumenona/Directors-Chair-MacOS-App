@@ -297,6 +297,11 @@ public class VisionBoardViewModel: ObservableObject {
         let removed = cards.filter { $0.id == cardId }
         cards.removeAll { $0.id == cardId }
         selectedCardIds.remove(cardId)
+        // What was stuck to it lands back on the wall where it lies —
+        // removing a sheet must not leave its pile pointing at a ghost.
+        for index in cards.indices where cards[index].stuckTo == cardId {
+            cards[index].stuckTo = nil
+        }
         cleanupAssets(for: removed)
         removeConnectors(touching: [cardId])
         notifyChange()
@@ -553,6 +558,10 @@ public class VisionBoardViewModel: ObservableObject {
                     y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
                 if rect.contains(center) { ids.insert(card.id) }
             }
+        }
+        // Whatever is stuck on a moving sheet moves with it.
+        for id in Array(ids) {
+            ids.formUnion(stuckDescendants(of: id))
         }
         dragSessionOrigins = [:]
         for id in ids {
@@ -1240,6 +1249,53 @@ public class VisionBoardViewModel: ObservableObject {
     /// Restrings one cord in a different twine. Colour is the only way a
     /// board with several lines of thinking stays readable, so this is
     /// per-thread — never a board-wide setting.
+    /// Sticks an element to the sheet beneath it: from now on they
+    /// travel as one, the way paper pasted on paper is one sheet.
+    public func stick(_ cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }),
+              let beneath = VisionWallHitTest.elementBeneath(
+                  cards[index], in: filteredCards)
+        else { return }
+        // A cycle would make a stack that drags itself forever.
+        guard !stuckChain(from: beneath.id).contains(cardId) else { return }
+        cards[index].stuckTo = beneath.id
+        notifyChange()
+    }
+
+    /// Peels an element off whatever it was stuck to.
+    public func peel(_ cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }),
+              cards[index].stuckTo != nil else { return }
+        cards[index].stuckTo = nil
+        notifyChange()
+    }
+
+    /// Everything stuck on an element, transitively — a photo on a photo
+    /// on a photo peels and travels as one pile.
+    func stuckDescendants(of cardId: String) -> Set<String> {
+        var found: Set<String> = []
+        var frontier = [cardId]
+        while let next = frontier.popLast() {
+            for card in cards where card.stuckTo == next
+                && !found.contains(card.id) {
+                found.insert(card.id)
+                frontier.append(card.id)
+            }
+        }
+        return found
+    }
+
+    /// The chain UP from an element to the wall, for cycle checks.
+    private func stuckChain(from cardId: String) -> Set<String> {
+        var chain: Set<String> = []
+        var current: String? = cardId
+        while let id = current, !chain.contains(id) {
+            chain.insert(id)
+            current = cards.first { $0.id == id }?.stuckTo
+        }
+        return chain
+    }
+
     public func setThread(_ connectorId: String, to thread: VisionThread) {
         guard let index = connectors.firstIndex(where: { $0.id == connectorId })
         else { return }

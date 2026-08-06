@@ -580,9 +580,13 @@ public struct VisionBoardCanvas: View {
         let isText = scrap.cardType == VisionCardType.text.rawValue
         let hasPicture = !(scrap.imagePath ?? "").isEmpty
         let isPaper = isText || scrap.cardType == VisionCardType.link.rawValue
-        return VisionScrapTool.ring(isText: isText, hasPicture: hasPicture,
-                                    isPaper: isPaper,
-                                    hasPrompt: !scrap.description.isEmpty).map {
+        return VisionScrapTool.ring(
+            isText: isText, hasPicture: hasPicture,
+            isPaper: isPaper,
+            hasPrompt: !scrap.description.isEmpty,
+            canStick: VisionWallHitTest.elementBeneath(
+                scrap, in: viewModel.filteredCards) != nil,
+            isStuck: scrap.stuckTo != nil).map {
             VisionRingItem(id: $0.rawValue,
                            title: $0.title(pinned: scrap.pinned, isText: isText),
                            systemImage: $0.systemImage(pinned: scrap.pinned,
@@ -644,6 +648,10 @@ public struct VisionBoardCanvas: View {
             draftFocused = true
         case .details:
             onCardEdit?(scrap)
+        case .stick:
+            viewModel.stick(scrap.id)
+        case .peel:
+            viewModel.peel(scrap.id)
         case .remove:
             viewModel.removeCard(scrap.id)
         }

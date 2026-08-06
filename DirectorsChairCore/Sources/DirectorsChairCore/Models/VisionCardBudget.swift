@@ -133,6 +133,10 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
     public var linkedSceneId: String?
     public var linkedShotId: String?
     public var linkedLabel: String?
+    /// The element this one is stuck to — a picture pinned on a picture
+    /// travels with it, the way paper pasted on paper is one sheet.
+    /// nil = pinned to the wall itself.
+    public var stuckTo: String?
 
     // Text Card Specific
     public var textColor: String  // Hex color code for text cards
@@ -232,6 +236,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         case linkedSceneId = "linked_scene_id"
         case linkedShotId = "linked_shot_id"
         case linkedLabel = "linked_label"
+        case stuckTo = "stuck_to"
         case textColor = "text_color"
         case textStyle = "text_style"
         case referenceNote = "reference_note"
@@ -293,6 +298,7 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
                                                      forKey: .linkedShotId)
         linkedLabel = try container.decodeIfPresent(String.self,
                                                     forKey: .linkedLabel)
+        stuckTo = try container.decodeIfPresent(String.self, forKey: .stuckTo)
 
         // Text card specific
         textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"
