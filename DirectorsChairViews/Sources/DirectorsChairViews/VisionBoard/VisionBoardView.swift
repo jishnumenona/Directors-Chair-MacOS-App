@@ -194,7 +194,12 @@ public struct VisionBoardView: View {
                     onGenerateImage: onGenerateImage,
                     assetStore: viewModel.assetStore,
                     isNew: !viewModel.cards.contains { $0.id == card.id },
-                    locations: locations
+                    locations: locations,
+                    // A macOS sheet is CLIPPED to the presenting window,
+                    // not shrunk to fit it — without this the editor's
+                    // header and Save button fell off both ends on small
+                    // windows.
+                    availableSize: viewModel.viewportSize
                 )
             }
         }

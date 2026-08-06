@@ -182,7 +182,8 @@ public struct VisionCardEditor: View {
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
         assetStore: VisionBoardAssetStore? = nil,
         isNew: Bool = false,
-        locations: [Location] = []
+        locations: [Location] = [],
+        availableSize: CGSize? = nil
     ) {
         self._card = card
         self._isPresented = isPresented
@@ -191,6 +192,7 @@ public struct VisionCardEditor: View {
         self.assetStore = assetStore
         self.isNew = isNew
         self.locations = locations
+        self.availableSize = availableSize
     }
 
     // MARK: - Fitting the window
