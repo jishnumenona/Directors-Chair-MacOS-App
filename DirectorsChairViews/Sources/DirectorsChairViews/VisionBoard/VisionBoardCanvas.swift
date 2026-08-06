@@ -49,7 +49,7 @@ public struct VisionBoardCanvas: View {
 
     // MARK: - Constants
 
-    private static let canvasSpaceName = "visionCanvas"
+    static let canvasSpaceName = "visionCanvas"
 
     // MARK: - Init
 
@@ -228,6 +228,7 @@ public struct VisionBoardCanvas: View {
             .onAppear {
                 viewSize = geometry.size
                 viewModel.viewportSize = geometry.size
+                viewModel.camera.viewport = geometry.size
                 // Take focus so Delete, arrows and ⌘V work without the
                 // user having to guess that the wall needs clicking first.
                 DispatchQueue.main.async { wallFocused = true }
@@ -237,6 +238,7 @@ public struct VisionBoardCanvas: View {
             .onChange(of: geometry.size) { _, newSize in
                 viewSize = newSize
                 viewModel.viewportSize = newSize
+                viewModel.camera.viewport = newSize
             }
         }
         .background(LinearGradient(colors: VisionWallPalette.surface,
@@ -852,9 +854,10 @@ public struct VisionBoardCanvas: View {
         // through the environment.
         WallCameraApplied(camera: viewModel.camera) {
             ZStack(alignment: .topLeading) {
-                ForEach(viewModel.filteredCards) { card in
-                    scrapView(card).equatable()
-                }
+                WallElementsLayer(
+                    viewModel: viewModel,
+                    stage: viewModel.camera.stage,
+                    full: { self.scrapView($0).equatable() })
 
                 // Space held while a picture is imagined — on the wall,
                 // in the world, never over the top of your work.
@@ -871,6 +874,14 @@ public struct VisionBoardCanvas: View {
                 // whole wall.
                 WallCordsLayer(
                     camera: viewModel.camera,
+                    // On big boards each cord's tooltip, tap target and
+                    // help text cost ~0.5ms PER TICK in AppKit
+                    // re-registration (80 cords ≈ 40ms of every pan).
+                    // The wall's right-click hit-test still opens the
+                    // thread ring, where naming and cutting live — so
+                    // big boards lose only the hover tooltip and the
+                    // double-click shortcut, not any capability.
+                    interactive: !WallScale.isBig(viewModel.filteredCards.count),
                     strands: viewModel.boardConnectors.compactMap { connector in
                         guard let from = tackPoint(connector.fromCardId),
                               let to = tackPoint(connector.toCardId)
@@ -1043,6 +1054,179 @@ extension EnvironmentValues {
     }
 }
 
+/// The elements themselves, mounted according to the scale policy. Its
+/// own view so that stage republishes (rare, hysteresis-gated) re-filter
+/// HERE without re-running the whole canvas body — and so the far-chip
+/// swap happens in one place.
+struct WallElementsLayer<Full: View>: View {
+    let viewModel: VisionBoardViewModel
+    @ObservedObject var stage: WallStage
+    let full: (VisionCard) -> Full
+
+    var body: some View {
+        let cards = viewModel.filteredCards
+        let count = cards.count
+        // stage.farOut is the zoom, quantized to the one boolean that
+        // matters and published only on threshold crossings — reading
+        // the zoom itself here would put this ForEach back on the 120Hz
+        // invalidation path, which is the disease this file just cured.
+        let chips = WallScale.isBig(count) && stage.farOut
+        if chips {
+            ForEach(cards) { card in
+                WallFarChip(
+                    card: card,
+                    isSelected: viewModel.selectedCardIds.contains(card.id),
+                    projectBase: viewModel.projectBase,
+                    onSelect: { viewModel.selectCard(card.id) },
+                    onDragBegan: {
+                        viewModel.selectCard(card.id)
+                        viewModel.beginCardDrag(anchor: card.id)
+                    },
+                    onDragChanged: {
+                        viewModel.updateCardDrag(translation: $0)
+                    },
+                    onDragEnded: {
+                        viewModel.endCardDrag(translation: $0)
+                    })
+                .equatable()
+                .position(x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
+                          y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
+            }
+        } else {
+            ForEach(WallScale.staged(cards, stage: stage.region,
+                                     count: count)) { card in
+                full(card)
+            }
+        }
+    }
+}
+
+// MARK: - Scale policy
+//
+// A small board mounts every element in full, exactly as it always has —
+// nothing about boards under the limit changes, down to the pixel. Past
+// the limit, two things bound the work by what's on SCREEN instead of
+// what's in the PROJECT:
+//   · at working zoom, only elements on the camera's stage (visible rect
+//     plus margin) are mounted in full;
+//   · standing far back — where an element is a postage stamp and its
+//     tack, texture and tooltips are sub-pixel anyway — elements render
+//     as flat chips that cost what a rectangle costs.
+// Measured: 1,000 mounted full elements pan at 155ms/tick from AppKit
+// bookkeeping alone; 1,000 rectangles at 5.4ms. A big project must not
+// pay the first price for the second picture.
+enum WallScale {
+    /// Boards at or under this mount everything in full, always.
+    static let fullDetailLimit = 150
+    /// On big boards, below this zoom elements render as chips.
+    static let chipZoom: CGFloat = 0.35
+
+    static func isBig(_ count: Int) -> Bool { count > fullDetailLimit }
+
+    static func rendersChips(count: Int, zoom: CGFloat) -> Bool {
+        isBig(count) && zoom < chipZoom
+    }
+
+    /// Full elements to mount: everything on a small board; on a big one,
+    /// what intersects the stage (nil stage = not yet measured = all).
+    static func staged(_ cards: [VisionCard], stage: CGRect?,
+                       count: Int) -> [VisionCard] {
+        guard isBig(count), let stage else { return cards }
+        return cards.filter { card in
+            stage.intersects(CGRect(
+                x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                width: card.canvasWidth ?? 200,
+                height: card.canvasHeight ?? 200))
+        }
+    }
+}
+
+/// One element, far away: the paper's tone, its tilt, its words if it is
+/// made of words, its picture if one is ALREADY decoded (a chip never
+/// starts a decode — standing back must not fire hundreds of them). No
+/// tack, no texture, no tooltip, no menu — at this size they are
+/// sub-pixel, and their AppKit bookkeeping is what made big boards crawl.
+/// Tap still selects and drag still moves, so the far view is not a
+/// picture of the wall but the wall itself.
+struct WallFarChip: View, Equatable {
+    let card: VisionCard
+    let isSelected: Bool
+    let projectBase: URL?
+    let onSelect: () -> Void
+    let onDragBegan: () -> Void
+    let onDragChanged: (CGSize) -> Void
+    let onDragEnded: (CGSize) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.card == rhs.card && lhs.isSelected == rhs.isSelected
+    }
+
+    private var width: CGFloat { card.canvasWidth ?? 200 }
+    private var height: CGFloat { card.canvasHeight ?? 200 }
+
+    private var cachedPicture: NSImage? {
+        guard let url = VisionBoardImagePath.resolveImageURL(
+            card.imagePath, projectBase: projectBase) else { return nil }
+        let maxPixel = Int(max(width, height) * 2.5)
+        return ThumbnailImageCache.shared.cached(url, maxPixel: maxPixel)
+    }
+
+    var body: some View {
+        ZStack {
+            if let picture = cachedPicture {
+                Image(nsImage: picture)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else if card.cardType == VisionCardType.text.rawValue {
+                VisionPaper.resolve(card.paper).base
+                Text(card.text.isEmpty ? card.title : card.text)
+                    .font(.system(size: min(width, height) * 0.22,
+                                  weight: .black))
+                    .fontWidth(.condensed)
+                    .foregroundStyle(VisionPaper.resolve(card.paper).ink)
+                    .minimumScaleFactor(0.2)
+                    .multilineTextAlignment(.center)
+                    .padding(6)
+            } else {
+                VisionWallPalette.clipping
+                Image(systemName: "photo")
+                    .font(.system(size: min(width, height) * 0.3))
+                    .foregroundStyle(VisionWallPalette.ink.opacity(0.25))
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay(RoundedRectangle(cornerRadius: 3)
+            .strokeBorder(VisionWallPalette.greasePencil,
+                          lineWidth: isSelected ? 6 : 0))
+        .rotationEffect(.degrees(card.rotation ?? 0))
+        .onTapGesture { onSelect() }
+        .gesture(
+            // Screen-space like the full element's drag: the model
+            // divides by zoom, so feeding it world-space deltas from the
+            // scaled layer would move chips at zoom² speed.
+            DragGesture(minimumDistance: 4,
+                        coordinateSpace: .named(VisionBoardCanvas.canvasSpaceName))
+                .onChanged { value in
+                    onDragChangedWithStart(value)
+                }
+                .onEnded { value in
+                    dragStarted = false
+                    onDragEnded(value.translation)
+                }
+        )
+    }
+
+    @State private var dragStarted = false
+    private func onDragChangedWithStart(_ value: DragGesture.Value) {
+        if !dragStarted {
+            dragStarted = true
+            onDragBegan()
+        }
+        onDragChanged(value.translation)
+    }
+}
+
 /// The one view that puts the camera's transform on the world.
 struct WallCameraApplied<Content: View>: View {
     @ObservedObject var camera: VisionWallCamera
@@ -1090,6 +1274,7 @@ struct WallCordsLayer: View {
     }
 
     @ObservedObject var camera: VisionWallCamera
+    var interactive: Bool = true
     let strands: [Strand]
     let onEditLabel: (VisionConnector, CGPoint, CGPoint) -> Void
     let onDelete: (VisionConnector) -> Void
@@ -1106,6 +1291,9 @@ struct WallCordsLayer: View {
             WallCordStrand(
                 connector: strand.connector,
                 from: strand.from, to: strand.to,
+                interactive: interactive,
+                detailed: interactive
+                    || camera.transform.zoom >= WallScale.chipZoom,
                 thickness: VisionCordStrokes.drawn(
                     strand.connector.thickness ?? 5,
                     zoom: camera.transform.zoom),
@@ -1124,6 +1312,8 @@ struct WallCordStrand: View, Equatable {
     let connector: VisionConnector
     let from: CGPoint
     let to: CGPoint
+    var interactive: Bool = true
+    var detailed: Bool = true
     let thickness: CGFloat
     let onEditLabel: () -> Void
     let onDelete: () -> Void
@@ -1132,11 +1322,15 @@ struct WallCordStrand: View, Equatable {
         lhs.connector == rhs.connector
             && lhs.from == rhs.from && lhs.to == rhs.to
             && lhs.thickness == rhs.thickness
+            && lhs.interactive == rhs.interactive
+            && lhs.detailed == rhs.detailed
     }
 
     var body: some View {
         ConnectorArrow(
             from: from, to: to, label: connector.label,
+            interactive: interactive,
+            detailed: detailed,
             onEditLabel: onEditLabel,
             onDelete: onDelete,
             thickness: thickness,
@@ -1248,6 +1442,16 @@ struct ConnectorArrow: View {
     let from: CGPoint
     let to: CGPoint
     let label: String
+    /// When false, the cord draws identically but registers NO per-cord
+    /// interaction machinery (tooltip, tap target, giant invisible hit
+    /// stroke) — each costs AppKit work on every camera tick, and big
+    /// boards route all cord interaction through the wall's own
+    /// right-click hit-test instead.
+    var interactive: Bool = true
+    /// When false, only the twine itself draws — no knots, no tag. Far
+    /// enough out that a tag is eight pixels wide, those layers are
+    /// invisible anyway, and on a big board their compositing is not.
+    var detailed: Bool = true
     var onEditLabel: () -> Void
     var onDelete: () -> Void
 
@@ -1288,22 +1492,30 @@ struct ConnectorArrow: View {
 
             // The whole length of cord is a target, not just the tag —
             // an invisible fat stroke over it takes the right-click.
-            cord
-                .stroke(Color.white.opacity(0.001),
-                        style: StrokeStyle(lineWidth: max(16, t * 3.4),
-                                           lineCap: .round))
-                .contentShape(
-                    cord.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
-                                                   lineCap: .round)))
-                .onTapGesture(count: 2, perform: onEditLabel)
-                .help("Double-click to name it · right-click for thread and weight")
+            if interactive {
+                cord
+                    .stroke(Color.white.opacity(0.001),
+                            style: StrokeStyle(lineWidth: max(16, t * 3.4),
+                                               lineCap: .round))
+                    .contentShape(
+                        cord.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
+                                                     lineCap: .round)))
+                    .onTapGesture(count: 2, perform: onEditLabel)
+                    .help("Double-click to name it · right-click for thread and weight")
+            }
 
-            knot.position(a)
-            knot.position(b)
+            if detailed {
+                knot.position(a)
+                knot.position(b)
 
-            tag
-                .position(mid)
-                .onTapGesture(count: 2, perform: onEditLabel)
+                if interactive {
+                    tag
+                        .position(mid)
+                        .onTapGesture(count: 2, perform: onEditLabel)
+                } else {
+                    tag.position(mid)
+                }
+            }
         }
         .frame(width: width, height: height)
         .position(x: minX + width / 2, y: minY + height / 2)

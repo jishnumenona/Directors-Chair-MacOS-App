@@ -13,8 +13,58 @@ import Combine
 /// so a 120Hz pan doesn't invalidate views that only care about content.
 @MainActor
 public final class VisionWallCamera: ObservableObject {
-    @Published public var transform = CanvasTransform()
+    @Published public var transform = CanvasTransform() {
+        didSet { refreshStage() }
+    }
+
+    /// Viewport in screen points, pushed by the canvas. Not published —
+    /// a resize re-lays the canvas out anyway.
+    public var viewport: CGSize = .zero {
+        didSet { refreshStage() }
+    }
+
+    /// The world region worth mounting FULL elements for: the visible
+    /// rect plus most of a viewport each side. Publishes with hysteresis
+    /// — a few times per screenful of travel, never per tick. nil means
+    /// "no culling": small boards mount everything, exactly as before.
+    ///
+    /// Why this exists: a mounted element costs ~150µs per camera tick
+    /// in AppKit machinery (tracking areas, tooltips, menus) even when
+    /// its body never re-runs — measured 1,000 mounted elements panning
+    /// at 155ms/tick against 5.4ms for 1,000 bare rectangles. The only
+    /// fix that scales is mounting fewer of them.
+    public let stage = WallStage()
+
     public init() {}
+
+    private func refreshStage() {
+        let far = transform.zoom < 0.35   // WallScale.chipZoom
+        if stage.farOut != far { stage.farOut = far }
+        guard viewport.width > 0, viewport.height > 0 else { return }
+        let visible = transform.visibleWorldRect(viewport: viewport)
+        let needed = visible.insetBy(dx: -visible.width * 0.3,
+                                     dy: -visible.height * 0.3)
+        if let region = stage.region {
+            // Still safely inside the covered region (and the region is
+            // not absurdly larger than the view, as after a zoom-in):
+            // nothing to publish.
+            if region.contains(needed), region.width < visible.width * 5 {
+                return
+            }
+        }
+        stage.region = visible.insetBy(dx: -visible.width * 0.75,
+                                       dy: -visible.height * 0.75)
+    }
+}
+
+/// See VisionWallCamera.stage.
+@MainActor
+public final class WallStage: ObservableObject {
+    @Published public var region: CGRect?
+    /// True while the camera stands far enough back that big boards
+    /// render chips. Written by the camera ONLY when it crosses the
+    /// threshold, so observing this is not observing the zoom.
+    @Published public var farOut = false
 }
 
 @MainActor
@@ -470,6 +520,9 @@ public class VisionBoardViewModel: ObservableObject {
     private var panSessionStartOffset: CGPoint?
     private var pinchSessionStart: CanvasTransform?
     private var dragSessionOrigins: [String: CGPoint] = [:]
+    /// Where each dragged card sits in `cards`, captured at drag start so
+    /// per-tick updates don't search the whole array per card.
+    private var dragSessionIndices: [String: Int] = [:]
     private var dragSessionAnchorId: String?
     private var resizeSession: (cardId: String, corner: ResizeCorner, startRect: CGRect)?
     /// Rotate session: the scrap and the tilt it started at.
@@ -564,11 +617,12 @@ public class VisionBoardViewModel: ObservableObject {
             ids.formUnion(stuckDescendants(of: id))
         }
         dragSessionOrigins = [:]
-        for id in ids {
-            if let card = cards.first(where: { $0.id == id }) {
-                dragSessionOrigins[id] = CGPoint(x: card.canvasX ?? 0,
-                                                 y: card.canvasY ?? 0)
-            }
+        // One pass over the cards, not one search per dragged id — a
+        // ⌘A drag on a big board was quadratic here.
+        for (index, card) in cards.enumerated() where ids.contains(card.id) {
+            dragSessionOrigins[card.id] = CGPoint(x: card.canvasX ?? 0,
+                                                  y: card.canvasY ?? 0)
+            dragSessionIndices[card.id] = index
         }
     }
 
@@ -580,6 +634,7 @@ public class VisionBoardViewModel: ObservableObject {
         applyDrag(translation: translation,
                   snap: gridSnapEnabled ? gridSnapSize : nil)
         dragSessionOrigins = [:]
+        dragSessionIndices = [:]
         dragSessionAnchorId = nil
         notifyChange()
     }
@@ -594,7 +649,15 @@ public class VisionBoardViewModel: ObservableObject {
         let delta = CGPoint(x: anchorNew.x - anchorStart.x,
                             y: anchorNew.y - anchorStart.y)
         for (id, start) in dragSessionOrigins {
-            if let index = cards.firstIndex(where: { $0.id == id }) {
+            // The index cache holds unless the array was edited mid-drag
+            // (an external reconcile is deferred until the drag ends, so
+            // in practice it always holds — the guard is for safety).
+            if let cached = dragSessionIndices[id], cards.indices.contains(cached),
+               cards[cached].id == id {
+                cards[cached].canvasX = start.x + delta.x
+                cards[cached].canvasY = start.y + delta.y
+            } else if let index = cards.firstIndex(where: { $0.id == id }) {
+                dragSessionIndices[id] = index
                 cards[index].canvasX = start.x + delta.x
                 cards[index].canvasY = start.y + delta.y
             }
