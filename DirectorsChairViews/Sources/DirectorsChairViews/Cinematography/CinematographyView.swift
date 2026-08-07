@@ -202,6 +202,9 @@ public struct CinematographyView: View {
         if let shot = viewModel.shots.first(where: { $0.shotId == shotId }) {
             viewModel.selectedShotId = shot.id
             lastAppliedShotId = shotId
+            // A selection sent from the outline or a scene page must
+            // never land inside a closed band.
+            viewModel.revealSection(containing: shot.id, scenes: scenes)
         }
     }
 
@@ -328,29 +331,26 @@ public struct CinematographyView: View {
         if viewModel.filteredShots.isEmpty {
             emptyStateView
         } else {
+            // Banded by scene (P1 §2.17): the order a crew reads a board
+            // in — and collapsed bands shrink the List's diff from every
+            // shot in the project to every visible row. Reordering within
+            // a scene still works; the flat single-band path (no scenes:
+            // previews, tests) keeps cross-list onMove.
+            let sections = viewModel.sections(scenes: scenes)
             List(selection: $viewModel.selectedShotId) {
-                ForEach(viewModel.filteredShots) { shot in
-                    ShotListRow(
-                        shot: shot,
-                        isSelected: viewModel.selectedShotId == shot.id,
-                        onEdit: {
-                            viewModel.editShot(shot)
-                        },
-                        onDuplicate: {
-                            viewModel.duplicateShot(shot.id)
-                        },
-                        onDelete: {
-                            shotToDelete = shot.id
-                            showingDeleteAlert = true
-                        },
-                        onStatusChange: { newStatus in
-                            viewModel.updateShotStatus(shot.id, status: newStatus)
+                ForEach(sections) { section in
+                    if sections.count > 1 {
+                        sectionHeader(section)
+                    }
+                    if viewModel.isSectionOpen(section.id)
+                        || sections.count == 1 {
+                        ForEach(section.shots) { shot in
+                            shotRow(shot)
                         }
-                    )
-                    .tag(shot.id)
-                }
-                .onMove { source, destination in
-                    viewModel.moveShot(from: source, to: destination)
+                        .onMove { source, destination in
+                            viewModel.moveShot(from: source, to: destination)
+                        }
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -362,6 +362,59 @@ public struct CinematographyView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func shotRow(_ shot: Shot) -> some View {
+        ShotListRow(
+            shot: shot,
+            isSelected: viewModel.selectedShotId == shot.id,
+            onEdit: {
+                viewModel.editShot(shot)
+            },
+            onDuplicate: {
+                viewModel.duplicateShot(shot.id)
+            },
+            onDelete: {
+                shotToDelete = shot.id
+                showingDeleteAlert = true
+            },
+            onStatusChange: { newStatus in
+                viewModel.updateShotStatus(shot.id, status: newStatus)
+            }
+        )
+        .tag(shot.id)
+    }
+
+    @ViewBuilder
+    private func sectionHeader(
+        _ section: CinematographyViewModel.ShotSection) -> some View {
+        Button {
+            viewModel.toggleSection(section.id)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .rotationEffect(.degrees(
+                        viewModel.isSectionOpen(section.id) ? 90 : 0))
+                    .foregroundColor(.gray)
+                Text(section.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(1)
+                Spacer()
+                Text("\(section.shots.count)")
+                    .font(.system(size: 10, weight: .semibold,
+                                  design: .monospaced))
+                    .foregroundColor(.gray)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowSeparator(.hidden)
     }
 
     @ViewBuilder
