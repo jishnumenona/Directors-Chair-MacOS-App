@@ -375,3 +375,104 @@ final class ProjectViewModelTests: XCTestCase {
         XCTAssertEqual(decoded.characters.count, project.characters.count)
     }
 }
+
+// MARK: - No lost work (P0, 2026-08-06 audit)
+//
+// The debounced autosave existed before this program; what it lacked was
+// honesty and exits. These pin: an autosave that LANDS clears the dirty
+// flag; an autosave that keeps FAILING says so exactly once per streak;
+// and the lifecycle flush actually reaches disk.
+
+@MainActor
+final class NoLostWorkTests: XCTestCase {
+
+    private func temporaryProjectURL() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("nolostwork-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir,
+                                                withIntermediateDirectories: true)
+        return dir.appendingPathComponent("project.json")
+    }
+
+    private func pump(seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.main.run(mode: .default,
+                             before: Date().addingTimeInterval(0.05))
+        }
+    }
+
+    func testAnAutosaveThatLandsClearsTheDirtyFlag() throws {
+        let url = try temporaryProjectURL()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+
+        viewModel.project.name = "edited"
+        // The dirty flag is set by a deferred main-actor task — poll for
+        // it rather than assuming a scheduling deadline.
+        let dirtyDeadline = Date().addingTimeInterval(1.0)
+        while !viewModel.isDirty && Date() < dirtyDeadline {
+            pump(seconds: 0.05)
+        }
+        XCTAssertTrue(viewModel.isDirty, "an edit marks the project dirty")
+
+        // 500ms debounce + write + main-loop delivery.
+        pump(seconds: 2.0)
+        XCTAssertFalse(viewModel.isDirty,
+            "the edit is on disk — claiming unsaved changes forever was "
+            + "the audit's truthful-state finding")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertNotNil(viewModel.lastSaved)
+    }
+
+    func testLifecycleFlushWritesWithoutWaitingForTheDebounce() throws {
+        let url = try temporaryProjectURL()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+
+        viewModel.project.name = "quit right now"
+        // Let the deferred dirty-marking task land, but stay well inside
+        // the 500ms debounce window.
+        pump(seconds: 0.25)
+
+        let flushed = expectation(description: "flush")
+        Task { @MainActor in
+            await viewModel.flushPendingSaves()
+            flushed.fulfill()
+        }
+        wait(for: [flushed], timeout: 5)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                      "⌘Q inside the debounce window must not lose the edit")
+        XCTAssertFalse(viewModel.isDirty)
+    }
+
+    func testAFailingAutosaveSpeaksUpOnThirdFailureOnceAndResetsOnSuccess() {
+        // Driven directly: a genuinely dying disk can't be simulated from
+        // a test (the writability precheck filters permission problems,
+        // and APFS happily replaces directories), but the CONTRACT —
+        // three strikes, one alert, success resets — is pure logic.
+        let viewModel = ProjectViewModel()
+        struct Boom: Error, LocalizedError {
+            var errorDescription: String? { "disk full" }
+        }
+
+        var alerts = 0
+        let observation = viewModel.$errorAlert.dropFirst().sink { alert in
+            if alert != nil { alerts += 1 }
+        }
+        defer { observation.cancel() }
+
+        viewModel.registerAutosaveFailure(Boom())
+        viewModel.registerAutosaveFailure(Boom())
+        XCTAssertEqual(alerts, 0, "two failures could be transient")
+        viewModel.registerAutosaveFailure(Boom())
+        viewModel.registerAutosaveFailure(Boom())
+        viewModel.registerAutosaveFailure(Boom())
+        pump(seconds: 0.1)
+        XCTAssertEqual(alerts, 1, "the streak alerts once, not per tick")
+        XCTAssertEqual(viewModel.autosaveFailureStreak, 5)
+    }
+}

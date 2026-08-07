@@ -132,6 +132,76 @@ class ProjectViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // An autosave that LANDED clears the dirty flag — before this the
+        // indicator claimed unsaved changes forever, even though every
+        // edit had been on disk within ~500ms (P0 audit: truthful state).
+        autoSaveManager.$lastSaveDate
+            .compactMap { $0 }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] date in
+                guard let self else { return }
+                // Success is the ONLY thing that ends a failure streak —
+                // each new save request clears lastError, and treating
+                // that as recovery kept the streak at 1 forever.
+                self.autosaveFailureStreak = 0
+                guard !self.autoSaveManager.hasUnsavedChanges else { return }
+                self.isDirty = false
+                self.lastSaved = date
+            }
+            .store(in: &cancellables)
+
+        // An autosave that keeps FAILING must say so — a user can edit for
+        // an hour believing the 500ms autosave has them covered while a
+        // full disk fails every write in silence (P0 audit: no silent
+        // failure loops). One alert per failure streak, not one per tick.
+        autoSaveManager.$lastError
+            .receive(on: RunLoop.main)
+            .sink { [weak self] error in
+                guard let error else { return }
+                self?.registerAutosaveFailure(error)
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Consecutive autosave failures; reset by any success. Internal so
+    /// the streak contract is testable without simulating a dying disk.
+    private(set) var autosaveFailureStreak = 0
+
+    func registerAutosaveFailure(_ error: Error) {
+        autosaveFailureStreak += 1
+        // One alert per streak: silence was the audit finding, but an
+        // alert per failed tick would be worse than the disease.
+        if autosaveFailureStreak == 3 {
+            errorAlert = ErrorAlert(
+                title: "Autosave Is Failing",
+                message: "Your last few changes could not be saved "
+                    + "automatically (\(error.localizedDescription)). "
+                    + "Save manually with \u{2318}S, or check disk space "
+                    + "and permissions."
+            )
+        }
+    }
+
+    // MARK: - Lifecycle flushes (P0: no lost work)
+
+    /// Everything pending, on disk, NOW. Called on app deactivation and
+    /// quit — the two moments a crash-adjacent exit is most likely (force
+    /// quit from the Dock, logout, update installers killing apps).
+    func flushPendingSaves() async {
+        guard hasProject, let path = projectPath, isWritable(url: path) else {
+            return
+        }
+        guard isDirty || autoSaveManager.hasUnsavedChanges else { return }
+        do {
+            try await autoSaveManager.saveImmediately(project: project, to: path)
+            isDirty = false
+            lastSaved = Date()
+        } catch {
+            // Deactivation is not the moment for a modal; the failure-streak
+            // observer above will surface persistent trouble.
+            debugLog("[ProjectViewModel] Lifecycle flush failed: \(error.localizedDescription)")
+        }
     }
 
     /// Check if a file location is writable
