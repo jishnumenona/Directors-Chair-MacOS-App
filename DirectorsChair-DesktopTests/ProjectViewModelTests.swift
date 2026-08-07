@@ -608,3 +608,69 @@ final class AppWideUndoTests: XCTestCase {
         XCTAssertEqual(manager.undoMenuItemTitle, "Undo Shot List Edit")
     }
 }
+
+// MARK: - Project snapshots (P1 §2.17)
+
+@MainActor
+final class ProjectSnapshotIntegrationTests: XCTestCase {
+
+    private func temporaryProject() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("snap-int-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("project.json")
+    }
+
+    func testSnapshotNowThenRestoreRoundTripsThroughTheViewModel() async throws {
+        let url = try temporaryProject()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+        viewModel.project.name = "the good cut"
+
+        await viewModel.snapshotNow(label: "locked")
+        viewModel.project.name = "a terrible mistake"
+        let snapshots = await ProjectSnapshotStore.shared
+            .list(forProjectAt: url)
+        let locked = try XCTUnwrap(
+            snapshots.first { $0.label == "locked" })
+
+        await viewModel.restoreSnapshot(locked)
+
+        XCTAssertEqual(viewModel.project.name, "the good cut")
+        // Restoring must never be how work gets lost: the mistake is
+        // itself preserved as a safety snapshot.
+        let after = await ProjectSnapshotStore.shared.list(forProjectAt: url)
+        XCTAssertTrue(after.contains { $0.label == "Before restore" })
+        try? FileManager.default.removeItem(
+            at: url.deletingLastPathComponent())
+    }
+
+    func testARestoreIsUndoable() async throws {
+        let url = try temporaryProject()
+        let manager = UndoManager()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+        viewModel.windowUndoManager = manager
+        viewModel.project.name = "before"
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+
+        await viewModel.snapshotNow(label: "point")
+        let listed = await ProjectSnapshotStore.shared.list(forProjectAt: url)
+        let snapshot = try XCTUnwrap(listed.first)
+        viewModel.project.name = "after"
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+
+        await viewModel.restoreSnapshot(snapshot)
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+        XCTAssertEqual(viewModel.project.name, "before")
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "after",
+            "a restore is an edit like any other — ⌘Z takes it back")
+        try? FileManager.default.removeItem(
+            at: url.deletingLastPathComponent())
+    }
+}

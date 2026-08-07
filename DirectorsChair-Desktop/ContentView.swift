@@ -253,6 +253,10 @@ struct ContentView: View {
                   message: Text(presented.message),
                   dismissButton: .default(Text("OK")))
         }
+        .sheet(isPresented: $coordinator.showingSnapshots) {
+            SnapshotsSheet()
+                .environmentObject(projectViewModel)
+        }
         .onAppear { wireAppWideUndo() }
         .onChange(of: windowUndoManager) { _, _ in wireAppWideUndo() }
         .onAppear {
