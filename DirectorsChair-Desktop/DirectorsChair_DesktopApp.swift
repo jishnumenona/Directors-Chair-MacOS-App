@@ -198,6 +198,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var onboardingState: OnboardingState?
     var authManager: AuthManager?
 
+    // MARK: - No lost work (P0)
+    //
+    // The 500ms debounced autosave covers editing; these two hooks cover
+    // the exits. Without them, ⌘Q inside the debounce window — or a
+    // logout / installer killing the app — dropped the last edits on the
+    // floor, silently.
+
+    func applicationShouldTerminate(_ sender: NSApplication)
+        -> NSApplication.TerminateReply {
+        guard let projectViewModel,
+              projectViewModel.hasProject, projectViewModel.isDirty else {
+            return .terminateNow
+        }
+        Task { @MainActor in
+            // A wedged disk must not make the app unquittable: whichever
+            // finishes first — the flush or three seconds — releases the
+            // termination. The failure-streak alert owns the bad-disk
+            // story; quitting is not the moment for a modal.
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    await projectViewModel.flushPendingSaves()
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(3))
+                }
+                await group.next()
+                group.cancelAll()
+            }
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillResignActive(_ notification: Notification) {
+        guard let projectViewModel else { return }
+        Task { @MainActor in
+            await projectViewModel.flushPendingSaves()
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // UI-test mode: don't hide the window or run the splash at all. Let
         // SwiftUI's WindowGroup present the main window naturally (hiding it
