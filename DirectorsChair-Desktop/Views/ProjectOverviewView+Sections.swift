@@ -154,11 +154,18 @@ struct OverviewSceneGallery: View {
             SectionHeader(title: "Scenes", icon: "film")
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
+                // Lazy, and named through a one-pass index. The scale
+                // audit caught this strip mounting EVERY scene card on a
+                // 300-scene project while resolving each card's sequence
+                // by walking all sequences — O(scenes × sequences) per
+                // body pass, re-paid on every project publish (91ms/tick
+                // measured; the whole Overview at ~11fps during a sync).
+                let names = sequenceNamesBySceneId
+                LazyHStack(spacing: 14) {
                     ForEach(scenes, id: \.id) { scene in
                         SceneCard(
                             scene: scene,
-                            sequenceName: sequenceName(for: scene),
+                            sequenceName: names[scene.id] ?? "",
                             projectDir: projectDir,
                             onTap: { onSceneSelected(scene) }
                         )
@@ -170,13 +177,14 @@ struct OverviewSceneGallery: View {
         }
     }
 
-    private func sequenceName(for scene: DirectorsChairCore.Scene) -> String {
-        for seq in sequences {
-            if seq.scenes.contains(where: { $0.id == scene.id }) {
-                return seq.name
+    private var sequenceNamesBySceneId: [String: String] {
+        var names: [String: String] = [:]
+        for sequence in sequences {
+            for scene in sequence.scenes {
+                names[scene.id] = sequence.name
             }
         }
-        return ""
+        return names
     }
 }
 
@@ -264,7 +272,7 @@ struct OverviewCharacterStrip: View {
             SectionHeader(title: "Characters", icon: "person.3.fill")
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                LazyHStack(spacing: 16) {
                     ForEach(characters, id: \.characterId) { character in
                         CharacterPortrait(
                             character: character,

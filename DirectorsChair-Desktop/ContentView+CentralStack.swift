@@ -1205,6 +1205,7 @@ struct CinematographyViewAdapter: View {
             if let adapter = shotsAdapter {
                 CinematographyView(
                     shots: adapter.allShots,
+                    shotsRevision: adapter.shotsRevision,
                     scenes: projectViewModel.allScenes,
                     characters: projectViewModel.project.characters,
                     locations: projectViewModel.project.locations,

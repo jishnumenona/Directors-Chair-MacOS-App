@@ -358,23 +358,17 @@ extension SceneDetailView {
         if let previewPath = shot.previewImage, !previewPath.isEmpty,
            let basePath = projectBasePath {
             let fullURL = basePath.appendingPathComponent(previewPath)
-            AsyncImage(url: fullURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(height: 90)
-                        .clipped()
-                case .failure:
-                    shotThumbnailPlaceholder
-                case .empty:
-                    shotThumbnailPlaceholder
-                        .overlay(ProgressView().scaleEffect(0.5))
-                @unknown default:
-                    shotThumbnailPlaceholder
-                }
+            // AsyncThumbnail, not AsyncImage: AsyncImage routes a LOCAL
+            // file through URLSession and decodes it at FULL resolution
+            // per card — a scene with dozens of shots held every 12MP
+            // still in memory. The shared thumbnail cache decodes once,
+            // downsampled, off the main thread.
+            AsyncThumbnail(url: fullURL, displaySize: 160,
+                           contentMode: .fill) {
+                shotThumbnailPlaceholder
             }
+            .frame(height: 90)
+            .clipped()
         } else {
             shotThumbnailPlaceholder
         }

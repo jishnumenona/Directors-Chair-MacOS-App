@@ -307,7 +307,11 @@ struct SceneCardView: View {
         }
 
         Task.detached(priority: .utility) {
-            guard let image = NSImage(contentsOf: fullPath) else { return }
+            // Downsampled decode, not NSImage(contentsOf:) — a grid card
+            // renders at ~300pt, and holding a full 12MP still per
+            // mounted card scaled memory with the picture, not the tile.
+            guard let image = await ThumbnailImageCache.shared.thumbnail(
+                fullPath, maxPixel: 1024) else { return }
             SceneImageCache.shared.setImage(image, forKey: cacheKey)
             await MainActor.run { overviewImage = image }
         }
