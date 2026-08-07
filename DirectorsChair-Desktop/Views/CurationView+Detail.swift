@@ -333,9 +333,13 @@ extension CurationView {
         Group {
             if let videoPath = take.capturedVideoPath, let dir = projectDir {
                 let fullURL = dir.appendingPathComponent(videoPath)
+                // Existence is judged on the ORIGINAL (the source of
+                // truth); what plays is the proxy when one is fresh.
+                let playURL = ProxyPlayback.url(forRelativePath: videoPath,
+                                                projectBase: dir) ?? fullURL
                 if FileManager.default.fileExists(atPath: fullURL.path) {
                     ZStack(alignment: .topTrailing) {
-                        VideoPlayer(player: AVPlayer(url: fullURL))
+                        VideoPlayer(player: AVPlayer(url: playURL))
                             .aspectRatio(16/9, contentMode: .fit)
                             .frame(maxHeight: 400)
                             .cornerRadius(10)
@@ -346,7 +350,7 @@ extension CurationView {
 
                         // Full screen button
                         Button {
-                            fullScreenVideoURL = fullURL
+                            fullScreenVideoURL = playURL
                             isVideoFullScreen = true
                         } label: {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")

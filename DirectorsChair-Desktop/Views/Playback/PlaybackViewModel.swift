@@ -969,7 +969,9 @@ class PlaybackViewModel: ObservableObject {
 
     func resolvedVideoPath(for relativePath: String?) -> URL? {
         guard let path = relativePath, !path.isEmpty, let base = basePath else { return nil }
-        return base.appendingPathComponent(path)
+        // Proxy when fresh and allowed, original otherwise — playback is
+        // exactly what proxies exist for (§2.17).
+        return ProxyPlayback.url(forRelativePath: path, projectBase: base)
     }
 
     /// Formatted timecode for display
