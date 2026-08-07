@@ -272,3 +272,9 @@ struct SnapshotsSheet: View {
         }
     }
 }
+
+/// Hands the launch-detected crash report from the app delegate to
+/// whichever ContentView appears first. A one-slot mailbox, not state.
+enum CrashReportPresenter {
+    @MainActor static var pending: DirectorsChairCore.CrashReport?
+}
