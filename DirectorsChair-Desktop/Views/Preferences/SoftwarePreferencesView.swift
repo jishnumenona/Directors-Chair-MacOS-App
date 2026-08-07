@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import DirectorsChairCore
 import AppKit
 
 // MARK: - Preference Section Enum
@@ -43,6 +44,10 @@ struct SoftwarePreferencesView: View {
     @ObservedObject var prefs: PreferencesManager = .shared
     @State private var selectedSection: PreferenceSection = .general
     @State private var showResetAlert = false
+
+    /// §2.17 proxy playback — stored under ProxyPlayback.preferenceKey so
+    /// the Core resolver and this toggle can never disagree.
+    @AppStorage(ProxyPlayback.preferenceKey) private var useProxyMedia = true
 
     var body: some View {
         HSplitView {
@@ -220,6 +225,22 @@ struct SoftwarePreferencesView: View {
                     }
 
                     PrefToggle(label: "Confirm before closing unsaved projects", icon: "exclamationmark.triangle", isOn: $prefs.saveConfirmation)
+                }
+            }
+
+            // Media
+            PrefCard(title: "MEDIA", icon: "film.stack") {
+                VStack(alignment: .leading, spacing: 12) {
+                    PrefToggle(label: "Play proxy media when available",
+                               icon: "rectangle.compress.vertical",
+                               isOn: $useProxyMedia)
+                    Text("Takes and dailies play from lightweight 720p "
+                         + "proxies generated in the background, so 4K "
+                         + "footage scrubs smoothly. Originals are always "
+                         + "kept and used for anything but playback.")
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

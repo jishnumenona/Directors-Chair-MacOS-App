@@ -331,7 +331,10 @@ extension CurationView {
             if side == .left { compareLeftPlayer = nil } else { compareRightPlayer = nil }
             return
         }
-        let player = AVPlayer(url: url)
+        // Two originals side by side is the worst decode load in the
+        // app — the compare grid is where proxies earn their disk.
+        let player = AVPlayer(url: ProxyPlayback.url(
+            forRelativePath: videoPath, projectBase: dir) ?? url)
         if side == .left { compareLeftPlayer = player } else { compareRightPlayer = player }
     }
 

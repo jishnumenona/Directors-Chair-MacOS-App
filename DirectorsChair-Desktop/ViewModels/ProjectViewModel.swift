@@ -354,6 +354,13 @@ class ProjectViewModel: ObservableObject {
             // A fresh document starts a fresh history — never undo across
             // documents.
             resetUndoHistory()
+            // Background-fill proxies for every clip the project
+            // references (§2.17). Idempotent, mtime-guarded, two at a
+            // time at background QoS — reopening a project costs a stat
+            // per clip, not an encode.
+            ProxyMediaStore.shared.sweep(
+                relativePaths: ProxyPlayback.mediaRelativePaths(in: project),
+                projectBase: path.deletingLastPathComponent())
             isLoading = false
             PerfCounters.shared.record(name: "project.load",
                                        nanoseconds: DispatchTime.now().uptimeNanoseconds - loadStart)
