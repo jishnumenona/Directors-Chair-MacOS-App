@@ -197,6 +197,40 @@ class ProjectViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    // MARK: - Project snapshots (P1 §2.17)
+
+    /// A deliberate restore point, named by the user.
+    func snapshotNow(label: String) async {
+        guard let path = projectPath else { return }
+        do {
+            _ = try await ProjectSnapshotStore.shared.create(
+                project, forProjectAt: path,
+                label: label.isEmpty ? "Snapshot" : label)
+        } catch {
+            errorAlert = ErrorAlert(error: error,
+                                    title: "Could Not Save Snapshot")
+        }
+    }
+
+    /// Replace the working project with a snapshot's contents. The
+    /// current state is snapshotted first — restoring must never be the
+    /// way work gets lost — and the swap itself commits through
+    /// `project`, so it is UNDOABLE like any other edit and autosaves
+    /// like any other edit.
+    func restoreSnapshot(_ snapshot: DirectorsChairCore.ProjectSnapshot) async {
+        guard let path = projectPath else { return }
+        do {
+            let restored = try await ProjectSnapshotStore.shared
+                .restore(snapshot)
+            _ = try? await ProjectSnapshotStore.shared.create(
+                project, forProjectAt: path, label: "Before restore")
+            project = restored
+        } catch {
+            errorAlert = ErrorAlert(error: error,
+                                    title: "Could Not Restore Snapshot")
+        }
+    }
+
     // MARK: - App-wide undo (P0 §2.16c)
 
     /// The focused window's undo manager, pushed in by ContentView from
@@ -361,6 +395,12 @@ class ProjectViewModel: ObservableObject {
             ProxyMediaStore.shared.sweep(
                 relativePaths: ProxyPlayback.mediaRelativePaths(in: project),
                 projectBase: path.deletingLastPathComponent())
+            // First open of the day gets a free restore point (§2.17).
+            let snapshotProject = project
+            Task.detached(priority: .background) {
+                _ = try? await ProjectSnapshotStore.shared.createDailyIfDue(
+                    snapshotProject, forProjectAt: path)
+            }
             isLoading = false
             PerfCounters.shared.record(name: "project.load",
                                        nanoseconds: DispatchTime.now().uptimeNanoseconds - loadStart)

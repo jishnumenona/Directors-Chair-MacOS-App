@@ -88,6 +88,8 @@ class AppCoordinator: ObservableObject {
     /// the board opens — set by "Show on the vision board" from a scene or
     /// a shot, cleared by the board once it has arrived.
     @Published var revealVisionCardId: String?
+    /// The snapshots browse/restore sheet (File → Project Snapshots…).
+    @Published var showingSnapshots = false
 
     /// Currently selected character (for story design)
     @Published var selectedCharacter: Character?
