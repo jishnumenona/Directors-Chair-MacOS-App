@@ -572,6 +572,25 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
         }
     }
 
+    /// ⌘K opens the command palette; typing narrows it; Return runs the
+    /// selection and closes it (§2.18).
+    @MainActor
+    func testCommandPaletteOpensAndRuns() throws {
+        launchToFixture()
+        app.typeKey("k", modifierFlags: .command)
+        let palette = app.descendants(matching: .any)
+            .matching(identifier: "command-palette").firstMatch
+        XCTAssertTrue(palette.waitForExistence(timeout: 6),
+                      "⌘K must open the palette")
+        app.typeText("scenes")
+        app.typeKey(.return, modifierFlags: [])
+        let deadline = Date().addingTimeInterval(5)
+        while palette.exists && Date() < deadline { usleep(150_000) }
+        XCTAssertFalse(palette.exists,
+                       "running a command must close the palette")
+        XCTAssertGreaterThan(app.windows.count, 0)
+    }
+
     /// Assets opens and is searchable — the professional minimum for a
     /// library surface.
     @MainActor

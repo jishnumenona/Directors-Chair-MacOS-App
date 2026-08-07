@@ -27,6 +27,13 @@ struct ViewCommands: Commands {
 
     var body: some Commands {
         CommandMenu("View") {
+            Button("Command Palette…") {
+                coordinator?.showingCommandPalette.toggle()
+            }
+            .keyboardShortcut("k", modifiers: .command)
+
+            Divider()
+
             // Main Views
             Menu("Go to View") {
                 Button("Project Overview") {

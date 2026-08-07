@@ -215,3 +215,110 @@ struct WallLinksButton: View {
         }
     }
 }
+
+// MARK: - Command palette catalog (§2.18)
+//
+// Lives here for the same reason VisionLinkLookup does: new files under
+// the app target's synchronized folder group silently don't compile, so
+// homeless app-target code moves in with an existing neighbour. The
+// palette's generic half (entry model, ranker, panel UI) is
+// CommandPaletteCore in DirectorsChairViews.
+
+/// Everything ⌘K can do, and how to do it. The catalog is rebuilt on each
+/// palette open — cheap, and it tracks live state (project open or not,
+/// signed in or not) without invalidation bookkeeping.
+@MainActor
+enum CommandPaletteCatalog {
+
+    static let productionTabs = ["Schedule", "Gantt", "Cast & Crew",
+                                 "Accounting", "Equipment"]
+
+    static func entries(coordinator: AppCoordinator,
+                        projectViewModel: ProjectViewModel,
+                        assistantAvailable: Bool) -> [PaletteEntry] {
+        var entries: [PaletteEntry] = []
+
+        // Navigation first: it is what an empty palette should offer.
+        for view in AppView.allCases {
+            if view.requiresProject && !projectViewModel.hasProject { continue }
+            entries.append(PaletteEntry(
+                id: "nav.\(view.rawValue)",
+                title: "Go to \(view.rawValue)",
+                subtitle: nil,
+                systemImage: view.icon,
+                category: .navigation))
+        }
+        if projectViewModel.hasProject {
+            for tab in productionTabs {
+                entries.append(PaletteEntry(
+                    id: "ptab.\(tab)",
+                    title: "Production: \(tab)",
+                    subtitle: nil,
+                    systemImage: "theatermasks",
+                    category: .navigation))
+            }
+        }
+
+        // App commands.
+        if projectViewModel.hasProject {
+            entries.append(PaletteEntry(
+                id: "cmd.save", title: "Save Project",
+                subtitle: "Write the project to disk now",
+                systemImage: "square.and.arrow.down", category: .command))
+            entries.append(PaletteEntry(
+                id: "cmd.snapshots", title: "Project Snapshots…",
+                subtitle: "Browse and restore restore-points",
+                systemImage: "clock.arrow.circlepath", category: .command))
+        }
+        entries.append(PaletteEntry(
+            id: "cmd.assistant", title: "AI Assistant",
+            subtitle: "Open the assistant chat",
+            systemImage: "sparkles", category: .command))
+
+        // Assistant actions: what the palette makes discoverable. Picking
+        // one stages its phrase in the chat composer — actions take
+        // arguments, so the finishing move belongs to the user, in words.
+        if assistantAvailable && projectViewModel.hasProject {
+            let registry = AssistantActionFactory.makeRegistry(
+                projectViewModel: projectViewModel, coordinator: coordinator)
+            for tool in registry.toolDefinitions {
+                entries.append(PaletteEntry(
+                    id: "action.\(tool.name)",
+                    title: humanize(tool.name),
+                    subtitle: tool.description,
+                    systemImage: "sparkles",
+                    category: .assistant))
+            }
+        }
+        return entries
+    }
+
+    static func run(_ entry: PaletteEntry,
+                    coordinator: AppCoordinator,
+                    projectViewModel: ProjectViewModel) {
+        if entry.id.hasPrefix("nav."),
+           let view = AppView(rawValue: String(entry.id.dropFirst(4))) {
+            coordinator.navigateTo(view)
+        } else if entry.id.hasPrefix("ptab.") {
+            coordinator.selectedProductionTab = String(entry.id.dropFirst(5))
+            coordinator.navigateTo(.production)
+        } else if entry.id == "cmd.save" {
+            Task { await projectViewModel.save() }
+        } else if entry.id == "cmd.snapshots" {
+            coordinator.showingSnapshots = true
+        } else if entry.id == "cmd.assistant" {
+            coordinator.showingAIChat = true
+        } else if entry.id.hasPrefix("action.") {
+            coordinator.pendingAssistantPrompt = entry.title + " "
+            coordinator.showingAIChat = true
+        }
+    }
+
+    /// "generate_scene_image" → "Generate scene image".
+    static func humanize(_ wireName: String) -> String {
+        let words = wireName
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+}

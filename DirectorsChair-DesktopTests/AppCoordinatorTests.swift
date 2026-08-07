@@ -7,6 +7,7 @@ import Combine
 @testable import DirectorsChair_Desktop
 @testable import DirectorsChairCore
 @testable import DirectorsChairServices
+import DirectorsChairViews
 
 @MainActor
 final class AppCoordinatorTests: XCTestCase {
@@ -628,5 +629,119 @@ final class PlaybackViewModelContractTests: XCTestCase {
         XCTAssertEqual(viewModel.resolvedVideoPath(for: rel),
                        base.appendingPathComponent(rel),
                        "the Preferences toggle restores originals")
+    }
+}
+
+// MARK: - Command palette catalog (§2.18)
+//
+// Same housing note as VisionWallLinksTests: new files in this target's
+// synchronized folder group don't compile, so the palette's app-side
+// tests live here. The generic ranking is pinned in the Views package
+// (CommandPaletteRankTests); these pin what the CATALOG promises — what
+// ⌘K offers tracks live app state, ids stay unique, and an assistant
+// action stages rather than fires.
+
+@MainActor
+final class CommandPaletteCatalogTests: XCTestCase {
+
+    private func makeViewModel(withProject: Bool) -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        if withProject {
+            viewModel.project = Project(name: "Palette Test")
+            viewModel.hasProject = true
+        }
+        return viewModel
+    }
+
+    func testCatalogTracksProjectState() {
+        let coordinator = AppCoordinator()
+        let without = CommandPaletteCatalog.entries(
+            coordinator: coordinator,
+            projectViewModel: makeViewModel(withProject: false),
+            assistantAvailable: true)
+        XCTAssertFalse(without.contains { $0.id == "nav.Scenes" },
+                       "project-requiring views must not be offered "
+                       + "with no project open")
+        XCTAssertFalse(without.contains { $0.id.hasPrefix("ptab.") })
+        XCTAssertFalse(without.contains { $0.id.hasPrefix("action.") })
+        XCTAssertTrue(without.contains { $0.id == "nav.Projects" },
+                      "the way OUT of no-project state must be offered")
+
+        let with = CommandPaletteCatalog.entries(
+            coordinator: coordinator,
+            projectViewModel: makeViewModel(withProject: true),
+            assistantAvailable: true)
+        XCTAssertTrue(with.contains { $0.id == "nav.Scenes" })
+        for tab in CommandPaletteCatalog.productionTabs {
+            XCTAssertTrue(with.contains { $0.id == "ptab.\(tab)" },
+                          "every real production tab is reachable — the "
+                          + "UI journeys proved these five exist")
+        }
+        XCTAssertGreaterThan(
+            with.filter { $0.id.hasPrefix("action.") }.count, 30,
+            "the assistant's catalog is the palette's long tail")
+    }
+
+    func testCatalogIdsAreUniqueAndNavigationLeads() {
+        let entries = CommandPaletteCatalog.entries(
+            coordinator: AppCoordinator(),
+            projectViewModel: makeViewModel(withProject: true),
+            assistantAvailable: true)
+        XCTAssertEqual(Set(entries.map(\.id)).count, entries.count,
+                       "two entries sharing an id would collide in the list")
+        XCTAssertEqual(entries.first?.category, .navigation,
+                       "an empty palette shows navigation first")
+    }
+
+    func testAssistantUnavailableHidesActionsButKeepsTheApp() {
+        let entries = CommandPaletteCatalog.entries(
+            coordinator: AppCoordinator(),
+            projectViewModel: makeViewModel(withProject: true),
+            assistantAvailable: false)
+        XCTAssertFalse(entries.contains { $0.id.hasPrefix("action.") },
+                       "signed out, the chat can't open — offering its "
+                       + "actions would dead-end")
+        XCTAssertTrue(entries.contains { $0.id == "nav.Scenes" })
+    }
+
+    func testRunningAnAssistantActionStagesInsteadOfFiring() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel(withProject: true)
+        let entry = PaletteEntry(id: "action.update_scene_description",
+                                 title: "Update scene description",
+                                 subtitle: nil, systemImage: "sparkles",
+                                 category: .assistant)
+        CommandPaletteCatalog.run(entry, coordinator: coordinator,
+                                  projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.pendingAssistantPrompt,
+                       "Update scene description ",
+                       "actions take arguments — the palette stages the "
+                       + "phrase for the user to finish, never fires blind")
+        XCTAssertTrue(coordinator.showingAIChat)
+    }
+
+    func testRunningNavigationAndTabsNavigates() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel(withProject: true)
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "nav.Scenes", title: "Go to Scenes",
+                         subtitle: nil, systemImage: "film",
+                         category: .navigation),
+            coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedView, .scenes)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "ptab.Accounting", title: "Production: Accounting",
+                         subtitle: nil, systemImage: "theatermasks",
+                         category: .navigation),
+            coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedView, .production)
+        XCTAssertEqual(coordinator.selectedProductionTab, "Accounting")
+    }
+
+    func testHumanizeTurnsWireNamesIntoTitles() {
+        XCTAssertEqual(CommandPaletteCatalog.humanize("generate_scene_image"),
+                       "Generate scene image")
+        XCTAssertEqual(CommandPaletteCatalog.humanize("navigate"), "Navigate")
     }
 }
