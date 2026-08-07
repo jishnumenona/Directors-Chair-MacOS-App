@@ -10,6 +10,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import DirectorsChairCore
+import DirectorsChairExports
 
 struct ExportCommands: Commands {
     // Injected app-scoped reference (see ViewCommands note re: @FocusedValue).
@@ -52,8 +53,39 @@ struct ExportCommands: Commands {
             }
             .disabled(projectViewModel?.hasProject != true)
 
-            Button("Export Shot List...") {
-                // TODO: Implement shot list export
+            // Editorial handoff (§2.17): what other departments' tools eat.
+            Button("Export Shot List EDL...") {
+                if let vm = projectViewModel {
+                    exportInterchange(
+                        title: "Export Shot List EDL",
+                        fileName: "\(vm.project.name) - planned cut.edl",
+                        contentTypes: [],
+                        content: EditorialInterchange.edl(project: vm.project))
+                }
+            }
+            .disabled(projectViewModel?.hasProject != true)
+
+            Button("Export Final Cut Pro XML...") {
+                if let vm = projectViewModel {
+                    exportInterchange(
+                        title: "Export Final Cut Pro XML",
+                        fileName: "\(vm.project.name) - planned cut.fcpxml",
+                        contentTypes: [UTType.xml],
+                        content: EditorialInterchange.fcpxml(
+                            project: vm.project))
+                }
+            }
+            .disabled(projectViewModel?.hasProject != true)
+
+            Button("Export Stripboard CSV...") {
+                if let vm = projectViewModel {
+                    exportInterchange(
+                        title: "Export Stripboard CSV",
+                        fileName: "\(vm.project.name) - stripboard.csv",
+                        contentTypes: [UTType.commaSeparatedText],
+                        content: EditorialInterchange.stripboardCSV(
+                            project: vm.project))
+                }
             }
             .disabled(projectViewModel?.hasProject != true)
 
@@ -85,6 +117,21 @@ struct ExportCommands: Commands {
     }
 
     // MARK: - Cue Timeline HTML Export
+
+    /// One save panel for every plain-text interchange document. EDL has
+    /// no UTType — the extension in the suggested name carries it.
+    private func exportInterchange(title: String, fileName: String,
+                                   contentTypes: [UTType], content: String) {
+        let panel = NSSavePanel()
+        panel.title = title
+        panel.nameFieldStringValue = fileName
+        if !contentTypes.isEmpty { panel.allowedContentTypes = contentTypes }
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        } catch { NSAlert(error: error).runModal() }
+    }
 
     private func exportCueTimeline(project: Project) {
         let panel = NSSavePanel()
