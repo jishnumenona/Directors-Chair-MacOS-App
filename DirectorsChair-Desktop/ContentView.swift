@@ -82,6 +82,41 @@ struct ContentView: View {
     /// own typing-grained history, so snapshots stand down while it is
     /// frontmost; every other surface gets "Undo <Surface> Edit" on the
     /// window's own manager.
+    @State private var crashReport: DirectorsChairCore.CrashReport?
+
+    /// Ambient breadcrumbs: cheap, occasional, never in a crash path —
+    /// this is how a report can say what you were doing.
+    private func noteTelemetryState(view: AppView) {
+        guard !TestMode.isUITesting else { return }
+        let shots = projectViewModel.hasProject
+            ? projectViewModel.project.sequences
+                .flatMap(\.scenes).reduce(0) { $0 + $1.shots.count }
+            : nil
+        let name = projectViewModel.hasProject
+            ? projectViewModel.project.name : nil
+        Task {
+            await CrashTelemetry.shared.noteState(
+                lastView: view.rawValue, projectName: name,
+                projectShots: shots)
+        }
+    }
+
+    private func crashAlertBody(
+        _ report: DirectorsChairCore.CrashReport) -> String {
+        var lines: [String] = []
+        if let summary = report.terminationSummary {
+            lines.append(summary)
+        }
+        if let view = report.lastView {
+            lines.append("You were in \(view)"
+                + (report.projectName.map { " on \u{201C}\($0)\u{201D}" }
+                    ?? "") + ".")
+        }
+        lines.append("A report was saved on this Mac. Nothing is sent "
+                     + "anywhere.")
+        return lines.joined(separator: "\n")
+    }
+
     private func wireAppWideUndo() {
         projectViewModel.windowUndoManager = windowUndoManager
         projectViewModel.shouldRecordUndo = { [weak coordinator] in
@@ -257,7 +292,32 @@ struct ContentView: View {
             SnapshotsSheet()
                 .environmentObject(projectViewModel)
         }
-        .onAppear { wireAppWideUndo() }
+        .onAppear {
+            wireAppWideUndo()
+            if let report = CrashReportPresenter.pending {
+                CrashReportPresenter.pending = nil
+                crashReport = report
+            }
+        }
+        .onChange(of: coordinator.selectedView) { _, view in
+            noteTelemetryState(view: view)
+        }
+        .onChange(of: projectViewModel.hasProject) { _, _ in
+            noteTelemetryState(view: coordinator.selectedView)
+        }
+        .alert("The app quit unexpectedly last time",
+               isPresented: Binding(get: { crashReport != nil },
+                                    set: { if !$0 { crashReport = nil } }),
+               presenting: crashReport) { _ in
+            Button("Show Report") {
+                NSWorkspace.shared.activateFileViewerSelecting(
+                    [CrashTelemetry.shared.reportsDirectory])
+                crashReport = nil
+            }
+            Button("OK", role: .cancel) { crashReport = nil }
+        } message: { report in
+            Text(crashAlertBody(report))
+        }
         .onChange(of: windowUndoManager) { _, _ in wireAppWideUndo() }
         .onAppear {
             // UI-test mode: don't install global key monitors. The

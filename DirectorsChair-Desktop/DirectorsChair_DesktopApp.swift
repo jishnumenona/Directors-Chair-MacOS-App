@@ -226,9 +226,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 await group.next()
                 group.cancelAll()
             }
+            await CrashTelemetry.shared.endSessionCleanly()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // The .terminateNow fast path (nothing dirty) skips the async
+        // reply above — the lock still has to come off.
+        guard !TestMode.isUITesting else { return }
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            await CrashTelemetry.shared.endSessionCleanly()
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 2)
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -238,7 +251,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Crash telemetry (§2.17): the previous session's corpse is looked
+    /// for BEFORE this session's lock is written, and never during UI
+    /// tests — the test driver kills the app by design, which would
+    /// otherwise greet every test launch with a crash dialog.
+    private func startCrashTelemetry() {
+        guard !TestMode.isUITesting else { return }
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
+            as? String ?? "dev"
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        Task { @MainActor in
+            if let report = await CrashTelemetry.shared.launchCheck(
+                appVersion: version, osVersion: os) {
+                CrashReportPresenter.pending = report
+            }
+            await CrashTelemetry.shared.beginSession(appVersion: version)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        startCrashTelemetry()
         // UI-test mode: don't hide the window or run the splash at all. Let
         // SwiftUI's WindowGroup present the main window naturally (hiding it
         // and re-showing after a manual delay is exactly what raced the test
