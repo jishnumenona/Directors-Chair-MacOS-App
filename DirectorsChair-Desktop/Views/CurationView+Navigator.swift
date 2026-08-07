@@ -222,6 +222,8 @@ extension CurationView {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(Color(hex: "#252525"))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("curation-scene-row-\(scene.name)")
 
             // Shots
             ForEach(scene.shots, id: \.shotId) { shot in

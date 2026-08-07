@@ -31,6 +31,12 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
     @MainActor
     private func launchToFixture() {
         app.launch()
+        // A test-driven launch starts in the background, and macOS will not
+        // order a background app's window in on its own — activate() is the
+        // driver-privileged equivalent of clicking the Dock icon (the app
+        // nudges its own window front in test mode too, but the runner-side
+        // request is the one macOS always honors).
+        app.activate()
         // The window always appears first; splash + async fixture generation
         // + auth settling follow. Wait for the nav rail to be interactive
         // (any primary nav button), which is the true "ready" signal —
@@ -511,43 +517,32 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
     /// Curation opens and its navigator lists the fixture's scenes.
     @MainActor
     func testCurationOpensAndListsScenes() throws {
-        // PARKED (backlog §2.17 test debt): written and compiling, but
-        // these four surfaces don't yet expose stable accessibility
-        // identifiers, so the element queries below are guesses that
-        // fail against the real app. Land the identifier instrumentation
-        // first, then delete this skip — never assert against luck.
-        throw XCTSkip("Pending accessibility-identifier instrumentation "
-                      + "on curation/playback/production/assets")
         launchToFixture()
         navigate(to: "nav-curation")
 
-        // The curation navigator lists scene sections; any fixture scene
-        // name appearing proves the pipeline project → navigator works.
-        let sceneText = app.staticTexts
-            .containing(NSPredicate(format: "value CONTAINS[c] %@ OR label CONTAINS[c] %@",
-                                    "Scene", "Scene")).firstMatch
-        XCTAssertTrue(sceneText.waitForExistence(timeout: 6),
-                      "Curation must list the fixture's scenes")
+        // The fixture is 3 scenes with no takes; the navigator's contract
+        // (pinned in CurationFilterTests) is that an unfiltered list shows
+        // every scene, take-less ones included. Each header row carries
+        // curation-scene-row-<name>.
+        for name in ["Scene 1", "Scene 2", "Scene 3"] {
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "curation-scene-row-\(name)").firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 10),
+                          "Curation must list fixture scene '\(name)'")
+        }
     }
 
     /// Playback opens without media and presents its transport rather
     /// than a blank pane or a crash.
     @MainActor
     func testPlaybackOpensWithTransportControls() throws {
-        // PARKED (backlog §2.17 test debt): written and compiling, but
-        // these four surfaces don't yet expose stable accessibility
-        // identifiers, so the element queries below are guesses that
-        // fail against the real app. Land the identifier instrumentation
-        // first, then delete this skip — never assert against luck.
-        throw XCTSkip("Pending accessibility-identifier instrumentation "
-                      + "on curation/playback/production/assets")
         launchToFixture()
         navigate(to: "nav-playback")
 
-        let anyControl = app.buttons
-            .containing(NSPredicate(format: "identifier CONTAINS[c] %@ OR label CONTAINS[c] %@",
-                                    "play", "play")).firstMatch
-        XCTAssertTrue(anyControl.waitForExistence(timeout: 6),
+        // The transport bar mounts unconditionally (PlaybackView), media
+        // or not — a fixture with zero recorded takes must still show it.
+        let playPause = app.buttons["playback-play-pause"]
+        XCTAssertTrue(playPause.waitForExistence(timeout: 10),
                       "Playback must present transport controls even "
                       + "with no media in the fixture")
         XCTAssertGreaterThan(app.windows.count, 0)
@@ -557,19 +552,18 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
     /// machinery, not just the container, must work.
     @MainActor
     func testProductionSubTabsSwitch() throws {
-        // PARKED (backlog §2.17 test debt): written and compiling, but
-        // these four surfaces don't yet expose stable accessibility
-        // identifiers, so the element queries below are guesses that
-        // fail against the real app. Land the identifier instrumentation
-        // first, then delete this skip — never assert against luck.
-        throw XCTSkip("Pending accessibility-identifier instrumentation "
-                      + "on curation/playback/production/assets")
         launchToFixture()
         navigate(to: "nav-production")
 
-        for tab in ["Budget", "Cast & Crew", "Schedule"] {
+        // The real tab bar (ContentView+Production): Schedule, Gantt,
+        // Cast & Crew, Accounting, Equipment. The first parked draft
+        // clicked a "Budget" tab that has never existed — ids are the
+        // contract now, not display strings.
+        for tab in ["production-tab-schedule", "production-tab-gantt",
+                    "production-tab-cast-crew", "production-tab-accounting",
+                    "production-tab-equipment"] {
             let button = app.buttons[tab].firstMatch
-            guard button.waitForExistence(timeout: 6) else {
+            guard button.waitForExistence(timeout: 10) else {
                 return XCTFail("Production must offer the \(tab) tab")
             }
             button.click()
@@ -582,22 +576,17 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
     /// library surface.
     @MainActor
     func testAssetsOpensAndIsSearchable() throws {
-        // PARKED (backlog §2.17 test debt): written and compiling, but
-        // these four surfaces don't yet expose stable accessibility
-        // identifiers, so the element queries below are guesses that
-        // fail against the real app. Land the identifier instrumentation
-        // first, then delete this skip — never assert against luck.
-        throw XCTSkip("Pending accessibility-identifier instrumentation "
-                      + "on curation/playback/production/assets")
         launchToFixture()
         navigate(to: "nav-assets")
 
-        let search = app.searchFields.firstMatch.exists
-            ? app.searchFields.firstMatch
-            : app.textFields
-                .containing(NSPredicate(format: "placeholderValue CONTAINS[c] %@",
-                                        "search")).firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 6),
+        // A .plain-style SwiftUI TextField surfaces as a textField, not a
+        // searchField — query the stable id across both just in case the
+        // style ever changes.
+        let byText = app.textFields["assets-search"]
+        let search = byText.waitForExistence(timeout: 10)
+            ? byText
+            : app.searchFields["assets-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5),
                       "Assets must be searchable")
         search.click()
         search.typeText("prop")
