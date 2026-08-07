@@ -57,6 +57,10 @@ struct ContentView: View {
     @State private var timelineHeightRatio: CGFloat = 0.20
 
     /// Sidebar width
+    /// The window's undo manager — handed to the project view-model so
+    /// every committed project edit registers app-wide undo (P0 §2.16c).
+    @Environment(\.undoManager) private var windowUndoManager
+
     @State private var sidebarWidth: CGFloat = 280
 
     /// Whether we're on the Projects view (hide panels)
@@ -72,6 +76,20 @@ struct ContentView: View {
     /// Whether to show the timeline (hidden on Projects view)
     private var shouldShowTimeline: Bool {
         coordinator.showingTimeline && !isProjectsView
+    }
+
+    /// See ProjectViewModel's undo section. The script editor keeps its
+    /// own typing-grained history, so snapshots stand down while it is
+    /// frontmost; every other surface gets "Undo <Surface> Edit" on the
+    /// window's own manager.
+    private func wireAppWideUndo() {
+        projectViewModel.windowUndoManager = windowUndoManager
+        projectViewModel.shouldRecordUndo = { [weak coordinator] in
+            coordinator?.selectedView != .script
+        }
+        projectViewModel.undoActionNameProvider = { [weak coordinator] in
+            "\(coordinator?.selectedView.rawValue ?? "Project") Edit"
+        }
     }
 
     var body: some View {
@@ -235,6 +253,8 @@ struct ContentView: View {
                   message: Text(presented.message),
                   dismissButton: .default(Text("OK")))
         }
+        .onAppear { wireAppWideUndo() }
+        .onChange(of: windowUndoManager) { _, _ in wireAppWideUndo() }
         .onAppear {
             // UI-test mode: don't install global key monitors. The
             // double-shift monitor watches Shift-key events, so typing

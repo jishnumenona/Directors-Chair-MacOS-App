@@ -476,3 +476,135 @@ final class NoLostWorkTests: XCTestCase {
         XCTAssertEqual(viewModel.autosaveFailureStreak, 5)
     }
 }
+
+// MARK: - App-wide undo (P0 §2.16c)
+//
+// One choke point: every durable edit — shots, production tables,
+// curation picks, boards — commits through projectViewModel.project, so
+// snapshot undo there is undo for the whole app. These pin the contract
+// against a real UndoManager.
+
+@MainActor
+final class AppWideUndoTests: XCTestCase {
+
+    private func pump(_ seconds: TimeInterval = 0.05) {
+        RunLoop.main.run(mode: .default,
+                         before: Date().addingTimeInterval(seconds))
+    }
+
+    /// Closes the per-event undo group the way the live app's event loop
+    /// does at the end of each event — a bare runloop pump in a test
+    /// process doesn't count as an event boundary.
+    private func endEvent(_ manager: UndoManager) {
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+        // Let the runloop tick so the manager will lazily open a fresh
+        // group for the next registration.
+        pump(0.02)
+    }
+
+    private func makeViewModel(_ manager: UndoManager)
+        -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        viewModel.hasProject = true
+        viewModel.windowUndoManager = manager
+        viewModel.project.name = "origin"
+        endEvent(manager)         // close the seeding event group
+        return viewModel
+    }
+
+    func testUndoRestoresAndRedoReapplies() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        XCTAssertTrue(manager.canUndo, "a committed edit is undoable")
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "origin")
+        XCTAssertTrue(manager.canRedo)
+
+        manager.redo()
+        XCTAssertEqual(viewModel.project.name, "edited")
+    }
+
+    func testABurstInOneEventIsOneUndoStep() {
+        // A gesture that commits several fields must not take several ⌘Z
+        // to take back — NSUndoManager's per-event grouping, kept intact
+        // by registering synchronously with the mutation.
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+
+        viewModel.project.name = "step-a"
+        viewModel.project.budget = "999"
+        endEvent(manager)
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "origin")
+        XCTAssertNotEqual(viewModel.project.budget, "999",
+                          "one gesture, one undo")
+    }
+
+    func testSeparateEventsAreSeparateSteps() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+
+        viewModel.project.name = "first"
+        endEvent(manager)
+        viewModel.project.name = "second"
+        endEvent(manager)
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "first")
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "origin")
+    }
+
+    func testUndoIsAnEditItMarksDirtyAndAutosaves() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        pump(0.3)
+        viewModel.isDirty = false     // pretend everything was saved
+
+        manager.undo()
+        pump(0.3)
+        XCTAssertTrue(viewModel.isDirty,
+            "a restore changes the document — it saves like any edit")
+    }
+
+    func testScriptModeStandsDown() {
+        // The script editor owns typing-grained history; while it is
+        // frontmost, project snapshots must not double-book ⌘Z.
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.shouldRecordUndo = { false }
+
+        viewModel.project.name = "typed in script"
+        endEvent(manager)
+        XCTAssertFalse(manager.canUndo)
+    }
+
+    func testDocumentBoundariesEndTheHistory() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        XCTAssertTrue(manager.canUndo)
+
+        viewModel.resetUndoHistory()
+        XCTAssertFalse(manager.canUndo,
+            "undo never carries one document into another's history")
+    }
+
+    func testUndoNamesTheSurface() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.undoActionNameProvider = { "Shot List Edit" }
+
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        XCTAssertEqual(manager.undoMenuItemTitle, "Undo Shot List Edit")
+    }
+}
