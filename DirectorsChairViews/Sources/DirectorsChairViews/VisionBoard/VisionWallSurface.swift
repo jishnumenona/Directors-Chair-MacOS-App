@@ -22,27 +22,30 @@ import SwiftUI
 
 struct VisionWallSurface: View {
     let transform: CanvasTransform
+    /// What the wall is made of (per board; plaster is every wall that
+    /// existed before textures did).
+    var texture: VisionWallTexture = .plaster
     /// Grain tile size in screen points.
-    private static let grainTile: CGFloat = 96
+    private static let grainTile: CGFloat = VisionWallTexture.tile
     /// World size of a cell that carries its own marks.
     private static let cell: CGFloat = 620
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: VisionWallPalette.surface,
+            LinearGradient(colors: texture.surface,
                            startPoint: .topLeading, endPoint: .bottomTrailing)
 
             // Grain travels with the wall — this is what makes panning
             // read as movement instead of a frozen backdrop.
             GeometryReader { geometry in
-                Image(nsImage: Self.grain)
+                Image(nsImage: VisionWallTexture.grain(for: texture))
                     .resizable(resizingMode: .tile)
                     .frame(width: geometry.size.width + Self.grainTile * 2,
                            height: geometry.size.height + Self.grainTile * 2)
                     .offset(x: phase(transform.offset.x) - Self.grainTile,
                             y: phase(transform.offset.y) - Self.grainTile)
-                    .opacity(0.17)
-                    .blendMode(.multiply)
+                    .opacity(texture.grainOpacity)
+                    .blendMode(texture.grainBlend)
             }
             .allowsHitTesting(false)
 
@@ -53,7 +56,7 @@ struct VisionWallSurface: View {
             .allowsHitTesting(false)
 
             // Light belongs to the viewer, not the wall, so it stays put.
-            RadialGradient(colors: [.clear, Color(hex: "#4A3B26").opacity(0.18)],
+            RadialGradient(colors: [.clear, texture.vignette],
                            center: .center, startRadius: 240, endRadius: 900)
                 .allowsHitTesting(false)
         }
@@ -102,7 +105,7 @@ struct VisionWallSurface: View {
                                                    y: point.y - radius,
                                                    width: radius * 2,
                                                    height: radius * 2)),
-                            with: .color(Color(hex: "#6B573A").opacity(0.30)))
+                            with: .color(texture.holeTone))
                     } else if kind == 1 {
                         // A scuff.
                         let length = (16 + CGFloat(hash % 40)) * transform.zoom
@@ -112,17 +115,17 @@ struct VisionWallSurface: View {
                                 $0.addLine(to: CGPoint(x: point.x + length,
                                                        y: point.y + length * 0.16))
                             },
-                            with: .color(Color(hex: "#8A7350").opacity(0.10)),
+                            with: .color(texture.scuffTone),
                             lineWidth: max(0.6, 1.1 * transform.zoom))
                     } else {
-                        // A patch where the plaster dried differently.
+                        // A patch where the material aged differently.
                         let radius = (30 + CGFloat(hash % 90)) * transform.zoom
                         context.fill(
                             Path(ellipseIn: CGRect(x: point.x - radius,
                                                    y: point.y - radius,
                                                    width: radius * 2,
                                                    height: radius * 2)),
-                            with: .color(Color(hex: "#B7A181").opacity(0.055)))
+                            with: .color(texture.patchTone))
                     }
                 }
             }
@@ -140,25 +143,6 @@ struct VisionWallSurface: View {
         return hash
     }
 
-    /// One tileable grain swatch, generated once. Deterministic (a fixed
-    /// FNV walk, never `random`) so the wall looks identical every launch.
-    static let grain: NSImage = {
-        let side = Int(grainTile)
-        let image = NSImage(size: NSSize(width: side, height: side))
-        image.lockFocus()
-        NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: side, height: side).fill()
-        var hash: UInt64 = 1469598103934665603
-        for y in 0..<side {
-            for x in 0..<side {
-                hash = (hash ^ UInt64(truncatingIfNeeded: x &* 31 &+ y)) &* 1099511628211
-                guard hash % 7 == 0 else { continue }
-                let alpha = Double((hash >> 8) % 40) / 400.0
-                NSColor(white: 0.35, alpha: alpha).setFill()
-                NSRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1).fill()
-            }
-        }
-        image.unlockFocus()
-        return image
-    }()
+    // Grain generation moved to VisionWallTexture — one deterministic
+    // tile per material, plaster's walk unchanged bit for bit.
 }

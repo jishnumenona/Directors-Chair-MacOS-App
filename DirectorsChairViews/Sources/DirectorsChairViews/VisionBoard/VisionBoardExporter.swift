@@ -69,7 +69,8 @@ public enum VisionBoardExporter {
     @MainActor
     public static func renderPNG(cards: [VisionCard],
                                  connectors: [VisionConnector] = [],
-                                 projectBase: URL?) -> Data? {
+                                 projectBase: URL?,
+                                 texture: VisionWallTexture = .plaster) -> Data? {
         guard let layout = layout(cards: cards) else { return nil }
 
         var images: [String: NSImage] = [:]
@@ -101,7 +102,8 @@ public enum VisionBoardExporter {
         let detail = detailScale(for: layout.canvasSize)
 
         let content = ZStack(alignment: .topLeading) {
-            VisionWallSurface(transform: CanvasTransform(zoom: 1, offset: .zero))
+            VisionWallSurface(transform: CanvasTransform(zoom: 1, offset: .zero),
+                              texture: texture)
 
             ForEach(ordered, id: \.id) { card in
                 if let frame = layout.frames[card.id] {

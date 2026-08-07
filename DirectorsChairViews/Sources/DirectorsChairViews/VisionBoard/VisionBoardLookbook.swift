@@ -70,7 +70,8 @@ public enum VisionBoardLookbook {
     @MainActor
     public static func renderPDF(cards: [VisionCard],
                                  connectors: [VisionConnector] = [],
-                                 projectBase: URL?) -> Data? {
+                                 projectBase: URL?,
+                                 texture: VisionWallTexture = .plaster) -> Data? {
         let bookPages = pages(cards: cards)
         guard !bookPages.isEmpty else { return nil }
 
@@ -84,7 +85,7 @@ public enum VisionBoardLookbook {
             }
             guard let png = VisionBoardExporter.renderPNG(
                 cards: page.cards, connectors: pageThread,
-                projectBase: projectBase),
+                projectBase: projectBase, texture: texture),
                   let image = NSImage(data: png),
                   let pdfPage = PDFPage(image: image) else { continue }
             document.insert(pdfPage, at: document.pageCount)
