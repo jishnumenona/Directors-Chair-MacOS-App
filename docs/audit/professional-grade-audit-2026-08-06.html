@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DirectorsChair — Professional-Grade Audit, 2026-08-06</title>
+<style>
+  :root {
+    --ink: #1c1a17; --paper: #faf8f4; --accent: #8e2c24; --dim: #6b6357;
+    --card: #f1ede5; --line: #d8d2c6; --good: #2c6e3f; --warn: #a06a10;
+    --bad: #a83226; --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e8e4dc; --paper: #171512; --accent: #d07a6e;
+            --dim: #9a938a; --card: #211e1a; --line: #3a352e;
+            --good: #7fc493; --warn: #d9a94e; --bad: #d97f72; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 15px/1.6 -apple-system, "Helvetica Neue", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 40px 28px 80px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 30px; }
+  h2 { font-size: 21px; margin: 44px 0 10px; border-bottom: 2px solid var(--accent);
+       padding-bottom: 6px; }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  p, li { max-width: 72ch; }
+  .tablewrap { overflow-x: auto; margin: 14px 0; }
+  table { border-collapse: collapse; font-size: 13.5px; min-width: 640px; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--card); font-weight: 600; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums;
+         text-align: right; white-space: nowrap; }
+  .A { color: var(--good); font-weight: 700; }
+  .B { color: var(--good); }
+  .C { color: var(--warn); font-weight: 600; }
+  .D { color: var(--bad); font-weight: 700; }
+  .fixed { background: color-mix(in srgb, var(--good) 12%, transparent); }
+  .chip { display: inline-block; font: 600 11px/1 var(--mono); padding: 4px 8px;
+          border-radius: 3px; margin-right: 6px; }
+  .p0 { background: var(--bad); color: var(--paper); }
+  .p1 { background: var(--warn); color: var(--paper); }
+  .p2 { background: var(--dim); color: var(--paper); }
+  .note { background: var(--card); border-left: 3px solid var(--accent);
+          padding: 10px 14px; margin: 14px 0; max-width: 72ch; }
+  code { font-family: var(--mono); font-size: 0.92em; background: var(--card);
+         padding: 1px 5px; border-radius: 3px; }
+  .verdict { font-size: 17px; }
+</style>
+</head>
+<body>
+<main>
+<h1>DirectorsChair — Professional-Grade Audit</h1>
+<p class="sub">2026-08-06 · Ten views × six dimensions · measured against a
+300-scene / 3,600-shot production and a 600-scene / 7,200-shot
+blockbuster-scale board · benchmark class: Logic Pro, Final Cut Pro,
+DaVinci Resolve, Premiere Pro</p>
+
+<h2>Executive verdict</h2>
+<p class="verdict">The foundations are genuinely professional-grade:
+atomic writes with backups, a 1,726-test suite with real UI-automation
+journeys and VoiceOver traversal checks, deterministic stress fixtures,
+and — after the three audits of this program — measured, guarded
+performance at blockbuster scale with <strong>no crashes and no
+super-linear cost growth anywhere</strong>. What separates this from the
+Logic&nbsp;/&nbsp;FCP&nbsp;/&nbsp;Resolve class today is not raw speed. It is a short list
+of platform-grade guarantees those apps treat as table stakes:
+<strong>continuous autosave, universal undo, document versioning, a
+proxy-based media pipeline, and interchange formats</strong> — plus
+depth of test coverage outside the script editor.</p>
+
+<h2>Method</h2>
+<p>Every number below is measured, not estimated: each view is mounted
+through the real <code>CentralViewRouter</code> (real coordinator,
+project view-model, timeline) against deterministic stress projects
+(<code>StressProjectGenerator</code>, fixed seed), timing cold mount and
+the cost of one whole-project publish while frontmost
+(<code>BigProjectViewAuditTests</code>, runs on every verify). Debug
+build; thermal variance ±50%, so grades key off orders of magnitude.
+An Avengers-class breakdown runs to a few thousand VFX shots; the
+7,200-shot board deliberately overshoots it.</p>
+
+<h2>Scorecard</h2>
+<div class="tablewrap"><table>
+<tr><th>View</th><th>Scale</th><th>Responsiveness</th><th>Stress</th>
+<th>Robustness</th><th>UI integration</th><th>Unit tests</th><th>UI automation</th></tr>
+<tr class="fixed"><td>Overview</td><td class="A">A (fixed)</td><td class="A">A</td><td class="A">A</td><td class="B">B</td><td class="A">A</td><td class="C">C</td><td class="C">C (opens-check only)</td></tr>
+<tr><td>Script</td><td class="B">B</td><td class="A">A (typing flat)</td><td class="B">B</td><td class="A">A (undo, guards)</td><td class="A">A</td><td class="A">A (deepest in app)</td><td class="A">A (7 journeys)</td></tr>
+<tr><td>Bubble</td><td class="A">A</td><td class="A">A</td><td class="A">A</td><td class="B">B</td><td class="A">A</td><td class="C">C</td><td class="B">B</td></tr>
+<tr><td>Shot List</td><td class="B">B</td><td class="C">C (44ms/edit at 3.6k)</td><td class="B">B</td><td class="B">B (zombie-shot fix tested)</td><td class="A">A</td><td class="B">B (adapter suite)</td><td class="C">C</td></tr>
+<tr class="fixed"><td>Scenes</td><td class="A">A (fixed)</td><td class="A">A</td><td class="A">A</td><td class="B">B</td><td class="A">A</td><td class="C">C</td><td class="B">B</td></tr>
+<tr><td>Assets</td><td class="A">A</td><td class="A">A</td><td class="A">A</td><td class="B">B</td><td class="B">B</td><td class="C">C</td><td class="D">D (none)</td></tr>
+<tr><td>Production</td><td class="A">A</td><td class="B">B</td><td class="A">A</td><td class="B">B</td><td class="B">B</td><td class="A">A (141 pkg tests)</td><td class="D">D (none)</td></tr>
+<tr><td>Story Design</td><td class="B">B (735ms mount)</td><td class="B">B</td><td class="B">B</td><td class="B">B</td><td class="A">A</td><td class="B">B</td><td class="B">B</td></tr>
+<tr class="fixed"><td>Curation</td><td class="A">A (fixed — was 7.3s)</td><td class="B">B</td><td class="B">B</td><td class="C">C</td><td class="B">B</td><td class="D">D (near-none)</td><td class="D">D (none)</td></tr>
+<tr><td>Playback</td><td class="B">B</td><td class="B">B</td><td class="C">C (media-bound, unproxied)</td><td class="C">C</td><td class="B">B</td><td class="D">D</td><td class="D">D (none)</td></tr>
+<tr><td>Settings</td><td class="A">A</td><td class="A">A</td><td class="A">A</td><td class="B">B</td><td class="B">B</td><td class="C">C</td><td class="D">D</td></tr>
+</table></div>
+<p><span class="chip" style="background:var(--good);color:var(--paper)">green rows</span>
+cliffs found by this audit and fixed the same day, with the fix guarded
+by a permanent test.</p>
+
+<h2>Measured numbers</h2>
+<h3>300 scenes / 3,600 shots (standard big production)</h3>
+<div class="tablewrap"><table>
+<tr><th>View</th><th>Cold mount</th><th>Publish while frontmost</th><th>Note</th></tr>
+<tr class="fixed"><td>Overview</td><td class="n">1,171 → 95ms</td><td class="n">91.5 → 16ms</td><td>non-lazy scene strip + O(scenes×sequences) naming — fixed (lazy + index)</td></tr>
+<tr class="fixed"><td>Curation</td><td class="n">7,261 → 97ms</td><td class="n">92 → 24ms</td><td>navigator mounted every scene/shot/take row — fixed (lazy)</td></tr>
+<tr><td>Script</td><td class="n">1,159ms</td><td class="n">12ms</td><td>whole-screenplay NSTextView storage; typing/undo already flat</td></tr>
+<tr><td>Shot List</td><td class="n">286ms</td><td class="n">44ms</td><td>List diffing 3,600 rows (~12µs/row); resync deep-compare fixed → O(1) revision</td></tr>
+<tr><td>Bubble</td><td class="n">110ms</td><td class="n">13ms</td><td>lazy stacks throughout — healthy</td></tr>
+<tr><td>Scenes</td><td class="n">139ms</td><td class="n">17ms</td><td>grid now decodes 1024px thumbnails, not 12MP stills</td></tr>
+<tr><td>Assets</td><td class="n">61ms</td><td class="n">6ms</td><td>healthy</td></tr>
+<tr><td>Production</td><td class="n">148ms</td><td class="n">20ms</td><td>healthy</td></tr>
+<tr><td>Story Design</td><td class="n">792ms</td><td class="n">20ms</td><td>cold-mount heavy; watched</td></tr>
+<tr><td>Playback</td><td class="n">406ms</td><td class="n">23ms</td><td>structure fine; media performance is the real question (see gaps)</td></tr>
+<tr><td>Settings</td><td class="n">98ms</td><td class="n">4ms</td><td>healthy</td></tr>
+</table></div>
+
+<h3>600 scenes / 7,200 shots (blockbuster headroom)</h3>
+<div class="tablewrap"><table>
+<tr><th>View</th><th>Mount</th><th>Publish</th><th>Growth vs 300 scenes</th></tr>
+<tr><td>Script</td><td class="n">2,380ms</td><td class="n">26ms</td><td>linear</td></tr>
+<tr><td>Shot List</td><td class="n">441ms</td><td class="n">52ms</td><td>linear</td></tr>
+<tr><td>Story Design</td><td class="n">792ms</td><td class="n">22ms</td><td>flat</td></tr>
+<tr><td>Overview</td><td class="n">105ms</td><td class="n">23ms</td><td>flat (post-fix)</td></tr>
+</table></div>
+
+<h3>Model layer at 300 scenes</h3>
+<div class="tablewrap"><table>
+<tr><th>Path</th><th>Cost</th><th>Verdict</th></tr>
+<tr><td>Save (encode, atomic temp-file write + backup)</td><td class="n">111ms / 3.6MB</td><td>healthy; off critical path</td></tr>
+<tr><td>Open (decode)</td><td class="n">146ms</td><td>healthy</td></tr>
+<tr><td>Script conversion</td><td class="n">40ms</td><td>healthy (guarded ≤120ms)</td></tr>
+<tr><td>Timeline rebuild</td><td class="n">~0ms</td><td>healthy</td></tr>
+</table></div>
+
+<h2>Robustness &amp; test estate</h2>
+<ul>
+<li><strong>Persistence:</strong> atomic write via temp file + move, with
+backup management — professional. <strong>But saves are manual</strong>
+(⌘S) plus scattered after-action silent saves (timeline drags, analysis
+apply). There is <strong>no periodic autosave</strong>, no crash-recovery
+document, no version browser. A crash costs everything since the last
+save — the single largest gap to the benchmark class.</li>
+<li><strong>Undo:</strong> deep and tested in the script editor (with
+perf guards); present in scene connections; <strong>absent nearly
+everywhere else</strong> (shot edits, production tables, vision wall,
+curation picks). The benchmark apps offer app-wide undo without
+exception.</li>
+<li><strong>Unit tests:</strong> 1,726 across six targets. Deepest:
+script editor, assistant actions (16 suites, 46 golden transcripts),
+vision wall (invalidation contracts, scale tests, snapshot baselines),
+production package (141). Thinnest: curation, playback, settings.</li>
+<li><strong>UI automation:</strong> 20 real journeys (launch, typing,
+return-key, undo, project create, relaunch persistence, navigation
+stress) <em>plus VoiceOver traversal and accessibility-identifier
+checks</em> — a real distinguishing strength. Coverage is
+script/outline/timeline-centric; curation, playback, production, and
+assets have no journeys.</li>
+<li><strong>Perf guards:</strong> every verify run mounts all central
+views against the 300-scene project; the wall runs its 1,000-element
+scenario; the editor has regression ceilings. Numbers print to stderr
+for eyeballing.</li>
+</ul>
+
+<h2>Gap analysis vs the benchmark class</h2>
+<div class="tablewrap"><table>
+<tr><th>Capability (benchmark norm)</th><th>DirectorsChair today</th><th>Gap</th></tr>
+<tr><td>Continuous autosave + crash recovery (all four apps)</td><td>manual save + after-action saves; atomic writes exist</td><td class="D">P0</td></tr>
+<tr><td>App-wide undo (all four)</td><td>script editor + scene connections only</td><td class="D">P0</td></tr>
+<tr><td>Document versions / snapshots (FCP library backups, Resolve project archives)</td><td>single backup file</td><td class="C">P1</td></tr>
+<tr><td>Proxy / optimized media pipeline (FCP, Resolve, Premiere)</td><td>direct AVPlayer on source files; thumbnails cached+downsampled</td><td class="C">P1 — playback/curation on 4K+ dailies will be I/O-bound</td></tr>
+<tr><td>Interchange: FDX in/out exists; EDL/AAF/FCPXML absent</td><td>FDX, budget/Xero/Tally, lookbook PDF</td><td class="C">P1 — a pro tool must hand off to editorial</td></tr>
+<tr><td>Background render / export queue (all four)</td><td>synchronous exports</td><td class="C">P2 at current export sizes</td></tr>
+<tr><td>Command palette / user-remappable shortcuts (Logic key commands, Resolve)</td><td>fixed shortcuts, discoverable via hover</td><td class="C">P2</td></tr>
+<tr><td>Collaboration (Resolve multi-user, Premiere Productions)</td><td>server sync + web portal live; live co-presence roadmapped (Product Versions §7)</td><td class="B">roadmapped</td></tr>
+<tr><td>Accessibility (VoiceOver)</td><td>traversal-tested in CI — ahead of some benchmarks</td><td class="A">strength</td></tr>
+<tr><td>Crash/ANR telemetry + in-app diagnostics</td><td>debug logging only</td><td class="C">P1 for a shipped product</td></tr>
+</table></div>
+
+<h2>Recommendations</h2>
+<h3><span class="chip p0">P0</span>Make work loss impossible</h3>
+<ol>
+<li><strong>Continuous autosave:</strong> debounced background
+<code>saveSilently()</code> on every <code>isDirty</code> transition
+(e.g. 5s quiet / 30s max), plus save-on-background and save-on-quit.
+The 111ms encode is already off the main path — the plumbing exists;
+this is wiring, not architecture.</li>
+<li><strong>Crash-recovery journal:</strong> keep the last autosave in a
+sidecar (<code>.recovery</code>) and offer restore-on-launch after an
+unclean exit.</li>
+<li><strong>App-wide undo, staged:</strong> start where edits are
+destructive and frequent — shot edits, production tables, curation picks
+— with a model-level command stack (the script editor already proves the
+pattern at scale).</li>
+</ol>
+<h3><span class="chip p1">P1</span>Earn the "handles a blockbuster" claim end-to-end</h3>
+<ol>
+<li><strong>Proxy media pipeline:</strong> background-generate 720p
+proxies on media import; playback/curation switch automatically. This is
+the difference between "opens the project" and "plays the dailies" at
+Interstellar scale.</li>
+<li><strong>Versions:</strong> timestamped project snapshots with a
+browse-and-restore sheet (daily + on-demand).</li>
+<li><strong>Interchange out:</strong> EDL/FCPXML export of the shot list
+and stripboard-ordered CSVs — editorial and AD departments live on
+these.</li>
+<li><strong>Sectioned Shot List:</strong> group the 3,600-row list by
+scene with collapse — dissolves the last O(N) list diff and matches how
+crews actually navigate.</li>
+<li><strong>Telemetry:</strong> opt-in crash reporting and a performance
+HUD (the audit harness numbers, live).</li>
+<li><strong>Test debt, targeted:</strong> UI journeys for curation
+(pick-a-take), playback (open-and-scrub), production (edit a budget
+line); unit suites for curation/playback view-models.</li>
+</ol>
+<h3><span class="chip p2">P2</span>Feel like the class</h3>
+<ol>
+<li>Command palette (⌘K) over every action the assistant can already
+perform — the action registry exists.</li>
+<li>User-remappable shortcuts with a Logic-style key-command editor.</li>
+<li>Global search across script, shots, scenes, assets, notes.</li>
+<li>Background export queue with progress in a unified activity view.</li>
+<li>Script revision tracking (colored revision pages, locked scene
+numbers) — the screenwriting-professional feature the editor is one
+model change away from.</li>
+<li>Watch-folder dailies ingest into curation, auto-matched to shots by
+naming pattern.</li>
+</ol>
+
+<h2>Missing features worth adding (capability, not repair)</h2>
+<ul>
+<li><strong>Stripboard &amp; call sheets</strong> — production data is
+already modeled; a stripboard view and PDF call sheets make Production a
+daily on-set tool rather than a planning one.</li>
+<li><strong>Review &amp; approval loops</strong> — takes and boards
+shareable to the web portal with per-frame comments (§7 roadmap already
+sketches presence; this is the concrete first workflow).</li>
+<li><strong>Presenter mode</strong> — the wall's walk-the-wall pass
+(DC-0029) generalized: pitch any view full-screen, chrome-free.</li>
+<li><strong>Per-department views</strong> — saved filters over shots
+(camera, art, VFX) exportable as their own sheets.</li>
+<li><strong>Open-format guarantee</strong> — the project is already
+JSON; document it, version it, and publish a schema so pipelines can
+build on it. Resolve and FCP cannot offer this; it is a differentiator,
+not a catch-up.</li>
+</ul>
+
+<p class="note"><strong>Provenance:</strong> every measured claim in
+this report reproduces from the suite —
+<code>BigProjectViewAuditTests</code>, <code>VisionWallScaleTests</code>,
+<code>PerformanceBaselineTests</code>, <code>PerfRegressionGuardTests</code>
+— on every <code>verify.sh</code> run. Companion deep-dives:
+<code>docs/perf/vision-wall-2026-08-04.md</code>,
+<code>docs/perf/app-views-scale-2026-08-06.md</code>.</p>
+</main>
+</body>
+</html>

@@ -116,7 +116,12 @@ extension CurationView {
             // Scene tree
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 1) {
+                    // Lazy: the scale audit caught this stack mounting
+                    // every scene section — with every shot and take row
+                    // inside — on a 300-scene project: 7.3s to open the
+                    // tab and 92ms per publish. Lazy mounting brought it
+                    // in line with the other navigators.
+                    LazyVStack(alignment: .leading, spacing: 1) {
                         let scenes = viewModel.filteredScenes(from: project)
 
                         if scenes.isEmpty {

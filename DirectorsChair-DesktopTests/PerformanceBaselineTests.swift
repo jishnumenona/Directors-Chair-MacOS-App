@@ -189,7 +189,8 @@ final class BigProjectViewAuditTests: XCTestCase {
             + "characters=\(big.characters.count)")
 
         let views: [AppView] = [.overview, .script, .bubble, .shotList,
-                                .scenes, .assets, .production, .storyDesign]
+                                .scenes, .assets, .production, .storyDesign,
+                                .curation, .playback, .settings]
         for view in views {
             autoreleasepool {
                 let start = DispatchTime.now().uptimeNanoseconds
@@ -212,6 +213,35 @@ final class BigProjectViewAuditTests: XCTestCase {
                 XCTAssertLessThan(mountMs, 30_000,
                     "\(view.rawValue) took \(Int(mountMs))ms to mount a "
                     + "300-scene project — scale cliff")
+                window.orderOut(nil)
+            }
+        }
+    }
+
+    func testBlockbusterHeadroom() {
+        // Interstellar/Avengers scale: production breakdowns run to
+        // thousands of shots. 600 scenes × 12 = 7,200 shots, ~20k
+        // script elements — double the standard audit board.
+        let huge = StressProjectGenerator.makeProject(scenes: 600,
+                                                      shotsPerScene: 12)
+        for view in [AppView.script, .shotList, .storyDesign, .overview] {
+            autoreleasepool {
+                let start = DispatchTime.now().uptimeNanoseconds
+                let (window, _, projectViewModel, tick) =
+                    hostRouter(project: huge, view: view)
+                tick()
+                let mountMs = Double(DispatchTime.now().uptimeNanoseconds
+                                     - start) / 1e6
+                let publishStart = DispatchTime.now().uptimeNanoseconds
+                for _ in 0..<5 {
+                    projectViewModel.objectWillChange.send()
+                    tick()
+                }
+                let publishMs = Double(DispatchTime.now().uptimeNanoseconds
+                                       - publishStart) / 1e6 / 5
+                Self.note("XL-\(view.rawValue)] mount \(Int(mountMs))ms, "
+                    + "publish \(String(format: "%.1f", publishMs))ms/tick")
+                XCTAssertLessThan(mountMs, 60_000)
                 window.orderOut(nil)
             }
         }
