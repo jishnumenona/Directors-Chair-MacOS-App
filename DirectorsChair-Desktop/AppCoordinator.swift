@@ -148,6 +148,11 @@ class AppCoordinator: ObservableObject {
     /// and clears this.
     @Published var pendingAssistantPrompt: String?
 
+    /// Query the palette forwards to the assets library (which searches
+    /// the disk, so the palette can't rank it). Consumed once by
+    /// AssetsView into its search field.
+    @Published var pendingAssetsSearch: String?
+
     /// AI Chat context snapshot (set when overlay opens)
     @Published var aiChatContext: AIChatContext? = nil
 

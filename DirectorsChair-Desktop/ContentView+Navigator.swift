@@ -290,12 +290,95 @@ enum CommandPaletteCatalog {
                     category: .assistant))
             }
         }
+
+        // Global search (§2.18): the project's own content, after the
+        // commands so an empty palette still leads with navigation. A
+        // result is only as findable as its words, so wordless vision
+        // scraps stay out rather than listing as anonymous "Picture"s.
+        if projectViewModel.hasProject {
+            entries += contentEntries(project: projectViewModel.project)
+        }
         return entries
     }
 
-    static func run(_ entry: PaletteEntry,
+    /// Scenes, shots, characters, locations, and vision elements as
+    /// palette entries. Built on palette open — at the audited stress
+    /// scale (300 scenes / 3,600 shots) this is struct construction,
+    /// not work worth caching against.
+    static func contentEntries(project: Project) -> [PaletteEntry] {
+        var entries: [PaletteEntry] = []
+        for scene in project.sequences.flatMap(\.scenes) {
+            entries.append(PaletteEntry(
+                id: "find.scene.\(scene.id)",
+                title: scene.name,
+                subtitle: scene.location ?? scene.description,
+                systemImage: "film",
+                category: .content))
+            for shot in scene.shots {
+                entries.append(PaletteEntry(
+                    id: "find.shot.\(shot.id)",
+                    title: "Shot \(shot.shotId)",
+                    subtitle: shot.description.isEmpty
+                        ? scene.name : shot.description,
+                    systemImage: "camera",
+                    category: .content))
+            }
+        }
+        for character in project.characters {
+            entries.append(PaletteEntry(
+                id: "find.char.\(character.name)",
+                title: character.name,
+                subtitle: "Character",
+                systemImage: "person",
+                category: .content))
+        }
+        for location in project.locations {
+            entries.append(PaletteEntry(
+                id: "find.loc.\(location.name)",
+                title: location.name,
+                subtitle: "Location",
+                systemImage: "map",
+                category: .content))
+        }
+        for card in project.beats {
+            let words = card.title.isEmpty ? card.text : card.title
+            let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            entries.append(PaletteEntry(
+                id: "find.vision.\(card.id)",
+                title: String(trimmed.prefix(48)),
+                subtitle: "Vision board" + (card.referenceNote.map { note in
+                    note.isEmpty ? "" : " — \(note.prefix(40))" } ?? ""),
+                systemImage: "square.grid.2x2",
+                category: .content))
+        }
+        return entries
+    }
+
+    /// Exits into the surfaces that search what the catalog can't hold:
+    /// the assets library searches the DISK, and the script's find bar
+    /// searches full text. Both take the palette's query with them.
+    static func dynamicEntries(query: String,
+                               hasProject: Bool) -> [PaletteEntry] {
+        guard hasProject, !query.isEmpty else { return [] }
+        return [
+            PaletteEntry(id: "forward.assets",
+                         title: "Search assets for “\(query)”",
+                         subtitle: "Files on disk — media, audio, footage",
+                         systemImage: "photo.on.rectangle",
+                         category: .content),
+            PaletteEntry(id: "forward.script",
+                         title: "Find “\(query)” in the script",
+                         subtitle: "Opens the screenplay's find bar",
+                         systemImage: "text.magnifyingglass",
+                         category: .content),
+        ]
+    }
+
+    static func run(_ entry: PaletteEntry, query: String,
                     coordinator: AppCoordinator,
                     projectViewModel: ProjectViewModel) {
+        let project = projectViewModel.project
         if entry.id.hasPrefix("nav."),
            let view = AppView(rawValue: String(entry.id.dropFirst(4))) {
             coordinator.navigateTo(view)
@@ -311,6 +394,60 @@ enum CommandPaletteCatalog {
         } else if entry.id.hasPrefix("action.") {
             coordinator.pendingAssistantPrompt = entry.title + " "
             coordinator.showingAIChat = true
+        } else if entry.id.hasPrefix("find.scene.") {
+            let id = String(entry.id.dropFirst(11))
+            if let scene = project.sequences.flatMap(\.scenes)
+                .first(where: { $0.id == id }) {
+                coordinator.selectScene(scene)
+                coordinator.navigateTo(.scenes)
+            }
+        } else if entry.id.hasPrefix("find.shot.") {
+            let id = String(entry.id.dropFirst(10))
+            if let shot = project.sequences.flatMap(\.scenes)
+                .flatMap(\.shots).first(where: { $0.id == id }) {
+                coordinator.selectShot(shot)
+            }
+        } else if entry.id.hasPrefix("find.char.") {
+            let name = String(entry.id.dropFirst(10))
+            if let character = project.characters
+                .first(where: { $0.name == name }) {
+                coordinator.selectCharacter(character)
+            }
+        } else if entry.id.hasPrefix("find.loc.") {
+            let name = String(entry.id.dropFirst(9))
+            if let location = project.locations
+                .first(where: { $0.name == name }) {
+                coordinator.selectLocation(location)
+            }
+        } else if entry.id.hasPrefix("find.vision.") {
+            coordinator.revealOnVisionBoard(
+                cardId: String(entry.id.dropFirst(12)))
+        } else if entry.id == "forward.assets" {
+            coordinator.pendingAssetsSearch = query
+            coordinator.navigateTo(.assets)
+        } else if entry.id == "forward.script" {
+            stageScriptFind(query, coordinator: coordinator)
+        }
+    }
+
+    /// The screenplay searches through the native NSTextFinder bar, and
+    /// that bar reads the SYSTEM find pasteboard — staging the query
+    /// there is exactly how find carries across macOS apps. Then summon
+    /// the bar down the responder chain once the editor has mounted; if
+    /// the focus race is lost, ⌘F still opens it with the query already
+    /// staged, so the worst case degrades to one extra keystroke.
+    private static func stageScriptFind(_ query: String,
+                                        coordinator: AppCoordinator) {
+        let pasteboard = NSPasteboard(name: .find)
+        pasteboard.clearContents()
+        pasteboard.setString(query, forType: .string)
+        coordinator.navigateTo(.script)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let sender = NSMenuItem()
+            sender.tag = Int(NSTextFinder.Action.showFindInterface.rawValue)
+            NSApp.sendAction(
+                #selector(NSResponder.performTextFinderAction(_:)),
+                to: nil, from: sender)
         }
     }
 

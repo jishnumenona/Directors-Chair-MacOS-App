@@ -22,6 +22,7 @@ public struct PaletteEntry: Identifiable, Equatable, Sendable {
         case navigation = "View"
         case command = "Command"
         case assistant = "Assistant"
+        case content = "Find"
     }
 
     /// Stable, unique ("nav.scenes", "action.generate_poster") — tests pin
@@ -120,7 +121,13 @@ public enum PaletteRank {
 
 public struct CommandPaletteView: View {
     let entries: [PaletteEntry]
-    let onRun: (PaletteEntry) -> Void
+    /// Entries built FROM the query itself — "Search assets for 'x'" —
+    /// appended after the ranked results whenever the query is non-empty.
+    /// These are the palette's exits into surfaces that search what the
+    /// catalog can't hold (disk, full script text).
+    let dynamic: (String) -> [PaletteEntry]
+    /// The query rides along so a dynamic entry knows what to forward.
+    let onRun: (PaletteEntry, String) -> Void
     let onDismiss: () -> Void
 
     @State private var query = ""
@@ -128,15 +135,20 @@ public struct CommandPaletteView: View {
     @FocusState private var searchFocused: Bool
 
     public init(entries: [PaletteEntry],
-                onRun: @escaping (PaletteEntry) -> Void,
+                dynamic: @escaping (String) -> [PaletteEntry] = { _ in [] },
+                onRun: @escaping (PaletteEntry, String) -> Void,
                 onDismiss: @escaping () -> Void) {
         self.entries = entries
+        self.dynamic = dynamic
         self.onRun = onRun
         self.onDismiss = onDismiss
     }
 
     private var results: [PaletteEntry] {
-        PaletteRank.rank(entries: entries, query: query)
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let ranked = PaletteRank.rank(entries: entries, query: query)
+        guard !trimmed.isEmpty else { return ranked }
+        return ranked + dynamic(trimmed)
     }
 
     public var body: some View {
@@ -185,7 +197,7 @@ public struct CommandPaletteView: View {
                             ForEach(Array(results.enumerated()), id: \.element.id) { index, entry in
                                 row(entry, isSelected: index == selectedIndex)
                                     .id(entry.id)
-                                    .onTapGesture { onRun(entry) }
+                                    .onTapGesture { onRun(entry, query) }
                                     .onHover { hovering in
                                         if hovering { selectedIndex = index }
                                     }
@@ -253,6 +265,6 @@ public struct CommandPaletteView: View {
 
     private func runSelected() {
         guard results.indices.contains(selectedIndex) else { return }
-        onRun(results[selectedIndex])
+        onRun(results[selectedIndex], query)
     }
 }

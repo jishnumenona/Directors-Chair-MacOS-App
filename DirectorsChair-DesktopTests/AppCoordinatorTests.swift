@@ -711,7 +711,7 @@ final class CommandPaletteCatalogTests: XCTestCase {
                                  title: "Update scene description",
                                  subtitle: nil, systemImage: "sparkles",
                                  category: .assistant)
-        CommandPaletteCatalog.run(entry, coordinator: coordinator,
+        CommandPaletteCatalog.run(entry, query: "", coordinator: coordinator,
                                   projectViewModel: viewModel)
         XCTAssertEqual(coordinator.pendingAssistantPrompt,
                        "Update scene description ",
@@ -727,14 +727,14 @@ final class CommandPaletteCatalogTests: XCTestCase {
             PaletteEntry(id: "nav.Scenes", title: "Go to Scenes",
                          subtitle: nil, systemImage: "film",
                          category: .navigation),
-            coordinator: coordinator, projectViewModel: viewModel)
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
         XCTAssertEqual(coordinator.selectedView, .scenes)
 
         CommandPaletteCatalog.run(
             PaletteEntry(id: "ptab.Accounting", title: "Production: Accounting",
                          subtitle: nil, systemImage: "theatermasks",
                          category: .navigation),
-            coordinator: coordinator, projectViewModel: viewModel)
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
         XCTAssertEqual(coordinator.selectedView, .production)
         XCTAssertEqual(coordinator.selectedProductionTab, "Accounting")
     }
@@ -743,5 +743,145 @@ final class CommandPaletteCatalogTests: XCTestCase {
         XCTAssertEqual(CommandPaletteCatalog.humanize("generate_scene_image"),
                        "Generate scene image")
         XCTAssertEqual(CommandPaletteCatalog.humanize("navigate"), "Navigate")
+    }
+}
+
+// MARK: - Global search through the palette (§2.18)
+
+@MainActor
+final class CommandPaletteGlobalSearchTests: XCTestCase {
+
+    private func makeViewModel() -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        var scene = Scene(name: "Night Market")
+        scene.location = "EXT. NIGHT MARKET - NIGHT"
+        scene.shots = [Shot(shotId: 7, description: "Crane over the stalls")]
+        var project = Project(name: "Search Test")
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        project.characters = [Character(name: "Mara")]
+        project.locations = [Location(name: "Harbour")]
+        var card = VisionCard()
+        card.title = "Neon rain palette"
+        var wordless = VisionCard()
+        wordless.title = ""
+        wordless.text = ""
+        project.beats = [card, wordless]
+        viewModel.project = project
+        viewModel.hasProject = true
+        return viewModel
+    }
+
+    func testContentEntriesCoverEveryFindableKindAndSkipWordlessScraps() {
+        let entries = CommandPaletteCatalog.contentEntries(
+            project: makeViewModel().project)
+        let ids = entries.map(\.id)
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.scene.") })
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.shot.") })
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.char.Mara") })
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.loc.Harbour") })
+        XCTAssertEqual(ids.filter { $0.hasPrefix("find.vision.") }.count, 1,
+                       "a scrap with no words is unfindable by text — "
+                       + "listing it as an anonymous Picture is noise")
+        XCTAssertTrue(entries.allSatisfy { $0.category == .content })
+    }
+
+    func testContentIsFindableByTypingItsName() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+        let all = CommandPaletteCatalog.entries(
+            coordinator: coordinator, projectViewModel: viewModel,
+            assistantAvailable: false)
+        let ranked = PaletteRank.rank(entries: all, query: "night market")
+        XCTAssertTrue(ranked.contains { $0.id.hasPrefix("find.scene.") },
+                      "typing a scene's name must surface the scene")
+    }
+
+    func testRunningFindEntriesNavigatesToTheRealThing() {
+        let viewModel = makeViewModel()
+        let scene = viewModel.project.sequences[0].scenes[0]
+        let shot = scene.shots[0]
+        let coordinator = AppCoordinator()
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.scene.\(scene.id)", title: scene.name,
+                         subtitle: nil, systemImage: "film", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedScene?.id, scene.id)
+        XCTAssertEqual(coordinator.selectedView, .scenes)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.shot.\(shot.id)", title: "Shot 7",
+                         subtitle: nil, systemImage: "camera", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedShot?.id, shot.id)
+        XCTAssertEqual(coordinator.selectedView, .shotList)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.char.Mara", title: "Mara",
+                         subtitle: nil, systemImage: "person", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedCharacter?.name, "Mara")
+        XCTAssertEqual(coordinator.selectedView, .storyDesign)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.vision.abc123", title: "Neon",
+                         subtitle: nil, systemImage: "square.grid.2x2",
+                         category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.revealVisionCardId, "abc123")
+        XCTAssertEqual(coordinator.selectedView, .visionBoard)
+    }
+
+    func testDeletedTargetIsANoOpNotAJump() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+        coordinator.navigateTo(.script)
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.scene.gone", title: "Gone",
+                         subtitle: nil, systemImage: "film", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertNil(coordinator.selectedScene)
+        XCTAssertEqual(coordinator.selectedView, .script,
+                       "a stale result must not fling the user anywhere")
+    }
+
+    func testForwardersCarryTheQueryToTheirSurfaces() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+
+        let dynamics = CommandPaletteCatalog.dynamicEntries(
+            query: "crane", hasProject: true)
+        XCTAssertEqual(dynamics.map(\.id),
+                       ["forward.assets", "forward.script"])
+        XCTAssertTrue(CommandPaletteCatalog.dynamicEntries(
+            query: "", hasProject: true).isEmpty,
+            "no query, nothing to forward")
+        XCTAssertTrue(CommandPaletteCatalog.dynamicEntries(
+            query: "crane", hasProject: false).isEmpty)
+
+        CommandPaletteCatalog.run(
+            dynamics[0], query: "crane", coordinator: coordinator,
+            projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.pendingAssetsSearch, "crane",
+                       "the assets library searches the disk — the "
+                       + "palette hands the query over instead of guessing")
+        XCTAssertEqual(coordinator.selectedView, .assets)
+    }
+
+    func testScriptForwarderStagesTheFindPasteboard() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "forward.script", title: "",
+                         subtitle: nil, systemImage: "text.magnifyingglass",
+                         category: .content),
+            query: "the tide schedule", coordinator: coordinator,
+            projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedView, .script)
+        XCTAssertEqual(
+            NSPasteboard(name: .find).string(forType: .string),
+            "the tide schedule",
+            "NSTextFinder reads the system find pasteboard — staging it "
+            + "there is what makes ⌘F come up pre-filled")
     }
 }

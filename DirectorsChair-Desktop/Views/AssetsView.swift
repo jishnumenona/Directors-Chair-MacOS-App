@@ -327,6 +327,7 @@ final class AssetThumbnailCache {
 
 struct AssetsView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @EnvironmentObject var coordinator: AppCoordinator
 
     @StateObject private var scanner = AssetScanner()
     @State private var searchText = ""
@@ -371,10 +372,22 @@ struct AssetsView: View {
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
             startScan()
+            consumeForwardedSearch()
+        }
+        // The command palette forwards queries here (it can't rank the
+        // disk) — consume on change too, for when Assets is already open.
+        .onChange(of: coordinator.pendingAssetsSearch) { _, _ in
+            consumeForwardedSearch()
         }
         .sheet(item: $selectedAsset) { asset in
             AssetDetailSheet(asset: asset)
         }
+    }
+
+    private func consumeForwardedSearch() {
+        guard let forwarded = coordinator.pendingAssetsSearch else { return }
+        coordinator.pendingAssetsSearch = nil
+        searchText = forwarded
     }
 
     // MARK: - Filtering
