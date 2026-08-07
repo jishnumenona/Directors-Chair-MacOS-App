@@ -241,7 +241,7 @@ public struct VisionBoardCanvas: View {
                 viewModel.camera.viewport = newSize
             }
         }
-        .background(LinearGradient(colors: VisionWallPalette.surface,
+        .background(LinearGradient(colors: viewModel.currentTexture.surface,
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
     }
 
@@ -839,7 +839,8 @@ public struct VisionBoardCanvas: View {
     /// Observes the camera by itself so a pan repaints the plaster
     /// without re-evaluating the rest of the canvas.
     private var canvasBackground: some View {
-        WallSurfaceLayer(camera: viewModel.camera)
+        WallSurfaceLayer(camera: viewModel.camera,
+                         texture: viewModel.currentTexture)
             .ignoresSafeArea()
     }
 
@@ -1241,14 +1242,19 @@ struct WallCameraApplied<Content: View>: View {
     }
 }
 
-/// The plaster follows the camera by itself.
+/// The wall follows the camera by itself. The texture rides in as plain
+/// data: a texture change republishes the registry, the canvas body
+/// re-runs, and SwiftUI's POD comparison keeps this layer skipped on
+/// every publish where the material didn't change.
 struct WallSurfaceLayer: View {
     @ObservedObject var camera: VisionWallCamera
+    var texture: VisionWallTexture = .plaster
     var body: some View {
         #if DEBUG
         RenderProbe.surface()
         #endif
-        return VisionWallSurface(transform: camera.transform)
+        return VisionWallSurface(transform: camera.transform,
+                                 texture: texture)
     }
 }
 

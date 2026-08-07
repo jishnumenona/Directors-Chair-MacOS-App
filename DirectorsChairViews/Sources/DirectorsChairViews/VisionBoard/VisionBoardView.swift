@@ -269,9 +269,10 @@ public struct VisionBoardView: View {
         // button; filters belong to a database, not a wall. What's left is
         // which wall you're looking at, and how to get work off it.
         // Two small things resting ON the wall, not a chrome bar across
-        // it. Paper-toned and forced light, because the wall is always
-        // plaster — dark-mode chrome floating on it looked like the CAD
-        // canvas we just removed.
+        // it. Paper-toned and forced light, because the wall is a lit
+        // physical material (plaster, cork, linen, felt — never a system
+        // appearance) — dark-mode chrome floating on it looked like the
+        // CAD canvas we just removed, and paper reads on every material.
         HStack(spacing: 12) {
             boardSelector
                 .fixedSize()
@@ -312,6 +313,26 @@ public struct VisionBoardView: View {
                         Text(boardId.replacingOccurrences(of: "_", with: " ").capitalized)
                         if boardId == viewModel.currentBoardId {
                             Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            // The wall's material, per board — a corkboard for locations
+            // beside a felt pinboard for night exteriors. Bare Text
+            // labels only: Menu restyles nothing else.
+            Menu("Wall Texture") {
+                ForEach(VisionWallTexture.allCases) { texture in
+                    Button {
+                        viewModel.setTexture(texture)
+                    } label: {
+                        HStack {
+                            Text(texture.displayName)
+                            if viewModel.currentTexture == texture {
+                                Image(systemName: "checkmark")
+                            }
                         }
                     }
                 }
@@ -562,7 +583,8 @@ public struct VisionBoardView: View {
 
         guard let data = VisionBoardLookbook.renderPDF(
             cards: boardCards, connectors: viewModel.boardConnectors,
-            projectBase: projectBasePath) else {
+            projectBase: projectBasePath,
+            texture: viewModel.currentTexture) else {
             exportError = "Could not render the lookbook."
             return
         }
@@ -588,7 +610,8 @@ public struct VisionBoardView: View {
 
         guard let data = VisionBoardExporter.renderPNG(
             cards: boardCards, connectors: viewModel.boardConnectors,
-            projectBase: projectBasePath) else {
+            projectBase: projectBasePath,
+            texture: viewModel.currentTexture) else {
             exportError = "Could not render the board."
             return
         }
