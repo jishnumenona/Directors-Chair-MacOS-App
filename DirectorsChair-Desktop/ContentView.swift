@@ -199,6 +199,26 @@ struct ContentView: View {
                     .transition(.opacity)
             }
 
+            // Command palette (⌘K, §2.18) — above the content, below the
+            // tour/onboarding/login layers: those gate the whole app, and
+            // a palette must never float over a login gate.
+            if coordinator.showingCommandPalette {
+                CommandPaletteView(
+                    entries: CommandPaletteCatalog.entries(
+                        coordinator: coordinator,
+                        projectViewModel: projectViewModel,
+                        assistantAvailable: authManager.isAuthenticated),
+                    onRun: { entry in
+                        coordinator.showingCommandPalette = false
+                        CommandPaletteCatalog.run(
+                            entry, coordinator: coordinator,
+                            projectViewModel: projectViewModel)
+                    },
+                    onDismiss: { coordinator.showingCommandPalette = false })
+                    .transition(.opacity)
+                    .zIndex(85)
+            }
+
             // Guided tour spotlight overlay
             if tourManager.isSpotlightTourActive {
                 SpotlightOverlayView()
