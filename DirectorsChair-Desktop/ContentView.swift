@@ -39,6 +39,9 @@ struct ContentView: View {
     @State private var showLoginSuccess = false
     @State private var loginSuccessUsername = ""
     @State private var spaceBarMonitor: Any?
+    /// The ⌘K catalog, built once per palette open (it includes the
+    /// project's content, so it is not free to rebuild per body pass).
+    @State private var paletteEntries: [PaletteEntry] = []
 
     // Timeline analysis state
     @State private var showAnalysisReview = false
@@ -201,22 +204,32 @@ struct ContentView: View {
 
             // Command palette (⌘K, §2.18) — above the content, below the
             // tour/onboarding/login layers: those gate the whole app, and
-            // a palette must never float over a login gate.
+            // a palette must never float over a login gate. The catalog
+            // (which now carries the project's CONTENT — global search)
+            // is built once per open, not per body evaluation.
             if coordinator.showingCommandPalette {
                 CommandPaletteView(
-                    entries: CommandPaletteCatalog.entries(
-                        coordinator: coordinator,
-                        projectViewModel: projectViewModel,
-                        assistantAvailable: authManager.isAuthenticated),
-                    onRun: { entry in
+                    entries: paletteEntries,
+                    dynamic: { query in
+                        CommandPaletteCatalog.dynamicEntries(
+                            query: query,
+                            hasProject: projectViewModel.hasProject)
+                    },
+                    onRun: { entry, query in
                         coordinator.showingCommandPalette = false
                         CommandPaletteCatalog.run(
-                            entry, coordinator: coordinator,
+                            entry, query: query, coordinator: coordinator,
                             projectViewModel: projectViewModel)
                     },
                     onDismiss: { coordinator.showingCommandPalette = false })
                     .transition(.opacity)
                     .zIndex(85)
+                    .onAppear {
+                        paletteEntries = CommandPaletteCatalog.entries(
+                            coordinator: coordinator,
+                            projectViewModel: projectViewModel,
+                            assistantAvailable: authManager.isAuthenticated)
+                    }
             }
 
             // Guided tour spotlight overlay
