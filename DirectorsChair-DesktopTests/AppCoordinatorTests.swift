@@ -475,3 +475,158 @@ final class VisionWallLinksTests: XCTestCase {
         XCTAssertLessThanOrEqual(WallLinksButton.name(of: card).count, 38)
     }
 }
+
+// MARK: - Curation view-model (P1 §2.17 test debt — audit grade D)
+
+@MainActor
+final class CurationFilterTests: XCTestCase {
+
+    private func project() -> Project {
+        var goodTake = Take(takeNumber: 1)
+        goodTake.rating = .circle
+        goodTake.notes = "keeper, great light"
+        var badTake = Take(takeNumber: 2)
+        badTake.rating = .ng
+        badTake.tags = ["soft focus"]
+        var shot = Shot(shotId: 1)
+        shot.takes = [goodTake, badTake]
+        var harbor = DirectorsChairCore.Scene(name: "Harbor Dawn")
+        harbor.shots = [shot]
+
+        var emptyShot = Shot(shotId: 2)
+        emptyShot.takes = []
+        var teaShop = DirectorsChairCore.Scene(name: "Tea Shop")
+        teaShop.shots = [emptyShot]
+
+        var sequence = Sequence(name: "Act One")
+        sequence.scenes = [harbor, teaShop]
+        var project = Project(name: "P")
+        project.sequences = [sequence]
+        return project
+    }
+
+    func testNoFiltersShowsEveryScene() {
+        let viewModel = CurationViewModel()
+        XCTAssertEqual(viewModel.filteredScenes(from: project()).count, 2,
+                       "even the scene with no takes — it still exists")
+    }
+
+    func testRatingFilterDropsTakesAndCollapsesEmptyScenes() {
+        let viewModel = CurationViewModel()
+        viewModel.filterRating = .circle
+
+        let scenes = viewModel.filteredScenes(from: project())
+        XCTAssertEqual(scenes.map(\.name), ["Harbor Dawn"],
+                       "a scene with no matching takes disappears")
+        XCTAssertEqual(scenes[0].shots[0].takes.map(\.takeNumber), [1],
+                       "and inside it only the matching take remains")
+    }
+
+    func testSearchMatchesNotesTagsAndSceneNames() {
+        let viewModel = CurationViewModel()
+
+        viewModel.searchQuery = "keeper"
+        XCTAssertEqual(viewModel.filteredScenes(from: project())
+            .first?.shots.first?.takes.map(\.takeNumber), [1])
+
+        viewModel.searchQuery = "soft focus"
+        XCTAssertEqual(viewModel.filteredScenes(from: project())
+            .first?.shots.first?.takes.map(\.takeNumber), [2],
+            "tags are searchable too")
+
+        viewModel.searchQuery = "harbor"
+        XCTAssertEqual(viewModel.filteredScenes(from: project())
+            .first?.shots.first?.takes.count, 2,
+            "matching the scene NAME keeps all its takes")
+    }
+
+    func testRatingAndSearchCombineAsAND() {
+        let viewModel = CurationViewModel()
+        viewModel.filterRating = .circle
+        viewModel.searchQuery = "soft focus"
+        XCTAssertTrue(viewModel.filteredScenes(from: project()).isEmpty,
+                      "the circled take doesn't match the search; the "
+                      + "matching take isn't circled")
+    }
+}
+
+// MARK: - Playback view-model (P1 §2.17 test debt — audit grade D)
+
+@MainActor
+final class PlaybackViewModelContractTests: XCTestCase {
+
+    func testMuteZeroesTheEffectiveVolumeWithoutForgettingTheDial() {
+        let viewModel = PlaybackViewModel()
+        viewModel.volume = 0.6
+        viewModel.isMuted = true
+        XCTAssertEqual(viewModel.effectiveVolume, 0)
+        viewModel.isMuted = false
+        XCTAssertEqual(viewModel.effectiveVolume, 0.6,
+                       "unmuting returns to where the dial was")
+    }
+
+    func testPlaylistBoundariesFollowSceneOrder() {
+        // Playlist ITEMS come from shots; scenes contribute boundaries.
+        var shotA = Shot(shotId: 1); shotA.duration = 3
+        var sceneA = DirectorsChairCore.Scene(name: "First")
+        sceneA.dialogues = [Dialogue(character: "MEERA", text: "We go at dawn.")]
+        sceneA.shots = [shotA]
+        var shotB = Shot(shotId: 2); shotB.duration = 2
+        var sceneB = DirectorsChairCore.Scene(name: "Second")
+        sceneB.dialogues = [Dialogue(character: "DEV", text: "Then sleep now.")]
+        sceneB.shots = [shotB]
+        var sequence = Sequence(name: "Act")
+        sequence.scenes = [sceneA, sceneB]
+        var project = Project(name: "P")
+        project.sequences = [sequence]
+
+        let viewModel = PlaybackViewModel()
+        viewModel.buildPlaylist(from: project, basePath: nil)
+
+        XCTAssertEqual(viewModel.sceneBoundaries.map(\.name),
+                       ["First", "Second"])
+        XCTAssertLessThan(viewModel.sceneBoundaries[0].time,
+                          viewModel.sceneBoundaries[1].time + 0.001,
+                          "boundaries never run backwards")
+        XCTAssertFalse(viewModel.playlistItems.isEmpty)
+        XCTAssertGreaterThan(viewModel.totalDuration, 0)
+    }
+
+    func testResolvedVideoPathRidesTheProxyPipeline() throws {
+        // The §2.17 seam: playback resolves through ProxyPlayback, so a
+        // fresh proxy wins and the toggle restores originals.
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("playback-proxy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: base.appendingPathComponent("takes"),
+            withIntermediateDirectories: true)
+        let rel = "takes/a.mov"
+        try Data([0x1]).write(to: base.appendingPathComponent(rel))
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let viewModel = PlaybackViewModel()
+        viewModel.buildPlaylist(from: Project(name: "P"), basePath: base)
+
+        XCTAssertEqual(viewModel.resolvedVideoPath(for: rel),
+                       base.appendingPathComponent(rel),
+                       "no proxy yet: the original plays")
+
+        let proxy = ProxyMediaStore.proxyURL(forRelativePath: rel,
+                                             projectBase: base)
+        try FileManager.default.createDirectory(
+            at: proxy.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try Data("proxy".utf8).write(to: proxy)
+        XCTAssertEqual(viewModel.resolvedVideoPath(for: rel), proxy,
+                       "a fresh proxy wins for playback")
+
+        UserDefaults.standard.set(false, forKey: ProxyPlayback.preferenceKey)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: ProxyPlayback.preferenceKey)
+        }
+        XCTAssertEqual(viewModel.resolvedVideoPath(for: rel),
+                       base.appendingPathComponent(rel),
+                       "the Preferences toggle restores originals")
+    }
+}
