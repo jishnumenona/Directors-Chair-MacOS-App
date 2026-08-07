@@ -22,6 +22,11 @@ public struct CinematographyView: View {
     /// edits), which a once-seeded @StateObject would otherwise miss.
     let shots: [Shot]
 
+    /// Optional cheap change signal. When the host supplies one, external
+    /// resync watches this Int; when nil, the view falls back to deep
+    /// comparison of `shots` (small projects, previews, tests).
+    var shotsRevision: Int?
+
     /// All scenes for resolving shot-to-scene context
     let scenes: [DCScene]
     let characters: [Character]
@@ -75,6 +80,7 @@ public struct CinematographyView: View {
 
     public init(
         shots: [Shot] = [],
+        shotsRevision: Int? = nil,
         scenes: [DCScene] = [],
         characters: [Character] = [],
         locations: [Location] = [],
@@ -96,6 +102,7 @@ public struct CinematographyView: View {
     ) {
         self._viewModel = StateObject(wrappedValue: CinematographyViewModel(shots: shots))
         self.shots = shots
+        self.shotsRevision = shotsRevision
         self.scenes = scenes
         self.characters = characters
         self.locations = locations
@@ -172,10 +179,17 @@ public struct CinematographyView: View {
             viewModel.onShotsChanged = onShotsChanged
             applyInitialSelection()
         }
-        .onChange(of: shots) { _, newShots in
-            // Resync when the project's shots change externally. notify:false so
-            // this does not echo back to the parent as a fresh edit.
-            viewModel.setShots(newShots, notify: false)
+        .onChange(of: shotsRevision) { _, _ in
+            // Cheap path: the host bumps one Int when shots really
+            // changed. Comparing the Int is O(1); comparing the arrays
+            // (below) is O(shots) on EVERY publish.
+            viewModel.setShots(shots, notify: false)
+        }
+        .onChange(of: shotsRevision == nil ? shots : []) { _, _ in
+            // Resync when the project's shots change externally.
+            // notify:false so this does not echo back as a fresh edit.
+            guard shotsRevision == nil else { return }
+            viewModel.setShots(shots, notify: false)
         }
         .onChange(of: initialSelectedShotId) { _, newValue in
             applyInitialSelection()

@@ -14,7 +14,9 @@ public class CinematographyViewModel: ObservableObject {
     // MARK: - Published Properties
 
     /// All shots in the scene
-    @Published public var shots: [Shot] = []
+    @Published public var shots: [Shot] = [] {
+        didSet { shotsRevision &+= 1 }
+    }
 
     /// Currently selected shot ID
     @Published public var selectedShotId: String?
@@ -55,7 +57,32 @@ public class CinematographyViewModel: ObservableObject {
     // MARK: - Computed Properties
 
     /// Filtered shots based on current criteria
+    /// Cached: three separate body-pass reads (count, isEmpty, ForEach
+    /// source) each re-filtered all shots per publish — at 3,600 shots
+    /// that is three full array walks and copies per tick. The cache
+    /// invalidates whenever any input changes.
     public var filteredShots: [Shot] {
+        let key = FilterKey(revision: shotsRevision, status: filterByStatus,
+                            type: filterByShotType, query: searchQuery)
+        if let cached = filteredShotsCache, cached.key == key {
+            return cached.shots
+        }
+        let computed = computeFilteredShots()
+        filteredShotsCache = (key, computed)
+        return computed
+    }
+
+    private struct FilterKey: Equatable {
+        let revision: Int
+        let status: ShotStatus?
+        let type: String?
+        let query: String
+    }
+    private var filteredShotsCache: (key: FilterKey, shots: [Shot])?
+    /// Bumped on every mutation of `shots` (didSet below).
+    private var shotsRevision = 0
+
+    private func computeFilteredShots() -> [Shot] {
         var result = shots
 
         if let status = filterByStatus {

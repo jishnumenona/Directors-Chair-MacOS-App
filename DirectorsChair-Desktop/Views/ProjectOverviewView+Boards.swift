@@ -127,7 +127,7 @@ struct OverviewLocationGallery: View {
             SectionHeader(title: "Locations", icon: "map.fill")
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
+                LazyHStack(spacing: 14) {
                     ForEach(locations, id: \.name) { location in
                         LocationCard(
                             location: location,
