@@ -277,6 +277,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // driver). Setup runs from ContentView.onAppear once the delegate
         // refs are wired (see runPostLaunchSetupForTesting).
         if TestMode.skipSplash {
+            forceWindowFrontForTesting()
             return
         }
 
@@ -322,6 +323,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     window.animator().alphaValue = 1
                 }
             }
+        }
+    }
+
+    /// A test-driven launch starts in the BACKGROUND (the runner is the
+    /// active app), and SwiftUI never materializes the WindowGroup's window
+    /// for a background launch — measured: NSApp.windows stays EMPTY and
+    /// the suite stalls at "Main window should appear" until a human
+    /// clicks the Dock icon. Activation is not the missing piece (the
+    /// driver's app.activate() left the app active and still windowless);
+    /// the Dock click works because it sends kAEReopenApplication, and the
+    /// Apple Event pipeline is what SwiftUI's window machinery listens to
+    /// — a direct applicationShouldHandleReopen call does nothing. So send
+    /// ourselves that event. Retries because launch order is not
+    /// deterministic. Test mode only.
+    private func forceWindowFrontForTesting(attempt: Int = 0) {
+        guard attempt < 40 else { return }
+        func realWindow() -> NSWindow? {
+            NSApp.windows.first {
+                $0.canBecomeMain && $0.frame.width > 400 && $0.frame.height > 300
+            }
+        }
+        if realWindow() == nil {
+            // The Dock click that "fixes" a windowless test launch is not
+            // activation — it is the kAEReopenApplication Apple Event, and
+            // the AE pipeline is what SwiftUI's window machinery listens
+            // to (a direct delegate reopen call while inactive was
+            // measured to do nothing). Self-addressed AEs need no
+            // privileges.
+            let target = NSAppleEventDescriptor(
+                processIdentifier: ProcessInfo.processInfo.processIdentifier)
+            let reopen = NSAppleEventDescriptor(
+                eventClass: AEEventClass(kCoreEventClass),
+                eventID: AEEventID(kAEReopenApplication),
+                targetDescriptor: target,
+                returnID: AEReturnID(kAutoGenerateReturnID),
+                transactionID: AETransactionID(kAnyTransactionID))
+            AESendMessage(reopen.aeDesc, nil, AESendMode(kAENoReply), 60)
+        }
+        if let window = realWindow() {
+            window.makeKeyAndOrderFront(nil)
+        }
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        if let window = realWindow(), window.isVisible {
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.forceWindowFrontForTesting(attempt: attempt + 1)
         }
     }
 

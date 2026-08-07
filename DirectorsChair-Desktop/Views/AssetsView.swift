@@ -426,6 +426,7 @@ struct AssetsView: View {
                     .foregroundColor(.secondary)
                 TextField("Search assets...", text: $searchText)
                     .textFieldStyle(.plain)
+                    .accessibilityIdentifier("assets-search")
 
                 if !searchText.isEmpty {
                     Button(action: { searchText = "" }) {

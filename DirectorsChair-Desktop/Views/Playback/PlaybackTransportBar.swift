@@ -56,6 +56,7 @@ struct PlaybackTransportBar: View {
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("playback-play-pause")
 
                     transportButton("chevron.right", size: 12) { viewModel.skipToNextShot() }
                     transportButton("forward.fill", size: 12) { viewModel.skipToNextScene() }
