@@ -324,3 +324,94 @@ final class VisionThreadRingTests: XCTestCase {
         XCTAssertNil(cord.thickness, "and draws at the standard 5 it always did")
     }
 }
+
+// MARK: - Shot list scene bands (P1 §2.17)
+//
+// Appended here rather than its own file: this suite already imports
+// everything needed, and the banding rules are small and pure.
+
+@MainActor
+final class ShotListSectionTests: XCTestCase {
+
+    private func fixtures(shotCount: Int = 4)
+        -> (CinematographyViewModel, [DirectorsChairCore.Scene]) {
+        let viewModel = CinematographyViewModel()
+        var shots: [Shot] = []
+        for index in 1...shotCount {
+            shots.append(Shot(shotId: index))
+        }
+        viewModel.shots = shots
+        var sceneA = DirectorsChairCore.Scene(name: "Scene 1")
+        sceneA.shots = [shots[0], shots[1]]
+        var sceneB = DirectorsChairCore.Scene(name: "Scene 2")
+        sceneB.shots = [shots[2]]
+        return (viewModel, [sceneA, sceneB])
+    }
+
+    func testShotsBandBySceneInStoryOrderWithStraysLast() {
+        let (viewModel, scenes) = fixtures()
+        let sections = viewModel.sections(scenes: scenes)
+
+        XCTAssertEqual(sections.map(\.name),
+                       ["Scene 1", "Scene 2", "Unassigned"])
+        XCTAssertEqual(sections[0].shots.map(\.shotId), [1, 2])
+        XCTAssertEqual(sections[2].shots.map(\.shotId), [4],
+                       "a shot no scene claims must not vanish")
+    }
+
+    func testNoScenesMeansOneFlatBand() {
+        let (viewModel, _) = fixtures()
+        let sections = viewModel.sections(scenes: [])
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(sections[0].shots.count, 4)
+    }
+
+    func testSmallListsOpenEverythingBigListsOpenNothing() {
+        let (smallVM, smallScenes) = fixtures()
+        _ = smallVM.sections(scenes: smallScenes)
+        XCTAssertTrue(smallVM.isSectionOpen(smallScenes[0].id),
+                      "150 shots or fewer: nothing to save by collapsing")
+
+        let bigVM = CinematographyViewModel()
+        bigVM.shots = (1...400).map { Shot(shotId: $0) }
+        var bigScene = DirectorsChairCore.Scene(name: "Big")
+        bigScene.shots = bigVM.shots
+        _ = bigVM.sections(scenes: [bigScene])
+        XCTAssertFalse(bigVM.isSectionOpen(bigScene.id),
+                       "400 shots: collapsed is the point")
+    }
+
+    func testSearchingOverridesCollapse() {
+        let (viewModel, scenes) = fixtures(shotCount: 200)
+        _ = viewModel.sections(scenes: scenes)   // big → collapsed
+        XCTAssertFalse(viewModel.isSectionOpen(scenes[0].id))
+
+        viewModel.searchQuery = "WIDE"
+        XCTAssertTrue(viewModel.isSectionOpen(scenes[0].id),
+            "search results hiding inside closed bands looks broken")
+        viewModel.searchQuery = ""
+        XCTAssertFalse(viewModel.isSectionOpen(scenes[0].id),
+                       "and the collapse state survives the search")
+    }
+
+    func testExternalSelectionOpensItsBand() {
+        let (viewModel, scenes) = fixtures(shotCount: 200)
+        _ = viewModel.sections(scenes: scenes)
+        XCTAssertFalse(viewModel.isSectionOpen(scenes[0].id))
+
+        viewModel.revealSection(containing: viewModel.shots[0].id,
+                                scenes: scenes)
+        XCTAssertTrue(viewModel.isSectionOpen(scenes[0].id),
+            "a selection sent from the outline must never land invisibly")
+    }
+
+    func testFiltersKeepBandMembershipHonest() {
+        let (viewModel, scenes) = fixtures()
+        viewModel.shots[0].status = ShotStatus.approved.rawValue
+        viewModel.filterByStatus = .approved
+        let sections = viewModel.sections(scenes: scenes)
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(sections[0].shots.map(\.shotId), [1],
+                       "empty bands disappear rather than showing hollow")
+    }
+}
