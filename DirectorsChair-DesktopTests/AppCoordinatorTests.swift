@@ -885,3 +885,103 @@ final class CommandPaletteGlobalSearchTests: XCTestCase {
             + "there is what makes ⌘F come up pre-filled")
     }
 }
+
+// MARK: - Remappable shortcuts (§2.18)
+
+@MainActor
+final class ShortcutStoreTests: XCTestCase {
+
+    private var suite: UserDefaults!
+    private let suiteName = "ShortcutStoreTests"
+
+    override func setUp() {
+        super.setUp()
+        suite = UserDefaults(suiteName: suiteName)
+        suite.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        suite.removePersistentDomain(forName: suiteName)
+        super.tearDown()
+    }
+
+    func testShippedDefaultsNeverCollide() {
+        // The app actually shipped Force Save and Project Snapshots both
+        // on ⌥⌘S — one of them could never fire. This pins the whole
+        // default table as clash-free so that bug class is dead.
+        let specs = ShortcutStore.commands.map { $0.defaultSpec.storage }
+        XCTAssertEqual(Set(specs).count, specs.count,
+                       "two commands share a default shortcut")
+        XCTAssertEqual(
+            ShortcutStore.commands.first { $0.id == "file.forceSave" }?
+                .defaultSpec.display, "⌃⌘S",
+            "Force Save moved off ⌥⌘S, which Project Snapshots owns")
+    }
+
+    func testDefaultsAlsoAvoidTheProtectedPlatformCombos() {
+        for command in ShortcutStore.commands {
+            XCTAssertFalse(
+                ShortcutStore.protectedCombos.contains(command.defaultSpec),
+                "\(command.label) defaults to a protected combo")
+        }
+    }
+
+    func testOverridePersistsAcrossStoreInstances() {
+        let store = ShortcutStore(defaults: suite)
+        XCTAssertNil(store.set(ShortcutSpec(key: "g", command: true),
+                               for: "nav.Scenes"))
+        let reloaded = ShortcutStore(defaults: suite)
+        XCTAssertEqual(reloaded.spec(for: "nav.Scenes").display, "⌘G",
+                       "a rebind must survive relaunch")
+        XCTAssertEqual(reloaded.spec(for: "nav.Assets").display, "⌘4",
+                       "unrelated commands keep their defaults")
+    }
+
+    func testConflictsAreRefusedWithTheHoldersName() {
+        let store = ShortcutStore(defaults: suite)
+        let error = store.set(ShortcutSpec(key: "2", command: true),
+                              for: "nav.Scenes")
+        XCTAssertNotNil(error, "⌘2 is Bubble View's — must refuse")
+        XCTAssertTrue(error?.contains("Bubble") == true,
+                      "the refusal names the current holder")
+        XCTAssertEqual(store.spec(for: "nav.Scenes").display, "⌘3",
+                       "a refused rebind changes nothing")
+
+        // Conflicts consider OVERRIDES too, not just defaults.
+        XCTAssertNil(store.set(ShortcutSpec(key: "g", command: true),
+                               for: "nav.Assets"))
+        XCTAssertNotNil(store.set(ShortcutSpec(key: "g", command: true),
+                                  for: "nav.Scenes"))
+    }
+
+    func testProtectedAndUnchordedCombosAreRefused() {
+        let store = ShortcutStore(defaults: suite)
+        XCTAssertNotNil(store.set(ShortcutSpec(key: "s", command: true),
+                                  for: "nav.Scenes"),
+                        "⌘S is Save's — the platform owns it")
+        XCTAssertNotNil(store.set(ShortcutSpec(key: "g", shift: true),
+                                  for: "nav.Scenes"),
+                        "shift-G is typing a capital G")
+        XCTAssertTrue(store.overrides.isEmpty)
+    }
+
+    func testResetRestoresTheDefault() {
+        let store = ShortcutStore(defaults: suite)
+        store.set(ShortcutSpec(key: "g", command: true), for: "nav.Scenes")
+        store.set(ShortcutSpec(key: "j", command: true), for: "nav.Assets")
+        store.reset("nav.Scenes")
+        XCTAssertEqual(store.spec(for: "nav.Scenes").display, "⌘3")
+        XCTAssertEqual(store.spec(for: "nav.Assets").display, "⌘J")
+        store.resetAll()
+        XCTAssertTrue(store.overrides.isEmpty)
+        XCTAssertTrue(ShortcutStore(defaults: suite).overrides.isEmpty,
+                      "reset-all persists")
+    }
+
+    func testCorruptedStorageFallsBackToDefaults() {
+        suite.set(["nav.Scenes": "not-a-spec"], forKey: "remappedShortcuts")
+        let store = ShortcutStore(defaults: suite)
+        XCTAssertEqual(store.spec(for: "nav.Scenes").display, "⌘3",
+                       "garbage in defaults must not break the menu")
+    }
+}
