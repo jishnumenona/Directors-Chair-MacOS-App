@@ -11,8 +11,10 @@ import AppKit
 import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairExports
+import DirectorsChairViews
 
 struct ExportCommands: Commands {
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     // Injected app-scoped reference (see ViewCommands note re: @FocusedValue).
     var projectViewModelRef: ProjectViewModel?
     @FocusedValue(\.projectViewModel) var focusedProjectViewModel: ProjectViewModel?
@@ -27,7 +29,7 @@ struct ExportCommands: Commands {
             Button("Export as Fountain...") {
                 // TODO: Implement Fountain export using DirectorsChairExports
             }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .keyboardShortcut(shortcuts.spec(for: "export.fountain").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as Final Draft (FDX)...") {
@@ -38,7 +40,7 @@ struct ExportCommands: Commands {
             Button("Export as PDF...") {
                 // TODO: Implement PDF export using DirectorsChairExports
             }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .keyboardShortcut(shortcuts.spec(for: "export.pdf").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as HTML...") {
@@ -111,7 +113,7 @@ struct ExportCommands: Commands {
             Button("Export All...") {
                 // TODO: Implement batch export
             }
-            .keyboardShortcut("e", modifiers: [.command, .option, .shift])
+            .keyboardShortcut(shortcuts.spec(for: "export.batch").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
         }
     }

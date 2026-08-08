@@ -9,8 +9,10 @@
 import SwiftUI
 import AppKit
 import DirectorsChairServices
+import DirectorsChairViews
 
 struct FileCommands: Commands {
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     // Injected app-scoped references (see ViewCommands note re: @FocusedValue).
     var coordinatorRef: AppCoordinator?
     var projectViewModelRef: ProjectViewModel?
@@ -70,7 +72,7 @@ struct FileCommands: Commands {
             Button("Project Snapshots...") {
                 coordinator?.showingSnapshots = true
             }
-            .keyboardShortcut("s", modifiers: [.command, .option])
+            .keyboardShortcut(shortcuts.spec(for: "file.snapshots").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
 
             Divider()
@@ -80,7 +82,9 @@ struct FileCommands: Commands {
                     await projectViewModel?.forceSave()
                 }
             }
-            .keyboardShortcut("s", modifiers: [.command, .option])
+            // Default is ⌃⌘S — the old ⌥⌘S silently collided with
+            // Project Snapshots, so one of the two never fired.
+            .keyboardShortcut(shortcuts.spec(for: "file.forceSave").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.isDirty != true)
         }
     }
