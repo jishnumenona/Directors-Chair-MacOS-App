@@ -84,6 +84,10 @@ class AppCoordinator: ObservableObject {
 
     /// Currently selected shot (for cinematography)
     @Published var selectedShot: Shot?
+    /// The vision-board element to bring to the middle of the screen when
+    /// the board opens — set by "Show on the vision board" from a scene or
+    /// a shot, cleared by the board once it has arrived.
+    @Published var revealVisionCardId: String?
 
     /// Currently selected character (for story design)
     @Published var selectedCharacter: Character?
@@ -239,6 +243,32 @@ class AppCoordinator: ObservableObject {
     // MARK: - Navigation Methods
 
     /// Navigate to a specific view
+    /// The other end of dragging a scene or shot onto the wall: go there,
+    /// and land on the element rather than wherever the board was left.
+    func revealOnVisionBoard(cardId: String) {
+        revealVisionCardId = cardId
+        navigateTo(.visionBoard)
+    }
+
+    /// A tag on a vision-board element was tapped: go to the scene or
+    /// shot it belongs to. Silent if the thing has since been deleted —
+    /// better a dead tag than navigating somewhere arbitrary.
+    func openLinked(_ ref: VisionCardLinkRef, in project: Project) {
+        switch ref.kind {
+        case .scene:
+            guard let scene = project.sequences
+                .flatMap(\.scenes).first(where: { $0.id == ref.id })
+            else { return }
+            selectScene(scene)
+            navigateTo(.scenes)
+        case .shot:
+            guard let shot = project.sequences.flatMap(\.scenes)
+                .flatMap(\.shots).first(where: { $0.id == ref.id })
+            else { return }
+            selectShot(shot)
+        }
+    }
+
     func navigateTo(_ view: AppView) {
         // Skip if already on this view
         guard selectedView != view else {

@@ -15,6 +15,8 @@ public struct VisionBoardCanvas: View {
 
     /// Callback when a card is double-clicked for editing
     public var onCardEdit: ((VisionCard) -> Void)?
+    /// Tapping an element's tag opens the scene or shot it belongs to.
+    public var onOpenLink: ((VisionCardLinkRef) -> Void)?
 
     // MARK: - State
 
@@ -33,6 +35,9 @@ public struct VisionBoardCanvas: View {
     @State private var awaitingTool: VisionWallTool?
     /// Non-nil when the ring belongs to a scrap rather than the wall.
     @State private var ringScrap: VisionCard?
+    /// Non-nil when the right-click landed on a cord: the thread's own
+    /// ring opens instead, and nothing else does.
+    @State private var ringThread: VisionConnector?
     /// The scrap whose paper is being chosen, and where to show the stock.
     @State private var paperFor: VisionCard?
     /// The element whose note is being written at the caret.
@@ -44,16 +49,18 @@ public struct VisionBoardCanvas: View {
 
     // MARK: - Constants
 
-    private static let canvasSpaceName = "visionCanvas"
+    static let canvasSpaceName = "visionCanvas"
 
     // MARK: - Init
 
     public init(
         viewModel: VisionBoardViewModel,
-        onCardEdit: ((VisionCard) -> Void)? = nil
+        onCardEdit: ((VisionCard) -> Void)? = nil,
+        onOpenLink: ((VisionCardLinkRef) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.onCardEdit = onCardEdit
+        self.onOpenLink = onOpenLink
     }
 
     // MARK: - Body
@@ -94,11 +101,22 @@ public struct VisionBoardCanvas: View {
                         // What the click landed on decides the ring — a
                         // scrap gets its own tools, bare wall gets the
                         // making tools. Never both menus at once.
-                        ringScrap = VisionWallHitTest.scrap(
-                            at: viewModel.transform.toWorld(point),
-                            cards: viewModel.filteredCards)
+                        let world = viewModel.transform.toWorld(point)
+                        // A cord is thin and usually crosses the very
+                        // sheets it connects, so it is asked first — and
+                        // when it answers, neither other ring opens.
+                        ringThread = VisionWallHitTest.thread(
+                            at: world,
+                            connectors: viewModel.boardConnectors,
+                            tack: { tackPoint($0) },
+                            tolerance: 13 / max(viewModel.transform.zoom, 0.05))
+                        ringScrap = ringThread == nil
+                            ? VisionWallHitTest.scrap(at: world,
+                                                      cards: viewModel.filteredCards)
+                            : nil
                         toolRingAt = VisionRadialGeometry.anchor(
-                            for: point, in: viewSize, radius: 78)
+                            for: point, in: viewSize,
+                            radius: ringThread != nil ? 116 : 78)
                     }
                 )
             )
@@ -210,6 +228,7 @@ public struct VisionBoardCanvas: View {
             .onAppear {
                 viewSize = geometry.size
                 viewModel.viewportSize = geometry.size
+                viewModel.camera.viewport = geometry.size
                 // Take focus so Delete, arrows and ⌘V work without the
                 // user having to guess that the wall needs clicking first.
                 DispatchQueue.main.async { wallFocused = true }
@@ -219,6 +238,7 @@ public struct VisionBoardCanvas: View {
             .onChange(of: geometry.size) { _, newSize in
                 viewSize = newSize
                 viewModel.viewportSize = newSize
+                viewModel.camera.viewport = newSize
             }
         }
         .background(LinearGradient(colors: VisionWallPalette.surface,
@@ -259,7 +279,31 @@ public struct VisionBoardCanvas: View {
 
     @ViewBuilder
     private var ringOverlay: some View {
-        if let ring = toolRingAt {
+        if let ring = toolRingAt, let cord = ringThread {
+            // A cord gets its own tools. The wall's making tools have
+            // nothing to say about a piece of string, and showing both
+            // rings at once — which is what used to happen — says the
+            // app doesn't know what you clicked.
+            VisionThreadRing(
+                anchor: ring,
+                connector: viewModel.boardConnectors
+                    .first { $0.id == cord.id } ?? cord,
+                // Picking a colour is a finished choice, so the ring
+                // closes on it — you see the cord change instead of
+                // staring at the tools that changed it. Weight keeps the
+                // ring open, because stepping through it is a dial.
+                onPickThread: {
+                    viewModel.setThread(cord.id, to: $0)
+                    dismissRing()
+                },
+                onSetThickness: { viewModel.setThreadThickness(cord.id, to: $0) },
+                onSetName: { viewModel.setConnectorLabel(cord.id, label: $0) },
+                onCut: {
+                    dismissRing()
+                    viewModel.removeConnector(cord.id)
+                },
+                onDismiss: dismissRing)
+        } else if let ring = toolRingAt {
             VisionRadialMenu(anchor: ring, items: ringItems,
                              onPick: { pickTool($0, at: ring) },
                              onDismiss: dismissRing)
@@ -436,10 +480,16 @@ public struct VisionBoardCanvas: View {
         annotating = nil
         let instructions = ImageAnnotationEditor.buildEditPrompt(
             from: marks, context: "image")
-        guard !instructions.isEmpty,
-              let tiff = image.tiffRepresentation,
+        guard !instructions.isEmpty else {
+            viewModel.lastWorkProblem = "Add a mark and say what to change there."
+            return
+        }
+        guard let tiff = image.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?
-                  .representation(using: .png, properties: [:]) else { return }
+                  .representation(using: .png, properties: [:]) else {
+            viewModel.lastWorkProblem = "This picture couldn't be read for redrawing."
+            return
+        }
         Task { @MainActor in
             await viewModel.redraw(card.id, instructions: instructions,
                                    baseImage: png)
@@ -532,9 +582,13 @@ public struct VisionBoardCanvas: View {
         let isText = scrap.cardType == VisionCardType.text.rawValue
         let hasPicture = !(scrap.imagePath ?? "").isEmpty
         let isPaper = isText || scrap.cardType == VisionCardType.link.rawValue
-        return VisionScrapTool.ring(isText: isText, hasPicture: hasPicture,
-                                    isPaper: isPaper,
-                                    hasPrompt: !scrap.description.isEmpty).map {
+        return VisionScrapTool.ring(
+            isText: isText, hasPicture: hasPicture,
+            isPaper: isPaper,
+            hasPrompt: !scrap.description.isEmpty,
+            canStick: VisionWallHitTest.elementBeneath(
+                scrap, in: viewModel.filteredCards) != nil,
+            isStuck: scrap.stuckTo != nil).map {
             VisionRingItem(id: $0.rawValue,
                            title: $0.title(pinned: scrap.pinned, isText: isText),
                            systemImage: $0.systemImage(pinned: scrap.pinned,
@@ -544,6 +598,7 @@ public struct VisionBoardCanvas: View {
     }
 
     private func dismissRing() {
+        ringThread = nil
         toolRingAt = nil
         ringScrap = nil
     }
@@ -595,6 +650,10 @@ public struct VisionBoardCanvas: View {
             draftFocused = true
         case .details:
             onCardEdit?(scrap)
+        case .stick:
+            viewModel.stick(scrap.id)
+        case .peel:
+            viewModel.peel(scrap.id)
         case .remove:
             viewModel.removeCard(scrap.id)
         }
@@ -722,8 +781,39 @@ public struct VisionBoardCanvas: View {
                     payloads.append(payload)
                 }
             }
+            // A scene or shot dragged from the outline is a LINK, never
+            // words. Handled here rather than on a drop target per
+            // element: nested targets meant the wall answered first and
+            // pinned up a clipping of the raw dcref:// text.
+            if let world, let ref = linkRef(in: payloads) {
+                if let target = VisionWallHitTest.scrap(
+                    at: world, cards: viewModel.filteredCards) {
+                    viewModel.link(target.id, to: ref)
+                } else {
+                    viewModel.lastWorkProblem =
+                        "Drop \(ref.label) onto an element to connect them."
+                }
+                return
+            }
             await viewModel.absorb(payloads, at: world)
         }
+    }
+
+    /// The first payload that is really a scene or a shot rather than text.
+    private func linkRef(in payloads: [AbsorbPayload]) -> VisionCardLinkRef? {
+        for payload in payloads {
+            // The same drag can arrive classified as words OR as a URL,
+            // depending on what the pasteboard decided it was.
+            if case .text(let text) = payload,
+               let ref = VisionCardLinkRef.parse(text) {
+                return ref
+            }
+            if case .remoteURL(let url) = payload,
+               let ref = VisionCardLinkRef.parse(url.absoluteString) {
+                return ref
+            }
+        }
+        return nil
     }
 
     /// Where an element's tack sits in the world. Thread is wound around
@@ -746,8 +836,10 @@ public struct VisionBoardCanvas: View {
     /// The wall itself — a surface that goes on forever
     /// (VisionWallSurface: grain that scrolls with the pan, marks
     /// generated per world cell, light that stays with the viewer).
+    /// Observes the camera by itself so a pan repaints the plaster
+    /// without re-evaluating the rest of the canvas.
     private var canvasBackground: some View {
-        VisionWallSurface(transform: viewModel.transform)
+        WallSurfaceLayer(camera: viewModel.camera)
             .ignoresSafeArea()
     }
 
@@ -755,48 +847,94 @@ public struct VisionBoardCanvas: View {
 
     @ViewBuilder
     private var cardsLayer: some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(viewModel.filteredCards) { card in
-                scrapView(card)
-            }
+        // This body must never READ the camera: reading it would put the
+        // whole ForEach back on the 120Hz invalidation path that made the
+        // wall stutter. The wrapper below observes it alone, applies the
+        // transform, and feeds zoom to the few screen-constant adornments
+        // through the environment.
+        WallCameraApplied(camera: viewModel.camera) {
+            ZStack(alignment: .topLeading) {
+                WallElementsLayer(
+                    viewModel: viewModel,
+                    stage: viewModel.camera.stage,
+                    full: { self.scrapView($0).equatable() })
 
-            // Space held while a picture is imagined — on the wall, in the
-            // world, never over the top of your work.
-            ForEach(viewModel.pendingImagines) { pending in
-                VisionPendingSheet(pending: pending)
-                    .position(x: pending.origin.x + pending.size.width / 2,
-                              y: pending.origin.y + pending.size.height / 2)
-            }
-
-            // Thread lies ON the wall over the paper — string wound round
-            // a pin sits on top of the sheet, it doesn't run beneath it.
-            ForEach(viewModel.boardConnectors) { connector in
-                if let from = tackPoint(connector.fromCardId),
-                   let to = tackPoint(connector.toCardId) {
-                    ConnectorArrow(
-                        from: from, to: to, label: connector.label,
-                        onEditLabel: {
-                            viewModel.editingConnectorId = connector.id
-                        },
-                        onDelete: {
-                            viewModel.removeConnector(connector.id)
-                        })
+                // Space held while a picture is imagined — on the wall,
+                // in the world, never over the top of your work.
+                ForEach(viewModel.pendingImagines) { pending in
+                    VisionPendingSheet(pending: pending)
+                        .position(x: pending.origin.x + pending.size.width / 2,
+                                  y: pending.origin.y + pending.size.height / 2)
                 }
+
+                // Thread lies ON the wall over the paper — string wound
+                // round a pin sits on top of the sheet, it doesn't run
+                // beneath it. The layer observes the camera itself (cord
+                // weight is zoom-boosted) — a handful of cords, not the
+                // whole wall.
+                WallCordsLayer(
+                    camera: viewModel.camera,
+                    // On big boards each cord's tooltip, tap target and
+                    // help text cost ~0.5ms PER TICK in AppKit
+                    // re-registration (80 cords ≈ 40ms of every pan).
+                    // The wall's right-click hit-test still opens the
+                    // thread ring, where naming and cutting live — so
+                    // big boards lose only the hover tooltip and the
+                    // double-click shortcut, not any capability.
+                    interactive: !WallScale.isBig(viewModel.filteredCards.count),
+                    strands: viewModel.boardConnectors.compactMap { connector in
+                        guard let from = tackPoint(connector.fromCardId),
+                              let to = tackPoint(connector.toCardId)
+                        else { return nil }
+                        return WallCordsLayer.Strand(connector: connector,
+                                                     from: from, to: to)
+                    },
+                    onEditLabel: { connector, from, to in
+                        ringThread = connector
+                        toolRingAt = VisionRadialGeometry.anchor(
+                            for: viewModel.transform.toScreen(
+                                VisionWallHitTest.cordMidpoint(from: from,
+                                                               to: to)),
+                            in: viewSize, radius: 116)
+                    },
+                    onDelete: { viewModel.removeConnector($0.id) })
             }
         }
-        // The ONE place zoom and offset touch the render tree.
-        .scaleEffect(viewModel.transform.zoom, anchor: .topLeading)
-        .offset(x: viewModel.transform.offset.x, y: viewModel.transform.offset.y)
     }
 
-    /// One scrap on the wall. Split out of `cardsLayer` because the
-    /// closure list defeats the type-checker when inlined.
+    /// One scrap on the wall, wrapped so SwiftUI can SKIP it.
+    ///
+    /// The twenty closures below defeat structural diffing — closures
+    /// are never equal, so before this wrapper every publish re-rendered
+    /// every element on the wall: 28ms per tick on a 150-element board,
+    /// for a selection change. WallScrap's == compares only what draws
+    /// (the card and its flags), so an untouched element is skipped
+    /// wholesale, shadows and all.
+    private func scrapView(_ card: VisionCard) -> WallScrap<some View> {
+        WallScrap(
+            card: card,
+            isSelected: viewModel.selectedCardIds.contains(card.id),
+            isConnectTarget: viewModel.pendingConnectorSource != nil
+                && viewModel.pendingConnectorSource != card.id,
+            isWorking: viewModel.isWorking(card.id),
+            showLabel: viewModel.showLabels,
+            item: { buildItem(for: $0) })
+    }
+
+    /// The fully-wired element — built only when its WallScrap decides
+    /// something visible changed.
     @ViewBuilder
-    private func scrapView(_ card: VisionCard) -> some View {
+    private func buildItem(for card: VisionCard) -> some View {
             VisionCardItem(
                 card: card,
                 isSelected: viewModel.selectedCardIds.contains(card.id),
-                zoomLevel: viewModel.zoomLevel,
+                // The badge is only ever as good as this line: the element
+                // has always been able to show it, and for three reports
+                // running nobody passed it.
+                isRedrawing: viewModel.isWorking(card.id),
+                onOpenLink: {
+                    if let ref = card.linkedRef { onOpenLink?(ref) }
+                },
                 showLabel: viewModel.showLabels,
                 canvasSpaceName: Self.canvasSpaceName,
                 projectBase: viewModel.projectBase,
@@ -852,6 +990,9 @@ public struct VisionBoardCanvas: View {
             )
     }
 
+    // MARK: - Gestures (moved marker)
+
+
     // MARK: - Gestures
 
     /// Plain gesture (not simultaneous): card-attached gestures are deeper
@@ -889,10 +1030,428 @@ public struct VisionBoardCanvas: View {
 /// plaster, and tied to the wrong place. Real string is thick enough to
 /// see across a room, hangs under its own weight, is twisted from strands,
 /// and is wound around the tacks rather than the paper.
+// MARK: - The camera's own views
+//
+// Pan and zoom arrive at up to 120Hz. Everything in this section exists
+// so that those ticks touch ONLY: the plaster (which must scroll), the
+// transform modifiers (which Core Animation applies to cached layer
+// content), the cords (whose weight is zoom-boosted), and the few
+// screen-constant adornments (fed through \.wallZoom). The elements
+// themselves — shadows, textures, torn edges — are not re-rendered by
+// moving the viewer.
+
+private struct WallZoomKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1
+}
+
+extension EnvironmentValues {
+    /// The camera's zoom, for adornments that keep a constant screen
+    /// size (working badge, link tag, rotate handle). Reading this — and
+    /// only this — is what re-lays them out during a pinch.
+    var wallZoom: CGFloat {
+        get { self[WallZoomKey.self] }
+        set { self[WallZoomKey.self] = newValue }
+    }
+}
+
+/// The elements themselves, mounted according to the scale policy. Its
+/// own view so that stage republishes (rare, hysteresis-gated) re-filter
+/// HERE without re-running the whole canvas body — and so the far-chip
+/// swap happens in one place.
+struct WallElementsLayer<Full: View>: View {
+    let viewModel: VisionBoardViewModel
+    @ObservedObject var stage: WallStage
+    let full: (VisionCard) -> Full
+
+    var body: some View {
+        let cards = viewModel.filteredCards
+        let count = cards.count
+        // stage.farOut is the zoom, quantized to the one boolean that
+        // matters and published only on threshold crossings — reading
+        // the zoom itself here would put this ForEach back on the 120Hz
+        // invalidation path, which is the disease this file just cured.
+        let chips = WallScale.isBig(count) && stage.farOut
+        if chips {
+            ForEach(cards) { card in
+                WallFarChip(
+                    card: card,
+                    isSelected: viewModel.selectedCardIds.contains(card.id),
+                    projectBase: viewModel.projectBase,
+                    onSelect: { viewModel.selectCard(card.id) },
+                    onDragBegan: {
+                        viewModel.selectCard(card.id)
+                        viewModel.beginCardDrag(anchor: card.id)
+                    },
+                    onDragChanged: {
+                        viewModel.updateCardDrag(translation: $0)
+                    },
+                    onDragEnded: {
+                        viewModel.endCardDrag(translation: $0)
+                    })
+                .equatable()
+                .position(x: (card.canvasX ?? 0) + (card.canvasWidth ?? 200) / 2,
+                          y: (card.canvasY ?? 0) + (card.canvasHeight ?? 200) / 2)
+            }
+        } else {
+            ForEach(WallScale.staged(cards, stage: stage.region,
+                                     count: count)) { card in
+                full(card)
+            }
+        }
+    }
+}
+
+// MARK: - Scale policy
+//
+// A small board mounts every element in full, exactly as it always has —
+// nothing about boards under the limit changes, down to the pixel. Past
+// the limit, two things bound the work by what's on SCREEN instead of
+// what's in the PROJECT:
+//   · at working zoom, only elements on the camera's stage (visible rect
+//     plus margin) are mounted in full;
+//   · standing far back — where an element is a postage stamp and its
+//     tack, texture and tooltips are sub-pixel anyway — elements render
+//     as flat chips that cost what a rectangle costs.
+// Measured: 1,000 mounted full elements pan at 155ms/tick from AppKit
+// bookkeeping alone; 1,000 rectangles at 5.4ms. A big project must not
+// pay the first price for the second picture.
+enum WallScale {
+    /// Boards at or under this mount everything in full, always.
+    static let fullDetailLimit = 150
+    /// On big boards, below this zoom elements render as chips.
+    static let chipZoom: CGFloat = 0.35
+
+    static func isBig(_ count: Int) -> Bool { count > fullDetailLimit }
+
+    static func rendersChips(count: Int, zoom: CGFloat) -> Bool {
+        isBig(count) && zoom < chipZoom
+    }
+
+    /// Full elements to mount: everything on a small board; on a big one,
+    /// what intersects the stage (nil stage = not yet measured = all).
+    static func staged(_ cards: [VisionCard], stage: CGRect?,
+                       count: Int) -> [VisionCard] {
+        guard isBig(count), let stage else { return cards }
+        return cards.filter { card in
+            stage.intersects(CGRect(
+                x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                width: card.canvasWidth ?? 200,
+                height: card.canvasHeight ?? 200))
+        }
+    }
+}
+
+/// One element, far away: the paper's tone, its tilt, its words if it is
+/// made of words, its picture if one is ALREADY decoded (a chip never
+/// starts a decode — standing back must not fire hundreds of them). No
+/// tack, no texture, no tooltip, no menu — at this size they are
+/// sub-pixel, and their AppKit bookkeeping is what made big boards crawl.
+/// Tap still selects and drag still moves, so the far view is not a
+/// picture of the wall but the wall itself.
+struct WallFarChip: View, Equatable {
+    let card: VisionCard
+    let isSelected: Bool
+    let projectBase: URL?
+    let onSelect: () -> Void
+    let onDragBegan: () -> Void
+    let onDragChanged: (CGSize) -> Void
+    let onDragEnded: (CGSize) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.card == rhs.card && lhs.isSelected == rhs.isSelected
+    }
+
+    private var width: CGFloat { card.canvasWidth ?? 200 }
+    private var height: CGFloat { card.canvasHeight ?? 200 }
+
+    private var cachedPicture: NSImage? {
+        guard let url = VisionBoardImagePath.resolveImageURL(
+            card.imagePath, projectBase: projectBase) else { return nil }
+        let maxPixel = Int(max(width, height) * 2.5)
+        return ThumbnailImageCache.shared.cached(url, maxPixel: maxPixel)
+    }
+
+    var body: some View {
+        ZStack {
+            if let picture = cachedPicture {
+                Image(nsImage: picture)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else if card.cardType == VisionCardType.text.rawValue {
+                VisionPaper.resolve(card.paper).base
+                Text(card.text.isEmpty ? card.title : card.text)
+                    .font(.system(size: min(width, height) * 0.22,
+                                  weight: .black))
+                    .fontWidth(.condensed)
+                    .foregroundStyle(VisionPaper.resolve(card.paper).ink)
+                    .minimumScaleFactor(0.2)
+                    .multilineTextAlignment(.center)
+                    .padding(6)
+            } else {
+                VisionWallPalette.clipping
+                Image(systemName: "photo")
+                    .font(.system(size: min(width, height) * 0.3))
+                    .foregroundStyle(VisionWallPalette.ink.opacity(0.25))
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay(RoundedRectangle(cornerRadius: 3)
+            .strokeBorder(VisionWallPalette.greasePencil,
+                          lineWidth: isSelected ? 6 : 0))
+        .rotationEffect(.degrees(card.rotation ?? 0))
+        .onTapGesture { onSelect() }
+        .gesture(
+            // Screen-space like the full element's drag: the model
+            // divides by zoom, so feeding it world-space deltas from the
+            // scaled layer would move chips at zoom² speed.
+            DragGesture(minimumDistance: 4,
+                        coordinateSpace: .named(VisionBoardCanvas.canvasSpaceName))
+                .onChanged { value in
+                    onDragChangedWithStart(value)
+                }
+                .onEnded { value in
+                    dragStarted = false
+                    onDragEnded(value.translation)
+                }
+        )
+    }
+
+    @State private var dragStarted = false
+    private func onDragChangedWithStart(_ value: DragGesture.Value) {
+        if !dragStarted {
+            dragStarted = true
+            onDragBegan()
+        }
+        onDragChanged(value.translation)
+    }
+}
+
+/// The one view that puts the camera's transform on the world.
+struct WallCameraApplied<Content: View>: View {
+    @ObservedObject var camera: VisionWallCamera
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .scaleEffect(camera.transform.zoom, anchor: .topLeading)
+            .offset(x: camera.transform.offset.x,
+                    y: camera.transform.offset.y)
+            .environment(\.wallZoom, camera.transform.zoom)
+    }
+}
+
+/// The plaster follows the camera by itself.
+struct WallSurfaceLayer: View {
+    @ObservedObject var camera: VisionWallCamera
+    var body: some View {
+        #if DEBUG
+        RenderProbe.surface()
+        #endif
+        return VisionWallSurface(transform: camera.transform)
+    }
+}
+
+/// Temporary diagnostics — how many bodies run per publish.
+public enum RenderProbe {
+    nonisolated(unsafe) public static var onItem: (() -> Void)?
+    nonisolated(unsafe) public static var onCord: (() -> Void)?
+    nonisolated(unsafe) public static var onSurface: (() -> Void)?
+    public static func item() { onItem?() }
+    public static func cord() { onCord?() }
+    public static func surface() { onSurface?() }
+}
+
+/// Every cord on the wall. Endpoints arrive as data (they move when
+/// cards move, which the canvas body already re-evaluates for); the
+/// camera is observed here for the zoom-boosted weight.
+struct WallCordsLayer: View {
+    struct Strand: Identifiable {
+        let connector: VisionConnector
+        let from: CGPoint
+        let to: CGPoint
+        var id: String { connector.id }
+    }
+
+    @ObservedObject var camera: VisionWallCamera
+    var interactive: Bool = true
+    let strands: [Strand]
+    let onEditLabel: (VisionConnector, CGPoint, CGPoint) -> Void
+    let onDelete: (VisionConnector) -> Void
+
+    var body: some View {
+        #if DEBUG
+        RenderProbe.cord()
+        #endif
+        // drawn() folds zoom into the weight, so during a pan (offset
+        // only) every strand's inputs are unchanged and its == skips the
+        // eight stroked paths; a zoom re-strokes them, which is real work
+        // the boost genuinely requires.
+        return ForEach(strands) { strand in
+            WallCordStrand(
+                connector: strand.connector,
+                from: strand.from, to: strand.to,
+                interactive: interactive,
+                detailed: interactive
+                    || camera.transform.zoom >= WallScale.chipZoom,
+                thickness: VisionCordStrokes.drawn(
+                    strand.connector.thickness ?? 5,
+                    zoom: camera.transform.zoom),
+                onEditLabel: {
+                    onEditLabel(strand.connector, strand.from, strand.to)
+                },
+                onDelete: { onDelete(strand.connector) })
+            .equatable()
+        }
+    }
+}
+
+/// One cord, skippable. Equality is over the drawn inputs; the closures
+/// are excluded for the same reason as WallScrap's.
+struct WallCordStrand: View, Equatable {
+    let connector: VisionConnector
+    let from: CGPoint
+    let to: CGPoint
+    var interactive: Bool = true
+    var detailed: Bool = true
+    let thickness: CGFloat
+    let onEditLabel: () -> Void
+    let onDelete: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.connector == rhs.connector
+            && lhs.from == rhs.from && lhs.to == rhs.to
+            && lhs.thickness == rhs.thickness
+            && lhs.interactive == rhs.interactive
+            && lhs.detailed == rhs.detailed
+    }
+
+    var body: some View {
+        ConnectorArrow(
+            from: from, to: to, label: connector.label,
+            interactive: interactive,
+            detailed: detailed,
+            onEditLabel: onEditLabel,
+            onDelete: onDelete,
+            thickness: thickness,
+            thread: VisionThread.resolve(connector.thread))
+    }
+}
+
+/// One element plus everything SwiftUI needs to decide whether to skip
+/// re-rendering it. Equality is over what DRAWS; the `item` closure is
+/// deliberately excluded — it is never equal, and including it is what
+/// used to force every element to re-render on every publish.
+struct WallScrap<Item: View>: View, Equatable {
+    let card: VisionCard
+    let isSelected: Bool
+    let isConnectTarget: Bool
+    let isWorking: Bool
+    let showLabel: Bool
+    let item: (VisionCard) -> Item
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.card == rhs.card
+            && lhs.isSelected == rhs.isSelected
+            && lhs.isConnectTarget == rhs.isConnectTarget
+            && lhs.isWorking == rhs.isWorking
+            && lhs.showLabel == rhs.showLabel
+    }
+
+    var body: some View {
+        item(card)
+    }
+}
+
+/// How a cord LOOKS, in one place. The arrow on the wall and the swatch
+/// in the picker both draw through this — a picker that drew its own
+/// approximation of twine would be a third renderer of the same thing,
+/// which is the drift that has already cost this board its pins and its
+/// thread in export once.
+struct VisionCordStrokes: View {
+    let cord: Path
+    let thickness: CGFloat
+    let thread: VisionThread
+
+    /// How thick to DRAW a cord of a given weight at a given zoom.
+    ///
+    /// Cords live in world points, so standing back from the wall shrinks
+    /// them with everything else — and past a point every weight collapses
+    /// into the same hairline, which is what the owner saw: rope and twine
+    /// drawn identically because both were under a pixel.
+    ///
+    /// So the whole set is scaled up together once the thinnest would stop
+    /// reading, which keeps every weight visible AND keeps the ratios
+    /// between them intact. Zoomed in, where they are already legible,
+    /// nothing is touched and a cord scales like the physical thing it is.
+    static func drawn(_ stored: Double, zoom: CGFloat) -> CGFloat {
+        let thinnest = VisionThreadRing.weights.first ?? 2.5
+        let readable: CGFloat = 2.4        // screen points
+        let boost = max(1, readable / (CGFloat(thinnest) * max(zoom, 0.02)))
+        return CGFloat(stored) * boost
+    }
+
+    var body: some View {
+        let t = thickness
+        ZStack(alignment: .topLeading) {
+            // Cast on the wall, offset the way the light falls. Two
+            // nested strokes fake the soft edge a .blur used to give —
+            // every blur is an offscreen render pass PER CORD, and they
+            // were a measurable share of the zoom cost.
+            cord
+                .stroke(Color.black.opacity(thread.castOpacity * 0.45),
+                        style: StrokeStyle(lineWidth: t * 1.9, lineCap: .round))
+                .offset(x: 1.5, y: 3.5)
+            cord
+                .stroke(Color.black.opacity(thread.castOpacity * 0.6),
+                        style: StrokeStyle(lineWidth: t * 1.15, lineCap: .round))
+                .offset(x: 1.5, y: 3.5)
+
+            // The dyed fibre.
+            cord.stroke(thread.cord,
+                        style: StrokeStyle(lineWidth: t, lineCap: .round))
+
+            // Shaded underside and lit top edge give it a round body.
+            // Sub-point blurs on these thin strokes were invisible at
+            // any zoom; the strokes alone read the same.
+            cord
+                .stroke(Color.black.opacity(0.30),
+                        style: StrokeStyle(lineWidth: t * 0.38, lineCap: .round))
+                .offset(y: t * 0.28)
+            cord
+                .stroke(thread.lit.opacity(0.75),
+                        style: StrokeStyle(lineWidth: t * 0.3, lineCap: .round))
+                .offset(y: -t * 0.28)
+
+            // Twist: short dashes running along the cord read as strands
+            // wound together, at a fraction of the cost of drawing fibres.
+            cord
+                .stroke(thread.twistShade.opacity(0.55),
+                        style: StrokeStyle(lineWidth: t * 0.72, lineCap: .butt,
+                                           dash: [1.6, 4.4]))
+            cord
+                .stroke(thread.twistLight.opacity(0.45),
+                        style: StrokeStyle(lineWidth: t * 0.5, lineCap: .butt,
+                                           dash: [1.4, 4.6], dashPhase: 2.6))
+                .offset(y: -t * 0.18)
+        }
+    }
+}
+
 struct ConnectorArrow: View {
     let from: CGPoint
     let to: CGPoint
     let label: String
+    /// When false, the cord draws identically but registers NO per-cord
+    /// interaction machinery (tooltip, tap target, giant invisible hit
+    /// stroke) — each costs AppKit work on every camera tick, and big
+    /// boards route all cord interaction through the wall's own
+    /// right-click hit-test instead.
+    var interactive: Bool = true
+    /// When false, only the twine itself draws — no knots, no tag. Far
+    /// enough out that a tag is eight pixels wide, those layers are
+    /// invisible anyway, and on a big board their compositing is not.
+    var detailed: Bool = true
     var onEditLabel: () -> Void
     var onDelete: () -> Void
 
@@ -900,6 +1459,9 @@ struct ConnectorArrow: View {
     /// hairline. Exports of a large board scale everything down, so the
     /// exporter passes a bigger value to keep the cord legible.
     var thickness: CGFloat = 5.0
+
+    /// Which twine this cord is strung with.
+    var thread: VisionThread = .crimson
 
     /// Longer runs hang lower, the way string does under its own weight.
     private var sag: CGFloat {
@@ -919,76 +1481,41 @@ struct ConnectorArrow: View {
         let mid = CGPoint(x: (a.x + 2 * control.x + b.x) / 4,
                           y: (a.y + 2 * control.y + b.y) / 4)
 
-        let thread = Path { path in
+        let cord = Path { path in
             path.move(to: a)
             path.addQuadCurve(to: b, control: control)
         }
         let t = thickness
 
         ZStack(alignment: .topLeading) {
-            // Cast on the wall, offset the way the light falls.
-            thread
-                .stroke(Color.black.opacity(0.22),
-                        style: StrokeStyle(lineWidth: t * 1.15, lineCap: .round))
-                .offset(x: 1.5, y: 3.5)
-                .blur(radius: 2)
-
-            // The cord.
-            thread.stroke(Color(hex: "#8E2C24"),
-                          style: StrokeStyle(lineWidth: t, lineCap: .round))
-
-            // Shaded underside and lit top edge give it a round body.
-            thread
-                .stroke(Color.black.opacity(0.30),
-                        style: StrokeStyle(lineWidth: t * 0.38, lineCap: .round))
-                .offset(y: t * 0.28)
-                .blur(radius: 0.6)
-            thread
-                .stroke(Color(hex: "#E0796A").opacity(0.75),
-                        style: StrokeStyle(lineWidth: t * 0.3, lineCap: .round))
-                .offset(y: -t * 0.28)
-                .blur(radius: 0.4)
-
-            // Twist: short dashes running along the cord read as strands
-            // wound together, at a fraction of the cost of drawing fibres.
-            thread
-                .stroke(Color(hex: "#5E1A14").opacity(0.55),
-                        style: StrokeStyle(lineWidth: t * 0.72, lineCap: .butt,
-                                           dash: [1.6, 4.4]))
-            thread
-                .stroke(Color(hex: "#C9584A").opacity(0.45),
-                        style: StrokeStyle(lineWidth: t * 0.5, lineCap: .butt,
-                                           dash: [1.4, 4.6], dashPhase: 2.6))
-                .offset(y: -t * 0.18)
+            VisionCordStrokes(cord: cord, thickness: t, thread: thread)
 
             // The whole length of cord is a target, not just the tag —
             // an invisible fat stroke over it takes the right-click.
-            thread
-                .stroke(Color.white.opacity(0.001),
-                        style: StrokeStyle(lineWidth: max(16, t * 3.4),
-                                           lineCap: .round))
-                .contentShape(
-                    thread.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
-                                                   lineCap: .round)))
-                .onTapGesture(count: 2, perform: onEditLabel)
-                .contextMenu {
-                    Button("Name this connection…", action: onEditLabel)
-                    Divider()
-                    Button("Cut the thread", role: .destructive, action: onDelete)
-                }
-                .help("Double-click to name it · right-click to cut it")
+            if interactive {
+                cord
+                    .stroke(Color.white.opacity(0.001),
+                            style: StrokeStyle(lineWidth: max(16, t * 3.4),
+                                               lineCap: .round))
+                    .contentShape(
+                        cord.strokedPath(StrokeStyle(lineWidth: max(16, t * 3.4),
+                                                     lineCap: .round)))
+                    .onTapGesture(count: 2, perform: onEditLabel)
+                    .help("Double-click to name it · right-click for thread and weight")
+            }
 
-            knot.position(a)
-            knot.position(b)
+            if detailed {
+                knot.position(a)
+                knot.position(b)
 
-            tag
-                .position(mid)
-                .onTapGesture(count: 2, perform: onEditLabel)
-                .contextMenu {
-                    Button("Name this connection…", action: onEditLabel)
-                    Divider()
-                    Button("Cut the thread", role: .destructive, action: onDelete)
+                if interactive {
+                    tag
+                        .position(mid)
+                        .onTapGesture(count: 2, perform: onEditLabel)
+                } else {
+                    tag.position(mid)
                 }
+            }
         }
         .frame(width: width, height: height)
         .position(x: minX + width / 2, y: minY + height / 2)
@@ -997,17 +1524,21 @@ struct ConnectorArrow: View {
     /// Where the cord is wound round the pin: a couple of turns, sitting
     /// under the tack head that is drawn on the element itself.
     private var knot: some View {
-        ZStack {
+        // The turns round the pin are the same cord, so they grow with
+        // it — but only so far. Boosted rope at a distance would wind a
+        // knot wider than the elements it ties together.
+        let wind = min(thickness, 9)
+        return ZStack {
             // Sized to sit UNDER the tack head, so the cord reads as
             // wound round the pin's shaft rather than covering the pin.
             Circle()
-                .strokeBorder(Color(hex: "#7A241D"),
-                              lineWidth: thickness * 0.8)
-                .frame(width: thickness * 2.3, height: thickness * 2.3)
+                .strokeBorder(thread.twistShade,
+                              lineWidth: wind * 0.8)
+                .frame(width: wind * 2.3, height: wind * 2.3)
             Circle()
-                .strokeBorder(Color(hex: "#C9584A").opacity(0.45),
-                              lineWidth: thickness * 0.26)
-                .frame(width: thickness * 2.7, height: thickness * 2.7)
+                .strokeBorder(thread.twistLight.opacity(0.45),
+                              lineWidth: wind * 0.26)
+                .frame(width: wind * 2.7, height: wind * 2.7)
         }
         .shadow(color: Color.black.opacity(0.25), radius: 1.5, y: 1.5)
     }

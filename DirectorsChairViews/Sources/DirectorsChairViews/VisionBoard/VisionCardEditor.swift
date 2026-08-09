@@ -182,7 +182,8 @@ public struct VisionCardEditor: View {
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
         assetStore: VisionBoardAssetStore? = nil,
         isNew: Bool = false,
-        locations: [Location] = []
+        locations: [Location] = [],
+        availableSize: CGSize? = nil
     ) {
         self._card = card
         self._isPresented = isPresented
@@ -191,7 +192,30 @@ public struct VisionCardEditor: View {
         self.assetStore = assetStore
         self.isNew = isNew
         self.locations = locations
+        self.availableSize = availableSize
     }
+
+    // MARK: - Fitting the window
+
+    /// How big the sheet may be. A macOS sheet is CLIPPED to its
+    /// presenting window rather than shrunk to fit, so a fixed size that
+    /// happens to exceed the window loses its header and its Save button
+    /// off both ends — which is exactly what the owner hit.
+    ///
+    /// Pure, so the arithmetic can be tested without a window.
+    static func fittedSize(ideal: CGSize, available: CGSize?) -> CGSize {
+        guard let available, available.width > 0, available.height > 0 else {
+            return ideal
+        }
+        // A sheet never sits flush to the window edge.
+        let margin: CGFloat = 40
+        return CGSize(
+            width: max(360, min(ideal.width, available.width - margin)),
+            height: max(280, min(ideal.height, available.height - margin)))
+    }
+
+    /// The presenting view's size, so the sheet can fit inside it.
+    public var availableSize: CGSize?
 
     // MARK: - Body
 
@@ -221,14 +245,20 @@ public struct VisionCardEditor: View {
 
             editorFooter
         }
-        .frame(width: showAdvanced ? 760 : 540,
-               height: showAdvanced ? 600 : 560)
+        .frame(width: fitted.width, height: fitted.height)
         .background(EditorTheme.window)
         .animation(.spring(response: 0.3, dampingFraction: 0.9),
                    value: showAdvanced)
         .onAppear {
             loadPreviewImage()
         }
+    }
+
+    private var fitted: CGSize {
+        Self.fittedSize(
+            ideal: CGSize(width: showAdvanced ? 760 : 540,
+                          height: showAdvanced ? 600 : 560),
+            available: availableSize)
     }
 
     // MARK: - Header

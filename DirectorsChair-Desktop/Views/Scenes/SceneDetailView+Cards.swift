@@ -319,6 +319,12 @@ extension SceneDetailView {
                         Spacer()
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                     }
+                    // Wherever this shot is up on the wall.
+                    WallLinksButton(
+                        elements: VisionLinkLookup.elements(
+                            forShot: shot.id,
+                            in: projectViewModel.project.beats),
+                        compact: true)
 
                     HStack(spacing: 8) {
                         miniPill(shot.cameraAngle)

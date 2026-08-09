@@ -1508,3 +1508,44 @@ final class VisionWorkFeedbackTests: XCTestCase {
                       "and it says what to do about it: \(problem)")
     }
 }
+
+// MARK: - The editor fits the window (owner report: sheet clipped)
+
+final class VisionCardEditorFittingTests: XCTestCase {
+
+    func testABigWindowGetsTheFullEditor() {
+        let size = VisionCardEditor.fittedSize(
+            ideal: CGSize(width: 540, height: 560),
+            available: CGSize(width: 1440, height: 900))
+        XCTAssertEqual(size, CGSize(width: 540, height: 560))
+    }
+
+    func testASmallWindowShrinksTheSheetInsteadOfClippingIt() {
+        // The owner's screenshot: header gone off the top, Save gone off
+        // the bottom. The sheet must always fit inside what's there.
+        let available = CGSize(width: 700, height: 500)
+        let size = VisionCardEditor.fittedSize(
+            ideal: CGSize(width: 760, height: 600), available: available)
+        XCTAssertLessThanOrEqual(size.width, available.width - 40)
+        XCTAssertLessThanOrEqual(size.height, available.height - 40)
+    }
+
+    func testATinyWindowStopsAtTheUsableFloor() {
+        let size = VisionCardEditor.fittedSize(
+            ideal: CGSize(width: 540, height: 560),
+            available: CGSize(width: 300, height: 200))
+        XCTAssertEqual(size, CGSize(width: 360, height: 280),
+                       "below this the editor is unusable either way")
+    }
+
+    func testNoMeasurementYetMeansTheOldBehaviour() {
+        // First present can beat the first layout pass; the ideal size
+        // is the pre-fix behaviour, not a degenerate zero-size sheet.
+        XCTAssertEqual(VisionCardEditor.fittedSize(
+            ideal: CGSize(width: 540, height: 560), available: nil),
+            CGSize(width: 540, height: 560))
+        XCTAssertEqual(VisionCardEditor.fittedSize(
+            ideal: CGSize(width: 540, height: 560), available: .zero),
+            CGSize(width: 540, height: 560))
+    }
+}

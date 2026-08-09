@@ -25,6 +25,11 @@ extension SceneDetailView {
             }
             .buttonStyle(.plain)
             Spacer()
+            // Everywhere this scene appears on the vision board. Several
+            // elements can point at one scene, so this is a list, not a
+            // single destination.
+            WallLinksButton(elements: VisionLinkLookup.elements(
+                forScene: scene.id, in: projectViewModel.project.beats))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)

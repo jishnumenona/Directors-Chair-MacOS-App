@@ -45,13 +45,25 @@ public struct VisionBoardView: View {
 
     // MARK: - State
 
+    /// An element to bring to the middle of the screen, set when you
+    /// arrive here from a scene or a shot.
+    public var revealCardId: String?
+    public var onRevealHandled: (() -> Void)?
+    /// Tapping an element's tag opens the scene or shot behind it.
+    public var onOpenLink: ((VisionCardLinkRef) -> Void)?
+
+    /// The toolbar's zoom readout, quantized to whole percent so the
+    /// chrome re-renders a handful of times per pinch instead of at
+    /// 120Hz. Fed by onReceive below; the camera itself stays out of
+    /// this view's observation.
+    @State private var zoomPercent: Int = 100
+
     @State private var showingBoardPicker: Bool = false
     @State private var newBoardName: String = ""
     @State private var showingNewBoardAlert: Bool = false
     @State private var showingDeleteAlert: Bool = false
     @State private var showingExportOptions: Bool = false
     @State private var exportError: String?
-    @State private var connectorLabelDraft: String = ""
 
 
     // MARK: - Init
@@ -66,7 +78,10 @@ public struct VisionBoardView: View {
         onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
         onEditImage: ((VisionImageEdit, @escaping (URL?) -> Void) -> Void)? = nil,
         projectBasePath: URL? = nil,
-        locations: [Location] = []
+        locations: [Location] = [],
+        revealCardId: String? = nil,
+        onRevealHandled: (() -> Void)? = nil,
+        onOpenLink: ((VisionCardLinkRef) -> Void)? = nil
     ) {
         self._viewModel = StateObject(wrappedValue: VisionBoardViewModel(
             cards: cards, boards: boards, connectors: connectors))
@@ -77,10 +92,22 @@ public struct VisionBoardView: View {
         self.onGenerateImage = onGenerateImage
         self.onEditImage = onEditImage
         self.projectBasePath = projectBasePath
+        self.revealCardId = revealCardId
+        self.onRevealHandled = onRevealHandled
+        self.onOpenLink = onOpenLink
         self.locations = locations
     }
 
     // MARK: - Body
+
+    /// Arriving from a scene or a shot: centre the element, then tell the
+    /// app the trip is over so coming back later still works.
+    private func revealElement(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.35)) {
+            _ = viewModel.reveal(cardId: id)
+        }
+        onRevealHandled?()
+    }
 
     public var body: some View {
         ZStack {
@@ -89,7 +116,8 @@ public struct VisionBoardView: View {
                 viewModel: viewModel,
                 onCardEdit: { card in
                     viewModel.editCard(card)
-                }
+                },
+                onOpenLink: { onOpenLink?($0) }
             )
 
             // Floating toolbar at top
@@ -166,40 +194,33 @@ public struct VisionBoardView: View {
                     onGenerateImage: onGenerateImage,
                     assetStore: viewModel.assetStore,
                     isNew: !viewModel.cards.contains { $0.id == card.id },
-                    locations: locations
+                    locations: locations,
+                    // A macOS sheet is CLIPPED to the presenting window,
+                    // not shrunk to fit it — without this the editor's
+                    // header and Save button fell off both ends on small
+                    // windows.
+                    availableSize: viewModel.viewportSize
                 )
             }
         }
+        .onReceive(viewModel.camera.$transform
+            .map { Int($0.zoom * 100) }
+            .removeDuplicates()) { percent in
+            zoomPercent = percent
+        }
+        .onChange(of: revealCardId) { _, id in
+            guard let id else { return }
+            revealElement(id)
+        }
         .onAppear {
             viewModel.configureAssetStore(projectBase: projectBasePath)
+            if let revealCardId { revealElement(revealCardId) }
         }
         .onChange(of: projectBasePath) { _, newBase in
             viewModel.configureAssetStore(projectBase: newBase)
         }
         .onChange(of: cards) { _, newCards in
             viewModel.reconcileExternalCards(newCards)
-        }
-        .alert("Connector Label", isPresented: Binding(
-            get: { viewModel.editingConnectorId != nil },
-            set: { if !$0 { viewModel.editingConnectorId = nil } })) {
-            TextField("Label", text: $connectorLabelDraft)
-            Button("Save") {
-                if let id = viewModel.editingConnectorId {
-                    viewModel.setConnectorLabel(id, label: connectorLabelDraft)
-                }
-                viewModel.editingConnectorId = nil
-                connectorLabelDraft = ""
-            }
-            Button("Cancel", role: .cancel) {
-                viewModel.editingConnectorId = nil
-                connectorLabelDraft = ""
-            }
-        } message: {
-            Text("Name the relationship, e.g. \"this palette → night exteriors\"")
-        }
-        .onChange(of: viewModel.editingConnectorId) { _, id in
-            connectorLabelDraft = viewModel.connectors
-                .first { $0.id == id }?.label ?? ""
         }
         .alert("Export Failed", isPresented: Binding(
             get: { exportError != nil },
@@ -608,7 +629,10 @@ public struct VisionBoardView: View {
                     viewModel.fitToView(viewSize: viewModel.viewportSize)
                 }
             } label: {
-                Text("\(Int(viewModel.zoomLevel * 100))%")
+                // Reads the COARSE percent, not the camera: the strip
+                // must not re-render at 120Hz during a pinch, and the
+                // percent only changes a handful of times per gesture.
+                Text("\(zoomPercent)%")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(VisionWallPalette.ink.opacity(0.7))
                     .frame(width: 34)
@@ -665,6 +689,7 @@ public struct VisionBoardView: View {
         )
         .foregroundColor(VisionWallPalette.ink)
     }
+
 
     // MARK: - Selection Info
 
@@ -758,3 +783,5 @@ struct VisionBoardView_Previews: PreviewProvider {
     }
 }
 #endif
+
+

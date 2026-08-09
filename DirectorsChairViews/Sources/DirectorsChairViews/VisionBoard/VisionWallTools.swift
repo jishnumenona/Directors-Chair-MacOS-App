@@ -76,6 +76,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     case note             // a slip of paper stuck under it
     case annotate         // mark up a picture and regenerate it
     case prompt           // read the words that made it
+    case stick            // onto the element beneath — they travel as one
+    case peel             // off it again
     case details
     case remove
 
@@ -91,6 +93,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .note: return "Note"
         case .annotate: return "Annotate"
         case .prompt: return "Prompt"
+        case .stick: return "Stick"
+        case .peel: return "Peel off"
         case .details: return "Details"
         case .remove: return "Remove"
         }
@@ -106,6 +110,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .note: return "note.text"
         case .annotate: return "pencil.and.outline"
         case .prompt: return "text.quote"
+        case .stick: return "square.2.layers.3d.bottom.filled"
+        case .peel: return "square.2.layers.3d.top.filled"
         case .details: return "info.circle"
         case .remove: return "trash"
         }
@@ -120,12 +126,18 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     /// annotating or prompt-reading unless there is a picture to work on.
     public static func ring(isText: Bool, hasPicture: Bool,
                             isPaper: Bool = false,
-                            hasPrompt: Bool = false) -> [VisionScrapTool] {
+                            hasPrompt: Bool = false,
+                            canStick: Bool = false,
+                            isStuck: Bool = false) -> [VisionScrapTool] {
         var tools: [VisionScrapTool] = [.connect, .duplicate, .pin, .note]
         if hasPicture { tools.append(.annotate) }
         if hasPrompt { tools.append(.prompt) }
         if isText || hasPicture { tools.append(.restyle) }
         if isPaper { tools.append(.paper) }
+        // Stick appears only when there is genuinely something beneath
+        // to stick to; Peel only when stuck. Never both, never a dead chip.
+        if isStuck { tools.append(.peel) }
+        else if canStick { tools.append(.stick) }
         tools.append(contentsOf: [.details, .remove])
         return tools
     }
@@ -179,6 +191,86 @@ public enum VisionWallHitTest {
                    width: card.canvasWidth ?? 200,
                    height: card.canvasHeight ?? 200).contains(worldPoint)
         }
+    }
+
+    /// The element BENEATH one — what it would stick to. The topmost
+    /// element that overlaps it from below in draw order, because that is
+    /// the sheet it is visually lying on. Frames don't count: sticking to
+    /// a section frame is what frames already do on their own.
+    public static func elementBeneath(_ card: VisionCard,
+                                      in cards: [VisionCard],
+                                      frameTypeRaw: String = "frame")
+        -> VisionCard? {
+        let rect = CGRect(x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                          width: card.canvasWidth ?? 200,
+                          height: card.canvasHeight ?? 200)
+        return cards
+            .filter { other in
+                other.id != card.id
+                    && other.boardId == card.boardId
+                    && other.cardType != frameTypeRaw
+                    && other.zOrder < card.zOrder
+                    && rect.intersects(CGRect(
+                        x: other.canvasX ?? 0, y: other.canvasY ?? 0,
+                        width: other.canvasWidth ?? 200,
+                        height: other.canvasHeight ?? 200))
+            }
+            .max { $0.zOrder < $1.zOrder }
+    }
+
+    /// The cord under a point, if the click landed on one.
+    ///
+    /// Thread hangs in a sagging curve between two pins, and it is thin,
+    /// so this walks the same quadratic the cord is drawn along and takes
+    /// the closest sample. Checked BEFORE scraps: a cord usually crosses
+    /// the very sheets it connects, and a click within a few points of
+    /// something that thin was meant for it.
+    public static func thread(at worldPoint: CGPoint,
+                              connectors: [VisionConnector],
+                              tack: (String) -> CGPoint?,
+                              tolerance: CGFloat) -> VisionConnector? {
+        var best: (connector: VisionConnector, distance: CGFloat)?
+        for connector in connectors {
+            guard let from = tack(connector.fromCardId),
+                  let to = tack(connector.toCardId) else { continue }
+            let distance = distanceToCord(worldPoint, from: from, to: to)
+            guard distance <= tolerance else { continue }
+            if best == nil || distance < best!.distance {
+                best = (connector, distance)
+            }
+        }
+        return best?.connector
+    }
+
+    /// Where the cord hangs lowest — the point its luggage tag rides on,
+    /// and where a name for it belongs. Falls out of the quadratic: the
+    /// curve's midpoint is the pins' midpoint plus the sag.
+    public static func cordMidpoint(from: CGPoint, to: CGPoint) -> CGPoint {
+        let sag = min(58, hypot(to.x - from.x, to.y - from.y) * 0.15)
+        return CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 + sag)
+    }
+
+    /// Distance from a point to the hanging cord between two pins. The
+    /// sag MUST match ConnectorArrow's or the cord you can see is not the
+    /// cord you can click.
+    static func distanceToCord(_ point: CGPoint,
+                               from: CGPoint, to: CGPoint,
+                               samples: Int = 24) -> CGFloat {
+        let sag = min(58, hypot(to.x - from.x, to.y - from.y) * 0.15)
+        let control = CGPoint(x: (from.x + to.x) / 2,
+                              y: (from.y + to.y) / 2 + sag * 2)
+        var closest = CGFloat.greatestFiniteMagnitude
+        for step in 0...samples {
+            let t = CGFloat(step) / CGFloat(samples)
+            let inverse = 1 - t
+            // Quadratic Bezier, the curve the cord is stroked along.
+            let x = inverse * inverse * from.x
+                + 2 * inverse * t * control.x + t * t * to.x
+            let y = inverse * inverse * from.y
+                + 2 * inverse * t * control.y + t * t * to.y
+            closest = min(closest, hypot(point.x - x, point.y - y))
+        }
+        return closest
     }
 }
 

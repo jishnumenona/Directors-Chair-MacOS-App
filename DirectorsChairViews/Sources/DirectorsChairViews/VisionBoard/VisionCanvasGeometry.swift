@@ -161,6 +161,23 @@ public enum VisionCanvasGeometry {
     /// One formula for fit / reset / board-switch centering.
     /// Empty content or zero viewport → identity zoom, content centered on
     /// the viewport center (world origin under the center for empty boards).
+    /// Puts one element in the middle of the screen at a readable size.
+    ///
+    /// Coming from a scene or a shot, "show me this on the board" has to
+    /// land somewhere you can actually read — arriving at 4% zoom on a
+    /// wall of two hundred scraps is the same as not arriving.
+    public static func revealTransform(element: CGRect, viewport: CGSize,
+                                       zoom: CGFloat = 0.9) -> CanvasTransform {
+        guard viewport.width > 0, viewport.height > 0 else {
+            return CanvasTransform()
+        }
+        let centre = CGPoint(x: element.midX, y: element.midY)
+        return CanvasTransform(
+            zoom: zoom,
+            offset: CGPoint(x: viewport.width / 2 - centre.x * zoom,
+                            y: viewport.height / 2 - centre.y * zoom))
+    }
+
     public static func fitTransform(contentBounds: CGRect?, viewport: CGSize,
                                     padding: CGFloat, minZoom: CGFloat,
                                     maxZoom: CGFloat) -> CanvasTransform {

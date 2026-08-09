@@ -30,17 +30,28 @@ public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
     public var fromCardId: String
     public var toCardId: String
     public var label: String
+    /// Which dyed twine this cord is strung with. On a real board colour
+    /// is how several lines of thinking stay apart without labels.
+    /// nil = crimson, which is what every existing cord already was.
+    public var thread: String?
+    /// How heavy the cord is, in world points. nil = the standard twine
+    /// every existing cord was drawn at.
+    public var thickness: Double?
 
     public init(id: String = UUID().uuidString,
                 boardId: String = "master",
                 fromCardId: String,
                 toCardId: String,
-                label: String = "") {
+                label: String = "",
+                thread: String? = nil,
+                thickness: Double? = nil) {
         self.id = id
         self.boardId = boardId
         self.fromCardId = fromCardId
         self.toCardId = toCardId
         self.label = label
+        self.thread = thread
+        self.thickness = thickness
     }
 
     enum CodingKeys: String, CodingKey {
@@ -49,6 +60,21 @@ public struct VisionConnector: Codable, Identifiable, Hashable, Sendable {
         case fromCardId = "from_card_id"
         case toCardId = "to_card_id"
         case label
+        case thread
+        case thickness
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        boardId = try container.decodeIfPresent(String.self, forKey: .boardId)
+            ?? "master"
+        fromCardId = try container.decode(String.self, forKey: .fromCardId)
+        toCardId = try container.decode(String.self, forKey: .toCardId)
+        label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        // Boards written before threads had colour must still open.
+        thread = try container.decodeIfPresent(String.self, forKey: .thread)
+        thickness = try container.decodeIfPresent(Double.self, forKey: .thickness)
     }
 }
 
@@ -101,6 +127,16 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
     /// Which paper stock a clipping is cut from (cream, kraft, legal pad…).
     /// nil = the default cream.
     public var paper: String?
+    /// A scene or shot pinned to this element by dragging it from the
+    /// outline. Ids, so a rename doesn't break the link; the label is
+    /// what the board shows, refreshed from the project when it can be.
+    public var linkedSceneId: String?
+    public var linkedShotId: String?
+    public var linkedLabel: String?
+    /// The element this one is stuck to — a picture pinned on a picture
+    /// travels with it, the way paper pasted on paper is one sheet.
+    /// nil = pinned to the wall itself.
+    public var stuckTo: String?
 
     // Text Card Specific
     public var textColor: String  // Hex color code for text cards
@@ -197,6 +233,10 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         case canvasWidth = "canvas_width"
         case canvasHeight = "canvas_height"
         case rotation, paper
+        case linkedSceneId = "linked_scene_id"
+        case linkedShotId = "linked_shot_id"
+        case linkedLabel = "linked_label"
+        case stuckTo = "stuck_to"
         case textColor = "text_color"
         case textStyle = "text_style"
         case referenceNote = "reference_note"
@@ -251,6 +291,14 @@ public struct VisionCard: Codable, Identifiable, Hashable, Sendable {
         canvasHeight = try container.decodeIfPresent(Double.self, forKey: .canvasHeight)
         rotation = try container.decodeIfPresent(Double.self, forKey: .rotation)
         paper = try container.decodeIfPresent(String.self, forKey: .paper)
+        // Boards written before elements could carry a scene or a shot.
+        linkedSceneId = try container.decodeIfPresent(String.self,
+                                                      forKey: .linkedSceneId)
+        linkedShotId = try container.decodeIfPresent(String.self,
+                                                     forKey: .linkedShotId)
+        linkedLabel = try container.decodeIfPresent(String.self,
+                                                    forKey: .linkedLabel)
+        stuckTo = try container.decodeIfPresent(String.self, forKey: .stuckTo)
 
         // Text card specific
         textColor = try container.decodeIfPresent(String.self, forKey: .textColor) ?? "#FFFFFF"

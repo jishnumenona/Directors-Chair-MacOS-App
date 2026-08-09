@@ -532,6 +532,21 @@ struct SceneRow: View {
                 .simultaneousGesture(TapGesture(count: 1).onEnded {
                     coordinator.selectScene(scene)
                 })
+                .overlay(alignment: .trailing) {
+                    WallLinksButton(
+                        elements: VisionLinkLookup.elements(
+                            forScene: scene.id,
+                            in: projectViewModel.project.beats),
+                        compact: true)
+                        .padding(.trailing, 6)
+                }
+                // Drag a scene onto an element of the vision board to
+                // pin the two together.
+                .onDrag {
+                    NSItemProvider(object: VisionCardLinkRef(
+                        kind: .scene, id: scene.id,
+                        label: sceneNumber).dragText as NSString)
+                }
                 .contextMenu {
                     Button {
                         renameText = scene.name
@@ -747,9 +762,26 @@ struct ShotRow: View {
             // Full-row hit area (see SequenceRow) — clicks between the text
             // and the trailing badge must select the shot too.
             .contentShape(Rectangle())
+            // INSIDE the button's label, not on the button: a Button
+            // consumes the drag before .onDrag ever sees it, which is why
+            // scenes could be dragged to the wall and shots could not —
+            // SceneRow is a plain HStack with tap gestures, ShotRow is a
+            // Button, and the same modifier behaved differently on each.
+            .onDrag {
+                NSItemProvider(object: VisionCardLinkRef(
+                    kind: .shot, id: shot.id, label: "SHOT \(shot.shotId)",
+                    sceneId: sceneId).dragText as NSString)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("shot-row-\(shot.id)")
+        .overlay(alignment: .trailing) {
+            WallLinksButton(
+                elements: VisionLinkLookup.elements(
+                    forShot: shot.id, in: projectViewModel.project.beats),
+                compact: true)
+                .padding(.trailing, 6)
+        }
         .contextMenu {
             Button {
                 if let shotLabel = timelineViewModel.shotLabels.first(where: { $0.shotId == shot.shotId }) {

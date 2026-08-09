@@ -17,6 +17,9 @@ struct SceneCardView: View {
     var onImageGenerated: ((String) -> Void)? = nil
     var onPromptUsed: ((String) -> Void)? = nil
 
+    /// The board, so a scene card can show where it lives on the wall.
+    @EnvironmentObject private var projectViewModel: ProjectViewModel
+
     @State private var isHovering = false
     @State private var isHoveringImage = false
     @State private var overviewImage: NSImage?
@@ -205,6 +208,11 @@ struct SceneCardView: View {
                 }
             }
             Spacer()
+            // Where this scene is up on the vision board. On the card
+            // itself, because the grid is where you look for a scene
+            // before you open it.
+            WallLinksButton(elements: VisionLinkLookup.elements(
+                forScene: scene.id, in: projectViewModel.project.beats))
             statusBadge
         }
     }

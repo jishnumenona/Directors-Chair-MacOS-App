@@ -25,6 +25,10 @@ struct SceneDetailView: View {
     var onSceneDescriptionChanged: ((String) -> Void)? = nil
     var onSceneNotesChanged: ((String) -> Void)? = nil
 
+    /// The board is read straight from the project so the links stay
+    /// right as elements are pinned and unpinned.
+    @EnvironmentObject var projectViewModel: ProjectViewModel
+
     @State var heroImage: NSImage?
     @State var isGeneratingImage = false
     @State var isHoveringHero = false

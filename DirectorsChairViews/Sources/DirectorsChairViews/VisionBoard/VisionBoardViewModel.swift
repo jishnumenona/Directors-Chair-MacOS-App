@@ -9,6 +9,64 @@ import Combine
 
 // MARK: - Vision Board ViewModel
 
+/// Where the viewer stands. Published separately from the board's data
+/// so a 120Hz pan doesn't invalidate views that only care about content.
+@MainActor
+public final class VisionWallCamera: ObservableObject {
+    @Published public var transform = CanvasTransform() {
+        didSet { refreshStage() }
+    }
+
+    /// Viewport in screen points, pushed by the canvas. Not published —
+    /// a resize re-lays the canvas out anyway.
+    public var viewport: CGSize = .zero {
+        didSet { refreshStage() }
+    }
+
+    /// The world region worth mounting FULL elements for: the visible
+    /// rect plus most of a viewport each side. Publishes with hysteresis
+    /// — a few times per screenful of travel, never per tick. nil means
+    /// "no culling": small boards mount everything, exactly as before.
+    ///
+    /// Why this exists: a mounted element costs ~150µs per camera tick
+    /// in AppKit machinery (tracking areas, tooltips, menus) even when
+    /// its body never re-runs — measured 1,000 mounted elements panning
+    /// at 155ms/tick against 5.4ms for 1,000 bare rectangles. The only
+    /// fix that scales is mounting fewer of them.
+    public let stage = WallStage()
+
+    public init() {}
+
+    private func refreshStage() {
+        let far = transform.zoom < 0.35   // WallScale.chipZoom
+        if stage.farOut != far { stage.farOut = far }
+        guard viewport.width > 0, viewport.height > 0 else { return }
+        let visible = transform.visibleWorldRect(viewport: viewport)
+        let needed = visible.insetBy(dx: -visible.width * 0.3,
+                                     dy: -visible.height * 0.3)
+        if let region = stage.region {
+            // Still safely inside the covered region (and the region is
+            // not absurdly larger than the view, as after a zoom-in):
+            // nothing to publish.
+            if region.contains(needed), region.width < visible.width * 5 {
+                return
+            }
+        }
+        stage.region = visible.insetBy(dx: -visible.width * 0.75,
+                                       dy: -visible.height * 0.75)
+    }
+}
+
+/// See VisionWallCamera.stage.
+@MainActor
+public final class WallStage: ObservableObject {
+    @Published public var region: CGRect?
+    /// True while the camera stands far enough back that big boards
+    /// render chips. Written by the camera ONLY when it crosses the
+    /// threshold, so observing this is not observing the zoom.
+    @Published public var farOut = false
+}
+
 @MainActor
 public class VisionBoardViewModel: ObservableObject {
     // MARK: - Published Properties
@@ -20,7 +78,21 @@ public class VisionBoardViewModel: ObservableObject {
     @Published public var selectedCardIds: Set<String> = []
 
     /// The single canvas transform: screen = world × zoom + offset (Slice 1).
-    @Published public var transform = CanvasTransform()
+    /// The camera is its OWN observable object, deliberately outside this
+    /// one. Pan and zoom mutate it at up to 120Hz, and when it lived here
+    /// as a @Published property every tick re-evaluated every view that
+    /// observes the view model — the whole wall, every element, every
+    /// cord. Measured on a 150-element board: 33ms per pan tick against a
+    /// 8.3ms frame budget. Only the handful of views that genuinely
+    /// follow the camera observe it.
+    public let camera = VisionWallCamera()
+
+    /// Compatibility accessor — every existing caller and test keeps
+    /// working; writes publish through the camera.
+    public var transform: CanvasTransform {
+        get { camera.transform }
+        set { camera.transform = newValue }
+    }
 
     /// Viewport size, published by the canvas view; used by zoom/fit anchors.
     public var viewportSize: CGSize = .zero
@@ -275,6 +347,11 @@ public class VisionBoardViewModel: ObservableObject {
         let removed = cards.filter { $0.id == cardId }
         cards.removeAll { $0.id == cardId }
         selectedCardIds.remove(cardId)
+        // What was stuck to it lands back on the wall where it lies —
+        // removing a sheet must not leave its pile pointing at a ghost.
+        for index in cards.indices where cards[index].stuckTo == cardId {
+            cards[index].stuckTo = nil
+        }
         cleanupAssets(for: removed)
         removeConnectors(touching: [cardId])
         notifyChange()
@@ -443,6 +520,9 @@ public class VisionBoardViewModel: ObservableObject {
     private var panSessionStartOffset: CGPoint?
     private var pinchSessionStart: CanvasTransform?
     private var dragSessionOrigins: [String: CGPoint] = [:]
+    /// Where each dragged card sits in `cards`, captured at drag start so
+    /// per-tick updates don't search the whole array per card.
+    private var dragSessionIndices: [String: Int] = [:]
     private var dragSessionAnchorId: String?
     private var resizeSession: (cardId: String, corner: ResizeCorner, startRect: CGRect)?
     /// Rotate session: the scrap and the tilt it started at.
@@ -532,12 +612,17 @@ public class VisionBoardViewModel: ObservableObject {
                 if rect.contains(center) { ids.insert(card.id) }
             }
         }
+        // Whatever is stuck on a moving sheet moves with it.
+        for id in Array(ids) {
+            ids.formUnion(stuckDescendants(of: id))
+        }
         dragSessionOrigins = [:]
-        for id in ids {
-            if let card = cards.first(where: { $0.id == id }) {
-                dragSessionOrigins[id] = CGPoint(x: card.canvasX ?? 0,
-                                                 y: card.canvasY ?? 0)
-            }
+        // One pass over the cards, not one search per dragged id — a
+        // ⌘A drag on a big board was quadratic here.
+        for (index, card) in cards.enumerated() where ids.contains(card.id) {
+            dragSessionOrigins[card.id] = CGPoint(x: card.canvasX ?? 0,
+                                                  y: card.canvasY ?? 0)
+            dragSessionIndices[card.id] = index
         }
     }
 
@@ -549,6 +634,7 @@ public class VisionBoardViewModel: ObservableObject {
         applyDrag(translation: translation,
                   snap: gridSnapEnabled ? gridSnapSize : nil)
         dragSessionOrigins = [:]
+        dragSessionIndices = [:]
         dragSessionAnchorId = nil
         notifyChange()
     }
@@ -563,7 +649,15 @@ public class VisionBoardViewModel: ObservableObject {
         let delta = CGPoint(x: anchorNew.x - anchorStart.x,
                             y: anchorNew.y - anchorStart.y)
         for (id, start) in dragSessionOrigins {
-            if let index = cards.firstIndex(where: { $0.id == id }) {
+            // The index cache holds unless the array was edited mid-drag
+            // (an external reconcile is deferred until the drag ends, so
+            // in practice it always holds — the guard is for safety).
+            if let cached = dragSessionIndices[id], cards.indices.contains(cached),
+               cards[cached].id == id {
+                cards[cached].canvasX = start.x + delta.x
+                cards[cached].canvasY = start.y + delta.y
+            } else if let index = cards.firstIndex(where: { $0.id == id }) {
+                dragSessionIndices[id] = index
                 cards[index].canvasX = start.x + delta.x
                 cards[index].canvasY = start.y + delta.y
             }
@@ -642,6 +736,49 @@ public class VisionBoardViewModel: ObservableObject {
 
     public func setZoomLevel(_ level: CGFloat) {
         setZoom(min(max(level, Self.minZoom), Self.maxZoom))
+    }
+
+    /// Brings one element to the middle of the screen — the far end of
+    /// "show me this on the vision board" from a scene or a shot. Switches
+    /// board if the element lives on a different wall, so the answer is
+    /// never a blank screen.
+    @discardableResult
+    public func reveal(cardId: String, viewSize: CGSize? = nil) -> Bool {
+        guard let card = cards.first(where: { $0.id == cardId }) else {
+            return false
+        }
+        if card.boardId != currentBoardId, boardIds.contains(card.boardId) {
+            currentBoardId = card.boardId
+        }
+        let viewport = viewSize ?? viewportSize
+        let frame = CGRect(x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+                           width: card.canvasWidth ?? 200,
+                           height: card.canvasHeight ?? 200)
+        transform = VisionCanvasGeometry.revealTransform(element: frame,
+                                                         viewport: viewport)
+        selectedCardIds = [cardId]
+        return true
+    }
+
+    /// Pins a scene or a shot to an element, or takes it off again.
+    public func link(_ cardId: String, to ref: VisionCardLinkRef?) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else {
+            return
+        }
+        switch ref?.kind {
+        case .scene:
+            cards[index].linkedSceneId = ref?.id
+            cards[index].linkedShotId = nil
+        case .shot:
+            cards[index].linkedShotId = ref?.id
+            // A shot carries its scene, so linking one links both.
+            cards[index].linkedSceneId = ref?.sceneId
+        case nil:
+            cards[index].linkedSceneId = nil
+            cards[index].linkedShotId = nil
+        }
+        cards[index].linkedLabel = ref?.label
+        notifyChange()
     }
 
     /// Fit the current board's cards in the viewport (one formula for
@@ -1172,6 +1309,73 @@ public class VisionBoardViewModel: ObservableObject {
     }
 
     /// Cuts this scrap from a different stock.
+    /// Restrings one cord in a different twine. Colour is the only way a
+    /// board with several lines of thinking stays readable, so this is
+    /// per-thread — never a board-wide setting.
+    /// Sticks an element to the sheet beneath it: from now on they
+    /// travel as one, the way paper pasted on paper is one sheet.
+    public func stick(_ cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }),
+              let beneath = VisionWallHitTest.elementBeneath(
+                  cards[index], in: filteredCards)
+        else { return }
+        // A cycle would make a stack that drags itself forever.
+        guard !stuckChain(from: beneath.id).contains(cardId) else { return }
+        cards[index].stuckTo = beneath.id
+        notifyChange()
+    }
+
+    /// Peels an element off whatever it was stuck to.
+    public func peel(_ cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }),
+              cards[index].stuckTo != nil else { return }
+        cards[index].stuckTo = nil
+        notifyChange()
+    }
+
+    /// Everything stuck on an element, transitively — a photo on a photo
+    /// on a photo peels and travels as one pile.
+    func stuckDescendants(of cardId: String) -> Set<String> {
+        var found: Set<String> = []
+        var frontier = [cardId]
+        while let next = frontier.popLast() {
+            for card in cards where card.stuckTo == next
+                && !found.contains(card.id) {
+                found.insert(card.id)
+                frontier.append(card.id)
+            }
+        }
+        return found
+    }
+
+    /// The chain UP from an element to the wall, for cycle checks.
+    private func stuckChain(from cardId: String) -> Set<String> {
+        var chain: Set<String> = []
+        var current: String? = cardId
+        while let id = current, !chain.contains(id) {
+            chain.insert(id)
+            current = cards.first { $0.id == id }?.stuckTo
+        }
+        return chain
+    }
+
+    public func setThread(_ connectorId: String, to thread: VisionThread) {
+        guard let index = connectors.firstIndex(where: { $0.id == connectorId })
+        else { return }
+        connectors[index].thread = thread.rawValue
+        notifyChange()
+    }
+
+    /// How heavy this cord is. Weight is per thread like colour, because
+    /// a board where one connection matters more than another says so by
+    /// how it is strung.
+    public func setThreadThickness(_ connectorId: String, to thickness: Double) {
+        guard let index = connectors.firstIndex(where: { $0.id == connectorId })
+        else { return }
+        connectors[index].thickness = thickness
+        notifyChange()
+    }
+
     public func setPaper(_ cardId: String, paper: VisionPaper) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         cards[index].paper = paper.rawValue
