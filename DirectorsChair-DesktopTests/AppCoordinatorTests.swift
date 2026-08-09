@@ -1129,3 +1129,63 @@ final class CommandPaletteRevisionTests: XCTestCase {
                        ["1", "2"])
     }
 }
+
+// MARK: - Dailies ingest end-to-end (§2.18)
+
+@MainActor
+final class DailiesIngestControllerTests: XCTestCase {
+
+    private var temp: URL!
+
+    override func setUp() {
+        super.setUp()
+        temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DailiesController-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: temp, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: temp)
+        super.tearDown()
+    }
+
+    func testFilingAClipCopiesItIntoTheFootageLayoutAndAppendsTheTake() throws {
+        // A project on disk (the footage layout is relative to it).
+        let projectDir = temp.appendingPathComponent("My Film")
+        try FileManager.default.createDirectory(
+            at: projectDir, withIntermediateDirectories: true)
+        let viewModel = ProjectViewModel()
+        var scene = Scene(name: "Scene 7")
+        scene.shots = [Shot(shotId: 4)]
+        var project = Project(name: "My Film")
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        viewModel.project = project
+        viewModel.hasProject = true
+        viewModel.projectPath = projectDir.appendingPathComponent("project.json")
+
+        // A clip in the watch folder.
+        let clip = temp.appendingPathComponent("S07_T02.mov")
+        try Data(repeating: 7, count: 64).write(to: clip)
+
+        let controller = DailiesIngestController()
+        controller.configure(projectViewModel: viewModel)
+        controller.file(clip, sequenceIndex: 0, sceneIndex: 0, shotIndex: 0)
+
+        let takes = viewModel.project.sequences[0].scenes[0].shots[0].takes
+        XCTAssertEqual(takes.count, 1)
+        XCTAssertEqual(takes[0].takeNumber, 2,
+                       "the slate's take number rides the filename")
+        XCTAssertEqual(takes[0].cameraSourceFileName, "S07_T02.mov")
+
+        let relative = try XCTUnwrap(takes[0].capturedVideoPath)
+        XCTAssertTrue(relative.hasPrefix("footage/Scene_4/Shot_004/"),
+                      "the copy mirrors the recording pipeline's layout "
+                      + "(got \(relative))")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: projectDir.appendingPathComponent(relative).path),
+            "the clip must actually be in the project now")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: clip.path),
+            "the watch folder keeps its original — cards are evidence")
+    }
+}

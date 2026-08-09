@@ -35,6 +35,9 @@ struct CurationView: View {
     let projectDir: URL?
     @StateObject var viewModel = CurationViewModel()
     @EnvironmentObject var coordinator: AppCoordinator
+    /// §2.18 dailies watch folder — owned app-wide by ContentView so
+    /// watching survives this tab unmounting.
+    @EnvironmentObject var dailies: DailiesIngestController
     @State var isVideoFullScreen: Bool = false
     @State var fullScreenVideoURL: URL?
     @State var selectedTab: CurationTab = .curation

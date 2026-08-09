@@ -45,6 +45,9 @@ struct ContentView: View {
     /// §2.18 background export queue — observed so the panel appears the
     /// moment the first job lands.
     @ObservedObject private var exportQueue = ExportQueue.shared
+    /// §2.18 dailies watch folder — app-wide so watching survives tab
+    /// switches; per-project folder choice re-armed on project change.
+    @StateObject private var dailiesController = DailiesIngestController()
 
     // Timeline analysis state
     @State private var showAnalysisReview = false
@@ -396,6 +399,15 @@ struct ContentView: View {
             }
         }
         .environmentObject(captureService)
+        .environmentObject(dailiesController)
+        // §2.18 dailies: re-arm the watcher for whichever project is
+        // open; stopping when none is.
+        .onAppear {
+            dailiesController.configure(projectViewModel: projectViewModel)
+        }
+        .onChange(of: projectViewModel.projectPath) { _, _ in
+            dailiesController.configure(projectViewModel: projectViewModel)
+        }
         .focusedValue(\.projectViewModel, projectViewModel)
         .focusedValue(\.appCoordinator, coordinator)
         .errorAlert($projectViewModel.errorAlert)

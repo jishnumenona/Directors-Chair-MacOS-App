@@ -166,6 +166,10 @@ final class BigProjectViewAuditTests: XCTestCase {
             .environmentObject(coordinator)
             .environmentObject(projectViewModel)
             .environmentObject(timeline)
+            // §2.18 dailies: Curation requires the ingest controller —
+            // a missing environment object is a process crash, which is
+            // exactly what this audit caught when the requirement landed.
+            .environmentObject(DailiesIngestController())
             .frame(width: 1440, height: 900))
         let hosting = NSHostingView(rootView: root)
         let window = NSWindow(
