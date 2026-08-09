@@ -235,7 +235,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // The .terminateNow fast path (nothing dirty) skips the async
         // reply above — the lock still has to come off.
-        guard !TestMode.isUITesting else { return }
+        guard !TestMode.isTestHost else { return }
         let semaphore = DispatchSemaphore(value: 0)
         Task {
             await CrashTelemetry.shared.endSessionCleanly()
@@ -256,7 +256,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// tests — the test driver kills the app by design, which would
     /// otherwise greet every test launch with a crash dialog.
     private func startCrashTelemetry() {
-        guard !TestMode.isUITesting else { return }
+        guard !TestMode.isTestHost else { return }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
             as? String ?? "dev"
         let os = ProcessInfo.processInfo.operatingSystemVersionString

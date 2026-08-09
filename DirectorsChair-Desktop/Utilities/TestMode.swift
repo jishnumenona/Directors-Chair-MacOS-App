@@ -35,4 +35,17 @@ enum TestMode {
     /// Don't install the global key monitor (it can intercept the keystrokes
     /// XCUITest sends to the editor).
     static var skipGlobalKeyMonitors: Bool { isUITesting }
+
+    /// True when this process is the UNIT-test host (xcodebuild test
+    /// injecting the suites into the app). It launches with no special
+    /// arguments, so `isUITesting` misses it — XCTest's environment is
+    /// the tell. Crash telemetry must treat it as a test, not a session:
+    /// before this gate, every test-suite crash and test-driver kill
+    /// became a "crash report" in the OWNER's archive and a scary alert
+    /// on their next real launch.
+    nonisolated static var isTestHost: Bool {
+        isUITesting || ProcessInfo.processInfo
+            .environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
 }
