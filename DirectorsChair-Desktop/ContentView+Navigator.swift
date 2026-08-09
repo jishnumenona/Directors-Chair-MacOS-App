@@ -274,6 +274,25 @@ enum CommandPaletteCatalog {
             id: "cmd.assistant", title: "AI Assistant",
             subtitle: "Open the assistant chat",
             systemImage: "sparkles", category: .command))
+        if projectViewModel.hasProject {
+            // Script revisions (§2.18) — the palette rebuilds per open,
+            // so these labels are always current (the File menu's are
+            // deliberately generic).
+            if projectViewModel.project.scriptRevisionColor == nil {
+                entries.append(PaletteEntry(
+                    id: "cmd.lockScenes", title: "Lock Scene Numbers",
+                    subtitle: "Freeze production numbers — the White draft",
+                    systemImage: "lock", category: .command))
+            } else {
+                let next = ScriptRevisionTracker.nextColor(
+                    after: projectViewModel.project.scriptRevisionColor)
+                entries.append(PaletteEntry(
+                    id: "cmd.advanceRevision",
+                    title: "Start \(next) Revision",
+                    subtitle: "Stamp changed scenes and open a new round",
+                    systemImage: "doc.badge.clock", category: .command))
+            }
+        }
 
         // Assistant actions: what the palette makes discoverable. Picking
         // one stages its phrase in the chat composer — actions take
@@ -391,6 +410,14 @@ enum CommandPaletteCatalog {
             coordinator.showingSnapshots = true
         } else if entry.id == "cmd.assistant" {
             coordinator.showingAIChat = true
+        } else if entry.id == "cmd.lockScenes" {
+            ScriptRevisionTracker.lock(
+                &projectViewModel.project,
+                date: ISO8601DateFormatter().string(from: Date()))
+        } else if entry.id == "cmd.advanceRevision" {
+            ScriptRevisionTracker.advance(
+                &projectViewModel.project,
+                date: ISO8601DateFormatter().string(from: Date()))
         } else if entry.id.hasPrefix("action.") {
             coordinator.pendingAssistantPrompt = entry.title + " "
             coordinator.showingAIChat = true

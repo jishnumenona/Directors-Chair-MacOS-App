@@ -228,7 +228,7 @@ private final class ScreenplayPDFGenerator {
                 }
 
                 // Scene heading
-                let heading = SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequence.location)
+                let heading = SceneHeadingFormatter.decoratedHeading(for: scene, sequenceLocation: sequence.location, style: .production, currentColor: project.scriptRevisionColor)
                 drawLeft(heading, font: headingFont)
                 currentY -= 24
 

@@ -1076,3 +1076,56 @@ final class ScreenplayExportFormatTests: XCTestCase {
                        + "user text, not a path instruction")
     }
 }
+
+// MARK: - Script revisions through the palette (§2.18)
+
+@MainActor
+final class CommandPaletteRevisionTests: XCTestCase {
+
+    private func makeViewModel() -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        var project = Project(name: "Rev Palette")
+        project.sequences = [Sequence(name: "Act 1",
+                                      scenes: [Scene(name: "One"),
+                                               Scene(name: "Two")])]
+        viewModel.project = project
+        viewModel.hasProject = true
+        return viewModel
+    }
+
+    func testPaletteOffersLockThenAdvanceNeverBoth() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel()
+
+        var ids = CommandPaletteCatalog.entries(
+            coordinator: coordinator, projectViewModel: viewModel,
+            assistantAvailable: false).map(\.id)
+        XCTAssertTrue(ids.contains("cmd.lockScenes"))
+        XCTAssertFalse(ids.contains("cmd.advanceRevision"),
+                       "no rounds before the lock")
+
+        ScriptRevisionTracker.lock(&viewModel.project, date: "d0")
+        let entries = CommandPaletteCatalog.entries(
+            coordinator: coordinator, projectViewModel: viewModel,
+            assistantAvailable: false)
+        ids = entries.map(\.id)
+        XCTAssertFalse(ids.contains("cmd.lockScenes"),
+                       "numbers are promises — no second lock")
+        XCTAssertEqual(entries.first { $0.id == "cmd.advanceRevision" }?.title,
+                       "Start Blue Revision",
+                       "the palette names the round it would open")
+    }
+
+    func testRunningLockFreezesNumbersThroughTheViewModel() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel()
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "cmd.lockScenes", title: "Lock Scene Numbers",
+                         subtitle: nil, systemImage: "lock",
+                         category: .command),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(viewModel.project.scriptRevisionColor, "White")
+        XCTAssertEqual(viewModel.project.sequences[0].scenes.map(\.lockedNumber),
+                       ["1", "2"])
+    }
+}
