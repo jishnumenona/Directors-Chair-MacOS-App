@@ -67,6 +67,12 @@ struct FileCommands: Commands {
             .keyboardShortcut("s", modifiers: [.command, .shift])
             .disabled(projectViewModel?.hasProject != true)
 
+            Button("Project Snapshots...") {
+                coordinator?.showingSnapshots = true
+            }
+            .keyboardShortcut("s", modifiers: [.command, .option])
+            .disabled(projectViewModel?.hasProject != true)
+
             Divider()
 
             Button("Force Save") {

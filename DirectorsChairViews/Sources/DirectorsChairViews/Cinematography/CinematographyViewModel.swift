@@ -14,7 +14,9 @@ public class CinematographyViewModel: ObservableObject {
     // MARK: - Published Properties
 
     /// All shots in the scene
-    @Published public var shots: [Shot] = []
+    @Published public var shots: [Shot] = [] {
+        didSet { shotsRevision &+= 1 }
+    }
 
     /// Currently selected shot ID
     @Published public var selectedShotId: String?
@@ -55,7 +57,126 @@ public class CinematographyViewModel: ObservableObject {
     // MARK: - Computed Properties
 
     /// Filtered shots based on current criteria
+    // MARK: - Scene sections (P1 §2.17)
+
+    /// One collapsible band of the shot list. Grouping by scene is how a
+    /// crew reads a board — and collapsed sections shrink the List's diff
+    /// from every shot in the project to every VISIBLE row, which is what
+    /// dissolved the last O(N) publish cost the scale audit measured.
+    public struct ShotSection: Identifiable, Equatable {
+        public let id: String          // scene id, or "unassigned"
+        public let name: String
+        public let shots: [Shot]
+    }
+
+    /// Which sections are open. Decided once per board size on first
+    /// build: a small list opens everything (nothing to save), a big one
+    /// opens nothing (that's the point).
+    @Published public var expandedSectionIds: Set<String> = []
+    private var expansionInitialized = false
+
+    /// Searching or filtering overrides collapse — a search whose results
+    /// hide inside closed sections looks broken.
+    public var revealsAllSections: Bool {
+        !searchQuery.isEmpty || filterByStatus != nil
+            || (filterByShotType?.isEmpty == false)
+    }
+
+    public func isSectionOpen(_ id: String) -> Bool {
+        revealsAllSections || expandedSectionIds.contains(id)
+    }
+
+    public func toggleSection(_ id: String) {
+        if expandedSectionIds.contains(id) {
+            expandedSectionIds.remove(id)
+        } else {
+            expandedSectionIds.insert(id)
+        }
+    }
+
+    public func setAllSections(open: Bool, ids: [String]) {
+        expandedSectionIds = open ? Set(ids) : []
+    }
+
+    /// Opens whichever section holds a shot — selection arriving from
+    /// outside (the outline, the coordinator) must never land invisibly.
+    public func revealSection(containing shotUUID: String,
+                              scenes: [DCScene]) {
+        if let scene = scenes.first(where: { scene in
+            scene.shots.contains { $0.id == shotUUID }
+        }) {
+            expandedSectionIds.insert(scene.id)
+        } else {
+            expandedSectionIds.insert("unassigned")
+        }
+    }
+
+    /// The filtered shots, banded by scene in story order; shots no scene
+    /// claims band together at the end rather than vanishing.
+    public func sections(scenes: [DCScene]) -> [ShotSection] {
+        let filtered = filteredShots
+        initializeExpansionIfNeeded(totalShots: filtered.count,
+                                    scenes: scenes)
+        guard !scenes.isEmpty else {
+            return filtered.isEmpty ? []
+                : [ShotSection(id: "unassigned", name: "All Shots",
+                               shots: filtered)]
+        }
+        var byId: [String: Shot] = [:]
+        for shot in filtered { byId[shot.id] = shot }
+        var claimed: Set<String> = []
+        var result: [ShotSection] = []
+        for scene in scenes {
+            let members = scene.shots.compactMap { byId[$0.id] }
+            claimed.formUnion(members.map(\.id))
+            if !members.isEmpty {
+                result.append(ShotSection(id: scene.id, name: scene.name,
+                                          shots: members))
+            }
+        }
+        let strays = filtered.filter { !claimed.contains($0.id) }
+        if !strays.isEmpty {
+            result.append(ShotSection(id: "unassigned", name: "Unassigned",
+                                      shots: strays))
+        }
+        return result
+    }
+
+    private func initializeExpansionIfNeeded(totalShots: Int,
+                                             scenes: [DCScene]) {
+        guard !expansionInitialized, totalShots > 0 else { return }
+        expansionInitialized = true
+        if totalShots <= 150 {
+            expandedSectionIds = Set(scenes.map(\.id) + ["unassigned"])
+        }
+    }
+
+    /// Cached: three separate body-pass reads (count, isEmpty, ForEach
+    /// source) each re-filtered all shots per publish — at 3,600 shots
+    /// that is three full array walks and copies per tick. The cache
+    /// invalidates whenever any input changes.
     public var filteredShots: [Shot] {
+        let key = FilterKey(revision: shotsRevision, status: filterByStatus,
+                            type: filterByShotType, query: searchQuery)
+        if let cached = filteredShotsCache, cached.key == key {
+            return cached.shots
+        }
+        let computed = computeFilteredShots()
+        filteredShotsCache = (key, computed)
+        return computed
+    }
+
+    private struct FilterKey: Equatable {
+        let revision: Int
+        let status: ShotStatus?
+        let type: String?
+        let query: String
+    }
+    private var filteredShotsCache: (key: FilterKey, shots: [Shot])?
+    /// Bumped on every mutation of `shots` (didSet below).
+    private var shotsRevision = 0
+
+    private func computeFilteredShots() -> [Shot] {
         var result = shots
 
         if let status = filterByStatus {

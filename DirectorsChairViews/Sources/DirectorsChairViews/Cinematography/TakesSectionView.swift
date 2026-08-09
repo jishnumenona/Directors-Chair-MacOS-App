@@ -217,7 +217,12 @@ struct TakeThumbnailView: View {
 
 /// Self-contained video player with transport bar, skip buttons, and seek bar with thumb knob
 struct ReviewPlayerView: View {
+    /// The ORIGINAL file — what Open and Reveal act on. A user asking
+    /// for the file must never be handed the proxy.
     let videoURL: URL
+    /// What the player actually plays: the proxy when fresh and allowed.
+    /// nil (older call sites) means the original.
+    var playbackURL: URL? = nil
     @State var player: AVPlayer?
     @State var isPlaying: Bool = false
     @State var currentTime: Double = 0
@@ -361,7 +366,7 @@ struct ReviewPlayerView: View {
     }
 
     private func setupPlayer() {
-        let avPlayer = AVPlayer(url: videoURL)
+        let avPlayer = AVPlayer(url: playbackURL ?? videoURL)
         player = avPlayer
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in

@@ -57,6 +57,10 @@ struct ContentView: View {
     @State private var timelineHeightRatio: CGFloat = 0.20
 
     /// Sidebar width
+    /// The window's undo manager — handed to the project view-model so
+    /// every committed project edit registers app-wide undo (P0 §2.16c).
+    @Environment(\.undoManager) private var windowUndoManager
+
     @State private var sidebarWidth: CGFloat = 280
 
     /// Whether we're on the Projects view (hide panels)
@@ -72,6 +76,55 @@ struct ContentView: View {
     /// Whether to show the timeline (hidden on Projects view)
     private var shouldShowTimeline: Bool {
         coordinator.showingTimeline && !isProjectsView
+    }
+
+    /// See ProjectViewModel's undo section. The script editor keeps its
+    /// own typing-grained history, so snapshots stand down while it is
+    /// frontmost; every other surface gets "Undo <Surface> Edit" on the
+    /// window's own manager.
+    @State private var crashReport: DirectorsChairCore.CrashReport?
+
+    /// Ambient breadcrumbs: cheap, occasional, never in a crash path —
+    /// this is how a report can say what you were doing.
+    private func noteTelemetryState(view: AppView) {
+        guard !TestMode.isUITesting else { return }
+        let shots = projectViewModel.hasProject
+            ? projectViewModel.project.sequences
+                .flatMap(\.scenes).reduce(0) { $0 + $1.shots.count }
+            : nil
+        let name = projectViewModel.hasProject
+            ? projectViewModel.project.name : nil
+        Task {
+            await CrashTelemetry.shared.noteState(
+                lastView: view.rawValue, projectName: name,
+                projectShots: shots)
+        }
+    }
+
+    private func crashAlertBody(
+        _ report: DirectorsChairCore.CrashReport) -> String {
+        var lines: [String] = []
+        if let summary = report.terminationSummary {
+            lines.append(summary)
+        }
+        if let view = report.lastView {
+            lines.append("You were in \(view)"
+                + (report.projectName.map { " on \u{201C}\($0)\u{201D}" }
+                    ?? "") + ".")
+        }
+        lines.append("A report was saved on this Mac. Nothing is sent "
+                     + "anywhere.")
+        return lines.joined(separator: "\n")
+    }
+
+    private func wireAppWideUndo() {
+        projectViewModel.windowUndoManager = windowUndoManager
+        projectViewModel.shouldRecordUndo = { [weak coordinator] in
+            coordinator?.selectedView != .script
+        }
+        projectViewModel.undoActionNameProvider = { [weak coordinator] in
+            "\(coordinator?.selectedView.rawValue ?? "Project") Edit"
+        }
     }
 
     var body: some View {
@@ -235,6 +288,37 @@ struct ContentView: View {
                   message: Text(presented.message),
                   dismissButton: .default(Text("OK")))
         }
+        .sheet(isPresented: $coordinator.showingSnapshots) {
+            SnapshotsSheet()
+                .environmentObject(projectViewModel)
+        }
+        .onAppear {
+            wireAppWideUndo()
+            if let report = CrashReportPresenter.pending {
+                CrashReportPresenter.pending = nil
+                crashReport = report
+            }
+        }
+        .onChange(of: coordinator.selectedView) { _, view in
+            noteTelemetryState(view: view)
+        }
+        .onChange(of: projectViewModel.hasProject) { _, _ in
+            noteTelemetryState(view: coordinator.selectedView)
+        }
+        .alert("The app quit unexpectedly last time",
+               isPresented: Binding(get: { crashReport != nil },
+                                    set: { if !$0 { crashReport = nil } }),
+               presenting: crashReport) { _ in
+            Button("Show Report") {
+                NSWorkspace.shared.activateFileViewerSelecting(
+                    [CrashTelemetry.shared.reportsDirectory])
+                crashReport = nil
+            }
+            Button("OK", role: .cancel) { crashReport = nil }
+        } message: { report in
+            Text(crashAlertBody(report))
+        }
+        .onChange(of: windowUndoManager) { _, _ in wireAppWideUndo() }
         .onAppear {
             // UI-test mode: don't install global key monitors. The
             // double-shift monitor watches Shift-key events, so typing

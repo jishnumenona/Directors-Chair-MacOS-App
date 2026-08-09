@@ -198,7 +198,79 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var onboardingState: OnboardingState?
     var authManager: AuthManager?
 
+    // MARK: - No lost work (P0)
+    //
+    // The 500ms debounced autosave covers editing; these two hooks cover
+    // the exits. Without them, ⌘Q inside the debounce window — or a
+    // logout / installer killing the app — dropped the last edits on the
+    // floor, silently.
+
+    func applicationShouldTerminate(_ sender: NSApplication)
+        -> NSApplication.TerminateReply {
+        guard let projectViewModel,
+              projectViewModel.hasProject, projectViewModel.isDirty else {
+            return .terminateNow
+        }
+        Task { @MainActor in
+            // A wedged disk must not make the app unquittable: whichever
+            // finishes first — the flush or three seconds — releases the
+            // termination. The failure-streak alert owns the bad-disk
+            // story; quitting is not the moment for a modal.
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    await projectViewModel.flushPendingSaves()
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(3))
+                }
+                await group.next()
+                group.cancelAll()
+            }
+            await CrashTelemetry.shared.endSessionCleanly()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // The .terminateNow fast path (nothing dirty) skips the async
+        // reply above — the lock still has to come off.
+        guard !TestMode.isUITesting else { return }
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            await CrashTelemetry.shared.endSessionCleanly()
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 2)
+    }
+
+    func applicationWillResignActive(_ notification: Notification) {
+        guard let projectViewModel else { return }
+        Task { @MainActor in
+            await projectViewModel.flushPendingSaves()
+        }
+    }
+
+    /// Crash telemetry (§2.17): the previous session's corpse is looked
+    /// for BEFORE this session's lock is written, and never during UI
+    /// tests — the test driver kills the app by design, which would
+    /// otherwise greet every test launch with a crash dialog.
+    private func startCrashTelemetry() {
+        guard !TestMode.isUITesting else { return }
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
+            as? String ?? "dev"
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        Task { @MainActor in
+            if let report = await CrashTelemetry.shared.launchCheck(
+                appVersion: version, osVersion: os) {
+                CrashReportPresenter.pending = report
+            }
+            await CrashTelemetry.shared.beginSession(appVersion: version)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        startCrashTelemetry()
         // UI-test mode: don't hide the window or run the splash at all. Let
         // SwiftUI's WindowGroup present the main window naturally (hiding it
         // and re-showing after a manual delay is exactly what raced the test

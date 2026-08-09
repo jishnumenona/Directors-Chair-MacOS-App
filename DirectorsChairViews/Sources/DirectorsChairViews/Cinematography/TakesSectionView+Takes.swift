@@ -190,7 +190,13 @@ extension TakesSectionView {
                 ZStack(alignment: .bottomTrailing) {
                     if let videoPath = take.capturedVideoPath, let basePath = projectBasePath {
                         let fullURL = basePath.deletingLastPathComponent().appendingPathComponent(videoPath)
-                        TakeThumbnailView(videoURL: fullURL)
+                        // Thumbnails decode a frame — from the proxy
+                        // when one exists, which is the difference
+                        // between instant and a 4K seek per row.
+                        TakeThumbnailView(videoURL: ProxyPlayback.url(
+                            forRelativePath: videoPath,
+                            projectBase: basePath.deletingLastPathComponent())
+                            ?? fullURL)
                             .id("\(take.id)-\(take.endTimestamp?.timeIntervalSince1970 ?? 0)")
                             .frame(width: 150, height: 84)
                             .clipped()
@@ -308,7 +314,11 @@ extension TakesSectionView {
         Group {
             if let videoPath = take.capturedVideoPath, let basePath = projectBasePath {
                 let fullURL = basePath.deletingLastPathComponent().appendingPathComponent(videoPath)
-                ReviewPlayerView(videoURL: fullURL)
+                ReviewPlayerView(videoURL: fullURL,
+                                 playbackURL: ProxyPlayback.url(
+                                     forRelativePath: videoPath,
+                                     projectBase: basePath
+                                         .deletingLastPathComponent()))
                     .id("\(take.id)-\(take.endTimestamp?.timeIntervalSince1970 ?? 0)")
             } else {
                 // No-video placeholder

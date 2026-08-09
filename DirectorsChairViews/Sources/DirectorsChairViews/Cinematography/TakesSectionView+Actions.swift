@@ -106,11 +106,15 @@ extension TakesSectionView {
             // Record into the pre-planned take
             updated.takes[idx].startTimestamp = Date()
             updated.takes[idx].capturedVideoPath = outputURL.path.replacingOccurrences(of: projectDir.path + "/", with: "")
+            // Proxy the recording the moment it exists — by the time
+            // anyone opens curation it should already scrub light.
+            startProxy(relativeTo: projectDir, absolute: outputURL)
             takeId = existing.id
         } else {
             // Create a new take
             var newTake = Take(takeNumber: takeNumber, startTimestamp: Date())
             newTake.capturedVideoPath = outputURL.path.replacingOccurrences(of: projectDir.path + "/", with: "")
+            startProxy(relativeTo: projectDir, absolute: outputURL)
             takeId = newTake.id
             updated.takes.append(newTake)
         }
@@ -129,6 +133,7 @@ extension TakesSectionView {
                     }
                     if let fileURL {
                         finalShot.takes[idx].capturedVideoPath = fileURL.path.replacingOccurrences(of: projectDir.path + "/", with: "")
+                        startProxy(relativeTo: projectDir, absolute: fileURL)
                         saveTakePreviewImage(from: fileURL)
                     }
                     onShotUpdated(finalShot)
@@ -410,5 +415,15 @@ extension TakesSectionView {
         f.dateFormat = "HH:mm:ss"
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
+    }
+}
+
+extension TakesSectionView {
+    /// Kick a background proxy for a clip that just landed (§2.17).
+    func startProxy(relativeTo projectDir: URL, absolute: URL) {
+        let relative = absolute.path.replacingOccurrences(
+            of: projectDir.path + "/", with: "")
+        ProxyMediaStore.shared.sweep(relativePaths: [relative],
+                                     projectBase: projectDir)
     }
 }

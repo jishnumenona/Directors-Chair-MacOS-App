@@ -375,3 +375,302 @@ final class ProjectViewModelTests: XCTestCase {
         XCTAssertEqual(decoded.characters.count, project.characters.count)
     }
 }
+
+// MARK: - No lost work (P0, 2026-08-06 audit)
+//
+// The debounced autosave existed before this program; what it lacked was
+// honesty and exits. These pin: an autosave that LANDS clears the dirty
+// flag; an autosave that keeps FAILING says so exactly once per streak;
+// and the lifecycle flush actually reaches disk.
+
+@MainActor
+final class NoLostWorkTests: XCTestCase {
+
+    private func temporaryProjectURL() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("nolostwork-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir,
+                                                withIntermediateDirectories: true)
+        return dir.appendingPathComponent("project.json")
+    }
+
+    private func pump(seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.main.run(mode: .default,
+                             before: Date().addingTimeInterval(0.05))
+        }
+    }
+
+    func testAnAutosaveThatLandsClearsTheDirtyFlag() throws {
+        let url = try temporaryProjectURL()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+
+        viewModel.project.name = "edited"
+        // The dirty flag is set by a deferred main-actor task — poll for
+        // it rather than assuming a scheduling deadline.
+        let dirtyDeadline = Date().addingTimeInterval(1.0)
+        while !viewModel.isDirty && Date() < dirtyDeadline {
+            pump(seconds: 0.05)
+        }
+        XCTAssertTrue(viewModel.isDirty, "an edit marks the project dirty")
+
+        // 500ms debounce + write + main-loop delivery.
+        pump(seconds: 2.0)
+        XCTAssertFalse(viewModel.isDirty,
+            "the edit is on disk — claiming unsaved changes forever was "
+            + "the audit's truthful-state finding")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertNotNil(viewModel.lastSaved)
+    }
+
+    func testLifecycleFlushWritesWithoutWaitingForTheDebounce() throws {
+        let url = try temporaryProjectURL()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+
+        viewModel.project.name = "quit right now"
+        // Let the deferred dirty-marking task land, but stay well inside
+        // the 500ms debounce window.
+        pump(seconds: 0.25)
+
+        let flushed = expectation(description: "flush")
+        Task { @MainActor in
+            await viewModel.flushPendingSaves()
+            flushed.fulfill()
+        }
+        wait(for: [flushed], timeout: 5)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                      "⌘Q inside the debounce window must not lose the edit")
+        XCTAssertFalse(viewModel.isDirty)
+    }
+
+    func testAFailingAutosaveSpeaksUpOnThirdFailureOnceAndResetsOnSuccess() {
+        // Driven directly: a genuinely dying disk can't be simulated from
+        // a test (the writability precheck filters permission problems,
+        // and APFS happily replaces directories), but the CONTRACT —
+        // three strikes, one alert, success resets — is pure logic.
+        let viewModel = ProjectViewModel()
+        struct Boom: Error, LocalizedError {
+            var errorDescription: String? { "disk full" }
+        }
+
+        var alerts = 0
+        let observation = viewModel.$errorAlert.dropFirst().sink { alert in
+            if alert != nil { alerts += 1 }
+        }
+        defer { observation.cancel() }
+
+        viewModel.registerAutosaveFailure(Boom())
+        viewModel.registerAutosaveFailure(Boom())
+        XCTAssertEqual(alerts, 0, "two failures could be transient")
+        viewModel.registerAutosaveFailure(Boom())
+        viewModel.registerAutosaveFailure(Boom())
+        viewModel.registerAutosaveFailure(Boom())
+        pump(seconds: 0.1)
+        XCTAssertEqual(alerts, 1, "the streak alerts once, not per tick")
+        XCTAssertEqual(viewModel.autosaveFailureStreak, 5)
+    }
+}
+
+// MARK: - App-wide undo (P0 §2.16c)
+//
+// One choke point: every durable edit — shots, production tables,
+// curation picks, boards — commits through projectViewModel.project, so
+// snapshot undo there is undo for the whole app. These pin the contract
+// against a real UndoManager.
+
+@MainActor
+final class AppWideUndoTests: XCTestCase {
+
+    private func pump(_ seconds: TimeInterval = 0.05) {
+        RunLoop.main.run(mode: .default,
+                         before: Date().addingTimeInterval(seconds))
+    }
+
+    /// Closes the per-event undo group the way the live app's event loop
+    /// does at the end of each event — a bare runloop pump in a test
+    /// process doesn't count as an event boundary.
+    private func endEvent(_ manager: UndoManager) {
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+        // Let the runloop tick so the manager will lazily open a fresh
+        // group for the next registration.
+        pump(0.02)
+    }
+
+    private func makeViewModel(_ manager: UndoManager)
+        -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        viewModel.hasProject = true
+        viewModel.windowUndoManager = manager
+        viewModel.project.name = "origin"
+        endEvent(manager)         // close the seeding event group
+        return viewModel
+    }
+
+    func testUndoRestoresAndRedoReapplies() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        XCTAssertTrue(manager.canUndo, "a committed edit is undoable")
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "origin")
+        XCTAssertTrue(manager.canRedo)
+
+        manager.redo()
+        XCTAssertEqual(viewModel.project.name, "edited")
+    }
+
+    func testABurstInOneEventIsOneUndoStep() {
+        // A gesture that commits several fields must not take several ⌘Z
+        // to take back — NSUndoManager's per-event grouping, kept intact
+        // by registering synchronously with the mutation.
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+
+        viewModel.project.name = "step-a"
+        viewModel.project.budget = "999"
+        endEvent(manager)
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "origin")
+        XCTAssertNotEqual(viewModel.project.budget, "999",
+                          "one gesture, one undo")
+    }
+
+    func testSeparateEventsAreSeparateSteps() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+
+        viewModel.project.name = "first"
+        endEvent(manager)
+        viewModel.project.name = "second"
+        endEvent(manager)
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "first")
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "origin")
+    }
+
+    func testUndoIsAnEditItMarksDirtyAndAutosaves() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        pump(0.3)
+        viewModel.isDirty = false     // pretend everything was saved
+
+        manager.undo()
+        pump(0.3)
+        XCTAssertTrue(viewModel.isDirty,
+            "a restore changes the document — it saves like any edit")
+    }
+
+    func testScriptModeStandsDown() {
+        // The script editor owns typing-grained history; while it is
+        // frontmost, project snapshots must not double-book ⌘Z.
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.shouldRecordUndo = { false }
+
+        viewModel.project.name = "typed in script"
+        endEvent(manager)
+        XCTAssertFalse(manager.canUndo)
+    }
+
+    func testDocumentBoundariesEndTheHistory() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        XCTAssertTrue(manager.canUndo)
+
+        viewModel.resetUndoHistory()
+        XCTAssertFalse(manager.canUndo,
+            "undo never carries one document into another's history")
+    }
+
+    func testUndoNamesTheSurface() {
+        let manager = UndoManager()
+        let viewModel = makeViewModel(manager)
+        viewModel.undoActionNameProvider = { "Shot List Edit" }
+
+        viewModel.project.name = "edited"
+        endEvent(manager)
+        XCTAssertEqual(manager.undoMenuItemTitle, "Undo Shot List Edit")
+    }
+}
+
+// MARK: - Project snapshots (P1 §2.17)
+
+@MainActor
+final class ProjectSnapshotIntegrationTests: XCTestCase {
+
+    private func temporaryProject() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("snap-int-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("project.json")
+    }
+
+    func testSnapshotNowThenRestoreRoundTripsThroughTheViewModel() async throws {
+        let url = try temporaryProject()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+        viewModel.project.name = "the good cut"
+
+        await viewModel.snapshotNow(label: "locked")
+        viewModel.project.name = "a terrible mistake"
+        let snapshots = await ProjectSnapshotStore.shared
+            .list(forProjectAt: url)
+        let locked = try XCTUnwrap(
+            snapshots.first { $0.label == "locked" })
+
+        await viewModel.restoreSnapshot(locked)
+
+        XCTAssertEqual(viewModel.project.name, "the good cut")
+        // Restoring must never be how work gets lost: the mistake is
+        // itself preserved as a safety snapshot.
+        let after = await ProjectSnapshotStore.shared.list(forProjectAt: url)
+        XCTAssertTrue(after.contains { $0.label == "Before restore" })
+        try? FileManager.default.removeItem(
+            at: url.deletingLastPathComponent())
+    }
+
+    func testARestoreIsUndoable() async throws {
+        let url = try temporaryProject()
+        let manager = UndoManager()
+        let viewModel = ProjectViewModel()
+        viewModel.projectPath = url
+        viewModel.hasProject = true
+        viewModel.windowUndoManager = manager
+        viewModel.project.name = "before"
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+
+        await viewModel.snapshotNow(label: "point")
+        let listed = await ProjectSnapshotStore.shared.list(forProjectAt: url)
+        let snapshot = try XCTUnwrap(listed.first)
+        viewModel.project.name = "after"
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+
+        await viewModel.restoreSnapshot(snapshot)
+        while manager.groupingLevel > 0 { manager.endUndoGrouping() }
+        XCTAssertEqual(viewModel.project.name, "before")
+
+        manager.undo()
+        XCTAssertEqual(viewModel.project.name, "after",
+            "a restore is an edit like any other — ⌘Z takes it back")
+        try? FileManager.default.removeItem(
+            at: url.deletingLastPathComponent())
+    }
+}

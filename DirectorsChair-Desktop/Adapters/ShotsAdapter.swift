@@ -13,7 +13,15 @@ import DirectorsChairCore
 @MainActor
 class ShotsAdapter: ObservableObject {
     /// Flattened array of all shots across all scenes
-    @Published private(set) var allShots: [Shot] = []
+    @Published private(set) var allShots: [Shot] = [] {
+        didSet { shotsRevision &+= 1 }
+    }
+
+    /// Bumped whenever `allShots` is replaced. The shot list watches THIS
+    /// for external changes instead of deep-comparing 3,600 Shot structs
+    /// on every project publish (measured: that compare alone held the
+    /// tab at ~44ms per publish on a big project).
+    private(set) var shotsRevision = 0
 
     /// Reference to the project
     private var project: Project

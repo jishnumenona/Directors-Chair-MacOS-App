@@ -121,6 +121,39 @@ class ProjectViewModel: ObservableObject {
             .sink { [weak self] project in
                 guard let self = self else { return }
 
+                // App-wide undo (P0 §2.16c): every durable edit in the app
+                // — shots, production tables, curation picks, boards,
+                // characters — commits through THIS property, so one
+                // snapshot here is undo for all of them. Project is a
+                // value type: the captured snapshot shares storage with
+                // the live one until either mutates, so a deep history is
+                // cheap. Registered synchronously so NSUndoManager's
+                // per-event grouping coalesces bursts the way the user
+                // perceives them: one gesture, one undo.
+                let previous = self.undoBaseline
+                self.undoBaseline = project
+                if !self.isRestoringUndo, !self.isLoading,
+                   let previous,
+                   self.shouldRecordUndo?() ?? true,
+                   let manager = self.windowUndoManager {
+                    // Commits can land OUTSIDE any event — an assistant
+                    // action finishing on a background task, a sync
+                    // applying — where the per-event group isn't open and
+                    // registering would hit "invalid state". Such a
+                    // commit gets its own group: one async commit, one
+                    // undo step.
+                    let needsOwnGroup = manager.groupingLevel == 0
+                    if needsOwnGroup { manager.beginUndoGrouping() }
+                    manager.registerUndo(withTarget: self) { target in
+                        target.applyUndoSnapshot(previous)
+                    }
+                    if !manager.isUndoing, !manager.isRedoing {
+                        manager.setActionName(
+                            self.undoActionNameProvider?() ?? "Edit")
+                    }
+                    if needsOwnGroup { manager.endUndoGrouping() }
+                }
+
                 // Defer property changes to avoid publishing during view updates
                 Task { @MainActor in
                     self.isDirty = true
@@ -132,6 +165,160 @@ class ProjectViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // An autosave that LANDED clears the dirty flag — before this the
+        // indicator claimed unsaved changes forever, even though every
+        // edit had been on disk within ~500ms (P0 audit: truthful state).
+        autoSaveManager.$lastSaveDate
+            .compactMap { $0 }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] date in
+                guard let self else { return }
+                // Success is the ONLY thing that ends a failure streak —
+                // each new save request clears lastError, and treating
+                // that as recovery kept the streak at 1 forever.
+                self.autosaveFailureStreak = 0
+                guard !self.autoSaveManager.hasUnsavedChanges else { return }
+                self.isDirty = false
+                self.lastSaved = date
+            }
+            .store(in: &cancellables)
+
+        // An autosave that keeps FAILING must say so — a user can edit for
+        // an hour believing the 500ms autosave has them covered while a
+        // full disk fails every write in silence (P0 audit: no silent
+        // failure loops). One alert per failure streak, not one per tick.
+        autoSaveManager.$lastError
+            .receive(on: RunLoop.main)
+            .sink { [weak self] error in
+                guard let error else { return }
+                self?.registerAutosaveFailure(error)
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Project snapshots (P1 §2.17)
+
+    /// A deliberate restore point, named by the user.
+    func snapshotNow(label: String) async {
+        guard let path = projectPath else { return }
+        do {
+            _ = try await ProjectSnapshotStore.shared.create(
+                project, forProjectAt: path,
+                label: label.isEmpty ? "Snapshot" : label)
+        } catch {
+            errorAlert = ErrorAlert(error: error,
+                                    title: "Could Not Save Snapshot")
+        }
+    }
+
+    /// Replace the working project with a snapshot's contents. The
+    /// current state is snapshotted first — restoring must never be the
+    /// way work gets lost — and the swap itself commits through
+    /// `project`, so it is UNDOABLE like any other edit and autosaves
+    /// like any other edit.
+    func restoreSnapshot(_ snapshot: DirectorsChairCore.ProjectSnapshot) async {
+        guard let path = projectPath else { return }
+        do {
+            let restored = try await ProjectSnapshotStore.shared
+                .restore(snapshot)
+            _ = try? await ProjectSnapshotStore.shared.create(
+                project, forProjectAt: path, label: "Before restore")
+            project = restored
+        } catch {
+            errorAlert = ErrorAlert(error: error,
+                                    title: "Could Not Restore Snapshot")
+        }
+    }
+
+    // MARK: - App-wide undo (P0 §2.16c)
+
+    /// The focused window's undo manager, pushed in by ContentView from
+    /// the SwiftUI environment. Using the WINDOW's manager — not a
+    /// private stack — is what makes the system Edit menu, ⌘Z/⇧⌘Z, and
+    /// text-field-local undo all behave: a focused text field's own
+    /// manager still wins while it has focus, exactly as in every
+    /// professional Mac app.
+    weak var windowUndoManager: UndoManager? {
+        didSet { windowUndoManager?.levelsOfUndo = 100 }
+    }
+
+    /// The script editor has its own deep, typing-grained undo; while it
+    /// is frontmost, project snapshots stay out of the way. Wired by
+    /// ContentView from the coordinator.
+    var shouldRecordUndo: (() -> Bool)?
+
+    /// "Undo Shot List Edit" beats "Undo Edit" — wired to the frontmost
+    /// surface's name.
+    var undoActionNameProvider: (() -> String)?
+
+    /// The last committed project value — what an undo returns to.
+    private var undoBaseline: Project?
+    private var isRestoringUndo = false
+
+    /// Applies a snapshot as the current project, registering the inverse
+    /// so redo works. Restores are themselves edits: they mark the
+    /// project dirty and ride the same autosave as any other change.
+    func applyUndoSnapshot(_ snapshot: Project) {
+        let current = project
+        if let manager = windowUndoManager {
+            let needsOwnGroup = manager.groupingLevel == 0
+            if needsOwnGroup { manager.beginUndoGrouping() }
+            manager.registerUndo(withTarget: self) { target in
+                target.applyUndoSnapshot(current)
+            }
+            if needsOwnGroup { manager.endUndoGrouping() }
+        }
+        isRestoringUndo = true
+        project = snapshot
+        isRestoringUndo = false
+    }
+
+    /// Opening or closing a project is not an edit: undo must never carry
+    /// a document across into a different document's history.
+    func resetUndoHistory() {
+        windowUndoManager?.removeAllActions(withTarget: self)
+        undoBaseline = hasProject ? project : nil
+    }
+
+    /// Consecutive autosave failures; reset by any success. Internal so
+    /// the streak contract is testable without simulating a dying disk.
+    private(set) var autosaveFailureStreak = 0
+
+    func registerAutosaveFailure(_ error: Error) {
+        autosaveFailureStreak += 1
+        // One alert per streak: silence was the audit finding, but an
+        // alert per failed tick would be worse than the disease.
+        if autosaveFailureStreak == 3 {
+            errorAlert = ErrorAlert(
+                title: "Autosave Is Failing",
+                message: "Your last few changes could not be saved "
+                    + "automatically (\(error.localizedDescription)). "
+                    + "Save manually with \u{2318}S, or check disk space "
+                    + "and permissions."
+            )
+        }
+    }
+
+    // MARK: - Lifecycle flushes (P0: no lost work)
+
+    /// Everything pending, on disk, NOW. Called on app deactivation and
+    /// quit — the two moments a crash-adjacent exit is most likely (force
+    /// quit from the Dock, logout, update installers killing apps).
+    func flushPendingSaves() async {
+        guard hasProject, let path = projectPath, isWritable(url: path) else {
+            return
+        }
+        guard isDirty || autoSaveManager.hasUnsavedChanges else { return }
+        do {
+            try await autoSaveManager.saveImmediately(project: project, to: path)
+            isDirty = false
+            lastSaved = Date()
+        } catch {
+            // Deactivation is not the moment for a modal; the failure-streak
+            // observer above will surface persistent trouble.
+            debugLog("[ProjectViewModel] Lifecycle flush failed: \(error.localizedDescription)")
+        }
     }
 
     /// Check if a file location is writable
@@ -198,6 +385,22 @@ class ProjectViewModel: ObservableObject {
         isLoading = true
         let loadStart = DispatchTime.now().uptimeNanoseconds
         defer {
+            // A fresh document starts a fresh history — never undo across
+            // documents.
+            resetUndoHistory()
+            // Background-fill proxies for every clip the project
+            // references (§2.17). Idempotent, mtime-guarded, two at a
+            // time at background QoS — reopening a project costs a stat
+            // per clip, not an encode.
+            ProxyMediaStore.shared.sweep(
+                relativePaths: ProxyPlayback.mediaRelativePaths(in: project),
+                projectBase: path.deletingLastPathComponent())
+            // First open of the day gets a free restore point (§2.17).
+            let snapshotProject = project
+            Task.detached(priority: .background) {
+                _ = try? await ProjectSnapshotStore.shared.createDailyIfDue(
+                    snapshotProject, forProjectAt: path)
+            }
             isLoading = false
             PerfCounters.shared.record(name: "project.load",
                                        nanoseconds: DispatchTime.now().uptimeNanoseconds - loadStart)
@@ -304,12 +507,15 @@ class ProjectViewModel: ObservableObject {
         }
 
         stopStorageSizeTimer()
+        isRestoringUndo = true       // closing is not an undoable edit
         project = Project.empty()
+        isRestoringUndo = false
         projectPath = nil
         isDirty = false
         lastSaved = nil
         hasProject = false
         projectStorageSize = 0
+        resetUndoHistory()
     }
 
     // MARK: - Project Modification Methods
