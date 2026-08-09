@@ -108,6 +108,17 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     public var overviewLogline: String  // 2-3 sentence logline
     public var overviewMoodAnalysis: [String: Double]?  // AI mood/tone data
 
+    // MARK: - Script revisions (§2.18)
+    /// The current revision round's color ("White" at lock, then "Blue",
+    /// "Pink", …). nil = scene numbers not locked; the script is still a
+    /// working draft.
+    public var scriptRevisionColor: String?
+    /// One row per round, oldest first — the production paper trail.
+    public var scriptRevisionHistory: [ScriptRevisionRound]
+    /// Scene fingerprints captured when the current round began; what a
+    /// scene is compared against to decide "changed this round".
+    public var scriptRevisionBaseline: [String: String]
+
     /// Next globally unique shot display number across all scenes
     public var nextShotDisplayNumber: Int {
         let allShots = sequences.flatMap { $0.scenes.flatMap { $0.shots } }
@@ -165,7 +176,10 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         overviewSummaryGeneratedAt: String? = nil,
         overviewTagline: String = "",
         overviewLogline: String = "",
-        overviewMoodAnalysis: [String: Double]? = nil
+        overviewMoodAnalysis: [String: Double]? = nil,
+        scriptRevisionColor: String? = nil,
+        scriptRevisionHistory: [ScriptRevisionRound] = [],
+        scriptRevisionBaseline: [String: String] = [:]
     ) {
         self.name = name
         self.basePath = basePath
@@ -218,6 +232,9 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         self.overviewTagline = overviewTagline
         self.overviewLogline = overviewLogline
         self.overviewMoodAnalysis = overviewMoodAnalysis
+        self.scriptRevisionColor = scriptRevisionColor
+        self.scriptRevisionHistory = scriptRevisionHistory
+        self.scriptRevisionBaseline = scriptRevisionBaseline
     }
 
     enum CodingKeys: String, CodingKey {
@@ -274,6 +291,9 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         case overviewTagline = "overview_tagline"
         case overviewLogline = "overview_logline"
         case overviewMoodAnalysis = "overview_mood_analysis"
+        case scriptRevisionColor = "script_revision_color"
+        case scriptRevisionHistory = "script_revision_history"
+        case scriptRevisionBaseline = "script_revision_baseline"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -367,6 +387,12 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         overviewTagline = try container.decodeIfPresent(String.self, forKey: .overviewTagline) ?? ""
         overviewLogline = try container.decodeIfPresent(String.self, forKey: .overviewLogline) ?? ""
         overviewMoodAnalysis = try container.decodeIfPresent([String: Double].self, forKey: .overviewMoodAnalysis)
+
+        // Script revisions (§2.18) — decode-optional, pre-revision
+        // projects open unchanged.
+        scriptRevisionColor = try container.decodeIfPresent(String.self, forKey: .scriptRevisionColor)
+        scriptRevisionHistory = try container.decodeIfPresent([ScriptRevisionRound].self, forKey: .scriptRevisionHistory) ?? []
+        scriptRevisionBaseline = try container.decodeIfPresent([String: String].self, forKey: .scriptRevisionBaseline) ?? [:]
     }
 }
 

@@ -75,6 +75,28 @@ struct FileCommands: Commands {
             .keyboardShortcut(shortcuts.spec(for: "file.snapshots").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
 
+            // Script revisions (§2.18): lock once, then ship changes as
+            // colored rounds. Both go through the project choke point, so
+            // they are undoable and autosaved like any other edit.
+            Menu("Script Revisions") {
+                Button("Lock Scene Numbers") {
+                    guard let vm = projectViewModel else { return }
+                    ScriptRevisionTracker.lock(
+                        &vm.project,
+                        date: ISO8601DateFormatter().string(from: Date()))
+                }
+                .disabled(projectViewModel?.hasProject != true ||
+                          projectViewModel?.project.scriptRevisionColor != nil)
+
+                Button("Start Next Colored Revision") {
+                    guard let vm = projectViewModel else { return }
+                    ScriptRevisionTracker.advance(
+                        &vm.project,
+                        date: ISO8601DateFormatter().string(from: Date()))
+                }
+                .disabled(projectViewModel?.project.scriptRevisionColor == nil)
+            }
+
             Divider()
 
             Button("Force Save") {

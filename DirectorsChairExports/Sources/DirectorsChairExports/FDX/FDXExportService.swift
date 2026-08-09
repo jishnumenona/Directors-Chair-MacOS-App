@@ -93,7 +93,7 @@ private struct FDXGenerator {
         var sceneXML = ""
         
         // Scene heading
-        let heading = SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequenceLocation)
+        let heading = SceneHeadingFormatter.decoratedHeading(for: scene, sequenceLocation: sequenceLocation, style: .production, currentColor: project.scriptRevisionColor)
         sceneXML += buildParagraph(type: "Scene Heading", text: heading)
         
         // Scene description as action

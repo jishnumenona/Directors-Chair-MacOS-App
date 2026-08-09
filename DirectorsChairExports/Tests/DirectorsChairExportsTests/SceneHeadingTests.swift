@@ -77,3 +77,64 @@ final class SceneHeadingTests: XCTestCase {
         XCTAssertTrue(HTMLExportService.exportScreenplay(p).contains("INT. COFFEE SHOP - DAY"))
     }
 }
+
+// MARK: - Script revisions on the slug line (§2.18)
+
+final class RevisionHeadingTests: XCTestCase {
+
+    private func lockedProject() -> Project {
+        var scene = Scene(name: "Night Market")
+        scene.location = "EXT. NIGHT MARKET - NIGHT"
+        scene.lockedNumber = "22A"
+        scene.revisionColor = "Blue"
+        var project = Project(name: "Rev")
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        project.scriptRevisionColor = "Blue"
+        return project
+    }
+
+    func testFountainCarriesTheSceneNumberInSpecSyntax() {
+        let fountain = FountainExportService.exportProject(lockedProject())
+        XCTAssertTrue(fountain.contains("EXT. NIGHT MARKET - NIGHT #22A#"),
+                      "Fountain's scene-number syntax is #N# after the slug")
+    }
+
+    func testProductionStyleShowsNumberAndCurrentRevisionAsterisk() {
+        let project = lockedProject()
+        let scene = project.sequences[0].scenes[0]
+
+        let current = SceneHeadingFormatter.decoratedHeading(
+            for: scene, style: .production, currentColor: "Blue")
+        XCTAssertEqual(current, "22A  EXT. NIGHT MARKET - NIGHT *",
+                       "a scene changed in the CURRENT round wears the mark")
+
+        let older = SceneHeadingFormatter.decoratedHeading(
+            for: scene, style: .production, currentColor: "Pink")
+        XCTAssertEqual(older, "22A  EXT. NIGHT MARKET - NIGHT",
+                       "a Blue change on Pink pages keeps its number, "
+                       + "loses the asterisk — that is how reprints read")
+    }
+
+    func testUnlockedScenesExportExactlyAsBefore() {
+        var scene = Scene(name: "Free Scene")
+        scene.location = "INT. KITCHEN - DAY"
+        let plain = SceneHeadingFormatter.decoratedHeading(
+            for: scene, style: .production, currentColor: nil)
+        XCTAssertEqual(plain, "INT. KITCHEN - DAY",
+                       "no lock, no numbers — a working draft is untouched")
+        let fountain = SceneHeadingFormatter.decoratedHeading(
+            for: scene, style: .fountain, currentColor: nil)
+        XCTAssertEqual(fountain, "INT. KITCHEN - DAY")
+    }
+
+    func testWhiteIsTheLockedBaseNotARevision() {
+        var scene = Scene(name: "S")
+        scene.location = "INT. A - DAY"
+        scene.lockedNumber = "3"
+        scene.revisionColor = "White"
+        let heading = SceneHeadingFormatter.decoratedHeading(
+            for: scene, style: .production, currentColor: "White")
+        XCTAssertEqual(heading, "3  INT. A - DAY",
+                       "White pages carry numbers but never asterisks")
+    }
+}

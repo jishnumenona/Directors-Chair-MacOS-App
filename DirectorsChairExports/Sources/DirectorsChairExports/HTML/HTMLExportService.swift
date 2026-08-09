@@ -476,7 +476,7 @@ private struct ScreenplayHTMLGenerator {
         let location = scene.location ?? sequenceLocation ?? scene.name
         var sceneHTML = """
         <div class="scene">
-            <p class="scene-heading">\(escapeHTML(SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequenceLocation)))</p>
+            <p class="scene-heading">\(escapeHTML(SceneHeadingFormatter.decoratedHeading(for: scene, sequenceLocation: sequenceLocation, style: .production, currentColor: project.scriptRevisionColor)))</p>
         """
         
         if !scene.description.isEmpty {
