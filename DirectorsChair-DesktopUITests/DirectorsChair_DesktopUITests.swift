@@ -38,15 +38,17 @@ final class DirectorsChair_DesktopUITests: XCTestCase {
         // request is the one macOS always honors).
         app.activate()
         // The window always appears first; splash + async fixture generation
-        // + auth settling follow. Wait for the nav rail to be interactive
-        // (any primary nav button), which is the true "ready" signal —
-        // more robust than betting on one specific view winning the launch
-        // navigation race.
+        // + auth settling follow. The true "fixture is open" signal is a
+        // PROJECT-REQUIRING nav button (nav-script): nav-overview exists
+        // before the project loads, so accepting it let every journey race
+        // the fixture load with only its local 5s navigate margin — which
+        // a cold post-rebuild launch loses (measured: one 15s straggler in
+        // an otherwise green suite).
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 20),
                       "Main window should appear")
-        let ready = app.buttons["nav-script"].waitForExistence(timeout: 25)
-            || app.buttons["nav-overview"].waitForExistence(timeout: 5)
-        XCTAssertTrue(ready, "App should reach an interactive project view (nav rail present)")
+        XCTAssertTrue(app.buttons["nav-script"].waitForExistence(timeout: 40),
+                      "App should reach an interactive project view "
+                      + "(project-requiring nav rail present)")
     }
 
     @MainActor
