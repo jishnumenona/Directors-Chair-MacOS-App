@@ -985,3 +985,94 @@ final class ShortcutStoreTests: XCTestCase {
                        "garbage in defaults must not break the menu")
     }
 }
+
+// MARK: - Screenplay export formats (§2.18)
+
+@MainActor
+final class ScreenplayExportFormatTests: XCTestCase {
+
+    private var temp: URL!
+
+    override func setUp() {
+        super.setUp()
+        temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ExportFormatTests-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: temp, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: temp)
+        super.tearDown()
+    }
+
+    private func makeProject() -> Project {
+        var scene = Scene(name: "Night Market",
+                          dialogues: [Dialogue(character: "Mara",
+                                               text: "The tide won't wait.",
+                                               chronologyNumber: 1,
+                                               globalChronologyNumber: 1)])
+        scene.location = "EXT. NIGHT MARKET - NIGHT"
+        var project = Project(name: "Format Test")
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        project.characters = [Character(name: "Mara"),
+                              Character(name: "The A/V: Tech")]
+        return project
+    }
+
+    func testEveryFormatWritesARealFile() throws {
+        // These four menu items shipped as silent no-ops — the generators
+        // existed, the wiring didn't. This drives the exact write path
+        // the queue jobs run.
+        let project = makeProject()
+        for format in ScreenplayExportFormat.allCases {
+            let url = temp.appendingPathComponent("out.\(format.fileExtension)")
+            if format.rendersOnMain {
+                try ScreenplayExportFormat.writePDF(project, to: url)
+            } else {
+                try format.writeText(project, to: url)
+            }
+            let data = try Data(contentsOf: url)
+            XCTAssertFalse(data.isEmpty, "\(format.rawValue) wrote nothing")
+        }
+    }
+
+    func testFormatsProduceTheirOwnDialects() throws {
+        let project = makeProject()
+
+        let fountainURL = temp.appendingPathComponent("a.fountain")
+        try ScreenplayExportFormat.fountain.writeText(project, to: fountainURL)
+        let fountain = try String(contentsOf: fountainURL, encoding: .utf8)
+        XCTAssertTrue(fountain.contains("NIGHT MARKET"),
+                      "the scene must be in the screenplay")
+        XCTAssertTrue(fountain.contains("The tide won't wait."))
+
+        let fdxURL = temp.appendingPathComponent("a.fdx")
+        try ScreenplayExportFormat.fdx.writeText(project, to: fdxURL)
+        let fdx = try String(contentsOf: fdxURL, encoding: .utf8)
+        XCTAssertTrue(fdx.contains("<FinalDraft"),
+                      "FDX is Final Draft's XML dialect")
+
+        let pdfURL = temp.appendingPathComponent("a.pdf")
+        try ScreenplayExportFormat.writePDF(project, to: pdfURL)
+        let pdf = try Data(contentsOf: pdfURL)
+        XCTAssertTrue(pdf.starts(with: Array("%PDF".utf8)),
+                      "a .pdf that isn't a PDF is a support ticket")
+
+        let htmlURL = temp.appendingPathComponent("a.html")
+        try ScreenplayExportFormat.html.writeText(project, to: htmlURL)
+        let html = try String(contentsOf: htmlURL, encoding: .utf8)
+        XCTAssertTrue(html.lowercased().contains("<html")
+                      || html.lowercased().contains("<!doctype"))
+    }
+
+    func testCharacterSheetsWriteOnePDFEachWithSanitizedNames() throws {
+        let project = makeProject()
+        try ScreenplayExportFormat.writeCharacterSheets(project, into: temp)
+        let written = try FileManager.default
+            .contentsOfDirectory(atPath: temp.path).sorted()
+        XCTAssertEqual(written, ["Mara.pdf", "The A-V- Tech.pdf"],
+                       "one sheet per character; a name with / or : is "
+                       + "user text, not a path instruction")
+    }
+}

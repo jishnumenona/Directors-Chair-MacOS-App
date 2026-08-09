@@ -42,6 +42,9 @@ struct ContentView: View {
     /// The ⌘K catalog, built once per palette open (it includes the
     /// project's content, so it is not free to rebuild per body pass).
     @State private var paletteEntries: [PaletteEntry] = []
+    /// §2.18 background export queue — observed so the panel appears the
+    /// moment the first job lands.
+    @ObservedObject private var exportQueue = ExportQueue.shared
 
     // Timeline analysis state
     @State private var showAnalysisReview = false
@@ -230,6 +233,21 @@ struct ContentView: View {
                             projectViewModel: projectViewModel,
                             assistantAvailable: authManager.isAuthenticated)
                     }
+            }
+
+            // Background export queue (§2.18): the downloads-style card,
+            // visible whenever exports exist, gone when cleared.
+            if !exportQueue.jobs.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        ExportQueuePanel(queue: exportQueue)
+                            .padding(18)
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(80)
             }
 
             // Guided tour spotlight overlay
