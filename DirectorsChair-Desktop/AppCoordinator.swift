@@ -139,6 +139,20 @@ class AppCoordinator: ObservableObject {
     /// AI Chat overlay visibility
     @Published var showingAIChat = false
 
+    /// Command palette (⌘K) visibility — §2.18.
+    @Published var showingCommandPalette = false
+
+    /// Text the palette stages into the assistant's composer: an
+    /// argument-taking action can't run blind from a list, so picking one
+    /// opens the chat with its phrase ready to complete. The chat consumes
+    /// and clears this.
+    @Published var pendingAssistantPrompt: String?
+
+    /// Query the palette forwards to the assets library (which searches
+    /// the disk, so the palette can't rank it). Consumed once by
+    /// AssetsView into its search field.
+    @Published var pendingAssetsSearch: String?
+
     /// AI Chat context snapshot (set when overlay opens)
     @Published var aiChatContext: AIChatContext? = nil
 

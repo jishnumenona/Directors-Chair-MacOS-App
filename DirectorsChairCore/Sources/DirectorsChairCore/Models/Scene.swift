@@ -50,6 +50,15 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
     public var sceneOverviewPrompt: String?  // Prompt used to generate overview
     public var sceneOverviewSummary: String?  // AI-generated 2-3 sentence summary
 
+    // MARK: - Script revisions (§2.18)
+    /// The production scene number, frozen at lock ("22", "22A"). nil
+    /// until the script is locked; new scenes get letter-suffixed numbers
+    /// so every already-printed number stays true.
+    public var lockedNumber: String?
+    /// The revision round that last changed this scene ("Blue", "Pink").
+    /// Stamped when a round is advanced; nil = unchanged since lock.
+    public var revisionColor: String?
+
     public init(
         uuid: String = UUID().uuidString,
         name: String,
@@ -130,6 +139,8 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         case timeOfDay = "time_of_day"
         case weather
         case costumeAssignments = "costume_assignments"
+        case lockedNumber = "locked_number"
+        case revisionColor = "revision_color"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -176,5 +187,10 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         timeOfDay = try container.decodeIfPresent(String.self, forKey: .timeOfDay)
         weather = try container.decodeIfPresent(String.self, forKey: .weather)
         costumeAssignments = try container.decodeIfPresent([String: String].self, forKey: .costumeAssignments)
+
+        // Script revisions (§2.18) — decode-optional so pre-revision
+        // projects open unchanged.
+        lockedNumber = try container.decodeIfPresent(String.self, forKey: .lockedNumber)
+        revisionColor = try container.decodeIfPresent(String.self, forKey: .revisionColor)
     }
 }

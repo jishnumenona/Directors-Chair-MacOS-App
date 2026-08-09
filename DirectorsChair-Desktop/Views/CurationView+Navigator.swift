@@ -222,6 +222,8 @@ extension CurationView {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(Color(hex: "#252525"))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("curation-scene-row-\(scene.name)")
 
             // Shots
             ForEach(scene.shots, id: \.shotId) { shot in
@@ -459,6 +461,8 @@ extension CurationView {
 
     var actionBar: some View {
         VStack(spacing: 8) {
+            dailiesSection
+
             // Best takes
             Button {
                 if let dir = projectDir { viewModel.generateBestTakesFolder(project: project, projectDir: dir) }
@@ -523,5 +527,112 @@ extension CurationView {
             }
         }
         .padding(14)
+    }
+}
+
+// MARK: - Dailies watch folder (§2.18)
+
+extension CurationView {
+
+    /// The watch-folder controls and the unsorted bucket, living where
+    /// footage work already happens. Matched clips never appear here —
+    /// they are already takes by the time anyone looks.
+    @ViewBuilder
+    var dailiesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.accentColor)
+                Text("DAILIES")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.1)
+                    .foregroundColor(.gray)
+                Spacer()
+                if dailies.watchFolder != nil {
+                    Button("Stop") { dailies.stopWatching() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray)
+                }
+            }
+
+            if let folder = dailies.watchFolder {
+                Text("Watching \(folder.lastPathComponent)"
+                     + (dailies.ingestedThisSession > 0
+                        ? " · \(dailies.ingestedThisSession) ingested" : ""))
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+                    .help(folder.path)
+            } else {
+                Button {
+                    dailies.chooseFolder()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 10))
+                        Text("Watch a Folder…")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+                    .background(Color(hex: "#3A3A3A"))
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.white)
+                .help("New video files landing there become takes — "
+                      + "slate-named clips (S22_T03) file themselves")
+            }
+
+            ForEach(dailies.unsorted, id: \.self) { file in
+                unsortedRow(file)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(hex: "#252525"))
+        .cornerRadius(6)
+    }
+
+    /// A clip the convention couldn't place: a human picks the shot.
+    private func unsortedRow(_ file: URL) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "questionmark.video")
+                .font(.system(size: 9))
+                .foregroundColor(.orange)
+            Text(file.lastPathComponent)
+                .font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.8))
+                .lineLimit(1)
+            Spacer()
+            Menu {
+                ForEach(Array(project.sequences.enumerated()),
+                        id: \.offset) { seqIndex, sequence in
+                    ForEach(Array(sequence.scenes.enumerated()),
+                            id: \.element.id) { sceneIndex, scene in
+                        Menu(scene.lockedNumber.map { "Scene \($0)" }
+                             ?? scene.name) {
+                            ForEach(Array(scene.shots.enumerated()),
+                                    id: \.element.id) { shotIndex, shot in
+                                Button("Shot \(shot.shotId)") {
+                                    dailies.file(file,
+                                                 sequenceIndex: seqIndex,
+                                                 sceneIndex: sceneIndex,
+                                                 shotIndex: shotIndex)
+                                }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Text("File…")
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .foregroundColor(.accentColor)
+        }
     }
 }

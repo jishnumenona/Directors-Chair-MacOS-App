@@ -23,7 +23,8 @@ public struct FountainExportService: Sendable {
         
         // Sequences and scenes
         for sequence in project.sequences {
-            output += buildSequence(sequence)
+            output += buildSequence(sequence,
+                                    revisionColor: project.scriptRevisionColor)
         }
         
         return output
@@ -31,7 +32,7 @@ public struct FountainExportService: Sendable {
     
     /// Export a single scene to Fountain format
     public static func exportScene(_ scene: Scene, location: String? = nil) -> String {
-        return buildScene(scene, sequenceLocation: location)
+        return buildScene(scene, sequenceLocation: location, revisionColor: nil)
     }
     
     /// Export to file
@@ -74,7 +75,8 @@ public struct FountainExportService: Sendable {
     
     // MARK: - Sequence Building
     
-    private static func buildSequence(_ sequence: Sequence) -> String {
+    private static func buildSequence(_ sequence: Sequence,
+                                      revisionColor: String?) -> String {
         var output = ""
         
         // Sequence header as action/description
@@ -84,7 +86,8 @@ public struct FountainExportService: Sendable {
         
         // All scenes in sequence
         for scene in sequence.scenes {
-            output += buildScene(scene, sequenceLocation: sequence.location)
+            output += buildScene(scene, sequenceLocation: sequence.location,
+                                 revisionColor: revisionColor)
             output += "\n\n"
         }
         
@@ -93,11 +96,12 @@ public struct FountainExportService: Sendable {
     
     // MARK: - Scene Building
     
-    private static func buildScene(_ scene: Scene, sequenceLocation: String? = nil) -> String {
+    private static func buildScene(_ scene: Scene, sequenceLocation: String? = nil,
+                                   revisionColor: String?) -> String {
         var output = ""
         
         // Scene heading (slug line)
-        let heading = SceneHeadingFormatter.heading(for: scene, sequenceLocation: sequenceLocation)
+        let heading = SceneHeadingFormatter.decoratedHeading(for: scene, sequenceLocation: sequenceLocation, style: .fountain, currentColor: revisionColor)
         output += heading + "\n\n"
         
         // Scene description

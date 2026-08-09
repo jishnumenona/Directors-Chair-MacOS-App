@@ -39,6 +39,15 @@ struct ContentView: View {
     @State private var showLoginSuccess = false
     @State private var loginSuccessUsername = ""
     @State private var spaceBarMonitor: Any?
+    /// The ⌘K catalog, built once per palette open (it includes the
+    /// project's content, so it is not free to rebuild per body pass).
+    @State private var paletteEntries: [PaletteEntry] = []
+    /// §2.18 background export queue — observed so the panel appears the
+    /// moment the first job lands.
+    @ObservedObject private var exportQueue = ExportQueue.shared
+    /// §2.18 dailies watch folder — app-wide so watching survives tab
+    /// switches; per-project folder choice re-armed on project change.
+    @StateObject private var dailiesController = DailiesIngestController()
 
     // Timeline analysis state
     @State private var showAnalysisReview = false
@@ -199,6 +208,51 @@ struct ContentView: View {
                     .transition(.opacity)
             }
 
+            // Command palette (⌘K, §2.18) — above the content, below the
+            // tour/onboarding/login layers: those gate the whole app, and
+            // a palette must never float over a login gate. The catalog
+            // (which now carries the project's CONTENT — global search)
+            // is built once per open, not per body evaluation.
+            if coordinator.showingCommandPalette {
+                CommandPaletteView(
+                    entries: paletteEntries,
+                    dynamic: { query in
+                        CommandPaletteCatalog.dynamicEntries(
+                            query: query,
+                            hasProject: projectViewModel.hasProject)
+                    },
+                    onRun: { entry, query in
+                        coordinator.showingCommandPalette = false
+                        CommandPaletteCatalog.run(
+                            entry, query: query, coordinator: coordinator,
+                            projectViewModel: projectViewModel)
+                    },
+                    onDismiss: { coordinator.showingCommandPalette = false })
+                    .transition(.opacity)
+                    .zIndex(85)
+                    .onAppear {
+                        paletteEntries = CommandPaletteCatalog.entries(
+                            coordinator: coordinator,
+                            projectViewModel: projectViewModel,
+                            assistantAvailable: authManager.isAuthenticated)
+                    }
+            }
+
+            // Background export queue (§2.18): the downloads-style card,
+            // visible whenever exports exist, gone when cleared.
+            if !exportQueue.jobs.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        ExportQueuePanel(queue: exportQueue)
+                            .padding(18)
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(80)
+            }
+
             // Guided tour spotlight overlay
             if tourManager.isSpotlightTourActive {
                 SpotlightOverlayView()
@@ -345,6 +399,15 @@ struct ContentView: View {
             }
         }
         .environmentObject(captureService)
+        .environmentObject(dailiesController)
+        // §2.18 dailies: re-arm the watcher for whichever project is
+        // open; stopping when none is.
+        .onAppear {
+            dailiesController.configure(projectViewModel: projectViewModel)
+        }
+        .onChange(of: projectViewModel.projectPath) { _, _ in
+            dailiesController.configure(projectViewModel: projectViewModel)
+        }
         .focusedValue(\.projectViewModel, projectViewModel)
         .focusedValue(\.appCoordinator, coordinator)
         .errorAlert($projectViewModel.errorAlert)

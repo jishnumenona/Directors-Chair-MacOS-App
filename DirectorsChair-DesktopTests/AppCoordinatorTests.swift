@@ -7,6 +7,7 @@ import Combine
 @testable import DirectorsChair_Desktop
 @testable import DirectorsChairCore
 @testable import DirectorsChairServices
+import DirectorsChairViews
 
 @MainActor
 final class AppCoordinatorTests: XCTestCase {
@@ -628,5 +629,563 @@ final class PlaybackViewModelContractTests: XCTestCase {
         XCTAssertEqual(viewModel.resolvedVideoPath(for: rel),
                        base.appendingPathComponent(rel),
                        "the Preferences toggle restores originals")
+    }
+}
+
+// MARK: - Command palette catalog (§2.18)
+//
+// Same housing note as VisionWallLinksTests: new files in this target's
+// synchronized folder group don't compile, so the palette's app-side
+// tests live here. The generic ranking is pinned in the Views package
+// (CommandPaletteRankTests); these pin what the CATALOG promises — what
+// ⌘K offers tracks live app state, ids stay unique, and an assistant
+// action stages rather than fires.
+
+@MainActor
+final class CommandPaletteCatalogTests: XCTestCase {
+
+    private func makeViewModel(withProject: Bool) -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        if withProject {
+            viewModel.project = Project(name: "Palette Test")
+            viewModel.hasProject = true
+        }
+        return viewModel
+    }
+
+    func testCatalogTracksProjectState() {
+        let coordinator = AppCoordinator()
+        let without = CommandPaletteCatalog.entries(
+            coordinator: coordinator,
+            projectViewModel: makeViewModel(withProject: false),
+            assistantAvailable: true)
+        XCTAssertFalse(without.contains { $0.id == "nav.Scenes" },
+                       "project-requiring views must not be offered "
+                       + "with no project open")
+        XCTAssertFalse(without.contains { $0.id.hasPrefix("ptab.") })
+        XCTAssertFalse(without.contains { $0.id.hasPrefix("action.") })
+        XCTAssertTrue(without.contains { $0.id == "nav.Projects" },
+                      "the way OUT of no-project state must be offered")
+
+        let with = CommandPaletteCatalog.entries(
+            coordinator: coordinator,
+            projectViewModel: makeViewModel(withProject: true),
+            assistantAvailable: true)
+        XCTAssertTrue(with.contains { $0.id == "nav.Scenes" })
+        for tab in CommandPaletteCatalog.productionTabs {
+            XCTAssertTrue(with.contains { $0.id == "ptab.\(tab)" },
+                          "every real production tab is reachable — the "
+                          + "UI journeys proved these five exist")
+        }
+        XCTAssertGreaterThan(
+            with.filter { $0.id.hasPrefix("action.") }.count, 30,
+            "the assistant's catalog is the palette's long tail")
+    }
+
+    func testCatalogIdsAreUniqueAndNavigationLeads() {
+        let entries = CommandPaletteCatalog.entries(
+            coordinator: AppCoordinator(),
+            projectViewModel: makeViewModel(withProject: true),
+            assistantAvailable: true)
+        XCTAssertEqual(Set(entries.map(\.id)).count, entries.count,
+                       "two entries sharing an id would collide in the list")
+        XCTAssertEqual(entries.first?.category, .navigation,
+                       "an empty palette shows navigation first")
+    }
+
+    func testAssistantUnavailableHidesActionsButKeepsTheApp() {
+        let entries = CommandPaletteCatalog.entries(
+            coordinator: AppCoordinator(),
+            projectViewModel: makeViewModel(withProject: true),
+            assistantAvailable: false)
+        XCTAssertFalse(entries.contains { $0.id.hasPrefix("action.") },
+                       "signed out, the chat can't open — offering its "
+                       + "actions would dead-end")
+        XCTAssertTrue(entries.contains { $0.id == "nav.Scenes" })
+    }
+
+    func testRunningAnAssistantActionStagesInsteadOfFiring() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel(withProject: true)
+        let entry = PaletteEntry(id: "action.update_scene_description",
+                                 title: "Update scene description",
+                                 subtitle: nil, systemImage: "sparkles",
+                                 category: .assistant)
+        CommandPaletteCatalog.run(entry, query: "", coordinator: coordinator,
+                                  projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.pendingAssistantPrompt,
+                       "Update scene description ",
+                       "actions take arguments — the palette stages the "
+                       + "phrase for the user to finish, never fires blind")
+        XCTAssertTrue(coordinator.showingAIChat)
+    }
+
+    func testRunningNavigationAndTabsNavigates() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel(withProject: true)
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "nav.Scenes", title: "Go to Scenes",
+                         subtitle: nil, systemImage: "film",
+                         category: .navigation),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedView, .scenes)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "ptab.Accounting", title: "Production: Accounting",
+                         subtitle: nil, systemImage: "theatermasks",
+                         category: .navigation),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedView, .production)
+        XCTAssertEqual(coordinator.selectedProductionTab, "Accounting")
+    }
+
+    func testHumanizeTurnsWireNamesIntoTitles() {
+        XCTAssertEqual(CommandPaletteCatalog.humanize("generate_scene_image"),
+                       "Generate scene image")
+        XCTAssertEqual(CommandPaletteCatalog.humanize("navigate"), "Navigate")
+    }
+}
+
+// MARK: - Global search through the palette (§2.18)
+
+@MainActor
+final class CommandPaletteGlobalSearchTests: XCTestCase {
+
+    private func makeViewModel() -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        var scene = Scene(name: "Night Market")
+        scene.location = "EXT. NIGHT MARKET - NIGHT"
+        scene.shots = [Shot(shotId: 7, description: "Crane over the stalls")]
+        var project = Project(name: "Search Test")
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        project.characters = [Character(name: "Mara")]
+        project.locations = [Location(name: "Harbour")]
+        var card = VisionCard()
+        card.title = "Neon rain palette"
+        var wordless = VisionCard()
+        wordless.title = ""
+        wordless.text = ""
+        project.beats = [card, wordless]
+        viewModel.project = project
+        viewModel.hasProject = true
+        return viewModel
+    }
+
+    func testContentEntriesCoverEveryFindableKindAndSkipWordlessScraps() {
+        let entries = CommandPaletteCatalog.contentEntries(
+            project: makeViewModel().project)
+        let ids = entries.map(\.id)
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.scene.") })
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.shot.") })
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.char.Mara") })
+        XCTAssertTrue(ids.contains { $0.hasPrefix("find.loc.Harbour") })
+        XCTAssertEqual(ids.filter { $0.hasPrefix("find.vision.") }.count, 1,
+                       "a scrap with no words is unfindable by text — "
+                       + "listing it as an anonymous Picture is noise")
+        XCTAssertTrue(entries.allSatisfy { $0.category == .content })
+    }
+
+    func testContentIsFindableByTypingItsName() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+        let all = CommandPaletteCatalog.entries(
+            coordinator: coordinator, projectViewModel: viewModel,
+            assistantAvailable: false)
+        let ranked = PaletteRank.rank(entries: all, query: "night market")
+        XCTAssertTrue(ranked.contains { $0.id.hasPrefix("find.scene.") },
+                      "typing a scene's name must surface the scene")
+    }
+
+    func testRunningFindEntriesNavigatesToTheRealThing() {
+        let viewModel = makeViewModel()
+        let scene = viewModel.project.sequences[0].scenes[0]
+        let shot = scene.shots[0]
+        let coordinator = AppCoordinator()
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.scene.\(scene.id)", title: scene.name,
+                         subtitle: nil, systemImage: "film", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedScene?.id, scene.id)
+        XCTAssertEqual(coordinator.selectedView, .scenes)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.shot.\(shot.id)", title: "Shot 7",
+                         subtitle: nil, systemImage: "camera", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedShot?.id, shot.id)
+        XCTAssertEqual(coordinator.selectedView, .shotList)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.char.Mara", title: "Mara",
+                         subtitle: nil, systemImage: "person", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedCharacter?.name, "Mara")
+        XCTAssertEqual(coordinator.selectedView, .storyDesign)
+
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.vision.abc123", title: "Neon",
+                         subtitle: nil, systemImage: "square.grid.2x2",
+                         category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.revealVisionCardId, "abc123")
+        XCTAssertEqual(coordinator.selectedView, .visionBoard)
+    }
+
+    func testDeletedTargetIsANoOpNotAJump() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+        coordinator.navigateTo(.script)
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "find.scene.gone", title: "Gone",
+                         subtitle: nil, systemImage: "film", category: .content),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertNil(coordinator.selectedScene)
+        XCTAssertEqual(coordinator.selectedView, .script,
+                       "a stale result must not fling the user anywhere")
+    }
+
+    func testForwardersCarryTheQueryToTheirSurfaces() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+
+        let dynamics = CommandPaletteCatalog.dynamicEntries(
+            query: "crane", hasProject: true)
+        XCTAssertEqual(dynamics.map(\.id),
+                       ["forward.assets", "forward.script"])
+        XCTAssertTrue(CommandPaletteCatalog.dynamicEntries(
+            query: "", hasProject: true).isEmpty,
+            "no query, nothing to forward")
+        XCTAssertTrue(CommandPaletteCatalog.dynamicEntries(
+            query: "crane", hasProject: false).isEmpty)
+
+        CommandPaletteCatalog.run(
+            dynamics[0], query: "crane", coordinator: coordinator,
+            projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.pendingAssetsSearch, "crane",
+                       "the assets library searches the disk — the "
+                       + "palette hands the query over instead of guessing")
+        XCTAssertEqual(coordinator.selectedView, .assets)
+    }
+
+    func testScriptForwarderStagesTheFindPasteboard() {
+        let viewModel = makeViewModel()
+        let coordinator = AppCoordinator()
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "forward.script", title: "",
+                         subtitle: nil, systemImage: "text.magnifyingglass",
+                         category: .content),
+            query: "the tide schedule", coordinator: coordinator,
+            projectViewModel: viewModel)
+        XCTAssertEqual(coordinator.selectedView, .script)
+        XCTAssertEqual(
+            NSPasteboard(name: .find).string(forType: .string),
+            "the tide schedule",
+            "NSTextFinder reads the system find pasteboard — staging it "
+            + "there is what makes ⌘F come up pre-filled")
+    }
+}
+
+// MARK: - Remappable shortcuts (§2.18)
+
+@MainActor
+final class ShortcutStoreTests: XCTestCase {
+
+    private var suite: UserDefaults!
+    private let suiteName = "ShortcutStoreTests"
+
+    override func setUp() {
+        super.setUp()
+        suite = UserDefaults(suiteName: suiteName)
+        suite.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        suite.removePersistentDomain(forName: suiteName)
+        super.tearDown()
+    }
+
+    func testShippedDefaultsNeverCollide() {
+        // The app actually shipped Force Save and Project Snapshots both
+        // on ⌥⌘S — one of them could never fire. This pins the whole
+        // default table as clash-free so that bug class is dead.
+        let specs = ShortcutStore.commands.map { $0.defaultSpec.storage }
+        XCTAssertEqual(Set(specs).count, specs.count,
+                       "two commands share a default shortcut")
+        XCTAssertEqual(
+            ShortcutStore.commands.first { $0.id == "file.forceSave" }?
+                .defaultSpec.display, "⌃⌘S",
+            "Force Save moved off ⌥⌘S, which Project Snapshots owns")
+    }
+
+    func testDefaultsAlsoAvoidTheProtectedPlatformCombos() {
+        for command in ShortcutStore.commands {
+            XCTAssertFalse(
+                ShortcutStore.protectedCombos.contains(command.defaultSpec),
+                "\(command.label) defaults to a protected combo")
+        }
+    }
+
+    func testOverridePersistsAcrossStoreInstances() {
+        let store = ShortcutStore(defaults: suite)
+        XCTAssertNil(store.set(ShortcutSpec(key: "g", command: true),
+                               for: "nav.Scenes"))
+        let reloaded = ShortcutStore(defaults: suite)
+        XCTAssertEqual(reloaded.spec(for: "nav.Scenes").display, "⌘G",
+                       "a rebind must survive relaunch")
+        XCTAssertEqual(reloaded.spec(for: "nav.Assets").display, "⌘4",
+                       "unrelated commands keep their defaults")
+    }
+
+    func testConflictsAreRefusedWithTheHoldersName() {
+        let store = ShortcutStore(defaults: suite)
+        let error = store.set(ShortcutSpec(key: "2", command: true),
+                              for: "nav.Scenes")
+        XCTAssertNotNil(error, "⌘2 is Bubble View's — must refuse")
+        XCTAssertTrue(error?.contains("Bubble") == true,
+                      "the refusal names the current holder")
+        XCTAssertEqual(store.spec(for: "nav.Scenes").display, "⌘3",
+                       "a refused rebind changes nothing")
+
+        // Conflicts consider OVERRIDES too, not just defaults.
+        XCTAssertNil(store.set(ShortcutSpec(key: "g", command: true),
+                               for: "nav.Assets"))
+        XCTAssertNotNil(store.set(ShortcutSpec(key: "g", command: true),
+                                  for: "nav.Scenes"))
+    }
+
+    func testProtectedAndUnchordedCombosAreRefused() {
+        let store = ShortcutStore(defaults: suite)
+        XCTAssertNotNil(store.set(ShortcutSpec(key: "s", command: true),
+                                  for: "nav.Scenes"),
+                        "⌘S is Save's — the platform owns it")
+        XCTAssertNotNil(store.set(ShortcutSpec(key: "g", shift: true),
+                                  for: "nav.Scenes"),
+                        "shift-G is typing a capital G")
+        XCTAssertTrue(store.overrides.isEmpty)
+    }
+
+    func testResetRestoresTheDefault() {
+        let store = ShortcutStore(defaults: suite)
+        store.set(ShortcutSpec(key: "g", command: true), for: "nav.Scenes")
+        store.set(ShortcutSpec(key: "j", command: true), for: "nav.Assets")
+        store.reset("nav.Scenes")
+        XCTAssertEqual(store.spec(for: "nav.Scenes").display, "⌘3")
+        XCTAssertEqual(store.spec(for: "nav.Assets").display, "⌘J")
+        store.resetAll()
+        XCTAssertTrue(store.overrides.isEmpty)
+        XCTAssertTrue(ShortcutStore(defaults: suite).overrides.isEmpty,
+                      "reset-all persists")
+    }
+
+    func testCorruptedStorageFallsBackToDefaults() {
+        suite.set(["nav.Scenes": "not-a-spec"], forKey: "remappedShortcuts")
+        let store = ShortcutStore(defaults: suite)
+        XCTAssertEqual(store.spec(for: "nav.Scenes").display, "⌘3",
+                       "garbage in defaults must not break the menu")
+    }
+}
+
+// MARK: - Screenplay export formats (§2.18)
+
+@MainActor
+final class ScreenplayExportFormatTests: XCTestCase {
+
+    private var temp: URL!
+
+    override func setUp() {
+        super.setUp()
+        temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ExportFormatTests-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: temp, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: temp)
+        super.tearDown()
+    }
+
+    private func makeProject() -> Project {
+        var scene = Scene(name: "Night Market",
+                          dialogues: [Dialogue(character: "Mara",
+                                               text: "The tide won't wait.",
+                                               chronologyNumber: 1,
+                                               globalChronologyNumber: 1)])
+        scene.location = "EXT. NIGHT MARKET - NIGHT"
+        var project = Project(name: "Format Test")
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        project.characters = [Character(name: "Mara"),
+                              Character(name: "The A/V: Tech")]
+        return project
+    }
+
+    func testEveryFormatWritesARealFile() throws {
+        // These four menu items shipped as silent no-ops — the generators
+        // existed, the wiring didn't. This drives the exact write path
+        // the queue jobs run.
+        let project = makeProject()
+        for format in ScreenplayExportFormat.allCases {
+            let url = temp.appendingPathComponent("out.\(format.fileExtension)")
+            if format.rendersOnMain {
+                try ScreenplayExportFormat.writePDF(project, to: url)
+            } else {
+                try format.writeText(project, to: url)
+            }
+            let data = try Data(contentsOf: url)
+            XCTAssertFalse(data.isEmpty, "\(format.rawValue) wrote nothing")
+        }
+    }
+
+    func testFormatsProduceTheirOwnDialects() throws {
+        let project = makeProject()
+
+        let fountainURL = temp.appendingPathComponent("a.fountain")
+        try ScreenplayExportFormat.fountain.writeText(project, to: fountainURL)
+        let fountain = try String(contentsOf: fountainURL, encoding: .utf8)
+        XCTAssertTrue(fountain.contains("NIGHT MARKET"),
+                      "the scene must be in the screenplay")
+        XCTAssertTrue(fountain.contains("The tide won't wait."))
+
+        let fdxURL = temp.appendingPathComponent("a.fdx")
+        try ScreenplayExportFormat.fdx.writeText(project, to: fdxURL)
+        let fdx = try String(contentsOf: fdxURL, encoding: .utf8)
+        XCTAssertTrue(fdx.contains("<FinalDraft"),
+                      "FDX is Final Draft's XML dialect")
+
+        let pdfURL = temp.appendingPathComponent("a.pdf")
+        try ScreenplayExportFormat.writePDF(project, to: pdfURL)
+        let pdf = try Data(contentsOf: pdfURL)
+        XCTAssertTrue(pdf.starts(with: Array("%PDF".utf8)),
+                      "a .pdf that isn't a PDF is a support ticket")
+
+        let htmlURL = temp.appendingPathComponent("a.html")
+        try ScreenplayExportFormat.html.writeText(project, to: htmlURL)
+        let html = try String(contentsOf: htmlURL, encoding: .utf8)
+        XCTAssertTrue(html.lowercased().contains("<html")
+                      || html.lowercased().contains("<!doctype"))
+    }
+
+    func testCharacterSheetsWriteOnePDFEachWithSanitizedNames() throws {
+        let project = makeProject()
+        try ScreenplayExportFormat.writeCharacterSheets(project, into: temp)
+        let written = try FileManager.default
+            .contentsOfDirectory(atPath: temp.path).sorted()
+        XCTAssertEqual(written, ["Mara.pdf", "The A-V- Tech.pdf"],
+                       "one sheet per character; a name with / or : is "
+                       + "user text, not a path instruction")
+    }
+}
+
+// MARK: - Script revisions through the palette (§2.18)
+
+@MainActor
+final class CommandPaletteRevisionTests: XCTestCase {
+
+    private func makeViewModel() -> ProjectViewModel {
+        let viewModel = ProjectViewModel()
+        var project = Project(name: "Rev Palette")
+        project.sequences = [Sequence(name: "Act 1",
+                                      scenes: [Scene(name: "One"),
+                                               Scene(name: "Two")])]
+        viewModel.project = project
+        viewModel.hasProject = true
+        return viewModel
+    }
+
+    func testPaletteOffersLockThenAdvanceNeverBoth() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel()
+
+        var ids = CommandPaletteCatalog.entries(
+            coordinator: coordinator, projectViewModel: viewModel,
+            assistantAvailable: false).map(\.id)
+        XCTAssertTrue(ids.contains("cmd.lockScenes"))
+        XCTAssertFalse(ids.contains("cmd.advanceRevision"),
+                       "no rounds before the lock")
+
+        ScriptRevisionTracker.lock(&viewModel.project, date: "d0")
+        let entries = CommandPaletteCatalog.entries(
+            coordinator: coordinator, projectViewModel: viewModel,
+            assistantAvailable: false)
+        ids = entries.map(\.id)
+        XCTAssertFalse(ids.contains("cmd.lockScenes"),
+                       "numbers are promises — no second lock")
+        XCTAssertEqual(entries.first { $0.id == "cmd.advanceRevision" }?.title,
+                       "Start Blue Revision",
+                       "the palette names the round it would open")
+    }
+
+    func testRunningLockFreezesNumbersThroughTheViewModel() {
+        let coordinator = AppCoordinator()
+        let viewModel = makeViewModel()
+        CommandPaletteCatalog.run(
+            PaletteEntry(id: "cmd.lockScenes", title: "Lock Scene Numbers",
+                         subtitle: nil, systemImage: "lock",
+                         category: .command),
+            query: "", coordinator: coordinator, projectViewModel: viewModel)
+        XCTAssertEqual(viewModel.project.scriptRevisionColor, "White")
+        XCTAssertEqual(viewModel.project.sequences[0].scenes.map(\.lockedNumber),
+                       ["1", "2"])
+    }
+}
+
+// MARK: - Dailies ingest end-to-end (§2.18)
+
+@MainActor
+final class DailiesIngestControllerTests: XCTestCase {
+
+    private var temp: URL!
+
+    override func setUp() {
+        super.setUp()
+        temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DailiesController-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: temp, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: temp)
+        super.tearDown()
+    }
+
+    func testFilingAClipCopiesItIntoTheFootageLayoutAndAppendsTheTake() throws {
+        // A project on disk (the footage layout is relative to it).
+        let projectDir = temp.appendingPathComponent("My Film")
+        try FileManager.default.createDirectory(
+            at: projectDir, withIntermediateDirectories: true)
+        let viewModel = ProjectViewModel()
+        var scene = Scene(name: "Scene 7")
+        scene.shots = [Shot(shotId: 4)]
+        var project = Project(name: "My Film")
+        project.sequences = [Sequence(name: "Act 1", scenes: [scene])]
+        viewModel.project = project
+        viewModel.hasProject = true
+        viewModel.projectPath = projectDir.appendingPathComponent("project.json")
+
+        // A clip in the watch folder.
+        let clip = temp.appendingPathComponent("S07_T02.mov")
+        try Data(repeating: 7, count: 64).write(to: clip)
+
+        let controller = DailiesIngestController()
+        controller.configure(projectViewModel: viewModel)
+        controller.file(clip, sequenceIndex: 0, sceneIndex: 0, shotIndex: 0)
+
+        let takes = viewModel.project.sequences[0].scenes[0].shots[0].takes
+        XCTAssertEqual(takes.count, 1)
+        XCTAssertEqual(takes[0].takeNumber, 2,
+                       "the slate's take number rides the filename")
+        XCTAssertEqual(takes[0].cameraSourceFileName, "S07_T02.mov")
+
+        let relative = try XCTUnwrap(takes[0].capturedVideoPath)
+        XCTAssertTrue(relative.hasPrefix("footage/Scene_4/Shot_004/"),
+                      "the copy mirrors the recording pipeline's layout "
+                      + "(got \(relative))")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: projectDir.appendingPathComponent(relative).path),
+            "the clip must actually be in the project now")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: clip.path),
+            "the watch folder keeps its original — cards are evidence")
     }
 }

@@ -799,6 +799,31 @@ public class VisionBoardViewModel: ObservableObject {
         fitToView(viewSize: viewportSize)
     }
 
+    /// What the current wall is made of. nil/unknown stored values are
+    /// plaster — every board that existed before textures did.
+    public var currentTexture: VisionWallTexture {
+        VisionWallTexture.resolve(
+            boardRegistry.first { $0.id == currentBoardId }?.texture)
+    }
+
+    /// Re-materialize the current wall. PER BOARD: the corkboard for
+    /// locations doesn't drag the felt pinboard for night exteriors with
+    /// it. Legacy boards (derived from cards, no registry entry) get
+    /// their entry created here — the registry exists precisely so board
+    /// facts survive without cards to carry them.
+    public func setTexture(_ texture: VisionWallTexture) {
+        if let index = boardRegistry.firstIndex(where: { $0.id == currentBoardId }) {
+            boardRegistry[index].texture = texture.rawValue
+        } else {
+            let name = currentBoardId
+                .replacingOccurrences(of: "_", with: " ").capitalized
+            boardRegistry.append(VisionBoardMeta(id: currentBoardId,
+                                                 name: name,
+                                                 texture: texture.rawValue))
+        }
+        onBoardsChanged?(boardRegistry)
+    }
+
     /// Create a new board: slugged id deduped against existing boards,
     /// PERSISTED via the registry so an empty board survives reload.
     public func createBoard(_ name: String) -> String {

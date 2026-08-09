@@ -12,10 +12,16 @@ import Foundation
 public struct VisionBoardMeta: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
+    /// The wall's material ("plaster", "cork", "linen", "felt").
+    /// nil = plaster, which is what every existing board already was;
+    /// unknown values fall back rather than failing the load. Optional
+    /// so pre-texture projects decode unchanged.
+    public var texture: String?
 
-    public init(id: String, name: String) {
+    public init(id: String, name: String, texture: String? = nil) {
         self.id = id
         self.name = name
+        self.texture = texture
     }
 }
 

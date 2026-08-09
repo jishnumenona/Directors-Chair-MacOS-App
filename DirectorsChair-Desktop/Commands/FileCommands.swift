@@ -9,8 +9,10 @@
 import SwiftUI
 import AppKit
 import DirectorsChairServices
+import DirectorsChairViews
 
 struct FileCommands: Commands {
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     // Injected app-scoped references (see ViewCommands note re: @FocusedValue).
     var coordinatorRef: AppCoordinator?
     var projectViewModelRef: ProjectViewModel?
@@ -70,8 +72,30 @@ struct FileCommands: Commands {
             Button("Project Snapshots...") {
                 coordinator?.showingSnapshots = true
             }
-            .keyboardShortcut("s", modifiers: [.command, .option])
+            .keyboardShortcut(shortcuts.spec(for: "file.snapshots").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
+
+            // Script revisions (§2.18): lock once, then ship changes as
+            // colored rounds. Both go through the project choke point, so
+            // they are undoable and autosaved like any other edit.
+            Menu("Script Revisions") {
+                Button("Lock Scene Numbers") {
+                    guard let vm = projectViewModel else { return }
+                    ScriptRevisionTracker.lock(
+                        &vm.project,
+                        date: ISO8601DateFormatter().string(from: Date()))
+                }
+                .disabled(projectViewModel?.hasProject != true ||
+                          projectViewModel?.project.scriptRevisionColor != nil)
+
+                Button("Start Next Colored Revision") {
+                    guard let vm = projectViewModel else { return }
+                    ScriptRevisionTracker.advance(
+                        &vm.project,
+                        date: ISO8601DateFormatter().string(from: Date()))
+                }
+                .disabled(projectViewModel?.project.scriptRevisionColor == nil)
+            }
 
             Divider()
 
@@ -80,7 +104,9 @@ struct FileCommands: Commands {
                     await projectViewModel?.forceSave()
                 }
             }
-            .keyboardShortcut("s", modifiers: [.command, .option])
+            // Default is ⌃⌘S — the old ⌥⌘S silently collided with
+            // Project Snapshots, so one of the two never fired.
+            .keyboardShortcut(shortcuts.spec(for: "file.forceSave").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.isDirty != true)
         }
     }

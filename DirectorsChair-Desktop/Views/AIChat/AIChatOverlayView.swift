@@ -82,6 +82,7 @@ struct AIChatOverlayView: View {
         .onAppear {
             viewModel.coordinator = coordinator
             viewModel.projectViewModel = projectViewModel
+            consumeStagedPrompt()
             // Voice conversation seams (hands-free mode).
             voice.startListening = {
                 dictationPrefix = ""
@@ -123,7 +124,23 @@ struct AIChatOverlayView: View {
         .onExitCommand {
             dismiss()
         }
+        // The command palette stages an action phrase while the chat may
+        // already be open — consume on change as well as on appear.
+        .onChange(of: coordinator.pendingAssistantPrompt) { _, _ in
+            consumeStagedPrompt()
+        }
         .animation(.easeInOut(duration: 0.2), value: viewModel.showHistory)
+    }
+
+    /// Take the palette's staged phrase into the composer, focused, ready
+    /// to complete — and clear it so it stages exactly once.
+    private func consumeStagedPrompt() {
+        guard let staged = coordinator.pendingAssistantPrompt else { return }
+        coordinator.pendingAssistantPrompt = nil
+        viewModel.inputText = staged
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            isInputFocused = true
+        }
     }
 
     // MARK: - Header

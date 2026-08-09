@@ -367,6 +367,10 @@ public struct ProductionTabButton: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("production-tab-"
+            + title.lowercased()
+                .replacingOccurrences(of: " & ", with: "-")
+                .replacingOccurrences(of: " ", with: "-"))
         .onHover { hovering in
             isHovered = hovering
         }

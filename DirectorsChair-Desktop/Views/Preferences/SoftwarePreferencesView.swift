@@ -9,6 +9,7 @@
 import SwiftUI
 import DirectorsChairCore
 import AppKit
+import DirectorsChairViews
 
 // MARK: - Preference Section Enum
 
@@ -44,6 +45,12 @@ struct SoftwarePreferencesView: View {
     @ObservedObject var prefs: PreferencesManager = .shared
     @State private var selectedSection: PreferenceSection = .general
     @State private var showResetAlert = false
+
+    // §2.18 remappable shortcuts.
+    @ObservedObject private var shortcutStore = ShortcutStore.shared
+    @State private var recordingShortcutId: String?
+    @State private var shortcutConflictMessage: String?
+    @State private var shortcutMonitor: Any?
 
     /// §2.17 proxy playback — stored under ProxyPlayback.preferenceKey so
     /// the Core resolver and this toggle can never disagree.
@@ -727,40 +734,138 @@ struct SoftwarePreferencesView: View {
     // MARK: - 7. KEYBOARD SHORTCUTS
     // =========================================================================
 
+    // §2.18: LIVE and editable, replacing a hand-typed reference list
+    // that had already drifted from the real bindings (it claimed ⌘2 was
+    // Script; ⌘2 is Bubble). Rows render what the store actually binds,
+    // so the documentation can never lie again.
     private var shortcutsSection: some View {
         VStack(alignment: .leading, spacing: 24) {
-            sectionHeader("Keyboard Shortcuts", subtitle: "Quick reference for all keyboard shortcuts")
+            sectionHeader("Keyboard Shortcuts",
+                          subtitle: "Click Rebind, then press the new keys. "
+                          + "One combo drives one command.")
 
-            PrefCard(title: "VIEW NAVIGATION", icon: "rectangle.grid.1x2") {
-                VStack(alignment: .leading, spacing: 6) {
-                    shortcutRow("Overview", shortcut: "Cmd + 1")
-                    shortcutRow("Script", shortcut: "Cmd + 2")
-                    shortcutRow("Bubble View", shortcut: "Cmd + 3")
-                    shortcutRow("Shot List", shortcut: "Cmd + 4")
-                    shortcutRow("Scenes", shortcut: "Cmd + 5")
-                    shortcutRow("Assets", shortcut: "Cmd + 6")
-                    shortcutRow("Vision Board", shortcut: "Cmd + 7")
-                    shortcutRow("Production", shortcut: "Cmd + 8")
-                    shortcutRow("Story Design", shortcut: "Cmd + 9")
-                    shortcutRow("Project Settings", shortcut: "Cmd + 0")
+            let groups = Dictionary(grouping: ShortcutStore.commands,
+                                    by: \.group)
+            ForEach(["Navigation", "Panels", "Tools", "File", "Export"],
+                    id: \.self) { group in
+                if let commands = groups[group] {
+                    PrefCard(title: group.uppercased(), icon: groupIcon(group)) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(commands) { command in
+                                rebindableRow(command)
+                            }
+                        }
+                    }
                 }
             }
 
-            PrefCard(title: "AI & TOOLS", icon: "sparkles") {
-                VStack(alignment: .leading, spacing: 6) {
-                    shortcutRow("AI Chat Assistant", shortcut: "Double-Shift or Cmd + Shift + Space")
-                    shortcutRow("Navigate Back", shortcut: "Cmd + [")
-                    shortcutRow("Navigate Forward", shortcut: "Cmd + ]")
-                }
+            if let message = shortcutConflictMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
             }
 
-            PrefCard(title: "EXPORT", icon: "square.and.arrow.up") {
+            HStack {
+                Spacer()
+                Button("Reset All to Defaults") {
+                    shortcutStore.resetAll()
+                    shortcutConflictMessage = nil
+                }
+                .disabled(shortcutStore.overrides.isEmpty)
+            }
+
+            PrefCard(title: "FIXED", icon: "lock") {
                 VStack(alignment: .leading, spacing: 6) {
-                    shortcutRow("Export Fountain", shortcut: "Cmd + Shift + E")
-                    shortcutRow("Export PDF", shortcut: "Cmd + Shift + P")
-                    shortcutRow("Batch Export", shortcut: "Cmd + Shift + Opt + E")
+                    shortcutRow("Save / Open / New / Close",
+                                shortcut: "⌘S · ⌘O · ⌘N · ⌘W")
+                    shortcutRow("AI Chat Assistant", shortcut: "⇧⌘Space")
+                    shortcutRow("Navigate Back / Forward", shortcut: "⌘[ · ⌘]")
                 }
             }
+        }
+    }
+
+    private func groupIcon(_ group: String) -> String {
+        switch group {
+        case "Navigation": return "rectangle.grid.1x2"
+        case "Panels": return "sidebar.left"
+        case "Tools": return "command"
+        case "File": return "folder"
+        case "Export": return "square.and.arrow.up"
+        default: return "keyboard"
+        }
+    }
+
+    private func rebindableRow(_ command: RebindableCommand) -> some View {
+        HStack {
+            Text(command.label)
+                .font(.system(size: 11))
+                .foregroundColor(.primary)
+            if shortcutStore.isOverridden(command.id) {
+                Button {
+                    shortcutStore.reset(command.id)
+                    shortcutConflictMessage = nil
+                } label: {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .help("Back to \(command.defaultSpec.display)")
+            }
+            Spacer()
+            if recordingShortcutId == command.id {
+                Text("Press keys…  (esc cancels)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor)
+                    .cornerRadius(4)
+            } else {
+                Text(shortcutStore.spec(for: command.id).display)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color(nsColor: .quaternarySystemFill))
+                    .cornerRadius(4)
+                Button("Rebind") {
+                    beginRecording(command.id)
+                }
+                .font(.system(size: 10))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    /// One local keyDown monitor while armed: the next chord becomes the
+    /// binding (the store may refuse and say why), escape cancels. The
+    /// monitor swallows the event so the chord doesn't ALSO fire whatever
+    /// it currently means.
+    private func beginRecording(_ id: String) {
+        recordingShortcutId = id
+        shortcutConflictMessage = nil
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            defer {
+                if let monitor = shortcutMonitor {
+                    NSEvent.removeMonitor(monitor)
+                    shortcutMonitor = nil
+                }
+                recordingShortcutId = nil
+            }
+            if event.keyCode == 53 { return nil }   // escape = cancel
+            guard let characters = event.charactersIgnoringModifiers,
+                  let key = characters.first else { return nil }
+            let flags = event.modifierFlags
+            let spec = ShortcutSpec(key: String(key),
+                                    command: flags.contains(.command),
+                                    shift: flags.contains(.shift),
+                                    option: flags.contains(.option),
+                                    control: flags.contains(.control))
+            shortcutConflictMessage = shortcutStore.set(spec, for: id)
+            return nil
         }
     }
 

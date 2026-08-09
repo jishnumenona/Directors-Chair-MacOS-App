@@ -11,8 +11,10 @@ import AppKit
 import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairExports
+import DirectorsChairViews
 
 struct ExportCommands: Commands {
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     // Injected app-scoped reference (see ViewCommands note re: @FocusedValue).
     var projectViewModelRef: ProjectViewModel?
     @FocusedValue(\.projectViewModel) var focusedProjectViewModel: ProjectViewModel?
@@ -24,34 +26,39 @@ struct ExportCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Export") {
+            // §2.18: these were dead TODOs from the day the menu was
+            // built — the generators sat finished in the Exports package
+            // (97 tests) and were never wired. Each save panel picks the
+            // destination; the WORK runs on the background queue.
             Button("Export as Fountain...") {
-                // TODO: Implement Fountain export using DirectorsChairExports
+                if let vm = projectViewModel { enqueueScreenplay(.fountain, vm.project) }
             }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .keyboardShortcut(shortcuts.spec(for: "export.fountain").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as Final Draft (FDX)...") {
-                // TODO: Implement FDX export using DirectorsChairExports
+                if let vm = projectViewModel { enqueueScreenplay(.fdx, vm.project) }
             }
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as PDF...") {
-                // TODO: Implement PDF export using DirectorsChairExports
+                if let vm = projectViewModel { enqueueScreenplay(.pdf, vm.project) }
             }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .keyboardShortcut(shortcuts.spec(for: "export.pdf").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as HTML...") {
-                // TODO: Implement HTML export using DirectorsChairExports
+                if let vm = projectViewModel { enqueueScreenplay(.html, vm.project) }
             }
             .disabled(projectViewModel?.hasProject != true)
 
             Divider()
 
             Button("Export Character Profiles...") {
-                // TODO: Implement character profile export
+                if let vm = projectViewModel { enqueueCharacterProfiles(vm.project) }
             }
-            .disabled(projectViewModel?.hasProject != true)
+            .disabled(projectViewModel?.hasProject != true ||
+                      projectViewModel?.project.characters.isEmpty != false)
 
             // Editorial handoff (§2.17): what other departments' tools eat.
             Button("Export Shot List EDL...") {
@@ -96,22 +103,16 @@ struct ExportCommands: Commands {
             }
             .disabled(projectViewModel?.hasProject != true)
 
-            Button("Export Schedule...") {
-                // TODO: Implement schedule export
-            }
-            .disabled(projectViewModel?.hasProject != true)
-
-            Button("Export Budget...") {
-                // TODO: Implement budget export
-            }
-            .disabled(projectViewModel?.hasProject != true)
+            // Schedule/Budget exporters don't exist yet (tracked in the
+            // tier matrix); a menu item that can never work is worse
+            // than none, so those rows are gone until they're real.
 
             Divider()
 
             Button("Export All...") {
-                // TODO: Implement batch export
+                if let vm = projectViewModel { enqueueExportAll(vm.project) }
             }
-            .keyboardShortcut("e", modifiers: [.command, .option, .shift])
+            .keyboardShortcut(shortcuts.spec(for: "export.batch").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)
         }
     }
@@ -119,7 +120,8 @@ struct ExportCommands: Commands {
     // MARK: - Cue Timeline HTML Export
 
     /// One save panel for every plain-text interchange document. EDL has
-    /// no UTType — the extension in the suggested name carries it.
+    /// no UTType — the extension in the suggested name carries it. The
+    /// write itself rides the background queue like every other export.
     private func exportInterchange(title: String, fileName: String,
                                    contentTypes: [UTType], content: String) {
         let panel = NSSavePanel()
@@ -128,9 +130,97 @@ struct ExportCommands: Commands {
         if !contentTypes.isEmpty { panel.allowedContentTypes = contentTypes }
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
+        ExportQueue.shared.enqueue(title: title, destination: url) {
             try content.write(to: url, atomically: true, encoding: .utf8)
-        } catch { NSAlert(error: error).runModal() }
+        }
+    }
+
+    // MARK: - Screenplay exports through the queue (§2.18)
+
+    private func enqueueScreenplay(_ format: ScreenplayExportFormat,
+                                   _ project: Project) {
+        let panel = NSSavePanel()
+        panel.title = format.panelTitle
+        panel.nameFieldStringValue = "\(project.name).\(format.fileExtension)"
+        if let type = format.contentType {
+            panel.allowedContentTypes = [type]
+        }
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if format.rendersOnMain {
+            ExportQueue.shared.enqueueOnMain(title: format.panelTitle,
+                                             destination: url) {
+                try ScreenplayExportFormat.writePDF(project, to: url)
+            }
+        } else {
+            ExportQueue.shared.enqueue(title: format.panelTitle,
+                                       destination: url) {
+                try format.writeText(project, to: url)
+            }
+        }
+    }
+
+    private func enqueueCharacterProfiles(_ project: Project) {
+        let panel = NSOpenPanel()
+        panel.title = "Export Character Profiles"
+        panel.message = "Choose a folder for one PDF per character."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Export Here"
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        ExportQueue.shared.enqueueOnMain(
+            title: "Character Profiles (\(project.characters.count) PDFs)",
+            destination: folder) {
+            try ScreenplayExportFormat.writeCharacterSheets(project,
+                                                            into: folder)
+        }
+    }
+
+    /// One folder, every format — the batch handoff. Each format is its
+    /// own queue job so one failure never takes the rest down.
+    private func enqueueExportAll(_ project: Project) {
+        let panel = NSOpenPanel()
+        panel.title = "Export All"
+        panel.message = "Choose a folder for the full export set."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Export Here"
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        for format in ScreenplayExportFormat.allCases {
+            let url = folder.appendingPathComponent(
+                "\(project.name).\(format.fileExtension)")
+            if format.rendersOnMain {
+                ExportQueue.shared.enqueueOnMain(title: format.panelTitle,
+                                                 destination: url) {
+                    try ScreenplayExportFormat.writePDF(project, to: url)
+                }
+            } else {
+                ExportQueue.shared.enqueue(title: format.panelTitle,
+                                           destination: url) {
+                    try format.writeText(project, to: url)
+                }
+            }
+        }
+        let edl = folder.appendingPathComponent("\(project.name) - planned cut.edl")
+        ExportQueue.shared.enqueue(title: "Export Shot List EDL",
+                                   destination: edl) {
+            try EditorialInterchange.edl(project: project)
+                .write(to: edl, atomically: true, encoding: .utf8)
+        }
+        let fcp = folder.appendingPathComponent("\(project.name) - planned cut.fcpxml")
+        ExportQueue.shared.enqueue(title: "Export Final Cut Pro XML",
+                                   destination: fcp) {
+            try EditorialInterchange.fcpxml(project: project)
+                .write(to: fcp, atomically: true, encoding: .utf8)
+        }
+        let csv = folder.appendingPathComponent("\(project.name) - stripboard.csv")
+        ExportQueue.shared.enqueue(title: "Export Stripboard CSV",
+                                   destination: csv) {
+            try EditorialInterchange.stripboardCSV(project: project)
+                .write(to: csv, atomically: true, encoding: .utf8)
+        }
     }
 
     private func exportCueTimeline(project: Project) {
@@ -236,4 +326,101 @@ struct ExportCommands: Commands {
 
     private static func mm(_ s: Double) -> String { String(format:"%d:%02d",Int(s)/60,Int(s)%60) }
     private static func esc(_ s: String) -> String { s.replacingOccurrences(of:"&",with:"&amp;").replacingOccurrences(of:"<",with:"&lt;").replacingOccurrences(of:">",with:"&gt;").replacingOccurrences(of:"\"",with:"&quot;") }
+}
+
+// MARK: - Screenplay export formats (§2.18)
+
+/// The format table the menu, the batch export, and the tests share: how
+/// each format names itself, and how it writes a Project to disk. Every
+/// generator is a pure function from the Exports package, so a job can
+/// run it on any thread against the captured value snapshot.
+enum ScreenplayExportFormat: String, CaseIterable, Sendable {
+    case fountain
+    case fdx
+    case pdf
+    case html
+
+    var panelTitle: String {
+        switch self {
+        case .fountain: return "Export as Fountain"
+        case .fdx: return "Export as Final Draft"
+        case .pdf: return "Export as PDF"
+        case .html: return "Export as HTML"
+        }
+    }
+
+    var fileExtension: String {
+        switch self {
+        case .fountain: return "fountain"
+        case .fdx: return "fdx"
+        case .pdf: return "pdf"
+        case .html: return "html"
+        }
+    }
+
+    var contentType: UTType? {
+        switch self {
+        case .fountain: return nil            // no registered UTType
+        case .fdx: return UTType.xml
+        case .pdf: return UTType.pdf
+        case .html: return UTType.html
+        }
+    }
+
+    /// True for formats whose generator must render on the main actor
+    /// (the PDF pipeline draws through NSGraphicsContext.current).
+    var rendersOnMain: Bool { self == .pdf }
+
+    /// The three text formats — pure string generators, safe on any
+    /// thread. PDF goes through `writePDF`.
+    func writeText(_ project: Project, to url: URL) throws {
+        switch self {
+        case .fountain:
+            try FountainExportService.exportProject(project)
+                .write(to: url, atomically: true, encoding: .utf8)
+        case .fdx:
+            try FDXExportService.exportProject(project)
+                .write(to: url, atomically: true, encoding: .utf8)
+        case .html:
+            try HTMLExportService.exportScreenplay(project)
+                .write(to: url, atomically: true, encoding: .utf8)
+        case .pdf:
+            throw ExportJobError("PDF renders on the main actor — writePDF.")
+        }
+    }
+
+    @MainActor
+    static func writePDF(_ project: Project, to url: URL) throws {
+        guard let document = PDFExportService.exportScreenplay(project),
+              PDFExportService.saveToFile(document, url: url) else {
+            throw ExportJobError("Could not render the screenplay PDF.")
+        }
+    }
+
+    /// One PDF per character into `folder`; the file carries the
+    /// character's name (sanitized — a name is user text, not a path).
+    @MainActor
+    static func writeCharacterSheets(_ project: Project,
+                                     into folder: URL) throws {
+        for character in project.characters {
+            guard let sheet = PDFExportService.exportCharacterSheet(
+                character, project: project) else {
+                throw ExportJobError(
+                    "Could not render a sheet for \(character.name).")
+            }
+            let safeName = character.name
+                .components(separatedBy: CharacterSet(charactersIn: "/:"))
+                .joined(separator: "-")
+            let url = folder.appendingPathComponent("\(safeName).pdf")
+            guard PDFExportService.saveToFile(sheet, url: url) else {
+                throw ExportJobError("Could not write \(safeName).pdf.")
+            }
+        }
+    }
+}
+
+struct ExportJobError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
 }

@@ -71,10 +71,15 @@ struct OutlineList: View {
     @FocusState private var isSequenceFieldFocused: Bool
 
     var body: some View {
+        // Once per render, not per row — per-row fingerprinting is O(N²)
+        // at the audited 300-scene scale. Free while unlocked (guard).
+        let changed = ScriptRevisionTracker.changedSinceRoundStart(
+            projectViewModel.project)
         LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(projectViewModel.sequences) { sequence in
                 SequenceRow(
                     sequence: sequence,
+                    changedRevisionIds: changed,
                     collapsedSequenceIds: $collapsedSequenceIds,
                     expandedSceneIds: $expandedSceneIds
                 )
@@ -161,6 +166,7 @@ struct SequenceRow: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var timelineViewModel: TimelineViewModel
     let sequence: DirectorsChairCore.Sequence
+    var changedRevisionIds: Set<String> = []
     @Binding var collapsedSequenceIds: Set<String>
     @Binding var expandedSceneIds: Set<String>
     @State private var isAddingScene = false
@@ -250,7 +256,9 @@ struct SequenceRow: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(sequence.scenes) { scene in
-                        SceneRow(scene: scene, sequenceId: sequence.id, expandedSceneIds: $expandedSceneIds)
+                        SceneRow(scene: scene, sequenceId: sequence.id,
+                                 changedRevisionIds: changedRevisionIds,
+                                 expandedSceneIds: $expandedSceneIds)
                     }
 
                     // Inline add scene row
@@ -356,6 +364,10 @@ struct SceneRow: View {
     @EnvironmentObject var timelineViewModel: TimelineViewModel
     let scene: DirectorsChairCore.Scene
     let sequenceId: String
+    /// Scenes changed since the current revision round opened — computed
+    /// ONCE per outline render by OutlineList (per-row fingerprinting
+    /// would be O(N²) at the audited 300-scene scale).
+    var changedRevisionIds: Set<String> = []
     @Binding var expandedSceneIds: Set<String>
     @State private var showDeleteConfirmation = false
     @State private var isAddingShot = false
@@ -408,12 +420,33 @@ struct SceneRow: View {
 
     /// Extract the scene number portion from the name (e.g. "Scene 3" from "Scene 3 - Kitchen")
     private var sceneNumber: String {
+        // A LOCKED production number outranks the name-derived one: once
+        // the script locks (§2.18) that number is what call sheets say.
+        if let locked = scene.lockedNumber {
+            return "Scene \(locked)"
+        }
         let name = scene.name
         // If name starts with "Scene N", extract that part
         if let range = name.range(of: #"^Scene\s+\d+"#, options: .regularExpression) {
             return String(name[range])
         }
         return name
+    }
+
+    /// The revision dot beside a scene: the CURRENT round's color while
+    /// the round is open and this scene changed in it, else the stamp of
+    /// the round that last changed it. nil = untouched since lock.
+    private var revisionDot: Color? {
+        guard let current = projectViewModel.project.scriptRevisionColor
+        else { return nil }
+        if changedRevisionIds.contains(scene.id) {
+            return ScriptRevisionPalette.color(
+                for: ScriptRevisionTracker.nextColor(after: current))
+        }
+        if let stamped = scene.revisionColor, stamped != "White" {
+            return ScriptRevisionPalette.color(for: stamped)
+        }
+        return nil
     }
 
     /// Extract the descriptive suffix from the scene name (e.g. "Kitchen" from "Scene 3 - Kitchen")
@@ -470,10 +503,18 @@ struct SceneRow: View {
                         .foregroundColor(.green)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(sceneNumber)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(sceneNumber)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            if let dot = revisionDot {
+                                Circle()
+                                    .fill(dot)
+                                    .frame(width: 6, height: 6)
+                                    .help("Changed in a revision round")
+                            }
+                        }
 
                         if !locationParts.location.isEmpty {
                             HStack(spacing: 3) {
@@ -1100,4 +1141,26 @@ struct NoProjectView: View {
         .environmentObject(ProjectViewModel())
         .environmentObject(TimelineViewModel())
         .frame(width: 300, height: 600)
+}
+
+// MARK: - Script revision colors (§2.18)
+
+/// The industry page colors, as screen colors. "2nd Blue" wears Blue —
+/// the cycle prefix is a paper-stock fact, not a different hue.
+enum ScriptRevisionPalette {
+    static func color(for revision: String) -> Color {
+        let base = revision.hasPrefix("2nd ")
+            ? String(revision.dropFirst(4)) : revision
+        switch base {
+        case "Blue": return Color(hex: "#4A90D9")
+        case "Pink": return Color(hex: "#E8789E")
+        case "Yellow": return Color(hex: "#D9B44A")
+        case "Green": return Color(hex: "#5CA85C")
+        case "Goldenrod": return Color(hex: "#C99A2E")
+        case "Buff": return Color(hex: "#C9B28A")
+        case "Salmon": return Color(hex: "#E88A70")
+        case "Cherry": return Color(hex: "#C94A4A")
+        default: return Color.secondary
+        }
+    }
 }
