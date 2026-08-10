@@ -1189,3 +1189,38 @@ final class DailiesIngestControllerTests: XCTestCase {
             "the watch folder keeps its original — cards are evidence")
     }
 }
+
+// MARK: - Imagine panel → gateway mapping (DC-0034)
+
+@MainActor
+final class ImagineServiceRequestTests: XCTestCase {
+
+    func testTheAskFinallyReachesTheWire() {
+        // Before DC-0034 the executor hardcoded 16:9, one image, no
+        // references — the panel's whole point is that these carry.
+        let reference = (data: Data([1, 2, 3]), mime: "image/jpeg")
+        let request = CentralViewStack.imagineServiceRequest(
+            ImagineRequest(prompt: "dawn harbour", aspectRatio: "9:16",
+                           variationCount: 3,
+                           referenceURLs: [URL(fileURLWithPath: "/tmp/r.jpg")]),
+            references: [reference])
+
+        XCTAssertEqual(request.aspectRatio, "9:16")
+        XCTAssertEqual(request.numberOfImages, 3)
+        XCTAssertTrue(request.prompt.contains("dawn harbour"))
+        XCTAssertEqual(request.referenceImages?.count, 1)
+        XCTAssertEqual(request.referenceImages?[0].base64,
+                       Data([1, 2, 3]).base64EncodedString())
+        XCTAssertEqual(request.referenceImages?[0].mimeType, "image/jpeg")
+        XCTAssertEqual(request.referenceImages?[0].label, "reference 1")
+    }
+
+    func testNoReferencesMeansNilNotEmptyArray() {
+        let request = CentralViewStack.imagineServiceRequest(
+            ImagineRequest(prompt: "p"), references: [])
+        XCTAssertNil(request.referenceImages,
+                     "the wire contract treats nil and [] differently")
+        XCTAssertEqual(request.aspectRatio, "16:9")
+        XCTAssertEqual(request.numberOfImages, 1)
+    }
+}

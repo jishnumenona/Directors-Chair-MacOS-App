@@ -25,6 +25,8 @@ public struct VisionBoardCanvas: View {
     @State private var isDropTargeted = false
     /// Double-click-to-type: where the caret is, and what's being typed.
     @State private var typingAt: CGPoint?
+    /// DC-0034: where the Imagine panel stands (screen point), when open.
+    @State private var imagineAt: CGPoint?
     @State private var draftWords = ""
     @FocusState private var draftFocused: Bool
     /// The wall itself must hold focus or no key ever reaches it —
@@ -166,7 +168,9 @@ public struct VisionBoardCanvas: View {
                 // Escape backs out of whatever is open — a half-typed
                 // word, the tool ring, the paper strip — and only clears
                 // the selection when nothing else is in the way.
-                if typingAt != nil || awaitingTool != nil || noteFor != nil {
+                if typingAt != nil || awaitingTool != nil || noteFor != nil
+                    || imagineAt != nil {
+                    imagineAt = nil
                     typingAt = nil
                     awaitingTool = nil
                     noteFor = nil
@@ -187,6 +191,25 @@ public struct VisionBoardCanvas: View {
             .onKeyPress(.rightArrow) { nudge(dx: 1, dy: 0) }
             .onKeyPress(.upArrow) { nudge(dx: 0, dy: -1) }
             .onKeyPress(.downArrow) { nudge(dx: 0, dy: 1) }
+            .overlay {
+                if let anchor = imagineAt {
+                    VisionImaginePanel(
+                        onImagine: { request in
+                            let world = viewModel.transform.toWorld(anchor)
+                            imagineAt = nil
+                            wallFocused = true
+                            Task { @MainActor in
+                                await viewModel.imagine(request, at: world)
+                            }
+                        },
+                        onCancel: {
+                            imagineAt = nil
+                            wallFocused = true
+                        })
+                        .position(x: anchor.x,
+                                  y: max(130, anchor.y - 20))
+                }
+            }
             .overlay {
                 if let caret = typingAt {
                     TextField(awaitingTool?.prompt ?? "", text: $draftWords,
@@ -695,7 +718,11 @@ public struct VisionBoardCanvas: View {
             pasteFromClipboard()
         case .picture:
             importPictureFromDisk(at: point)
-        case .write, .imagine, .link, .video:
+        case .imagine:
+            // DC-0034: Imagine outgrew the caret — it opens the full
+            // panel (prompt, shape, variations, references).
+            imagineAt = point
+        case .write, .link, .video:
             awaitingTool = tool
             draftWords = ""
             typingAt = point

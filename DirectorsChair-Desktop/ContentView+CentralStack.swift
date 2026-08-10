@@ -175,8 +175,9 @@ struct CentralViewStack: View {
                     projectViewModel.isDirty = true
                     coordinator.notifyProjectChanged()
                 },
-                onGenerateImage: { prompt, completion in
-                    generateVisionBoardImage(prompt: prompt, completion: completion)
+                onGenerateImage: { request, completion in
+                    generateVisionBoardImage(request: request,
+                                             completion: completion)
                 },
                 onEditImage: { edit, completion in
                     redrawVisionBoardImage(edit: edit, completion: completion)
@@ -278,8 +279,8 @@ struct CentralViewStack: View {
     // file into assets/visionboard/ (Slice 2). Cancelling the editor thus
     // orphans nothing in the project, and the project is only dirtied by the
     // actual card commit — not by generation itself.
-    private func generateVisionBoardImage(prompt: String,
-                                          completion: @escaping (URL?) -> Void) {
+    private func generateVisionBoardImage(request: ImagineRequest,
+                                          completion: @escaping ([URL]) -> Void) {
         Task {
             let client = AIServiceClient.shared
             guard await client.testConnection() else {
@@ -288,41 +289,74 @@ struct CentralViewStack: View {
                         title: "Image Generation Failed",
                         message: "The AI service is not reachable. "
                                + "Check the AI settings and your connection.")
-                    completion(nil)
+                    completion([])
                 }
                 return
             }
             do {
-                let request = ImageGenerationRequest(
-                    prompt: "Cinematic mood-board reference image: \(prompt). "
-                          + "Evocative, high production value, no text, no watermarks.",
-                    provider: .googleImagen,
-                    aspectRatio: "16:9"
-                )
-                let response = try await client.generateImage(request)
-                guard let data = response.images.first else {
+                // References load off the panel's URLs; an unreadable one
+                // is skipped rather than failing the whole ask.
+                let references: [(data: Data, mime: String)] =
+                    request.referenceURLs.compactMap { url in
+                        guard let data = try? Data(contentsOf: url)
+                        else { return nil }
+                        let mime = url.pathExtension.lowercased() == "png"
+                            ? "image/png" : "image/jpeg"
+                        return (data, mime)
+                    }
+                let serviceRequest = Self.imagineServiceRequest(
+                    request, references: references)
+                let response = try await client.generateImage(serviceRequest)
+                guard !response.images.isEmpty else {
                     await MainActor.run {
                         projectViewModel.errorAlert = ErrorAlert(
                             title: "Image Generation Failed",
                             message: "The AI service returned no image.")
-                        completion(nil)
+                        completion([])
                     }
                     return
                 }
-                let fileURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(
-                        "vision_\(Int(Date().timeIntervalSince1970)).png")
-                try data.write(to: fileURL)
-                await MainActor.run { completion(fileURL) }
+                let stamp = Int(Date().timeIntervalSince1970)
+                var urls: [URL] = []
+                for (index, data) in response.images.enumerated() {
+                    let fileURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(
+                            "vision_\(stamp)_\(index).png")
+                    try data.write(to: fileURL)
+                    urls.append(fileURL)
+                }
+                let landed = urls
+                await MainActor.run { completion(landed) }
             } catch {
                 debugLog("📱 Vision board image generation failed: \(error)")
                 await MainActor.run {
                     projectViewModel.errorAlert = ErrorAlert(
                         error: error, title: "Image Generation Failed")
-                    completion(nil)
+                    completion([])
                 }
             }
         }
+    }
+
+    /// The Imagine panel's ask, translated for the gateway — kept as a
+    /// pure mapping so tests can pin that the ratio, count, and
+    /// references actually make it onto the wire (they never did before
+    /// DC-0034: 16:9 was hardcoded and references were dropped).
+    static func imagineServiceRequest(
+        _ request: ImagineRequest,
+        references: [(data: Data, mime: String)]) -> ImageGenerationRequest {
+        ImageGenerationRequest(
+            prompt: "Cinematic mood-board reference image: \(request.prompt). "
+                  + "Evocative, high production value, no text, no watermarks.",
+            provider: .googleImagen,
+            aspectRatio: request.aspectRatio,
+            numberOfImages: request.variationCount,
+            referenceImages: references.isEmpty ? nil
+                : references.enumerated().map { index, reference in
+                    ReferenceImage(base64: reference.data.base64EncodedString(),
+                                   mimeType: reference.mime,
+                                   label: "reference \(index + 1)")
+                })
     }
 
     /// Redraws an existing vision-board picture from marks made on it.

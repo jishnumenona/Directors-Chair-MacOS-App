@@ -691,9 +691,9 @@ final class VisionWallToolActionTests: XCTestCase {
         let viewModel = VisionBoardViewModel()
         viewModel.configureAssetStore(projectBase: projectBase)
         var askedFor: String?
-        viewModel.onGenerateImage = { prompt, completion in
-            askedFor = prompt
-            completion(generated)
+        viewModel.onGenerateImage = { request, completion in
+            askedFor = request.prompt
+            completion([generated])
         }
 
         await viewModel.imagine("a rain-soaked neon street", at: .zero)
@@ -713,7 +713,7 @@ final class VisionWallToolActionTests: XCTestCase {
         var called = false
         viewModel.onGenerateImage = { _, completion in
             called = true
-            completion(nil)
+            completion([])
         }
         await viewModel.imagine("   ", at: .zero)
         XCTAssertFalse(called)
@@ -1317,7 +1317,7 @@ final class VisionNonBlockingImagineTests: XCTestCase {
         viewModel.onGenerateImage = { _, completion in
             // Whatever the wall looks like mid-flight is what the user sees.
             heldWhileWorking = viewModel.pendingImagines
-            completion(generated)
+            completion([generated])
         }
 
         await viewModel.imagine("a rain-soaked neon street",
@@ -1348,7 +1348,7 @@ final class VisionNonBlockingImagineTests: XCTestCase {
             Task { @MainActor in
                 await viewModel.absorb([.text("dusk")], at: .zero)
                 viewModel.scrollPan(deltaX: 120, deltaY: 40)
-                completion(generated)
+                completion([generated])
             }
         }
 
@@ -1363,7 +1363,7 @@ final class VisionNonBlockingImagineTests: XCTestCase {
 
     func testAFailedImaginingLeavesNoEmptySheetBehind() async {
         let viewModel = VisionBoardViewModel()
-        viewModel.onGenerateImage = { _, completion in completion(nil) }
+        viewModel.onGenerateImage = { _, completion in completion([]) }
 
         await viewModel.imagine("something impossible", at: .zero)
 
