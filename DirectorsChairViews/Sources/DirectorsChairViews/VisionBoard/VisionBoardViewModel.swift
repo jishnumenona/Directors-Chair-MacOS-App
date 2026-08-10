@@ -213,7 +213,9 @@ public class VisionBoardViewModel: ObservableObject {
     public var onCardsChanged: (([VisionCard]) -> Void)?
 
     /// Callback for AI image generation
-    public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
+    /// DC-0034: generation carries a full request (aspect ratio,
+    /// variation count, references) and can land SEVERAL pictures.
+    public var onGenerateImage: ((ImagineRequest, @escaping ([URL]) -> Void) -> Void)?
 
     // MARK: - Constants
 
@@ -1188,35 +1190,51 @@ public class VisionBoardViewModel: ObservableObject {
     /// an ordinary scrap — tilted, sized to its picture, imported into the
     /// project.
     public func imagine(_ description: String, at worldPoint: CGPoint?) async {
-        let prompt = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The caret-era string form, kept as sugar over the full request.
+        await imagine(ImagineRequest(prompt: description), at: worldPoint)
+    }
+
+    public func imagine(_ request: ImagineRequest,
+                        at worldPoint: CGPoint?) async {
+        let prompt = request.prompt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, let generate = onGenerateImage else { return }
+        var asked = request
+        asked.prompt = prompt
 
         // Hold the space immediately: a blank sheet goes up where the
-        // picture will land, and the wall stays usable while it works.
-        let size = CGSize(width: 260, height: 146)
+        // pictures will land — shaped like the ratio that was asked for,
+        // so the wall doesn't jump when the real ones arrive — and the
+        // wall stays usable while it works.
+        let size = request.placeholderSize
         let centre = worldPoint ?? absorbCentre()
         let held = PendingImagine(
-            id: UUID().uuidString, prompt: prompt,
+            id: UUID().uuidString,
+            prompt: request.variationCount > 1
+                ? "\(prompt) ×\(request.variationCount)" : prompt,
             origin: CGPoint(x: centre.x - size.width / 2,
                             y: centre.y - size.height / 2),
             size: size)
         pendingImagines.append(held)
 
-        let url: URL? = await withCheckedContinuation { continuation in
-            generate(prompt) { generated in
+        let urls: [URL] = await withCheckedContinuation { continuation in
+            generate(asked) { generated in
                 continuation.resume(returning: generated)
             }
         }
         pendingImagines.removeAll { $0.id == held.id }
-        guard let url else { return }
+        guard !urls.isEmpty else { return }
 
-        let landed = await absorb([.fileURL(url)], at: centre)
-        // The prompt is worth keeping — it is how the picture came to exist.
-        if let id = landed.first,
-           let index = cards.firstIndex(where: { $0.id == id }) {
-            cards[index].description = prompt
-            notifyChange()
+        // Several variations scatter as a pile, exactly like dropping
+        // several files — siblings on the wall, pick the one you love.
+        let landed = await absorb(urls.map { .fileURL($0) }, at: centre)
+        // The prompt is worth keeping — it is how the pictures came to be.
+        for id in landed {
+            if let index = cards.firstIndex(where: { $0.id == id }) {
+                cards[index].description = prompt
+            }
         }
+        if !landed.isEmpty { notifyChange() }
     }
 
     /// Redrawing a picture from marks made on it. The current image goes

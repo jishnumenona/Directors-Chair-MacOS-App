@@ -30,7 +30,7 @@ public struct VisionBoardView: View {
     public var onConnectorsChanged: (([VisionConnector]) -> Void)?
 
     /// Callback for AI image generation
-    public var onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)?
+    public var onGenerateImage: ((ImagineRequest, @escaping ([URL]) -> Void) -> Void)?
 
     /// Redraws an existing picture from marks made on it (annotate).
     public var onEditImage: ((VisionImageEdit, @escaping (URL?) -> Void) -> Void)?
@@ -75,7 +75,7 @@ public struct VisionBoardView: View {
         onCardsChanged: (([VisionCard]) -> Void)? = nil,
         onBoardsChanged: (([VisionBoardMeta]) -> Void)? = nil,
         onConnectorsChanged: (([VisionConnector]) -> Void)? = nil,
-        onGenerateImage: ((String, @escaping (URL?) -> Void) -> Void)? = nil,
+        onGenerateImage: ((ImagineRequest, @escaping ([URL]) -> Void) -> Void)? = nil,
         onEditImage: ((VisionImageEdit, @escaping (URL?) -> Void) -> Void)? = nil,
         projectBasePath: URL? = nil,
         locations: [Location] = [],
@@ -191,7 +191,15 @@ public struct VisionBoardView: View {
                     onSave: {
                         viewModel.saveEditedCard()
                     },
-                    onGenerateImage: onGenerateImage,
+                    // The retiring editor still speaks single-image;
+                    // bridge it onto the request-carrying pipeline.
+                    onGenerateImage: onGenerateImage.map { imagine in
+                        { prompt, done in
+                            imagine(ImagineRequest(prompt: prompt)) { urls in
+                                done(urls.first)
+                            }
+                        }
+                    },
                     assetStore: viewModel.assetStore,
                     isNew: !viewModel.cards.contains { $0.id == card.id },
                     locations: locations,
