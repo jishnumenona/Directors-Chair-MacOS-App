@@ -11,17 +11,38 @@ import AppKit
 import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairExports
+import DirectorsChairServices
 import DirectorsChairViews
 
 struct ExportCommands: Commands {
     @ObservedObject private var shortcuts = ShortcutStore.shared
-    // Injected app-scoped reference (see ViewCommands note re: @FocusedValue).
+    // Injected app-scoped references (see ViewCommands note re: @FocusedValue).
     var projectViewModelRef: ProjectViewModel?
+    var authManagerRef: AuthManager?
+    var coordinatorRef: AppCoordinator?
     @FocusedValue(\.projectViewModel) var focusedProjectViewModel: ProjectViewModel?
     var projectViewModel: ProjectViewModel? { projectViewModelRef ?? focusedProjectViewModel }
 
-    init(projectViewModelRef: ProjectViewModel? = nil) {
+    init(projectViewModelRef: ProjectViewModel? = nil,
+         authManagerRef: AuthManager? = nil,
+         coordinatorRef: AppCoordinator? = nil) {
         self.projectViewModelRef = projectViewModelRef
+        self.authManagerRef = authManagerRef
+        self.coordinatorRef = coordinatorRef
+    }
+
+    /// Menu items cannot wear `.requiresTier` (Commands, not Views), so
+    /// the gate lives in the action: at or above `tier` the export runs;
+    /// below it, ContentView presents the shared "coming soon" sheet
+    /// (Product-Versions §5.3 — the item stays visible and explains).
+    private func requireTier(_ tier: ProductTier, feature: String,
+                             _ export: () -> Void) {
+        if (authManagerRef?.tier ?? .free) >= tier {
+            export()
+        } else {
+            coordinatorRef?.pendingTierPrompt =
+                TierPromptRequest(feature: feature, requiredTier: tier)
+        }
     }
 
     var body: some Commands {
@@ -37,7 +58,11 @@ struct ExportCommands: Commands {
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as Final Draft (FDX)...") {
-                if let vm = projectViewModel { enqueueScreenplay(.fdx, vm.project) }
+                if let vm = projectViewModel {
+                    requireTier(.creator, feature: "Final Draft FDX export") {
+                        enqueueScreenplay(.fdx, vm.project)
+                    }
+                }
             }
             .disabled(projectViewModel?.hasProject != true)
 
@@ -48,14 +73,22 @@ struct ExportCommands: Commands {
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export as HTML...") {
-                if let vm = projectViewModel { enqueueScreenplay(.html, vm.project) }
+                if let vm = projectViewModel {
+                    requireTier(.creator, feature: "Screenplay HTML export") {
+                        enqueueScreenplay(.html, vm.project)
+                    }
+                }
             }
             .disabled(projectViewModel?.hasProject != true)
 
             Divider()
 
             Button("Export Character Profiles...") {
-                if let vm = projectViewModel { enqueueCharacterProfiles(vm.project) }
+                if let vm = projectViewModel {
+                    requireTier(.creator, feature: "Character profile export") {
+                        enqueueCharacterProfiles(vm.project)
+                    }
+                }
             }
             .disabled(projectViewModel?.hasProject != true ||
                       projectViewModel?.project.characters.isEmpty != false)
@@ -63,35 +96,41 @@ struct ExportCommands: Commands {
             // Editorial handoff (§2.17): what other departments' tools eat.
             Button("Export Shot List EDL...") {
                 if let vm = projectViewModel {
-                    exportInterchange(
-                        title: "Export Shot List EDL",
-                        fileName: "\(vm.project.name) - planned cut.edl",
-                        contentTypes: [],
-                        content: EditorialInterchange.edl(project: vm.project))
+                    requireTier(.creator, feature: "Editorial interchange export") {
+                        exportInterchange(
+                            title: "Export Shot List EDL",
+                            fileName: "\(vm.project.name) - planned cut.edl",
+                            contentTypes: [],
+                            content: EditorialInterchange.edl(project: vm.project))
+                    }
                 }
             }
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export Final Cut Pro XML...") {
                 if let vm = projectViewModel {
-                    exportInterchange(
-                        title: "Export Final Cut Pro XML",
-                        fileName: "\(vm.project.name) - planned cut.fcpxml",
-                        contentTypes: [UTType.xml],
-                        content: EditorialInterchange.fcpxml(
-                            project: vm.project))
+                    requireTier(.creator, feature: "Editorial interchange export") {
+                        exportInterchange(
+                            title: "Export Final Cut Pro XML",
+                            fileName: "\(vm.project.name) - planned cut.fcpxml",
+                            contentTypes: [UTType.xml],
+                            content: EditorialInterchange.fcpxml(
+                                project: vm.project))
+                    }
                 }
             }
             .disabled(projectViewModel?.hasProject != true)
 
             Button("Export Stripboard CSV...") {
                 if let vm = projectViewModel {
-                    exportInterchange(
-                        title: "Export Stripboard CSV",
-                        fileName: "\(vm.project.name) - stripboard.csv",
-                        contentTypes: [UTType.commaSeparatedText],
-                        content: EditorialInterchange.stripboardCSV(
-                            project: vm.project))
+                    requireTier(.creator, feature: "Editorial interchange export") {
+                        exportInterchange(
+                            title: "Export Stripboard CSV",
+                            fileName: "\(vm.project.name) - stripboard.csv",
+                            contentTypes: [UTType.commaSeparatedText],
+                            content: EditorialInterchange.stripboardCSV(
+                                project: vm.project))
+                    }
                 }
             }
             .disabled(projectViewModel?.hasProject != true)
@@ -110,7 +149,14 @@ struct ExportCommands: Commands {
             Divider()
 
             Button("Export All...") {
-                if let vm = projectViewModel { enqueueExportAll(vm.project) }
+                if let vm = projectViewModel {
+                    // Bundles FDX/HTML + the editorial set, so the whole
+                    // batch is Creator (§3.9); Fountain and PDF stay
+                    // individually exportable at Free.
+                    requireTier(.creator, feature: "Export All") {
+                        enqueueExportAll(vm.project)
+                    }
+                }
             }
             .keyboardShortcut(shortcuts.spec(for: "export.batch").keyboardShortcutOrDefault)
             .disabled(projectViewModel?.hasProject != true)

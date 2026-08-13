@@ -133,10 +133,17 @@ public class AuthManager: ObservableObject {
     /// The session's product tier, derived from the access token's `tier`
     /// claim whenever the token changes (Product-Versions §5.2). The token
     /// is decoded WITHOUT signature verification — the server verifies
-    /// every request; this feeds display/UX gating only. Fail-open: no
-    /// token, or an unknown/legacy claim, resolves to `.studio` until
-    /// billing ships (the structure-now rule — see Entitlements.swift).
+    /// every request; this feeds display/UX gating only. Fail-closed: no
+    /// token, or an unknown/legacy claim, resolves to `.free`
+    /// (Product-Versions §5.3 — see Entitlements.swift).
     @Published public private(set) var tier: ProductTier = ProductTier(fromJWT: nil)
+
+    /// Test-mode only: pins the session tier for deterministic automated
+    /// runs (the UI suite launches unlocked as `.studio`; DC-0016 reruns
+    /// it as `.free`). Real sessions derive the tier from the JWT claim.
+    public func overrideTierForTesting(_ tier: ProductTier) {
+        self.tier = tier
+    }
 
     // MARK: - Configuration
 
@@ -649,7 +656,7 @@ public class AuthManager: ObservableObject {
 
     private func clearSession() async {
         accessToken = nil
-        tier = ProductTier(fromJWT: nil)  // fail-open: signed out = .studio today
+        tier = ProductTier(fromJWT: nil)  // fail-closed: signed out = .free
         refreshToken = nil
         tokenExpiry = nil
         currentUser = nil

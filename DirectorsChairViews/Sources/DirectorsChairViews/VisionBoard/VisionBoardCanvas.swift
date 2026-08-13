@@ -5,6 +5,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 
 // MARK: - Vision Board Canvas
 
@@ -48,6 +49,11 @@ public struct VisionBoardCanvas: View {
     @State private var annotating: (card: VisionCard, image: NSImage)?
     @State private var promptFor: VisionCard?
     @State private var paperAt: CGPoint = .zero
+    /// Pro-toolkit gating (Product-Versions §3.4): the restyle tools
+    /// (palette extraction, text styles) are Creator. The ring tool stays
+    /// visible; below tier its reach opens the "coming soon" sheet.
+    @Environment(\.productTier) private var productTier
+    @State private var tierPrompt: TierPromptRequest?
 
     // MARK: - Constants
 
@@ -266,6 +272,7 @@ public struct VisionBoardCanvas: View {
         }
         .background(LinearGradient(colors: viewModel.currentTexture.surface,
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+        .tierPromptSheet($tierPrompt)
     }
 
 
@@ -648,6 +655,13 @@ public struct VisionBoardCanvas: View {
         case .pin:
             viewModel.togglePin(scrap.id)
         case .restyle:
+            guard productTier >= .creator else {
+                tierPrompt = TierPromptRequest(
+                    feature: scrap.cardType == VisionCardType.text.rawValue
+                        ? "Text styles" : "Palette extraction",
+                    requiredTier: .creator)
+                return
+            }
             if scrap.cardType == VisionCardType.text.rawValue {
                 viewModel.cycleClippingCut(scrap.id)
             } else {

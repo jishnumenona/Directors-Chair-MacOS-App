@@ -12,6 +12,7 @@ import Combine
 import os
 import DirectorsChairCore
 import DirectorsChairServices
+import DirectorsChairViews
 
 // MARK: - Debug Logging
 
@@ -118,6 +119,12 @@ class AppCoordinator: ObservableObject {
     /// assistant's start_storyteller action; the cost sheet still gates any
     /// generation)
     @Published var shouldOpenStoryteller: Bool = false
+
+    /// A tier-locked feature invoked from a context that cannot present a
+    /// sheet itself (menu-bar export commands). ContentView presents the
+    /// shared "coming soon" sheet for it (Product-Versions §5.3 — the
+    /// item stays visible and taps explain, never disappear).
+    @Published var pendingTierPrompt: TierPromptRequest?
 
     // MARK: - UI State
 

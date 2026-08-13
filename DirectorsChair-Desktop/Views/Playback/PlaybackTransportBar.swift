@@ -7,6 +7,8 @@
 //
 
 import SwiftUI
+import DirectorsChairServices
+import DirectorsChairViews
 
 struct PlaybackTransportBar: View {
     @ObservedObject var viewModel: PlaybackViewModel
@@ -74,7 +76,9 @@ struct PlaybackTransportBar: View {
 
                 // Right: Storyteller + Speed + Track Mixer + Volume
                 HStack(spacing: 12) {
-                    // Storyteller mode toggle
+                    // Storyteller mode toggle. Creator entry (§3.6):
+                    // below tier the button wears the lock and taps open
+                    // the "coming soon" sheet instead of the mode.
                     if let onStoryteller {
                         Button(action: onStoryteller) {
                             Image(systemName: storytellerActive
@@ -87,6 +91,7 @@ struct PlaybackTransportBar: View {
                         }
                         .buttonStyle(.plain)
                         .help("Storyteller — hear the screenplay told as a story")
+                        .requiresTier(.creator, feature: "Storyteller mode")
                     }
 
                     // Speed picker

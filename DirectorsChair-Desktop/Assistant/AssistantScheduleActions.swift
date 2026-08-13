@@ -95,6 +95,7 @@ final class ScheduleSceneAction: ScheduleAssistantAction, AssistantAction {
     warnings.
     """
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "scene": stringProp, "date": stringProp, "time_slot": stringProp,
@@ -165,6 +166,7 @@ final class UpdateScheduleItemAction: ScheduleAssistantAction, AssistantAction {
     scene is scheduled more than once). New conflicts come back as warnings.
     """
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "scene": stringProp, "date": stringProp,
@@ -268,6 +270,7 @@ final class RemoveScheduleItemAction: ScheduleAssistantAction, AssistantAction {
     let name = "remove_schedule_item"
     let summary = "Remove a scene from the shooting schedule (the scene itself is untouched)."
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["scene": stringProp, "date": stringProp],
                      required: ["scene"])

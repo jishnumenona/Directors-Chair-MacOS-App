@@ -235,7 +235,8 @@ enum CommandPaletteCatalog {
 
     static func entries(coordinator: AppCoordinator,
                         projectViewModel: ProjectViewModel,
-                        assistantAvailable: Bool) -> [PaletteEntry] {
+                        assistantAvailable: Bool,
+                        sessionTier: ProductTier = .free) -> [PaletteEntry] {
         var entries: [PaletteEntry] = []
 
         // Navigation first: it is what an empty palette should offer.
@@ -297,10 +298,15 @@ enum CommandPaletteCatalog {
         // Assistant actions: what the palette makes discoverable. Picking
         // one stages its phrase in the chat composer — actions take
         // arguments, so the finishing move belongs to the user, in words.
+        // Trimmed to the session tier, mirroring the engine's catalog
+        // advertisement (Product-Versions §5.2) — the palette must not
+        // stage a phrase the engine would refuse.
         if assistantAvailable && projectViewModel.hasProject {
             let registry = AssistantActionFactory.makeRegistry(
                 projectViewModel: projectViewModel, coordinator: coordinator)
             for tool in registry.toolDefinitions {
+                guard let action = registry.action(named: tool.name),
+                      action.minimumTier <= sessionTier else { continue }
                 entries.append(PaletteEntry(
                     id: "action.\(tool.name)",
                     title: humanize(tool.name),

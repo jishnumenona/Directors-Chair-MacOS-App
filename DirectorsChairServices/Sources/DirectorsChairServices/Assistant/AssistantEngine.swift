@@ -25,14 +25,14 @@ public struct EngineConfiguration: Sendable {
     public var projectId: String?
     /// The session's product tier — the engine advertises only the actions
     /// whose `minimumTier` this tier satisfies (Product-Versions §5.2).
-    /// Defaults to `.studio` (fail-open, structure-now rule): an unwired
-    /// caller sees the full catalog, exactly today's behavior.
+    /// Defaults to `.free` (fail-closed, §5.3): an unwired caller sees
+    /// only the Free catalog; the runtime injects the real session tier.
     public var sessionTier: ProductTier
 
     public init(maxModelCalls: Int = 8, provider: String? = nil,
                 model: String? = nil, maxTokens: Int = 4000,
                 temperature: Double = 0.7, projectId: String? = nil,
-                sessionTier: ProductTier = .studio) {
+                sessionTier: ProductTier = .free) {
         self.maxModelCalls = maxModelCalls
         self.provider = provider
         self.model = model

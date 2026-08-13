@@ -14,6 +14,7 @@
 //
 
 import Foundation
+import DirectorsChairServices
 
 enum TestMode {
 
@@ -22,6 +23,21 @@ enum TestMode {
         let args = ProcessInfo.processInfo.arguments
         return args.contains("--uitesting") || args.contains("--qa-fixture")
             || args.contains("--qa-fixture-keep")
+    }()
+
+    /// The product tier a test launch runs as. The suite was authored
+    /// against the unlocked app, so test mode defaults to `.studio`;
+    /// `--session-tier=free|creator|studio` overrides it (DC-0016 runs
+    /// the whole suite as `.free`). Real launches never read this — the
+    /// tier comes from the JWT claim, fail-closed to `.free`.
+    static let sessionTier: ProductTier = {
+        let args = ProcessInfo.processInfo.arguments
+        if let flag = args.first(where: { $0.hasPrefix("--session-tier=") }),
+           let tier = ProductTier(rawValue:
+                String(flag.dropFirst("--session-tier=".count))) {
+            return tier
+        }
+        return .studio
     }()
 
     /// Skip auth/session restore and all launch network activity.

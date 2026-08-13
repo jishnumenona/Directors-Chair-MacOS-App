@@ -219,6 +219,7 @@ final class StartStorytellerAction: ProjectAssistantAction, AssistantAction {
     narration-generation cost in the app before anything is generated.
     """
     let risk = ActionRisk.readOnly
+    let minimumTier = ProductTier.creator  // §3.6: Storyteller is Creator+ (positioning; spend is server-capped anyway)
     var parameterSchema: JSONValue {
         objectSchema([:], required: [])
     }

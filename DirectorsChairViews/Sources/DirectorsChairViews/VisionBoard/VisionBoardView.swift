@@ -560,13 +560,14 @@ public struct VisionBoardView: View {
                         exportBoardPNG()
                     }
                     .buttonStyle(.borderedProminent)
+                    // Both board exports are Creator (§3.9); Free keeps
+                    // the screenplay PDF/Fountain exports and the
+                    // per-image save panels.
+                    .requiresTier(.creator, feature: "Vision board PNG export")
                     Button("Export Lookbook as PDF…") {
                         showingExportOptions = false
                         exportLookbookPDF()
                     }
-                    // Creator feature (Product-Versions §3.9). Fail-open:
-                    // every account is .studio until billing, so no lock
-                    // renders today — this exercises the gating pattern.
                     .requiresTier(.creator, feature: "Lookbook PDF export")
                 }
                 .padding()

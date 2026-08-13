@@ -5,12 +5,13 @@
 // Product-Versions.html §5). The session's ProductTier derives from the auth
 // JWT's `tier` claim and feeds SwiftUI via `EnvironmentValues.productTier`.
 //
-// STRUCTURE NOW, MONETIZE LATER (Product-Versions §1, §5.3): until billing
-// exists, EVERY account must behave as the top tier. That is guaranteed here
-// twice over — unknown/legacy claims resolve to `.studio` in
-// `ProductTier(claim:)`, and the SwiftUI environment default is `.studio` —
-// so tier gating ships dark with zero user-visible change. When billing
-// lands (Phase 3), flip the fail-open default to `.free` (fail closed).
+// FAIL CLOSED (free launch, owner decision 2026-08-12 — Product-Versions
+// §5.3/§6): unknown/missing/legacy claims resolve to `.free` in
+// `ProductTier(claim:)`, and the SwiftUI environment default is `.free`.
+// Existing accounts were grandfathered to creator/studio server-side
+// (migration 0007), so only new signups and signed-out sessions land here.
+// Locked surfaces read "<Tier> — coming soon" with no purchase CTA until
+// billing (DC-0011) ships.
 
 import Foundation
 #if canImport(SwiftUI)
@@ -50,22 +51,23 @@ public enum ProductTier: String, Sendable, Codable, CaseIterable, Comparable {
 
     /// Maps the JWT `tier` claim to a product tier.
     ///
-    /// FAIL-OPEN (the structure-now rule, Product-Versions §1/§5.3): legacy
-    /// values minted today ("standard", "pro", "tester", "owner"), a missing
-    /// claim, and anything unknown ALL resolve to `.studio`, so every current
-    /// account behaves as the top tier and no lock badge ever shows. Flip
-    /// this default to `.free` when billing ships (Phase 3 — fail closed).
+    /// FAIL CLOSED (Product-Versions §5.3, live since the free launch):
+    /// a missing claim, a stale pre-migration legacy value ("standard",
+    /// "pro", "tester", "owner"), and anything unknown ALL resolve to
+    /// `.free`. The server mints only free/creator/studio since migration
+    /// 0007; a grandfathered account holding a stale legacy token shows
+    /// Free only until its next refresh.
     public init(claim: String?) {
         switch claim?.lowercased() {
         case "free": self = .free
         case "creator": self = .creator
         case "studio": self = .studio
-        default: self = .studio
+        default: self = .free
         }
     }
 
     /// Derives the tier from an access token's unverified `tier` claim.
-    /// A nil/undecodable token fails open to `.studio` via `init(claim:)`.
+    /// A nil/undecodable token fails closed to `.free` via `init(claim:)`.
     public init(fromJWT token: String?) {
         self.init(claim: token.flatMap {
             UnverifiedJWT.stringClaim("tier", in: $0)
@@ -121,15 +123,17 @@ public enum UnverifiedJWT {
 
 #if canImport(SwiftUI)
 private struct ProductTierEnvironmentKey: EnvironmentKey {
-    /// Fail-open default (structure-now rule): any view hierarchy that is
-    /// not explicitly wired to the session — previews, tests, package
-    /// components — behaves as the top tier and shows no locks.
-    static let defaultValue: ProductTier = .studio
+    /// Fail-closed default (Product-Versions §5.3): any view hierarchy that
+    /// is not explicitly wired to the session — previews, tests, package
+    /// components — behaves as Free and renders its locks. Inject
+    /// `.environment(\.productTier, .studio)` where a preview or test
+    /// needs the unlocked rendering.
+    static let defaultValue: ProductTier = .free
 }
 
 public extension EnvironmentValues {
     /// The session's product tier, injected at the app root from
-    /// `AuthManager.tier`. Defaults to `.studio` (fail-open) when unset.
+    /// `AuthManager.tier`. Defaults to `.free` (fail-closed) when unset.
     var productTier: ProductTier {
         get { self[ProductTierEnvironmentKey.self] }
         set { self[ProductTierEnvironmentKey.self] = newValue }
