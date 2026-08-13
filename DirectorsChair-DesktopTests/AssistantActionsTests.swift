@@ -84,7 +84,7 @@ final class AssistantActionsTests: XCTestCase {
         // The matrix's generation + assistant-production spending actions.
         let creatorActions = [
             "generate_character_images", "generate_scene_image",
-            "generate_location_images", "generate_vision_board_image",
+            "generate_location_images",
             "generate_shot_video", "generate_dialogue_audio",
             "generate_missing_images", "write_character_biography",
             "calibrate_character_traits", "analyze_timeline", "add_expense",
@@ -93,18 +93,22 @@ final class AssistantActionsTests: XCTestCase {
             XCTAssertEqual(action(name).minimumTier, .creator, name)
         }
 
-        // The deliberate Free exception (§3.1 footnote 1): screenplay
-        // import is the critical first-run path, metered server-side.
+        // The deliberate Free exceptions, both metered server-side:
+        // screenplay import is the critical first-run path (§3.1 footnote
+        // 1), and vision-card images are Free's generation taste (§3.4,
+        // owner decision 2026-08-12).
         XCTAssertEqual(action("import_screenplay").minimumTier, .free)
-        // Navigation-class Storyteller entry stays Free — the cost sheet
-        // and the Creator-tier generation actions gate the actual spend.
-        XCTAssertEqual(action("start_storyteller").minimumTier, .free)
+        XCTAssertEqual(action("generate_vision_board_image").minimumTier, .free)
+        // Storyteller entry is Creator (§3.6) — positioning, not spend
+        // protection; the cost sheet and generation actions gate spend.
+        XCTAssertEqual(action("start_storyteller").minimumTier, .creator)
 
         // Consistency: every OTHER spending action must be Creator — a new
         // spending action lands here (with a matrix row) or fails the build.
+        let freeSpenders = ["import_screenplay", "generate_vision_board_image"]
         for definition in registry.toolDefinitions {
             guard let act = registry.action(named: definition.name),
-                  act.risk == .spending, act.name != "import_screenplay" else {
+                  act.risk == .spending, !freeSpenders.contains(act.name) else {
                 continue
             }
             XCTAssertEqual(act.minimumTier, .creator,
@@ -112,11 +116,33 @@ final class AssistantActionsTests: XCTestCase {
         }
     }
 
+    func testProductionMutationsAreCreatorTier() {
+        // §3.7 "Production actions": schedule, budget, Gantt, cast/crew,
+        // and equipment MUTATIONS are Creator+ — the Production view locks
+        // at Free, so the assistant path must not mutate what the UI
+        // cannot reach. Reads stay Free (the read/navigate row is ✓).
+        let productionMutations = [
+            "schedule_scene", "update_schedule_item", "remove_schedule_item",
+            "add_gantt_task", "update_gantt_task", "remove_gantt_task",
+            "add_cast_member", "add_crew_member", "add_equipment_item",
+            "add_budget_category", "update_budget_category",
+        ]
+        for name in productionMutations {
+            XCTAssertEqual(action(name).minimumTier, .creator, name)
+        }
+        for name in ["get_schedule", "get_schedule_conflicts", "get_gantt",
+                     "get_people", "get_equipment", "get_budget_summary"] {
+            XCTAssertEqual(action(name).minimumTier, .free,
+                           "\(name): production reads stay Free (§3.7)")
+        }
+    }
+
     func testStudioSessionAdvertisesTheFullCatalogGoldenPath() {
-        // Structure-now invariant: every account resolves to .studio until
-        // billing, and at .studio the tier filter passes the ENTIRE catalog
-        // — assistant behavior today is byte-identical to pre-tiering.
-        XCTAssertEqual(EngineConfiguration().sessionTier, .studio)
+        // At .studio the tier filter passes the ENTIRE catalog; the
+        // DEFAULT session tier is .free (fail-closed since the free
+        // launch), so the full catalog only appears when the runtime
+        // injects a real Studio claim.
+        XCTAssertEqual(EngineConfiguration().sessionTier, .free)
         let advertised = registry.toolDefinitions.filter { definition in
             guard let act = registry.action(named: definition.name) else {
                 return false

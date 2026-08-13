@@ -234,7 +234,8 @@ struct ContentView: View {
                         paletteEntries = CommandPaletteCatalog.entries(
                             coordinator: coordinator,
                             projectViewModel: projectViewModel,
-                            assistantAvailable: authManager.isAuthenticated)
+                            assistantAvailable: authManager.isAuthenticated,
+                            sessionTier: authManager.tier)
                     }
             }
 
@@ -346,6 +347,9 @@ struct ContentView: View {
             SnapshotsSheet()
                 .environmentObject(projectViewModel)
         }
+        // Locked-feature "coming soon" sheet for surfaces that cannot
+        // present it themselves (menu-bar export commands).
+        .tierPromptSheet($coordinator.pendingTierPrompt)
         .onAppear {
             wireAppWideUndo()
             if let report = CrashReportPresenter.pending {

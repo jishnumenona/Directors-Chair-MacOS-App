@@ -447,10 +447,11 @@ final class AuthManagerTests: XCTestCase {
 
     // MARK: - Product Tier (entitlements Phase 2)
 
-    func testInitialTierIsStudioFailOpen() {
-        // Structure now, monetize later: with no token at all the session
-        // behaves as the top tier — nothing is ever locked before billing.
-        XCTAssertEqual(authManager.tier, .studio)
+    func testInitialTierIsFreeFailClosed() {
+        // Fail closed (free launch, owner decision 2026-08-12): with no
+        // token at all the session behaves as Free — entitlements are
+        // earned by a claim, never assumed.
+        XCTAssertEqual(authManager.tier, .free)
     }
 
     func testRestoreSessionDerivesTierFromStoredJWT() async throws {
@@ -469,28 +470,29 @@ final class AuthManagerTests: XCTestCase {
                        "tier must reflect the stored token's claim")
     }
 
-    func testOpaqueLegacyTokenKeepsTierStudio() async throws {
-        // Today's tokens carry legacy claims ("pro"/"standard") or none the
-        // client maps — an undecodable/legacy token must fail open.
+    func testOpaqueLegacyTokenFailsClosedToFree() async throws {
+        // A stale pre-migration token (opaque, or a legacy claim the
+        // client no longer maps) must fail closed — Free until the next
+        // refresh mints a real free/creator/studio claim.
         try await testKeychain.save("cached-opaque-token", forKey: .accessToken)
 
         await authManager.restoreSession()
 
-        XCTAssertEqual(authManager.tier, .studio,
-                       "fail-open: opaque/legacy tokens resolve to the top tier")
+        XCTAssertEqual(authManager.tier, .free,
+                       "fail-closed: opaque/legacy tokens resolve to Free")
     }
 
-    func testLogoutResetsTierToFailOpenStudio() async throws {
-        let payload = Data(#"{"tier":"free"}"#.utf8)
+    func testLogoutResetsTierToFailClosedFree() async throws {
+        let payload = Data(#"{"tier":"creator"}"#.utf8)
             .base64EncodedString()
             .replacingOccurrences(of: "=", with: "")
         try await testKeychain.save("h.\(payload).s", forKey: .accessToken)
         await authManager.restoreSession()
-        XCTAssertEqual(authManager.tier, .free)
+        XCTAssertEqual(authManager.tier, .creator)
 
         await authManager.logout()
 
-        XCTAssertEqual(authManager.tier, .studio,
-                       "signed out = no claim = top tier until billing ships")
+        XCTAssertEqual(authManager.tier, .free,
+                       "signed out = no claim = Free")
     }
 }

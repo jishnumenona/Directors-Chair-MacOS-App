@@ -63,9 +63,9 @@ struct DirectorsChair_DesktopApp: App {
                 .environmentObject(authManager)
                 .environmentObject(cloudSyncManager)
                 .environmentObject(syncEngine)
-                // Product-tiering Phase 2: the session tier for lock-badge
-                // gating (Product-Versions §5.2). AuthManager derives it from
-                // the JWT's tier claim; fail-open `.studio` until billing.
+                // The session tier for lock-badge gating (Product-Versions
+                // §5.2). AuthManager derives it from the JWT's tier claim;
+                // fail-closed `.free` when signed out or unreadable.
                 .environment(\.productTier, authManager.tier)
                 .focusedValue(\.projectViewModel, projectViewModel)
                 .focusedValue(\.appCoordinator, coordinator)
@@ -99,6 +99,10 @@ struct DirectorsChair_DesktopApp: App {
                     // ("Continue Offline") never blocks the test flow.
                     if TestMode.skipAuthAndNetwork {
                         authManager.isAuthenticated = true
+                        // The offline test session has no JWT to derive a
+                        // tier from; pin the launch-argument tier so the
+                        // fail-closed default doesn't lock the suite out.
+                        authManager.overrideTierForTesting(TestMode.sessionTier)
                         return
                     }
 
@@ -177,7 +181,9 @@ struct DirectorsChair_DesktopApp: App {
         .commands {
             FileCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
             ViewCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
-            ExportCommands(projectViewModelRef: projectViewModel)
+            ExportCommands(projectViewModelRef: projectViewModel,
+                           authManagerRef: authManager,
+                           coordinatorRef: coordinator)
             UpdateCommands(updater: updaterViewModel)
         }
 

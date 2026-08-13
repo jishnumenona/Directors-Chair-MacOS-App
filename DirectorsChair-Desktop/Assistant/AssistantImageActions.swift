@@ -250,7 +250,11 @@ final class GenerateVisionBoardImageAction: ProjectAssistantAction, AssistantAct
     description. SPENDS ~$0.04; runs only after the user approves.
     """
     let risk = ActionRisk.spending
-    let minimumTier = ProductTier.creator  // §3.7: generation actions are Creator+
+    // §3.4 + §6 (owner decision 2026-08-12): vision-card AI images are
+    // FREE — the Free allowance's generation taste. Quota-metered
+    // server-side like every spend; the sole Free spending action beside
+    // import_screenplay.
+    let minimumTier = ProductTier.free
     var parameterSchema: JSONValue {
         objectSchema(["prompt": stringProp], required: ["prompt"])
     }

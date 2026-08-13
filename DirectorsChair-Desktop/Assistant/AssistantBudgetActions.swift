@@ -153,6 +153,7 @@ final class AddBudgetCategoryAction: BudgetAssistantAction, AssistantAction {
     account code and group ATL|BTL|Post|Other).
     """
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "name": stringProp, "allocated": numberProp,
@@ -226,6 +227,7 @@ final class UpdateBudgetCategoryAction: BudgetAssistantAction, AssistantAction {
     let name = "update_budget_category"
     let summary = "Change a budget category's allocated amount (by name or account code)."
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["category": stringProp, "new_allocated": numberProp],
                      required: ["category", "new_allocated"])

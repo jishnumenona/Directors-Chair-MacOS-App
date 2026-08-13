@@ -9,12 +9,16 @@ import SwiftUI
 import PDFKit
 import DirectorsChairCore
 import DirectorsChairExports
+import DirectorsChairServices
+import DirectorsChairViews
 
 struct ScriptToolbar: View {
     @ObservedObject var viewModel: ScriptViewModel
     @EnvironmentObject var projectViewModel: ProjectViewModel
+    @Environment(\.productTier) private var productTier
     @State private var showShortcutsPopover = false
     @State private var showStatsPopover = false
+    @State private var tierPrompt: TierPromptRequest?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -174,8 +178,21 @@ struct ScriptToolbar: View {
                 Button("Fountain (.fountain)") {
                     exportFountain()
                 }
-                Button("Final Draft (.fdx)") {
-                    exportFDX()
+                // FDX is Creator (§3.9). Menu rows can't wear the
+                // .requiresTier overlay, so the row stays visible with a
+                // lock and the action explains (§5.3 — never hidden).
+                if productTier >= .creator {
+                    Button("Final Draft (.fdx)") {
+                        exportFDX()
+                    }
+                } else {
+                    Button {
+                        tierPrompt = TierPromptRequest(
+                            feature: "Final Draft FDX export",
+                            requiredTier: .creator)
+                    } label: {
+                        Label("Final Draft (.fdx)", systemImage: "lock.fill")
+                    }
                 }
                 Button("PDF (.pdf)") {
                     exportPDF()
@@ -192,6 +209,7 @@ struct ScriptToolbar: View {
             .frame(width: 120)
             .help("Export screenplay to industry-standard formats")
         }
+        .tierPromptSheet($tierPrompt)
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(Color(nsColor: .controlBackgroundColor))

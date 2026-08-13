@@ -8,6 +8,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 import UniformTypeIdentifiers
 
 // MARK: - Editor Theme
@@ -173,6 +174,30 @@ public struct VisionCardEditor: View {
     @State private var previewImage: NSImage?
     @Namespace private var tabNamespace
 
+    /// Pro-toolkit gating (Product-Versions §3.4): the frame, palette,
+    /// and shot-strip card types are Creator. Their chips stay visible
+    /// with a lock; picking one below tier opens the "coming soon" sheet.
+    @Environment(\.productTier) private var productTier
+    @State private var tierPrompt: TierPromptRequest?
+    private static let proToolkitTypes: Set<VisionCardType> =
+        [.frame, .colorPalette, .shotStrip]
+
+    private func typeIsLocked(_ type: VisionCardType) -> Bool {
+        Self.proToolkitTypes.contains(type) && productTier < .creator
+    }
+
+    private func selectType(_ type: VisionCardType) {
+        guard !typeIsLocked(type) else {
+            tierPrompt = TierPromptRequest(
+                feature: "\(type.displayName) cards (Pro toolkit)",
+                requiredTier: .creator)
+            return
+        }
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            card.cardType = type.rawValue
+        }
+    }
+
     // MARK: - Init
 
     public init(
@@ -249,6 +274,7 @@ public struct VisionCardEditor: View {
         .background(EditorTheme.window)
         .animation(.spring(response: 0.3, dampingFraction: 0.9),
                    value: showAdvanced)
+        .tierPromptSheet($tierPrompt)
         .onAppear {
             loadPreviewImage()
         }
@@ -424,6 +450,9 @@ public struct VisionCardEditor: View {
                         mediaButton("Add Frames…", icon: "plus") {
                             addStripFrames()
                         }
+                        // Editing an existing strip (example projects
+                        // ship some) is still Pro toolkit (§3.4).
+                        .requiresTier(.creator, feature: "Image strips")
                     }
                     simpleTitleField
 
@@ -554,9 +583,7 @@ public struct VisionCardEditor: View {
             ForEach(VisionCardType.allCases) { type in
                 let selected = cardType == type
                 Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                        card.cardType = type.rawValue
-                    }
+                    selectType(type)
                 } label: {
                     VStack(spacing: 3) {
                         Image(systemName: type.systemImage)
@@ -574,6 +601,9 @@ public struct VisionCardEditor: View {
                     .overlay(RoundedRectangle(cornerRadius: 8)
                         .stroke(selected ? Color.accentColor.opacity(0.85)
                                          : EditorTheme.stroke, lineWidth: 1))
+                    .overlay(alignment: .topTrailing) {
+                        if typeIsLocked(type) { TierLockBadge() }
+                    }
                     .foregroundColor(selected ? .accentColor
                                              : EditorTheme.secondary)
                 }
@@ -641,9 +671,7 @@ public struct VisionCardEditor: View {
     private func typeChip(_ type: VisionCardType) -> some View {
         let selected = cardType == type
         return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                card.cardType = type.rawValue
-            }
+            selectType(type)
         } label: {
             VStack(spacing: 3) {
                 Image(systemName: type.systemImage)
@@ -660,6 +688,9 @@ public struct VisionCardEditor: View {
             .overlay(RoundedRectangle(cornerRadius: 9)
                 .stroke(selected ? Color.accentColor.opacity(0.85)
                                  : EditorTheme.stroke, lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                if typeIsLocked(type) { TierLockBadge() }
+            }
             .foregroundColor(selected ? .accentColor : EditorTheme.secondary)
         }
         .buttonStyle(.plain)

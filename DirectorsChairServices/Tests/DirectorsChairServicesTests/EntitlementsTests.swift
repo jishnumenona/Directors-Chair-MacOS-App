@@ -1,10 +1,10 @@
 // DirectorsChairServices/Tests/DirectorsChairServicesTests/EntitlementsTests.swift
 //
-// Product-tiering Phase 2: the ProductTier lattice, the claim mapping with
-// its fail-open legacy rule (structure now, monetize later), the unverified
-// JWT payload decode, and the SwiftUI environment default. The scaffold's
-// contract is "zero user-visible change until billing" — several tests here
-// pin exactly that.
+// The ProductTier lattice, the claim mapping with its fail-closed rule
+// (free launch, owner decision 2026-08-12), the unverified JWT payload
+// decode, and the SwiftUI environment default. The contract is "unknown
+// resolves to Free" (Product-Versions §5.3) — several tests here pin
+// exactly that.
 
 import XCTest
 import SwiftUI
@@ -35,17 +35,18 @@ final class EntitlementsTests: XCTestCase {
                        "claim matching is case-insensitive")
     }
 
-    func testLegacyAndUnknownClaimsFailOpenToStudio() {
-        // The structure-now rule (Product-Versions §1): every claim the auth
-        // service mints today, plus nil and garbage, resolves to the top
-        // tier so no account loses anything before billing exists. When
-        // billing ships this default flips to .free (fail closed).
+    func testLegacyAndUnknownClaimsFailClosedToFree() {
+        // Fail closed (Product-Versions §5.3, live since the free launch):
+        // stale pre-migration legacy values, nil, and garbage all resolve
+        // to Free. The server mints only free/creator/studio since
+        // migration 0007, so a legacy claim only means a stale cached
+        // token — Free until the next refresh.
         for legacy in ["standard", "tester", "owner", "pro"] {
-            XCTAssertEqual(ProductTier(claim: legacy), .studio, legacy)
+            XCTAssertEqual(ProductTier(claim: legacy), .free, legacy)
         }
-        XCTAssertEqual(ProductTier(claim: nil), .studio)
-        XCTAssertEqual(ProductTier(claim: ""), .studio)
-        XCTAssertEqual(ProductTier(claim: "enterprise-mega"), .studio)
+        XCTAssertEqual(ProductTier(claim: nil), .free)
+        XCTAssertEqual(ProductTier(claim: ""), .free)
+        XCTAssertEqual(ProductTier(claim: "enterprise-mega"), .free)
     }
 
     func testDisplayNames() {
@@ -89,30 +90,30 @@ final class EntitlementsTests: XCTestCase {
         XCTAssertEqual(ProductTier(fromJWT: token), .free)
     }
 
-    func testMalformedTokensFailOpenToStudio() throws {
+    func testMalformedTokensFailClosedToFree() throws {
         // Not a JWT at all, wrong segment count, non-base64 payload,
-        // non-JSON payload, nil — every failure mode must resolve to the
-        // top tier today (never lock a paying-nothing-yet account out).
-        XCTAssertEqual(ProductTier(fromJWT: nil), .studio)
-        XCTAssertEqual(ProductTier(fromJWT: "cached-token"), .studio)
-        XCTAssertEqual(ProductTier(fromJWT: "a.b"), .studio)
-        XCTAssertEqual(ProductTier(fromJWT: "a.!!!not-base64!!!.c"), .studio)
+        // non-JSON payload, nil — every failure mode must resolve to Free
+        // (a token we cannot read earns nothing).
+        XCTAssertEqual(ProductTier(fromJWT: nil), .free)
+        XCTAssertEqual(ProductTier(fromJWT: "cached-token"), .free)
+        XCTAssertEqual(ProductTier(fromJWT: "a.b"), .free)
+        XCTAssertEqual(ProductTier(fromJWT: "a.!!!not-base64!!!.c"), .free)
         let notJSON = Data("plain text".utf8).base64EncodedString()
-        XCTAssertEqual(ProductTier(fromJWT: "a.\(notJSON).c"), .studio)
+        XCTAssertEqual(ProductTier(fromJWT: "a.\(notJSON).c"), .free)
         XCTAssertNil(UnverifiedJWT.payload(of: "no-dots-here"))
     }
 
-    func testTokenWithoutTierClaimFailsOpenToStudio() throws {
+    func testTokenWithoutTierClaimFailsClosedToFree() throws {
         let token = try fixtureJWT(payload: ["sub": "42"])
-        XCTAssertEqual(ProductTier(fromJWT: token), .studio)
+        XCTAssertEqual(ProductTier(fromJWT: token), .free)
     }
 
     // MARK: - SwiftUI environment
 
-    func testEnvironmentDefaultIsStudioFailOpen() {
+    func testEnvironmentDefaultIsFreeFailClosed() {
         // Any hierarchy not wired to the session (previews, tests, package
-        // components) must behave as the top tier — no lock ever renders
-        // by accident.
-        XCTAssertEqual(EnvironmentValues().productTier, .studio)
+        // components) behaves as Free and renders its locks — a gate can
+        // never fail open by accident.
+        XCTAssertEqual(EnvironmentValues().productTier, .free)
     }
 }

@@ -25,7 +25,7 @@ final class AssistantRuntime {
 
     /// The session source for the engine's tier-filtered catalog
     /// (Product-Versions §5.2). Weak like videoJobs; before configure()
-    /// runs, makeEngine falls back to `.studio` (fail-open).
+    /// runs, makeEngine falls back to `.free` (fail-closed).
     private weak var authManager: AuthManager?
 
     /// Mirrors the app's AIServiceClient token wiring (single 401 refresh);
@@ -64,7 +64,7 @@ final class AssistantRuntime {
     /// (the engine advertises only the actions the tier includes).
     func makeEngine(registry: ActionRegistry) -> AssistantEngine {
         var configuration = Self.routedConfiguration()
-        configuration.sessionTier = authManager?.tier ?? .studio  // fail-open
+        configuration.sessionTier = authManager?.tier ?? .free  // fail-closed
         return AssistantEngine(
             transport: transport,
             registry: registry,

@@ -514,7 +514,12 @@ final class AssistantGoldenEvals: XCTestCase {
         let registry = AssistantActionFactory.makeRegistry(
             projectViewModel: pvm, coordinator: coordinator)
         let transport = EvalTransport(scripts: scenario.scripts)
-        let engine = AssistantEngine(transport: transport, registry: registry)
+        // The golden set pins ACTION behavior, not gating, so it runs as
+        // .studio (full catalog); the free-session QA pass (DC-0016)
+        // reruns it under .free to pin the refusals instead.
+        let engine = AssistantEngine(
+            transport: transport, registry: registry,
+            configuration: EngineConfiguration(sessionTier: .studio))
 
         var events: [EngineEvent] = []
         for await event in await engine.runTurn(history: [.system("eval")],

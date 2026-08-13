@@ -490,10 +490,11 @@ final class AssistantEngineThreadTests: XCTestCase {
                        "a Free session must not advertise Creator actions")
     }
 
-    func testDefaultConfigurationAdvertisesTheFullCatalog() async throws {
-        // GOLDEN PATH: the default session tier is .studio (fail-open,
-        // structure-now rule), so an unwired engine advertises everything —
-        // identical to the pre-tiering behavior.
+    func testDefaultConfigurationAdvertisesOnlyTheFreeCatalog() async throws {
+        // FAIL CLOSED (Product-Versions §5.3, live since the free launch):
+        // the default session tier is .free, so an unwired engine
+        // advertises only the Free subset — a gate can never fail open
+        // because a caller forgot to inject the tier.
         let transport = ScriptedTransport(scripts: [[
             .delta("Hello."), .done(finishReason: "stop", model: "m")]])
         var registry = ActionRegistry()
@@ -503,10 +504,9 @@ final class AssistantEngineThreadTests: XCTestCase {
 
         _ = await collect(engine, thread: nil)
 
-        XCTAssertEqual(EngineConfiguration().sessionTier, .studio)
-        XCTAssertEqual(transport.requests[0].tools.map(\.name),
-                       registry.toolDefinitions.map(\.name),
-                       "at .studio the advertised catalog is the full registry")
+        XCTAssertEqual(EngineConfiguration().sessionTier, .free)
+        XCTAssertEqual(transport.requests[0].tools.map(\.name), ["get_scene"],
+                       "an unwired engine advertises only Free actions")
     }
 
     func testLockedToolCallIsRefusedWithoutExecution() async throws {

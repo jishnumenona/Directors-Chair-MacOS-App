@@ -112,6 +112,7 @@ final class AddGanttTaskAction: GanttAssistantAction, AssistantAction {
     (cycles are rejected).
     """
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "name": stringProp, "category": stringProp,
@@ -187,6 +188,7 @@ final class UpdateGanttTaskAction: GanttAssistantAction, AssistantAction {
     0–100, or replace its dependencies (names or ids; cycles are rejected).
     """
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "task": stringProp, "new_name": stringProp,
@@ -293,6 +295,7 @@ final class RemoveGanttTaskAction: GanttAssistantAction, AssistantAction {
     let name = "remove_gantt_task"
     let summary = "Remove a task from the production plan; dependent tasks lose that dependency."
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["task": stringProp], required: ["task"])
     }

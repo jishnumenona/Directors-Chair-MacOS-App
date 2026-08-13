@@ -6,6 +6,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 import AppKit
 import UniformTypeIdentifiers
 
@@ -288,6 +289,7 @@ extension StoryDesignView {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
             .help("Export character sheet as HTML file to share with actors")
+            .requiresTier(.creator, feature: "Character profile HTML export")
 
             Button {
                 showGenerateAllConfirmation = true

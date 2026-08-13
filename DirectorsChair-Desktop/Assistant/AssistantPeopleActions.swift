@@ -37,6 +37,7 @@ final class AddCastMemberAction: ProjectAssistantAction, AssistantAction {
     and union status). Pay and contact details are managed in the app only.
     """
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "actor": stringProp, "character": stringProp,
@@ -113,6 +114,7 @@ final class AddCrewMemberAction: ProjectAssistantAction, AssistantAction {
     Pay and contact details are managed in the app only.
     """
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema(["name": stringProp, "role": stringProp,
                       "department": stringProp],
@@ -157,6 +159,7 @@ final class AddEquipmentItemAction: ProjectAssistantAction, AssistantAction {
     let name = "add_equipment_item"
     let summary = "Add an item to the equipment library (name, category, optional quantity and rental flag)."
     let risk = ActionRisk.mutating
+    let minimumTier = ProductTier.creator  // §3.7: assistant production actions are Creator+
     var parameterSchema: JSONValue {
         objectSchema([
             "name": stringProp, "category": stringProp,

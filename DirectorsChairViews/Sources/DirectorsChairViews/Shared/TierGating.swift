@@ -1,11 +1,10 @@
 // DirectorsChairViews/Sources/DirectorsChairViews/Shared/TierGating.swift
 //
-// Product-tiering Phase 2: the per-feature gating affordance
-// (Product-Versions §5.3 — lock badge, never hidden UI). A control above
-// the session tier stays visible, wears a small lock badge, and taps open
-// an upgrade prompt instead of performing its action. The session tier
-// arrives via `EnvironmentValues.productTier` (default `.studio`, fail-open:
-// until billing ships every account is top tier and no lock ever renders).
+// The per-feature gating affordance (Product-Versions §5.3 — lock badge,
+// never hidden UI). A control above the session tier stays visible, wears
+// a small lock badge, and taps open a "coming soon" sheet instead of
+// performing its action. The session tier arrives via
+// `EnvironmentValues.productTier` (default `.free`, fail-closed).
 
 import SwiftUI
 import DirectorsChairServices
@@ -49,7 +48,7 @@ private struct RequiresTierModifier: ViewModifier {
                     }
             }
             .buttonStyle(.plain)
-            .help("\(feature) is included in \(requiredTier.displayName)")
+            .help("\(feature) is part of \(requiredTier.displayName) — coming soon")
             .sheet(isPresented: $showingUpgradePrompt) {
                 TierUpgradeSheet(feature: feature, requiredTier: requiredTier)
             }
@@ -69,15 +68,17 @@ public struct TierLockBadge: View {
             .foregroundStyle(.secondary)
             .padding(2)
             .background(Circle().fill(.thinMaterial))
-            .accessibilityLabel("Locked — requires an upgrade")
+            .accessibilityLabel("Locked — part of a plan coming soon")
     }
 }
 
 // MARK: - Upgrade prompt
 
-/// Branded upgrade copy shared by the `.requiresTier` sheet and the app's
-/// LockedFeatureView placeholder: feature name + "Included in <tier>" +
-/// the Product Versions document reference.
+/// Locked-feature copy shared by the `.requiresTier` sheet and the app's
+/// LockedFeatureView placeholder: feature name + "<Tier> — coming soon" +
+/// the Product Versions document reference. Deliberately NO purchase
+/// call-to-action: plans are not buyable until billing (DC-0011) ships
+/// (owner decision 2026-08-12, Product-Versions §6).
 public struct TierUpgradePrompt: View {
     public let feature: String
     public let requiredTier: ProductTier
@@ -96,15 +97,16 @@ public struct TierUpgradePrompt: View {
             Text(feature)
                 .font(.title3.weight(.semibold))
 
-            Text("Included in \(requiredTier.displayName)")
+            Text("\(requiredTier.displayName) — coming soon")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(Capsule().fill(Color.accentColor.opacity(0.12)))
 
-            Text("Upgrade to the \(requiredTier.displayName) plan to unlock "
-                 + "this feature. Everything you make stays right here.")
+            Text("This feature is part of the \(requiredTier.displayName) "
+                 + "plan, which is coming soon. Everything you make stays "
+                 + "right here.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -120,18 +122,53 @@ public struct TierUpgradePrompt: View {
 }
 
 /// The `.requiresTier` sheet: the shared prompt plus a dismiss button.
-struct TierUpgradeSheet: View {
+/// Public so surfaces that cannot wear the modifier (menu-bar commands,
+/// menu items, radial tools) can present the same sheet themselves.
+public struct TierUpgradeSheet: View {
     let feature: String
     let requiredTier: ProductTier
 
     @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
+    public init(feature: String, requiredTier: ProductTier) {
+        self.feature = feature
+        self.requiredTier = requiredTier
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             TierUpgradePrompt(feature: feature, requiredTier: requiredTier)
             Button("OK") { dismiss() }
                 .keyboardShortcut(.defaultAction)
                 .padding(.bottom, 20)
+        }
+    }
+}
+
+// MARK: - Deferred prompt plumbing
+
+/// A locked feature someone tried to use from a context that cannot
+/// present its own sheet inline (menu-bar command, menu item, radial
+/// tool). Stash one of these in local `@State` — or on AppCoordinator for
+/// app-level surfaces — and present it with `.tierPromptSheet(_:)`.
+public struct TierPromptRequest: Identifiable, Equatable {
+    public let feature: String
+    public let requiredTier: ProductTier
+    public var id: String { feature }
+
+    public init(feature: String, requiredTier: ProductTier) {
+        self.feature = feature
+        self.requiredTier = requiredTier
+    }
+}
+
+public extension View {
+    /// Presents the shared "coming soon" sheet whenever `request` is
+    /// non-nil; dismissing clears it.
+    func tierPromptSheet(_ request: Binding<TierPromptRequest?>) -> some View {
+        sheet(item: request) { locked in
+            TierUpgradeSheet(feature: locked.feature,
+                             requiredTier: locked.requiredTier)
         }
     }
 }
