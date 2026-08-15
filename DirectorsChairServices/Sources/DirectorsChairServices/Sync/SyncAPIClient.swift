@@ -150,6 +150,10 @@ public enum SyncAPIError: Error, Sendable, Equatable {
     /// The project is archived server-side — mutations 409 until it is
     /// unarchived in the web portal (Orgs §12B.6).
     case archived
+    /// The account's plan is out of cloud-project slots (DC-0015: Free syncs
+    /// up to 3) — 403 `cloud_project_limit` on creating a NEW project.
+    /// Existing projects keep syncing; deleting one frees a slot.
+    case planLimit(limit: Int, message: String)
     case payloadTooLarge
     case uncommittedBlobs([String])
     case serviceUnavailable
@@ -335,6 +339,15 @@ public actor SyncAPIClient {
             return data
         case 401:
             throw SyncAPIError.notAuthenticated
+        case 403:
+            if let detail = Self.detailObject(data),
+               detail["error"] as? String == "cloud_project_limit" {
+                throw SyncAPIError.planLimit(
+                    limit: detail["limit"] as? Int ?? 0,
+                    message: detail["message"] as? String
+                        ?? "Your plan's cloud-project limit is reached")
+            }
+            throw SyncAPIError.server(status: 403)
         case 404:
             throw SyncAPIError.notFound
         case 409:
