@@ -467,6 +467,9 @@ public final class SyncEngine: ObservableObject {
                      + "may have been removed or your role changed"
             case .archived:
                 return "Project is archived — unarchive it in the web portal to sync"
+            case .planLimit(_, let message):
+                return message + " — delete a cloud project to free a slot, "
+                     + "or upgrade to Creator (coming soon)"
             case .uncommittedBlobs: return "Upload incomplete — try again"
             case .server(let status): return "Sync failed (server \(status))"
             case .transport(let message): return "Network problem: \(message)"

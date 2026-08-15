@@ -24,6 +24,8 @@ final class ScriptedSyncServer {
     var projectList: [[String: Any]] = []
     /// When true, commits 409 with the archived marker (server _not_archived).
     var archived = false
+    /// When true, project creation 403s with the DC-0015 cap contract.
+    var atProjectCap = false
 
     func install() {
         MockURLProtocol.handler = { [weak self] request in
@@ -156,6 +158,12 @@ final class ScriptedSyncServer {
             return try ok(orgProjects[orgID] ?? [], url: url)
 
         case ("POST", "/api/v1/projects"):
+            if atProjectCap {
+                return try ok(["detail": ["error": "cloud_project_limit",
+                                          "limit": 3,
+                                          "message": "The Free plan syncs up to 3 cloud projects"]],
+                              status: 403, url: url)
+            }
             let payload = body(of: request)
             createdProjects.append(payload["id"] as? String ?? "?")
             return try ok(["id": payload["id"] ?? "", "name": payload["name"] ?? "",
@@ -497,6 +505,45 @@ final class SyncEngineTests: XCTestCase {
         }
         XCTAssertTrue(message.contains("archived"), message)
         XCTAssertTrue(message.contains("portal"), message)
+    }
+
+    /// DC-0015: the Free plan's cloud-project cap 403s a FIRST push (project
+    /// creation) with the structured `cloud_project_limit` detail; the engine
+    /// surfaces the server's message plus the upgrade path.
+    func testFreePlanCapSurfacesClearMessage() async throws {
+        server.atProjectCap = true
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1",
+                                       name: "Film")
+        XCTAssertFalse(pushed)
+        XCTAssertTrue(server.createdProjects.isEmpty)
+        guard case .error(let message) = engine.state else {
+            return XCTFail("expected error state")
+        }
+        XCTAssertTrue(message.contains("syncs up to 3 cloud projects"), message)
+        XCTAssertTrue(message.contains("delete a cloud project"), message)
+        XCTAssertTrue(message.contains("upgrade to Creator (coming soon)"), message)
+    }
+
+    /// A plain 403 (no cap marker) must stay the generic server error, not a
+    /// plan-limit message.
+    func testUnmarkedForbiddenStaysGenericServerError() async throws {
+        server.atProjectCap = true
+        // Re-route: strip the marker so the 403 body is unrecognized.
+        let original = MockURLProtocol.handler
+        MockURLProtocol.handler = { request in
+            let (response, data) = try original!(request)
+            guard response.statusCode == 403 else { return (response, data) }
+            let bare = try JSONSerialization.data(withJSONObject: ["detail": "forbidden"])
+            return (HTTPURLResponse(url: request.url!, statusCode: 403,
+                                    httpVersion: nil, headerFields: nil)!, bare)
+        }
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1",
+                                       name: "Film")
+        XCTAssertFalse(pushed)
+        guard case .error(let message) = engine.state else {
+            return XCTFail("expected error state")
+        }
+        XCTAssertTrue(message.contains("server 403"), message)
     }
 
     func testCloneBootstrapsDirectoryAndPulls() async throws {
