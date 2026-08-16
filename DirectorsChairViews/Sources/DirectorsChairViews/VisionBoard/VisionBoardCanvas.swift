@@ -26,6 +26,11 @@ public struct VisionBoardCanvas: View {
     @State private var isDropTargeted = false
     /// Double-click-to-type: where the caret is, and what's being typed.
     @State private var typingAt: CGPoint?
+    // Wall 3.1 (Wander): bare-wall drag state — the marquee's screen-space
+    // corners while sweeping, and the latch that makes ⌥-drag a pan.
+    @State private var marqueeStart: CGPoint?
+    @State private var marqueeCurrent: CGPoint?
+    @State private var wallDragIsPan = false
     /// DC-0034: where the Imagine panel stands (screen point), when open.
     @State private var imagineAt: CGPoint?
     @State private var draftWords = ""
@@ -89,7 +94,19 @@ public struct VisionBoardCanvas: View {
                            height: geometry.size.height,
                            alignment: .topLeading)
 
-                // TODO: rubber-band selection (tracked flaw, out of scope)
+                // Wall 3.1: the marquee, drawn in screen space while a
+                // bare-wall drag is in flight (tracked flaw, closed).
+                if let start = marqueeStart, let current = marqueeCurrent {
+                    let rect = VisionCanvasGeometry.marqueeRect(from: start,
+                                                                to: current)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor.opacity(0.12))
+                        .overlay(RoundedRectangle(cornerRadius: 2)
+                            .stroke(Color.accentColor.opacity(0.7), lineWidth: 1))
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(false)
+                }
             }
             .clipped()
             .contentShape(Rectangle())
@@ -190,7 +207,22 @@ public struct VisionBoardCanvas: View {
                     return .handled
                 }
                 if paperFor != nil { paperFor = nil; return .handled }
+                // Wall 3.1: Esc steps back out of a detail-zoomed scrap
+                // before it would clear the selection.
+                let leftDetail = withAnimation(
+                    .spring(response: 0.4, dampingFraction: 0.85)) {
+                    viewModel.exitDetailZoom()
+                }
+                if leftDetail { return .handled }
                 viewModel.clearSelection()
+                return .handled
+            }
+            // Wall 3.1: F = stand back (animated zoom-to-fit).
+            .onKeyPress(KeyEquivalent("f"), phases: .down) { press in
+                guard press.modifiers.isEmpty else { return .ignored }
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    viewModel.fitToView(viewSize: viewSize)
+                }
                 return .handled
             }
             .onKeyPress(.leftArrow) { nudge(dx: -1, dy: 0) }
@@ -990,7 +1022,12 @@ public struct VisionBoardCanvas: View {
                     }
                 },
                 onDoubleClick: {
-                    onCardEdit?(card)
+                    // Wall 3.1: double-click fills the screen with the
+                    // scrap (double-click again / Esc returns). Editing
+                    // lives on the tool ring.
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        viewModel.toggleDetailZoom(cardId: card.id)
+                    }
                 },
                 onCommitText: { words in
                     viewModel.rewriteClipping(card.id, words: words)
@@ -1039,14 +1076,48 @@ public struct VisionBoardCanvas: View {
 
     /// Plain gesture (not simultaneous): card-attached gestures are deeper
     /// in the hierarchy and win — dragging a card never pans the canvas.
+    ///
+    /// Wall 3.1: a bare-wall drag now draws the selection MARQUEE (the
+    /// wall metaphor — sweep an arm across the pile); ⌥-drag pans for
+    /// mouse users, and trackpad two-finger scroll remains the primary
+    /// way to move. The mode latches on the first movement so flicking
+    /// ⌥ mid-drag can't switch a marquee into a pan.
     private var panGesture: some Gesture {
-        DragGesture(minimumDistance: 3)
+        DragGesture(minimumDistance: 3,
+                    coordinateSpace: .named(Self.canvasSpaceName))
             .onChanged { value in
-                viewModel.beginPanIfNeeded()
-                viewModel.updatePan(translation: value.translation)
+                if !wallDragIsPan && marqueeStart == nil {
+                    if NSEvent.modifierFlags.contains(.option) {
+                        wallDragIsPan = true
+                    } else {
+                        marqueeStart = value.startLocation
+                    }
+                }
+                if wallDragIsPan {
+                    viewModel.beginPanIfNeeded()
+                    viewModel.updatePan(translation: value.translation)
+                } else {
+                    marqueeCurrent = value.location
+                }
             }
-            .onEnded { _ in
-                viewModel.endPan()
+            .onEnded { value in
+                if wallDragIsPan {
+                    viewModel.endPan()
+                } else if let start = marqueeStart {
+                    let screen = VisionCanvasGeometry.marqueeRect(
+                        from: start, to: value.location)
+                    let world = CGRect(
+                        origin: viewModel.transform.toWorld(screen.origin),
+                        size: CGSize(width: screen.width / viewModel.transform.zoom,
+                                     height: screen.height / viewModel.transform.zoom))
+                    viewModel.selectCards(
+                        inWorldRect: world,
+                        additive: NSEvent.modifierFlags.contains(.shift))
+                    wallFocused = true
+                }
+                wallDragIsPan = false
+                marqueeStart = nil
+                marqueeCurrent = nil
             }
     }
 

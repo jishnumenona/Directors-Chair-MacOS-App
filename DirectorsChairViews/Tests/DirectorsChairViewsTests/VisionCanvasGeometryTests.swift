@@ -204,4 +204,76 @@ final class VisionCanvasGeometryTests: XCTestCase {
         XCTAssertEqual(slots[4], CGPoint(x: 880, y: 0))
         XCTAssertEqual(slots[5], CGPoint(x: 0, y: 220), "row wrap after 5 columns")
     }
+
+    // MARK: - Wander (Wall 3.1)
+
+    func testDetailTransformFillsLimitingAxisAndCenters() {
+        let element = CGRect(x: 100, y: 200, width: 400, height: 200)
+        let viewport = CGSize(width: 1000, height: 800)
+        let t = VisionCanvasGeometry.detailTransform(
+            element: element, viewport: viewport, maxZoom: 8)
+        // Width is limiting: 1000 * 0.82 / 400
+        XCTAssertEqual(t.zoom, 2.05, accuracy: 0.0001)
+        let screenCentre = t.toScreen(CGPoint(x: element.midX, y: element.midY))
+        XCTAssertEqual(screenCentre.x, 500, accuracy: 0.0001)
+        XCTAssertEqual(screenCentre.y, 400, accuracy: 0.0001)
+    }
+
+    func testDetailTransformClampsToMaxZoom() {
+        let tiny = CGRect(x: 0, y: 0, width: 10, height: 10)
+        let t = VisionCanvasGeometry.detailTransform(
+            element: tiny, viewport: CGSize(width: 1000, height: 800), maxZoom: 4)
+        XCTAssertEqual(t.zoom, 4)
+    }
+
+    func testDetailTransformDegenerateInputsReturnIdentity() {
+        XCTAssertEqual(VisionCanvasGeometry.detailTransform(
+            element: .zero, viewport: CGSize(width: 100, height: 100), maxZoom: 8),
+            CanvasTransform())
+        XCTAssertEqual(VisionCanvasGeometry.detailTransform(
+            element: CGRect(x: 0, y: 0, width: 10, height: 10),
+            viewport: .zero, maxZoom: 8), CanvasTransform())
+    }
+
+    func testMarqueeRectNormalizesAnyDragDirection() {
+        let expected = CGRect(x: 10, y: 20, width: 30, height: 40)
+        let a = CGPoint(x: 10, y: 20), b = CGPoint(x: 40, y: 60)
+        XCTAssertEqual(VisionCanvasGeometry.marqueeRect(from: a, to: b), expected)
+        XCTAssertEqual(VisionCanvasGeometry.marqueeRect(from: b, to: a), expected)
+        XCTAssertEqual(VisionCanvasGeometry.marqueeRect(
+            from: CGPoint(x: 40, y: 20), to: CGPoint(x: 10, y: 60)), expected)
+    }
+
+    func testSnapBackLeavesVisibleContentUntouched() {
+        let t = CanvasTransform(zoom: 1, offset: CGPoint(x: 50, y: 50))
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        XCTAssertEqual(VisionCanvasGeometry.snapBackTransform(
+            t, contentBounds: bounds,
+            viewport: CGSize(width: 800, height: 600)), t)
+    }
+
+    func testSnapBackReturnsFlungContentToTheEdge() {
+        // Content flung far off the left: maxX on screen is -1600.
+        let t = CanvasTransform(zoom: 1, offset: CGPoint(x: -2000, y: 0))
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let snapped = VisionCanvasGeometry.snapBackTransform(
+            t, contentBounds: bounds,
+            viewport: CGSize(width: 800, height: 600), minVisible: 120)
+        // Nearest edge comes back to exactly minVisible points on screen.
+        let maxX = snapped.toScreen(CGPoint(x: bounds.maxX, y: 0)).x
+        XCTAssertEqual(maxX, 120, accuracy: 0.0001)
+        XCTAssertEqual(snapped.offset.y, 0)   // untouched axis stays put
+        XCTAssertEqual(snapped.zoom, 1)       // snap-back never rescales
+    }
+
+    func testSnapBackHandlesContentSmallerThanMinVisible() {
+        // A 40pt scrap can only ever show 40pts — must not oscillate.
+        let t = CanvasTransform(zoom: 1, offset: CGPoint(x: 900, y: 0))
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 40)
+        let snapped = VisionCanvasGeometry.snapBackTransform(
+            t, contentBounds: bounds,
+            viewport: CGSize(width: 800, height: 600), minVisible: 120)
+        let minX = snapped.toScreen(CGPoint(x: bounds.minX, y: 0)).x
+        XCTAssertEqual(minX, 760, accuracy: 0.0001)   // 800 - 40
+    }
 }

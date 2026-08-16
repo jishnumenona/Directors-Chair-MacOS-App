@@ -555,7 +555,38 @@ public class VisionBoardViewModel: ObservableObject {
 
     public func endPan() {
         panSessionStartOffset = nil
+        snapBackIfWallLost()
         applyPendingExternalCards()
+    }
+
+    /// Rubber-band feel (Wall 3.1): a pan or fling that loses the wall
+    /// entirely springs the nearest content edge back into view.
+    private func snapBackIfWallLost(animated: Bool = true) {
+        let snapped = VisionCanvasGeometry.snapBackTransform(
+            transform,
+            contentBounds: VisionCanvasGeometry.boundingBox(of: filteredCards),
+            viewport: viewportSize)
+        guard snapped != transform else { return }
+        if animated {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                transform = snapped
+            }
+        } else {
+            transform = snapped
+        }
+    }
+
+    /// Trackpad scrolls have no session end, so the snap-back rides a
+    /// short settle timer after the last event (momentum included).
+    private var scrollSettleTask: Task<Void, Never>?
+
+    private func scheduleScrollSettle() {
+        scrollSettleTask?.cancel()
+        scrollSettleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            self?.snapBackIfWallLost()
+        }
     }
 
     /// Anchored pinch: magnification is relative to the gesture start.
@@ -569,6 +600,7 @@ public class VisionBoardViewModel: ObservableObject {
 
     public func endPinch() {
         pinchSessionStart = nil
+        snapBackIfWallLost()
         applyPendingExternalCards()
     }
 
@@ -579,6 +611,7 @@ public class VisionBoardViewModel: ObservableObject {
     public func scrollPan(deltaX: CGFloat, deltaY: CGFloat) {
         transform.offset.x += deltaX
         transform.offset.y += deltaY
+        scheduleScrollSettle()
     }
 
     /// ⌘-scroll zooms about the cursor (the Audacity/Figma convention:
@@ -786,10 +819,58 @@ public class VisionBoardViewModel: ObservableObject {
     /// Fit the current board's cards in the viewport (one formula for
     /// fit / first-appear / board switch — Slice 1).
     public func fitToView(viewSize: CGSize) {
+        detailZoomCardId = nil
+        detailZoomReturn = nil
         transform = VisionCanvasGeometry.fitTransform(
             contentBounds: VisionCanvasGeometry.boundingBox(of: filteredCards),
             viewport: viewSize, padding: 50,
             minZoom: Self.minZoom, maxZoom: Self.maxZoom)
+    }
+
+    // MARK: - Wander (Wall 3.1)
+
+    /// The scrap currently filling the screen, if any — and the transform
+    /// that gets restored on the way out. Any explicit fit clears it.
+    @Published public private(set) var detailZoomCardId: String?
+    private var detailZoomReturn: CanvasTransform?
+
+    /// Double-click a scrap: fill the screen with it. Double-click again
+    /// (or Esc, or fit) returns to exactly where the wall was. Jumping
+    /// from one detail-zoomed scrap straight to another keeps the ORIGINAL
+    /// return transform — backing out lands where the wander started.
+    public func toggleDetailZoom(cardId: String) {
+        if detailZoomCardId == cardId { exitDetailZoom(); return }
+        guard let card = cards.first(where: { $0.id == cardId }) else { return }
+        if detailZoomCardId == nil { detailZoomReturn = transform }
+        detailZoomCardId = cardId
+        transform = VisionCanvasGeometry.detailTransform(
+            element: VisionCanvasGeometry.cardFrame(card),
+            viewport: viewportSize, maxZoom: Self.maxZoom)
+    }
+
+    /// Returns true when there was a detail zoom to leave (the Esc cascade
+    /// uses this to know it consumed the key).
+    @discardableResult
+    public func exitDetailZoom() -> Bool {
+        guard detailZoomCardId != nil else { return false }
+        detailZoomCardId = nil
+        if let back = detailZoomReturn { transform = back }
+        detailZoomReturn = nil
+        return true
+    }
+
+    /// Marquee selection (the tracked flaw at the canvas TODO, closed):
+    /// every visible scrap whose frame intersects the world-space rect.
+    /// Shift adds to the existing selection instead of replacing it.
+    public func selectCards(inWorldRect rect: CGRect, additive: Bool = false) {
+        let hit = filteredCards
+            .filter { VisionCanvasGeometry.cardFrame($0).intersects(rect) }
+            .map(\.id)
+        if additive {
+            selectedCardIds.formUnion(hit)
+        } else {
+            selectedCardIds = Set(hit)
+        }
     }
 
     // MARK: - Board Operations

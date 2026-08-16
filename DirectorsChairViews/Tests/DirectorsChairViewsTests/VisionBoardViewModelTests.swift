@@ -565,4 +565,86 @@ final class VisionBoardViewModelTests: XCTestCase {
         XCTAssertNotNil(callbackCards)
         XCTAssertEqual(callbackCards?.count, 1)
     }
+
+    // MARK: - Wander (Wall 3.1)
+
+    private func placedCard(_ title: String, x: CGFloat, y: CGFloat,
+                            w: CGFloat = 100, h: CGFloat = 100) -> VisionCard {
+        var card = makeCard(title: title)
+        card.canvasX = x; card.canvasY = y
+        card.canvasWidth = w; card.canvasHeight = h
+        return card
+    }
+
+    func testMarqueeSelectionPicksIntersectingCards() {
+        viewModel.addCard(placedCard("in", x: 10, y: 10))
+        viewModel.addCard(placedCard("edge", x: 140, y: 10))   // clipped by rect edge
+        viewModel.addCard(placedCard("out", x: 500, y: 500))
+        viewModel.selectCards(inWorldRect: CGRect(x: 0, y: 0, width: 150, height: 150))
+        let selected = Set(viewModel.cards.filter {
+            viewModel.selectedCardIds.contains($0.id) }.map(\.title))
+        XCTAssertEqual(selected, ["in", "edge"])
+    }
+
+    func testMarqueeAdditiveKeepsExistingSelection() {
+        viewModel.addCard(placedCard("a", x: 0, y: 0))
+        viewModel.addCard(placedCard("b", x: 1000, y: 1000))
+        viewModel.selectCards(inWorldRect: CGRect(x: -10, y: -10, width: 50, height: 50))
+        XCTAssertEqual(viewModel.selectedCardIds.count, 1)
+        viewModel.selectCards(inWorldRect: CGRect(x: 990, y: 990, width: 50, height: 50),
+                              additive: true)
+        XCTAssertEqual(viewModel.selectedCardIds.count, 2)
+        // Non-additive replaces.
+        viewModel.selectCards(inWorldRect: CGRect(x: -10, y: -10, width: 50, height: 50))
+        XCTAssertEqual(viewModel.selectedCardIds.count, 1)
+    }
+
+    func testDetailZoomRoundTripsTheTransform() {
+        viewModel.viewportSize = CGSize(width: 1000, height: 800)
+        viewModel.addCard(placedCard("scrap", x: 300, y: 300, w: 200, h: 100))
+        let id = viewModel.cards[0].id
+        let before = viewModel.transform
+        viewModel.toggleDetailZoom(cardId: id)
+        XCTAssertEqual(viewModel.detailZoomCardId, id)
+        XCTAssertNotEqual(viewModel.transform, before)
+        // The scrap's centre lands on the viewport centre.
+        let centre = viewModel.transform.toScreen(CGPoint(x: 400, y: 350))
+        XCTAssertEqual(centre.x, 500, accuracy: 0.0001)
+        XCTAssertEqual(centre.y, 400, accuracy: 0.0001)
+        // Second double-click returns exactly where the wall was.
+        viewModel.toggleDetailZoom(cardId: id)
+        XCTAssertNil(viewModel.detailZoomCardId)
+        XCTAssertEqual(viewModel.transform, before)
+    }
+
+    func testDetailZoomHopKeepsOriginalReturnTransform() {
+        viewModel.viewportSize = CGSize(width: 1000, height: 800)
+        viewModel.addCard(placedCard("a", x: 0, y: 0))
+        viewModel.addCard(placedCard("b", x: 2000, y: 2000))
+        let before = viewModel.transform
+        viewModel.toggleDetailZoom(cardId: viewModel.cards[0].id)
+        viewModel.toggleDetailZoom(cardId: viewModel.cards[1].id)   // hop a -> b
+        XCTAssertTrue(viewModel.exitDetailZoom())
+        XCTAssertEqual(viewModel.transform, before)
+        XCTAssertFalse(viewModel.exitDetailZoom())   // nothing left to exit
+    }
+
+    func testFitToViewClearsDetailZoom() {
+        viewModel.viewportSize = CGSize(width: 1000, height: 800)
+        viewModel.addCard(placedCard("scrap", x: 0, y: 0))
+        viewModel.toggleDetailZoom(cardId: viewModel.cards[0].id)
+        viewModel.fitToView(viewSize: viewModel.viewportSize)
+        XCTAssertNil(viewModel.detailZoomCardId)
+        XCTAssertFalse(viewModel.exitDetailZoom())
+    }
+
+    func testEndPanSnapsAWallFlungOffScreenBack() {
+        viewModel.viewportSize = CGSize(width: 800, height: 600)
+        viewModel.addCard(placedCard("scrap", x: 0, y: 0, w: 400, h: 300))
+        viewModel.transform = CanvasTransform(zoom: 1,
+                                              offset: CGPoint(x: -5000, y: 0))
+        viewModel.endPan()
+        let maxX = viewModel.transform.toScreen(CGPoint(x: 400, y: 0)).x
+        XCTAssertEqual(maxX, 120, accuracy: 0.0001)
+    }
 }
