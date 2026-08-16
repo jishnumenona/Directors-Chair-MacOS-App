@@ -147,15 +147,78 @@ public enum VisionCanvasGeometry {
 
     // MARK: Fit / bounds
 
+    /// One frame convention everywhere (bounding box, marquee, detail zoom):
+    /// missing geometry reads as a 200×200 scrap at the stored origin.
+    public static func cardFrame(_ card: VisionCard) -> CGRect {
+        CGRect(x: card.canvasX ?? 0, y: card.canvasY ?? 0,
+               width: card.canvasWidth ?? 200,
+               height: card.canvasHeight ?? 200)
+    }
+
     public static func boundingBox(of cards: [VisionCard]) -> CGRect? {
         var box: CGRect?
         for card in cards {
-            let rect = CGRect(x: card.canvasX ?? 0, y: card.canvasY ?? 0,
-                              width: card.canvasWidth ?? 200,
-                              height: card.canvasHeight ?? 200)
+            let rect = cardFrame(card)
             box = box.map { $0.union(rect) } ?? rect
         }
         return box
+    }
+
+    // MARK: Wander (Wall 3.1)
+
+    /// Detail zoom: the scrap fills `fill` of the limiting viewport axis,
+    /// centered. Never zooms past `maxZoom` (a tiny scrap stays sharp-ish,
+    /// not a wall of pixels); degenerate inputs return identity.
+    public static func detailTransform(element: CGRect, viewport: CGSize,
+                                       fill: CGFloat = 0.82,
+                                       maxZoom: CGFloat) -> CanvasTransform {
+        guard viewport.width > 0, viewport.height > 0,
+              element.width > 0, element.height > 0 else {
+            return CanvasTransform()
+        }
+        let zoom = min(min(viewport.width * fill / element.width,
+                           viewport.height * fill / element.height), maxZoom)
+        let centre = CGPoint(x: element.midX, y: element.midY)
+        return CanvasTransform(
+            zoom: zoom,
+            offset: CGPoint(x: viewport.width / 2 - centre.x * zoom,
+                            y: viewport.height / 2 - centre.y * zoom))
+    }
+
+    /// Normalized marquee rectangle between two drag points, any direction.
+    public static func marqueeRect(from a: CGPoint, to b: CGPoint) -> CGRect {
+        CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+               width: abs(a.x - b.x), height: abs(a.y - b.y))
+    }
+
+    /// Rubber-band snap-back: when a pan or fling leaves the content
+    /// entirely outside the viewport, translate MINIMALLY so at least
+    /// `minVisible` points of it are back on screen. A transform whose
+    /// content is still (partly) visible passes through untouched — this
+    /// is "never lose the wall", not an edge clamp.
+    public static func snapBackTransform(_ t: CanvasTransform,
+                                         contentBounds: CGRect?,
+                                         viewport: CGSize,
+                                         minVisible: CGFloat = 120) -> CanvasTransform {
+        guard let bounds = contentBounds,
+              viewport.width > 0, viewport.height > 0 else { return t }
+        let screen = CGRect(origin: t.toScreen(bounds.origin),
+                            size: CGSize(width: bounds.width * t.zoom,
+                                         height: bounds.height * t.zoom))
+        let visX = min(minVisible, screen.width)
+        let visY = min(minVisible, screen.height)
+        var out = t
+        if screen.maxX < visX {
+            out.offset.x += visX - screen.maxX
+        } else if screen.minX > viewport.width - visX {
+            out.offset.x -= screen.minX - (viewport.width - visX)
+        }
+        if screen.maxY < visY {
+            out.offset.y += visY - screen.maxY
+        } else if screen.minY > viewport.height - visY {
+            out.offset.y -= screen.minY - (viewport.height - visY)
+        }
+        return out
     }
 
     /// One formula for fit / reset / board-switch centering.
