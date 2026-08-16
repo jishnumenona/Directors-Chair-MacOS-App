@@ -402,7 +402,8 @@ enum CommandPaletteCatalog {
 
     static func run(_ entry: PaletteEntry, query: String,
                     coordinator: AppCoordinator,
-                    projectViewModel: ProjectViewModel) {
+                    projectViewModel: ProjectViewModel,
+                    sessionTier: ProductTier = .studio) {
         let project = projectViewModel.project
         if entry.id.hasPrefix("nav."),
            let view = AppView(rawValue: String(entry.id.dropFirst(4))) {
@@ -417,10 +418,22 @@ enum CommandPaletteCatalog {
         } else if entry.id == "cmd.assistant" {
             coordinator.showingAIChat = true
         } else if entry.id == "cmd.lockScenes" {
+            // Script revision tracking is Creator (decision set 2026-08-12).
+            // The entries stay visible (§5.3) — below tier they explain.
+            guard sessionTier >= .creator else {
+                coordinator.pendingTierPrompt = TierPromptRequest(
+                    feature: "Script revision tracking", requiredTier: .creator)
+                return
+            }
             ScriptRevisionTracker.lock(
                 &projectViewModel.project,
                 date: ISO8601DateFormatter().string(from: Date()))
         } else if entry.id == "cmd.advanceRevision" {
+            guard sessionTier >= .creator else {
+                coordinator.pendingTierPrompt = TierPromptRequest(
+                    feature: "Script revision tracking", requiredTier: .creator)
+                return
+            }
             ScriptRevisionTracker.advance(
                 &projectViewModel.project,
                 date: ISO8601DateFormatter().string(from: Date()))

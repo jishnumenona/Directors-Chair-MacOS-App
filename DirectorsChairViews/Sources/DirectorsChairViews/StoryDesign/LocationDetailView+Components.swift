@@ -248,6 +248,7 @@ struct LocationVariationThumbnail: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Regenerate with same prompt")
+                                .requiresTier(.creator, feature: "AI location images")
 
                                 Button {
                                     onEditGenerate?()
@@ -265,6 +266,7 @@ struct LocationVariationThumbnail: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Annotate & edit image")
+                                .requiresTier(.creator, feature: "AI location images")
 
                                 Button {
                                     onUpload?()
@@ -304,6 +306,7 @@ struct LocationVariationThumbnail: View {
                         .frame(height: 70)
                     }
                     .buttonStyle(.plain)
+                    .requiresTier(.creator, feature: "AI location images")
                 }
 
                 // Generation progress overlay

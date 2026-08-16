@@ -69,6 +69,7 @@ extension CostumeTab {
                     }
                     .disabled(refs.isEmpty || isGeneratingFromReferences)
                     .opacity(refs.isEmpty ? 0.5 : 1)
+                    .requiresTier(.creator, feature: "AI costume images")
 
                     if isGeneratingFromReferences {
                         ProgressView(value: referenceGenProgress)

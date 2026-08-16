@@ -54,11 +54,19 @@ for p in $PACKAGES; do
   builderr=$(echo "$out" | grep -E " error: |^error: |Compilation failed" | grep -cv "error: -\[")
   testfail=$(echo "$out" | grep -c "error: -\[")
   tests=$(echo "$out" | grep -oE "Executed [0-9]+ tests" | grep -oE "[0-9]+" | sort -rn | head -1)
+  # Completeness: serial XCTest always closes with "Test Suite 'All tests'".
+  # A runner that crashes mid-suite (signal, stack overflow) can exit with
+  # NO failure markers and a truncated count — that once reported a green
+  # "46 tests" while 719 never ran. Absence of the closing line = FAIL.
+  complete=$(echo "$out" | grep -c "Test Suite 'All tests'")
   if [ "$builderr" -gt 0 ]; then
     SUMMARY="$SUMMARY\nFAIL  $p  (build errors: $builderr -- suite did not run)"
     FAIL=1
   elif [ "$testfail" -gt 0 ]; then
     SUMMARY="$SUMMARY\nFAIL  $p  ($testfail tests failing of ${tests:-?})"
+    FAIL=1
+  elif [ "$complete" -eq 0 ]; then
+    SUMMARY="$SUMMARY\nFAIL  $p  (suite did not complete -- runner crashed after ${tests:-0} tests)"
     FAIL=1
   else
     SUMMARY="$SUMMARY\nok    $p  (${tests:-?} tests)"

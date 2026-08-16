@@ -521,6 +521,7 @@ struct PropShopView: View {
                                     .font(.system(size: 11, weight: .medium))
                             }
                             .help("Generate a concept image from the name, category, description, and reference images")
+                            .requiresTier(.creator, feature: "AI prop concepts")
                         }
                     }
                     VStack(alignment: .leading, spacing: 8) {

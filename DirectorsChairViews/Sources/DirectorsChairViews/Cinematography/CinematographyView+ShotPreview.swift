@@ -107,6 +107,10 @@ struct ShotPreviewSection: View {
                                 .cornerRadius(8)
                             }
                             .buttonStyle(.plain)
+                            // AI shot image generation is Creator (§3.3);
+                            // Upload below stays free — your own images
+                            // always work.
+                            .requiresTier(.creator, feature: "AI shot images")
 
                             Button(action: { generateWithDefaultPrompt() }) {
                                 HStack(spacing: 6) {
@@ -122,6 +126,7 @@ struct ShotPreviewSection: View {
                                 .cornerRadius(8)
                             }
                             .buttonStyle(.plain)
+                            .requiresTier(.creator, feature: "AI shot images")
 
                             Button(action: { uploadPreviewImage() }) {
                                 HStack(spacing: 6) {
@@ -185,6 +190,7 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Edit prompt")
+                                .requiresTier(.creator, feature: "AI shot images")
 
                                 // Download button
                                 Button(action: { downloadPreviewImage() }) {

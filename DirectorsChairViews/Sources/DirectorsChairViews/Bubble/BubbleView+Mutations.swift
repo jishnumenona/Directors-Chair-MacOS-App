@@ -293,7 +293,12 @@ extension BubbleView {
                 return
             }
         }
-        // No saved audio — generate it
+        // No saved audio — generating is a Creator spend (§3.6).
+        guard sessionTier >= .creator else {
+            tierPrompt = TierPromptRequest(feature: "AI dialogue voice",
+                                           requiredTier: .creator)
+            return
+        }
         Task { await generateAndPlayDialogue(dialogue) }
     }
 

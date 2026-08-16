@@ -82,6 +82,9 @@ struct TimelineContainer: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var timelineViewModel: TimelineViewModel
+    // AI dialogue voice is Creator (§3.6); the canvas builds AppKit menus,
+    // so the gate lives here in the wiring, via the app-level prompt seam.
+    @Environment(\.productTier) private var productTier
 
     /// Track sequence count to detect actual changes (not just any array mutation)
     @State private var lastSequenceCount: Int = 0
@@ -229,6 +232,11 @@ struct TimelineContainer: View {
                 coordinator.requestTimelineAnalysis(scope: .all)
             },
             onGenerateAudio: { segment in
+                guard productTier >= .creator else {
+                    coordinator.pendingTierPrompt = TierPromptRequest(
+                        feature: "AI dialogue voice", requiredTier: .creator)
+                    return
+                }
                 guard segment.contentType == .dialogue,
                       let sourceId = segment.sourceItemId else { return }
 

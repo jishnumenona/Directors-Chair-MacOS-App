@@ -16,14 +16,30 @@ struct FileCommands: Commands {
     // Injected app-scoped references (see ViewCommands note re: @FocusedValue).
     var coordinatorRef: AppCoordinator?
     var projectViewModelRef: ProjectViewModel?
+    var authManagerRef: AuthManager?
     @FocusedValue(\.projectViewModel) var focusedProjectViewModel: ProjectViewModel?
     @FocusedValue(\.appCoordinator) var focusedCoordinator: AppCoordinator?
     var coordinator: AppCoordinator? { coordinatorRef ?? focusedCoordinator }
     var projectViewModel: ProjectViewModel? { projectViewModelRef ?? focusedProjectViewModel }
 
-    init(coordinatorRef: AppCoordinator? = nil, projectViewModelRef: ProjectViewModel? = nil) {
+    init(coordinatorRef: AppCoordinator? = nil, projectViewModelRef: ProjectViewModel? = nil,
+         authManagerRef: AuthManager? = nil) {
         self.coordinatorRef = coordinatorRef
         self.projectViewModelRef = projectViewModelRef
+        self.authManagerRef = authManagerRef
+    }
+
+    /// Same gate as ExportCommands: menu items cannot wear `.requiresTier`
+    /// (Commands, not Views) — at or above `tier` the action runs; below it,
+    /// ContentView presents the shared "coming soon" sheet (§5.3).
+    private func requireTier(_ tier: ProductTier, feature: String,
+                             _ action: () -> Void) {
+        if (authManagerRef?.tier ?? .free) >= tier {
+            action()
+        } else {
+            coordinator?.pendingTierPrompt =
+                TierPromptRequest(feature: feature, requiredTier: tier)
+        }
     }
 
     var body: some Commands {
@@ -79,20 +95,26 @@ struct FileCommands: Commands {
             // colored rounds. Both go through the project choke point, so
             // they are undoable and autosaved like any other edit.
             Menu("Script Revisions") {
+                // Script revision tracking is Creator (owner decision set
+                // 2026-08-12; deferred from DC-0014, closed in DC-0016).
                 Button("Lock Scene Numbers") {
-                    guard let vm = projectViewModel else { return }
-                    ScriptRevisionTracker.lock(
-                        &vm.project,
-                        date: ISO8601DateFormatter().string(from: Date()))
+                    requireTier(.creator, feature: "Script revision tracking") {
+                        guard let vm = projectViewModel else { return }
+                        ScriptRevisionTracker.lock(
+                            &vm.project,
+                            date: ISO8601DateFormatter().string(from: Date()))
+                    }
                 }
                 .disabled(projectViewModel?.hasProject != true ||
                           projectViewModel?.project.scriptRevisionColor != nil)
 
                 Button("Start Next Colored Revision") {
-                    guard let vm = projectViewModel else { return }
-                    ScriptRevisionTracker.advance(
-                        &vm.project,
-                        date: ISO8601DateFormatter().string(from: Date()))
+                    requireTier(.creator, feature: "Script revision tracking") {
+                        guard let vm = projectViewModel else { return }
+                        ScriptRevisionTracker.advance(
+                            &vm.project,
+                            date: ISO8601DateFormatter().string(from: Date()))
+                    }
                 }
                 .disabled(projectViewModel?.project.scriptRevisionColor == nil)
             }

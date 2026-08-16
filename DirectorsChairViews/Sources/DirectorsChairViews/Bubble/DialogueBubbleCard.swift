@@ -54,6 +54,10 @@ public struct DialogueBubbleCard: View {
     @State private var isEditingIndex: Bool = false
     @State private var editedIndex: String = ""
     @State private var isHovered: Bool = false
+    // AI dialogue voice is Creator (§3.6) — menu items can't wear
+    // .requiresTier, so they route through the shared prompt seam.
+    @Environment(\.productTier) private var sessionTier
+    @State private var tierPrompt: TierPromptRequest?
     @FocusState private var textFieldFocused: Bool
     @FocusState private var indexFieldFocused: Bool
 
@@ -248,6 +252,7 @@ public struct DialogueBubbleCard: View {
         .contextMenu {
             contextMenuItems
         }
+        .tierPromptSheet($tierPrompt)
     }
 
     // MARK: - Header Row
@@ -369,6 +374,15 @@ public struct DialogueBubbleCard: View {
 
     // MARK: - Context Menu
 
+    private func requestVoiceGeneration() {
+        if sessionTier >= .creator {
+            onGenerateAudio?()
+        } else {
+            tierPrompt = TierPromptRequest(feature: "AI dialogue voice",
+                                           requiredTier: .creator)
+        }
+    }
+
     @ViewBuilder
     private var contextMenuItems: some View {
         Button("Edit Dialogue") {
@@ -388,11 +402,11 @@ public struct DialogueBubbleCard: View {
                 onPlay?()
             }
             Button("Regenerate Voice") {
-                onGenerateAudio?()
+                requestVoiceGeneration()
             }
         } else {
             Button("Generate Voice") {
-                onGenerateAudio?()
+                requestVoiceGeneration()
             }
         }
 
