@@ -859,6 +859,67 @@ public class VisionBoardViewModel: ObservableObject {
         return true
     }
 
+    // MARK: - Walk the wall (Wall 3.2)
+
+    /// Presentation pass: chrome vanishes and the camera pans gently
+    /// between the wall's PILES (spatial clusters — the structure the
+    /// wall already has, no containers asked for). For showing the DP
+    /// or production designer.
+    @Published public private(set) var isWalkingTheWall = false
+    @Published public private(set) var walkIndex = 0
+    public private(set) var walkStops: [[VisionCard]] = []
+
+    /// Enter at the first stop. A wall with nothing on it declines.
+    public func enterWalk() {
+        let clusters = VisionCanvasGeometry.clusters(of: filteredCards)
+        let piles = clusters.filter { $0.count >= 2 }
+        walkStops = piles.isEmpty ? (filteredCards.isEmpty ? [] : [filteredCards])
+                                  : piles
+        guard !walkStops.isEmpty else { return }
+        exitDetailZoom()
+        clearSelection()
+        walkIndex = 0
+        isWalkingTheWall = true
+        panToCurrentStop()
+    }
+
+    public func exitWalk() {
+        guard isWalkingTheWall else { return }
+        isWalkingTheWall = false
+        walkStops = []
+        fitToView(viewSize: viewportSize)
+    }
+
+    /// Step between piles; steps past either end leave the walk where it
+    /// is (a presenter's last pile shouldn't wrap around mid-sentence).
+    public func walkStep(_ delta: Int) {
+        guard isWalkingTheWall else { return }
+        let next = walkIndex + delta
+        guard walkStops.indices.contains(next) else { return }
+        walkIndex = next
+        panToCurrentStop()
+    }
+
+    private func panToCurrentStop() {
+        guard walkStops.indices.contains(walkIndex) else { return }
+        transform = VisionCanvasGeometry.fitTransform(
+            contentBounds: VisionCanvasGeometry.boundingBox(of: walkStops[walkIndex]),
+            viewport: viewportSize, padding: 90,
+            minZoom: Self.minZoom, maxZoom: Self.maxZoom)
+    }
+
+    // MARK: - Legacy department stickers (Wall 3.2)
+
+    /// Peel a legacy department sticker off a scrap. The value is kept
+    /// (and projected to the portal) until someone deliberately peels it;
+    /// peeling clears it for good — undo rides the usual change pipeline.
+    public func peelDepartment(_ cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }),
+              cards[index].department != nil else { return }
+        cards[index].department = nil
+        notifyChange()
+    }
+
     /// Marquee selection (the tracked flaw at the canvas TODO, closed):
     /// every visible scrap whose frame intersects the world-space rect.
     /// Shift adds to the existing selection instead of replacing it.

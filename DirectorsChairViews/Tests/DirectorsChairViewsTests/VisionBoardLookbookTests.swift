@@ -76,4 +76,48 @@ final class VisionBoardLookbookTests: XCTestCase {
 
         XCTAssertNil(VisionBoardLookbook.renderPDF(cards: [], projectBase: nil))
     }
+
+    // MARK: - Cluster pages (Wall 3.2)
+
+    private func titled(_ id: String, _ title: String,
+                        x: Double, y: Double) -> VisionCard {
+        VisionCard(id: id, title: title, canvasX: x, canvasY: y,
+                   canvasWidth: 100, canvasHeight: 100)
+    }
+
+    func testWithoutFramesPilesPageTheBook() {
+        // Two piles far apart + one loose scrap. Pile members sit within
+        // the 120pt proximity gap; the loner is way off on its own.
+        let cards = [
+            titled("a1", "Neon nights", x: 0, y: 0),
+            card("a2", x: 150, y: 40),
+            card("b1", x: 2000, y: 2000),
+            card("b2", x: 2120, y: 2050),
+            card("loose", x: 5000, y: 5000),
+        ]
+        let pages = VisionBoardLookbook.pages(cards: cards)
+        XCTAssertEqual(pages.map(\.title),
+                       ["Neon nights", "Pile 2", "Loose scraps"])
+        XCTAssertEqual(pages[0].cards.map(\.id), ["a1", "a2"])
+        XCTAssertEqual(pages[1].cards.map(\.id), ["b1", "b2"])
+        XCTAssertEqual(pages[2].cards.map(\.id), ["loose"])
+    }
+
+    func testFramesStillTrumpClusters() {
+        // A frame present → frame pagination, clusters ignored.
+        let cards = [frame("f", "Section", x: 0, y: 0),
+                     card("in", x: 50, y: 50),
+                     card("far", x: 2000, y: 2000),
+                     card("far2", x: 2100, y: 2050)]
+        let pages = VisionBoardLookbook.pages(cards: cards)
+        XCTAssertEqual(pages.map(\.title), ["Section", "Everything else"])
+    }
+
+    func testAllSinglesStayOneBoardPage() {
+        let cards = [card("a", x: 0, y: 0), card("b", x: 3000, y: 0),
+                     card("c", x: 6000, y: 0)]
+        let pages = VisionBoardLookbook.pages(cards: cards)
+        XCTAssertEqual(pages.map(\.title), ["Board"])
+        XCTAssertEqual(pages[0].cards.count, 3)
+    }
 }

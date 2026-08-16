@@ -191,6 +191,42 @@ public enum VisionCanvasGeometry {
                width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 
+    /// Spatial clusters (Wall 3.2): scraps whose frames, each grown by
+    /// `gap/2`, touch transitively belong to one pile — the wall's own
+    /// structure, read off proximity instead of asking for containers.
+    /// Clusters come back in reading order (bounding-box minY, then minX)
+    /// with each cluster's members in stable input order. Deterministic
+    /// for a given input.
+    public static func clusters(of cards: [VisionCard],
+                                gap: CGFloat = 120) -> [[VisionCard]] {
+        guard !cards.isEmpty else { return [] }
+        let frames = cards.map { cardFrame($0).insetBy(dx: -gap / 2, dy: -gap / 2) }
+        var componentOf = Array(0..<cards.count)
+
+        func root(_ i: Int) -> Int {
+            var i = i
+            while componentOf[i] != i { i = componentOf[i] }
+            return i
+        }
+
+        for i in 0..<cards.count {
+            for j in (i + 1)..<cards.count where frames[i].intersects(frames[j]) {
+                componentOf[root(j)] = root(i)
+            }
+        }
+
+        var groups: [Int: [VisionCard]] = [:]
+        for (i, card) in cards.enumerated() {
+            groups[root(i), default: []].append(card)
+        }
+        return groups.values.sorted { a, b in
+            let ba = boundingBox(of: a) ?? .zero
+            let bb = boundingBox(of: b) ?? .zero
+            if ba.minY != bb.minY { return ba.minY < bb.minY }
+            return ba.minX < bb.minX
+        }
+    }
+
     /// Rubber-band snap-back: when a pan or fling leaves the content
     /// entirely outside the viewport, translate MINIMALLY so at least
     /// `minVisible` points of it are back on screen. A transform whose

@@ -37,7 +37,7 @@ public enum VisionBoardLookbook {
             $0.cardType != VisionCardType.frame.rawValue
         }
         guard !frames.isEmpty else {
-            return cards.isEmpty ? [] : [Page(title: "Board", cards: cards)]
+            return clusterPages(cards: cards)
         }
 
         var claimed = Set<String>()
@@ -61,6 +61,30 @@ public enum VisionBoardLookbook {
         let leftovers = content.filter { !claimed.contains($0.id) }
         if !leftovers.isEmpty {
             pages.append(Page(title: "Everything else", cards: leftovers))
+        }
+        return pages
+    }
+
+    /// Wall 3.2: without frames the wall's own PILES page the book —
+    /// spatial clusters in reading order, titled by their first named
+    /// scrap. Loose singles gather on one trailing page, and a wall of
+    /// only singles stays a single whole-board page (the pass-1
+    /// behavior, unchanged for unstructured walls).
+    static func clusterPages(cards: [VisionCard]) -> [Page] {
+        guard !cards.isEmpty else { return [] }
+        let clusters = VisionCanvasGeometry.clusters(of: cards)
+        let piles = clusters.filter { $0.count >= 2 }
+        guard !piles.isEmpty else {
+            return [Page(title: "Board", cards: cards)]
+        }
+        var pages: [Page] = []
+        for (index, pile) in piles.enumerated() {
+            let named = pile.first { !$0.title.isEmpty }?.title
+            pages.append(Page(title: named ?? "Pile \(index + 1)", cards: pile))
+        }
+        let loose = clusters.filter { $0.count < 2 }.flatMap { $0 }
+        if !loose.isEmpty {
+            pages.append(Page(title: "Loose scraps", cards: loose))
         }
         return pages
     }

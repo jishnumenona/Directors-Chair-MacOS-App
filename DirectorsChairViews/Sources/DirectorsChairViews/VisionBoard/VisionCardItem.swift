@@ -232,6 +232,15 @@ public struct VisionCardItem: View {
                              onOpen: { onOpenLink?() })
             }
 
+            // Wall 3.2 migration: a legacy department rides along as a
+            // small sticker on the scrap — data preserved (the portal
+            // still projects it) until someone peels it on the tool ring.
+            if let dept = card.department, !dept.isEmpty {
+                ScrapDepartmentSticker(department: dept,
+                                       cardHeight: cardHeight,
+                                       zoomOverride: zoomOverride)
+            }
+
             if isRedrawing {
                 ScrapWorkingBadge(cardWidth: cardWidth,
                                   cardHeight: cardHeight,
@@ -1133,6 +1142,36 @@ private struct ScrapLinkTag: View {
         .offset(x: 8 / zoom, y: -9 / zoom)
         .help(linked.kind == .shot ? "Open this shot" : "Open this scene")
         .accessibilityLabel("Open \(linked.label)")
+    }
+}
+
+/// The legacy department, worn as a small paper sticker near the scrap's
+/// bottom edge (Wall 3.2). A leaf view like ScrapLinkTag, so only IT
+/// re-lays out on zoom. Deliberately not a button — peeling lives on the
+/// tool ring, where every other act-on-the-scrap verb lives.
+private struct ScrapDepartmentSticker: View {
+    let department: String
+    let cardHeight: CGFloat
+    var zoomOverride: CGFloat?
+    @Environment(\.wallZoom) private var wallZoom
+
+    var body: some View {
+        let zoom = max(zoomOverride ?? wallZoom, 0.01)
+        Text(department.uppercased())
+            .font(.system(size: 8 / zoom, weight: .bold))
+            .tracking(0.6 / zoom)
+            .lineLimit(1)
+            .foregroundStyle(VisionWallPalette.ink.opacity(0.72))
+            .padding(.horizontal, 6 / zoom)
+            .padding(.vertical, 2.5 / zoom)
+            .background(VisionWallPalette.clipping.opacity(0.92),
+                        in: RoundedRectangle(cornerRadius: 2 / zoom))
+            .shadow(color: VisionWallPalette.scrapShadow,
+                    radius: 1.5 / zoom, y: 1 / zoom)
+            .rotationEffect(.degrees(-2))
+            .offset(x: 10 / zoom, y: cardHeight - 8 / zoom)
+            .allowsHitTesting(false)
+            .help("Legacy department — peel it on the tool ring")
     }
 }
 

@@ -78,6 +78,7 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
     case prompt           // read the words that made it
     case stick            // onto the element beneath — they travel as one
     case peel             // off it again
+    case sticker          // peel a legacy department sticker (Wall 3.2)
     case details
     case remove
 
@@ -95,6 +96,7 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .prompt: return "Prompt"
         case .stick: return "Stick"
         case .peel: return "Peel off"
+        case .sticker: return "Peel sticker"
         case .details: return "Details"
         case .remove: return "Remove"
         }
@@ -112,6 +114,7 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         case .prompt: return "text.quote"
         case .stick: return "square.2.layers.3d.bottom.filled"
         case .peel: return "square.2.layers.3d.top.filled"
+        case .sticker: return "tag.slash"
         case .details: return "info.circle"
         case .remove: return "trash"
         }
@@ -128,7 +131,8 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
                             isPaper: Bool = false,
                             hasPrompt: Bool = false,
                             canStick: Bool = false,
-                            isStuck: Bool = false) -> [VisionScrapTool] {
+                            isStuck: Bool = false,
+                            hasSticker: Bool = false) -> [VisionScrapTool] {
         var tools: [VisionScrapTool] = [.connect, .duplicate, .pin, .note]
         if hasPicture { tools.append(.annotate) }
         if hasPrompt { tools.append(.prompt) }
@@ -138,6 +142,9 @@ public enum VisionScrapTool: String, CaseIterable, Identifiable, Sendable {
         // to stick to; Peel only when stuck. Never both, never a dead chip.
         if isStuck { tools.append(.peel) }
         else if canStick { tools.append(.stick) }
+        // Only scraps still wearing a legacy department sticker offer to
+        // peel it (Wall 3.2 migration) — never a dead chip.
+        if hasSticker { tools.append(.sticker) }
         tools.append(contentsOf: [.details, .remove])
         return tools
     }

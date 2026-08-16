@@ -191,6 +191,21 @@ public struct VisionBoardCanvas: View {
                 // Escape backs out of whatever is open — a half-typed
                 // word, the tool ring, the paper strip — and only clears
                 // the selection when nothing else is in the way.
+                // Walking the wall is the outermost thing to step out of —
+                // but a scrap detail-zoomed MID-walk releases first, back
+                // to its pile, before another Esc leaves the walk.
+                if viewModel.isWalkingTheWall {
+                    let steppedBack = withAnimation(
+                        .spring(response: 0.5, dampingFraction: 0.85)) {
+                        viewModel.exitDetailZoom()
+                    }
+                    if !steppedBack {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+                            viewModel.exitWalk()
+                        }
+                    }
+                    return .handled
+                }
                 if typingAt != nil || awaitingTool != nil || noteFor != nil
                     || imagineAt != nil {
                     imagineAt = nil
@@ -225,10 +240,27 @@ public struct VisionBoardCanvas: View {
                 }
                 return .handled
             }
-            .onKeyPress(.leftArrow) { nudge(dx: -1, dy: 0) }
-            .onKeyPress(.rightArrow) { nudge(dx: 1, dy: 0) }
-            .onKeyPress(.upArrow) { nudge(dx: 0, dy: -1) }
-            .onKeyPress(.downArrow) { nudge(dx: 0, dy: 1) }
+            .onKeyPress(.leftArrow) {
+                if viewModel.isWalkingTheWall { return walkStep(-1) }
+                return nudge(dx: -1, dy: 0)
+            }
+            .onKeyPress(.rightArrow) {
+                if viewModel.isWalkingTheWall { return walkStep(1) }
+                return nudge(dx: 1, dy: 0)
+            }
+            .onKeyPress(.upArrow) {
+                if viewModel.isWalkingTheWall { return walkStep(-1) }
+                return nudge(dx: 0, dy: -1)
+            }
+            .onKeyPress(.downArrow) {
+                if viewModel.isWalkingTheWall { return walkStep(1) }
+                return nudge(dx: 0, dy: 1)
+            }
+            // Space advances the walk — the presenter's clicker.
+            .onKeyPress(.space) {
+                guard viewModel.isWalkingTheWall else { return .ignored }
+                return walkStep(1)
+            }
             .overlay {
                 if let anchor = imagineAt {
                     VisionImaginePanel(
@@ -650,7 +682,8 @@ public struct VisionBoardCanvas: View {
             hasPrompt: !scrap.description.isEmpty,
             canStick: VisionWallHitTest.elementBeneath(
                 scrap, in: viewModel.filteredCards) != nil,
-            isStuck: scrap.stuckTo != nil).map {
+            isStuck: scrap.stuckTo != nil,
+            hasSticker: !(scrap.department ?? "").isEmpty).map {
             VisionRingItem(id: $0.rawValue,
                            title: $0.title(pinned: scrap.pinned, isText: isText),
                            systemImage: $0.systemImage(pinned: scrap.pinned,
@@ -717,6 +750,8 @@ public struct VisionBoardCanvas: View {
                 CGPoint(x: (scrap.canvasX ?? 0) + (scrap.canvasWidth ?? 200) / 2,
                         y: (scrap.canvasY ?? 0) + (scrap.canvasHeight ?? 200)))
             draftFocused = true
+        case .sticker:
+            viewModel.peelDepartment(scrap.id)
         case .details:
             onCardEdit?(scrap)
         case .stick:
@@ -747,6 +782,14 @@ public struct VisionBoardCanvas: View {
     }
 
     /// Arrow keys walk a scrap across the wall; Shift strides.
+    /// One walk stride, with the gentle presentation pan (Wall 3.2).
+    private func walkStep(_ delta: Int) -> KeyPress.Result {
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+            viewModel.walkStep(delta)
+        }
+        return .handled
+    }
+
     private func nudge(dx: CGFloat, dy: CGFloat) -> KeyPress.Result {
         guard !viewModel.selectedCardIds.isEmpty, typingAt == nil else {
             return .ignored
@@ -972,6 +1015,9 @@ public struct VisionBoardCanvas: View {
                             in: viewSize, radius: 116)
                     },
                     onDelete: { viewModel.removeConnector($0.id) })
+                    // Walking the wall (Wall 3.2): the cords fall back to
+                    // faint string so the scraps star in the presentation.
+                    .opacity(viewModel.isWalkingTheWall ? 0.22 : 1)
             }
         }
     }

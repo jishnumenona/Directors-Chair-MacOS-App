@@ -647,4 +647,56 @@ final class VisionBoardViewModelTests: XCTestCase {
         let maxX = viewModel.transform.toScreen(CGPoint(x: 400, y: 0)).x
         XCTAssertEqual(maxX, 120, accuracy: 0.0001)
     }
+
+    // MARK: - Walk the wall + stickers (Wall 3.2)
+
+    func testWalkVisitsPilesInOrderAndClampsAtTheEnds() {
+        viewModel.viewportSize = CGSize(width: 1000, height: 800)
+        viewModel.addCard(placedCard("a1", x: 0, y: 0))
+        viewModel.addCard(placedCard("a2", x: 120, y: 20))
+        viewModel.addCard(placedCard("b1", x: 3000, y: 3000))
+        viewModel.addCard(placedCard("b2", x: 3120, y: 3050))
+        viewModel.enterWalk()
+        XCTAssertTrue(viewModel.isWalkingTheWall)
+        XCTAssertEqual(viewModel.walkStops.count, 2)
+        XCTAssertEqual(viewModel.walkIndex, 0)
+        let atFirst = viewModel.transform
+        viewModel.walkStep(-1)                       // clamped at the start
+        XCTAssertEqual(viewModel.walkIndex, 0)
+        XCTAssertEqual(viewModel.transform, atFirst)
+        viewModel.walkStep(1)
+        XCTAssertEqual(viewModel.walkIndex, 1)
+        XCTAssertNotEqual(viewModel.transform, atFirst)
+        viewModel.walkStep(1)                        // clamped at the end
+        XCTAssertEqual(viewModel.walkIndex, 1)
+        viewModel.exitWalk()
+        XCTAssertFalse(viewModel.isWalkingTheWall)
+        XCTAssertTrue(viewModel.walkStops.isEmpty)
+    }
+
+    func testWalkOnAWallOfSinglesToursTheWholeBoardOnce() {
+        viewModel.viewportSize = CGSize(width: 1000, height: 800)
+        viewModel.addCard(placedCard("a", x: 0, y: 0))
+        viewModel.addCard(placedCard("b", x: 5000, y: 5000))
+        viewModel.enterWalk()
+        XCTAssertTrue(viewModel.isWalkingTheWall)
+        XCTAssertEqual(viewModel.walkStops.count, 1)
+        XCTAssertEqual(viewModel.walkStops[0].count, 2)
+    }
+
+    func testWalkDeclinesAnEmptyWall() {
+        viewModel.enterWalk()
+        XCTAssertFalse(viewModel.isWalkingTheWall)
+    }
+
+    func testPeelDepartmentClearsItOnce() {
+        var card = placedCard("scrap", x: 0, y: 0)
+        card.department = "cinematography"
+        viewModel.addCard(card)
+        let id = viewModel.cards[0].id
+        viewModel.peelDepartment(id)
+        XCTAssertNil(viewModel.cards[0].department)
+        viewModel.peelDepartment(id)                 // second peel is a no-op
+        XCTAssertNil(viewModel.cards[0].department)
+    }
 }
