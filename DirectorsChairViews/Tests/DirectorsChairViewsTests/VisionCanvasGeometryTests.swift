@@ -276,4 +276,39 @@ final class VisionCanvasGeometryTests: XCTestCase {
         let minX = snapped.toScreen(CGPoint(x: bounds.minX, y: 0)).x
         XCTAssertEqual(minX, 760, accuracy: 0.0001)   // 800 - 40
     }
+
+    // MARK: - Clusters (Wall 3.2)
+
+    private func placed(_ id: String, x: CGFloat, y: CGFloat,
+                        w: CGFloat = 100, h: CGFloat = 100) -> VisionCard {
+        VisionCard(id: id, canvasX: x, canvasY: y,
+                   canvasWidth: w, canvasHeight: h)
+    }
+
+    func testClustersGroupByProximityInReadingOrder() {
+        // Lower-right pile listed second despite input order.
+        let cards = [placed("b1", x: 2000, y: 2000),
+                     placed("a1", x: 0, y: 0),
+                     placed("a2", x: 150, y: 30),
+                     placed("b2", x: 2110, y: 2060)]
+        let clusters = VisionCanvasGeometry.clusters(of: cards)
+        XCTAssertEqual(clusters.map { $0.map(\.id) },
+                       [["a1", "a2"], ["b1", "b2"]])
+    }
+
+    func testClustersChainTransitively() {
+        // a-b touch, b-c touch, a-c do not: still ONE pile.
+        let cards = [placed("a", x: 0, y: 0),
+                     placed("b", x: 180, y: 0),
+                     placed("c", x: 360, y: 0)]
+        let clusters = VisionCanvasGeometry.clusters(of: cards)
+        XCTAssertEqual(clusters.count, 1)
+        XCTAssertEqual(clusters[0].map(\.id), ["a", "b", "c"])
+    }
+
+    func testClustersIsolateDistantScrapsAndEmptyInput() {
+        let cards = [placed("a", x: 0, y: 0), placed("b", x: 1000, y: 1000)]
+        XCTAssertEqual(VisionCanvasGeometry.clusters(of: cards).count, 2)
+        XCTAssertTrue(VisionCanvasGeometry.clusters(of: []).isEmpty)
+    }
 }

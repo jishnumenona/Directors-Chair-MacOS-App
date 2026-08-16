@@ -120,23 +120,28 @@ public struct VisionBoardView: View {
                 onOpenLink: { onOpenLink?($0) }
             )
 
-            // Floating toolbar at top
-            VStack {
-                toolbar
-                Spacer()
-            }
-
-            // Zoom controls at bottom right
-            VStack {
-                Spacer()
-                HStack {
+            // Floating toolbar at top — vanishes while walking the wall
+            // (Wall 3.2): the presentation is the wall and nothing else.
+            if !viewModel.isWalkingTheWall {
+                VStack {
+                    toolbar
                     Spacer()
-                    zoomControls
-                        .foregroundStyle(VisionWallPalette.ink)
-                        .environment(\.colorScheme, .light)
                 }
+
+                // Zoom controls at bottom right
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        zoomControls
+                            .foregroundStyle(VisionWallPalette.ink)
+                            .environment(\.colorScheme, .light)
+                    }
+                }
+                .padding()
+            } else {
+                walkOverlay
             }
-            .padding()
 
             // Infinite-canvas rescue: appears when every card is
             // off-screen and jumps back to the content.
@@ -269,6 +274,46 @@ public struct VisionBoardView: View {
     // MARK: - Toolbar
 
     @ViewBuilder
+    /// Walking the wall (Wall 3.2): the only chrome is a small pill —
+    /// which pile you're at, arrows to step, esc to step out. Paper-toned
+    /// like the toolbar it replaced, but quieter.
+    private var walkOverlay: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 10) {
+                Button {
+                    withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+                        viewModel.walkStep(-1)
+                    }
+                } label: { Image(systemName: "chevron.left") }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.walkIndex == 0)
+
+                Text("pile \(viewModel.walkIndex + 1) of \(viewModel.walkStops.count)")
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+
+                Button {
+                    withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+                        viewModel.walkStep(1)
+                    }
+                } label: { Image(systemName: "chevron.right") }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.walkIndex >= viewModel.walkStops.count - 1)
+
+                Text("esc steps out")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+            .background(wallPill)
+            .foregroundStyle(VisionWallPalette.ink)
+            .environment(\.colorScheme, .light)
+            .padding(.bottom, 18)
+        }
+    }
+
     private var toolbar: some View {
         // The Wall, pass 2: the board carried ~13 controls — an add-card
         // menu, search, type filter, department filter, labels, snap,
@@ -539,6 +584,18 @@ public struct VisionBoardView: View {
     @ViewBuilder
     private var actionButtons: some View {
         HStack(spacing: 8) {
+            // Walk the wall (Wall 3.2): stand back and present the piles.
+            Button {
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+                    viewModel.enterWalk()
+                }
+            } label: {
+                Image(systemName: "figure.walk")
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.white)
+            .help("Walk the wall — present pile by pile (esc steps out)")
+
             // Select-all moved to ⌘A; the wall shows one tool.
             Button {
                 showingExportOptions = true
