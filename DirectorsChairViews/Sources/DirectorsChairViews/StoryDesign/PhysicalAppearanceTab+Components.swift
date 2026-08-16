@@ -333,6 +333,8 @@ struct AngleThumbnail: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Annotate & edit image")
+                                // Annotate exists to REGENERATE — Creator.
+                                .requiresTier(.creator, feature: "AI character images")
 
                                 Button {
                                     onDownload?(fullPath)
@@ -364,6 +366,7 @@ struct AngleThumbnail: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Regenerate this angle")
+                                .requiresTier(.creator, feature: "AI character images")
 
                                 Button {
                                     onUpload?()
@@ -398,6 +401,7 @@ struct AngleThumbnail: View {
                     }
                     .buttonStyle(.plain)
                     .help("Generate \(label) image")
+                    .requiresTier(.creator, feature: "AI character images")
                     .contextMenu {
                         Button("Upload Custom Image…") { onUpload?() }
                     }

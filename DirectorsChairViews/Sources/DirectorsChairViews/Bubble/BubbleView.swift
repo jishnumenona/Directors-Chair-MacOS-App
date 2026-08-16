@@ -38,6 +38,11 @@ public struct BubbleView: View {
     @State var showSoundNotes = true
     @State var showBackground = false
 
+    // AI dialogue voice is Creator (§3.6): playDialogue's silent
+    // generate-when-missing fallback must prompt, not spend, at .free.
+    @Environment(\.productTier) var sessionTier
+    @State var tierPrompt: TierPromptRequest?
+
     // UI state
     @State var sortRefreshTrigger = UUID()
     @State var newlyAddedItemId: String? = nil  // Track newly added items for auto-edit
@@ -197,6 +202,7 @@ public struct BubbleView: View {
             .keyboardShortcut(.defaultAction)
             .hidden()
         }
+        .tierPromptSheet($tierPrompt)
         .sheet(item: $editingDialogue) { dialogue in
             EditDialogueSheet(
                 dialogue: dialogue,

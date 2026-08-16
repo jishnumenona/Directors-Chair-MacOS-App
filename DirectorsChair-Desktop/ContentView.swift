@@ -225,7 +225,8 @@ struct ContentView: View {
                         coordinator.showingCommandPalette = false
                         CommandPaletteCatalog.run(
                             entry, query: query, coordinator: coordinator,
-                            projectViewModel: projectViewModel)
+                            projectViewModel: projectViewModel,
+                            sessionTier: authManager.tier)
                     },
                     onDismiss: { coordinator.showingCommandPalette = false })
                     .transition(.opacity)

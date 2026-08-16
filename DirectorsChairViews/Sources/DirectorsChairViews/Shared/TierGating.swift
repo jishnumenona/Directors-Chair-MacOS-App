@@ -33,26 +33,33 @@ private struct RequiresTierModifier: ViewModifier {
     @Environment(\.productTier) private var sessionTier
     @State private var showingUpgradePrompt = false
 
-    func body(content: Content) -> some View {
-        if sessionTier >= requiredTier {
+    func body(content: Content) -> AnyView {
+        // Erased on purpose. Every gate used to add its wrapper to the
+        // host view's VALUE type; with fifteen gates in the story-design
+        // tree, copying that value overflowed the stack (SIGBUS in
+        // initializeWithCopy — caught by the snapshot suite). AnyView caps
+        // each gate at one fixed-size type, and these are leaf controls,
+        // never the 120Hz canvas path, so erasure costs nothing real.
+        let unlocked = sessionTier >= requiredTier
+        return AnyView(
             content
-        } else {
-            Button {
-                showingUpgradePrompt = true
-            } label: {
-                content
-                    .allowsHitTesting(false)
-                    .opacity(0.55)
-                    .overlay(alignment: .topTrailing) {
-                        TierLockBadge()
+                .allowsHitTesting(unlocked)
+                .opacity(unlocked ? 1 : 0.55)
+                .overlay(alignment: .topTrailing) {
+                    if !unlocked { TierLockBadge() }
+                }
+                .overlay {
+                    if !unlocked {
+                        // Catches the click the disabled content no longer takes.
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { showingUpgradePrompt = true }
+                            .help("\(feature) is part of \(requiredTier.displayName) — coming soon")
                     }
-            }
-            .buttonStyle(.plain)
-            .help("\(feature) is part of \(requiredTier.displayName) — coming soon")
-            .sheet(isPresented: $showingUpgradePrompt) {
-                TierUpgradeSheet(feature: feature, requiredTier: requiredTier)
-            }
-        }
+                }
+                .sheet(isPresented: $showingUpgradePrompt) {
+                    TierUpgradeSheet(feature: feature, requiredTier: requiredTier)
+                })
     }
 }
 
@@ -69,6 +76,7 @@ public struct TierLockBadge: View {
             .padding(2)
             .background(Circle().fill(.thinMaterial))
             .accessibilityLabel("Locked — part of a plan coming soon")
+            .accessibilityIdentifier("tier-lock-badge")
     }
 }
 
@@ -141,7 +149,9 @@ public struct TierUpgradeSheet: View {
             Button("OK") { dismiss() }
                 .keyboardShortcut(.defaultAction)
                 .padding(.bottom, 20)
+                .accessibilityIdentifier("tier-sheet-ok")
         }
+        .accessibilityIdentifier("tier-upgrade-sheet")
     }
 }
 

@@ -57,6 +57,10 @@ private struct GoldenScenario {
     var scripts: [[ChatStreamEvent]]
     /// (request index, substring) — the tool result the model saw.
     var expectToolResults: [(Int, String)] = []
+    /// Like `expectToolResults` but asserted in the .free rerun's gated
+    /// branch (DC-0016) — needles must come from FREE calls only; the
+    /// studio-authored `expectToolResults` reference gated results there.
+    var freeExpectToolResults: [(Int, String)] = []
     var expectPlanItems: Int = 0
     var expectWarnings: Bool? = nil
     /// Runs after proposals (if any) are applied.
@@ -504,22 +508,76 @@ final class AssistantGoldenEvals: XCTestCase {
         XCTAssertGreaterThanOrEqual(Self.scenarios.count, 30,
                                     "the golden set must not shrink")
         for scenario in Self.scenarios {
-            await runScenario(scenario)
+            await runScenario(scenario, tier: .studio)
         }
     }
 
-    private func runScenario(_ scenario: GoldenScenario) async {
+    /// DC-0016 (the free-launch QA gate): the SAME golden set rerun as a
+    /// .free session. Scenarios whose scripted calls are all Free-tier must
+    /// behave byte-identically; scenarios that script a Creator-gated call
+    /// must REFUSE CLEANLY — the turn finishes, the model is told the tool
+    /// is not in this plan, the gated action never starts, and no plan item
+    /// proposes it. The studio pass pins behavior; this pass pins refusals.
+    ///
+    /// The main set deliberately scripts no gated calls (it pins the free
+    /// catalog's behavior — verified identical here), so the refusal
+    /// contract is pinned by `gatedRefusalScenarios`, which run ONLY in
+    /// this pass. If a scripted action is ever demoted to Free, its
+    /// scenario flips to the full-assertion path and fails loudly (a real
+    /// spending action would propose a plan item where 0 is expected).
+    func testGoldenTranscriptsAsFree() async throws {
+        XCTAssertGreaterThanOrEqual(Self.gatedRefusalScenarios.count, 4,
+                                    "the refusal set must not shrink")
+        for scenario in Self.scenarios + Self.gatedRefusalScenarios {
+            await runScenario(scenario, tier: .free)
+        }
+    }
+
+    /// Refusal-contract scenarios (DC-0016): each scripts a Creator-gated
+    /// call a .free session must refuse — a spending generation, a
+    /// production mutation, a production read, the Storyteller entry, and
+    /// one mixed turn where the free half must still work.
+    private static let gatedRefusalScenarios: [GoldenScenario] = [
+        GoldenScenario(name: "free refuses generate_scene_image",
+                       scripts: toolTurn("generate_scene_image",
+                                         #"{"scene": "Opening"}"#)),
+        GoldenScenario(name: "free refuses add_expense",
+                       scripts: toolTurn("add_expense",
+                                         #"{"category": "Camera", "amount": 100}"#)),
+        GoldenScenario(name: "free refuses get_schedule",
+                       scripts: toolTurn("get_schedule", "{}")),
+        GoldenScenario(name: "free refuses start_storyteller",
+                       scripts: toolTurn("start_storyteller", "{}")),
+        GoldenScenario(
+            name: "free mixed turn: free read works, gated call refuses",
+            scripts: [[call("get_scene", #"{"scene": "Opening"}"#, id: "c1"),
+                       call("generate_scene_image", #"{"scene": "Opening"}"#,
+                            id: "c2"),
+                       .done(finishReason: "tool_calls", model: "m")],
+                      [.delta("Partly done."), .done(finishReason: "stop", model: "m")]],
+            freeExpectToolResults: [(1, "Old description")]),
+    ]
+
+    private static func scriptedCallNames(_ scenario: GoldenScenario) -> [String] {
+        scenario.scripts.flatMap { $0 }.compactMap { event in
+            if case .toolCall(let call) = event { return call.name }
+            return nil
+        }
+    }
+
+    private func runScenario(_ scenario: GoldenScenario, tier: ProductTier) async {
         let pvm = ProjectViewModel(project: Self.fixture())
         let coordinator = AppCoordinator()
         let registry = AssistantActionFactory.makeRegistry(
             projectViewModel: pvm, coordinator: coordinator)
+        // Calls the script issues that sit above the session tier.
+        let gated = Set(Self.scriptedCallNames(scenario).filter { name in
+            (registry.action(named: name)?.minimumTier ?? .free) > tier
+        })
         let transport = EvalTransport(scripts: scenario.scripts)
-        // The golden set pins ACTION behavior, not gating, so it runs as
-        // .studio (full catalog); the free-session QA pass (DC-0016)
-        // reruns it under .free to pin the refusals instead.
         let engine = AssistantEngine(
             transport: transport, registry: registry,
-            configuration: EngineConfiguration(sessionTier: .studio))
+            configuration: EngineConfiguration(sessionTier: tier))
 
         var events: [EngineEvent] = []
         for await event in await engine.runTurn(history: [.system("eval")],
@@ -528,7 +586,50 @@ final class AssistantGoldenEvals: XCTestCase {
         }
 
         guard case .finished = events.last else {
-            return XCTFail("\(scenario.name): turn did not finish cleanly — \(events)")
+            return XCTFail("\(scenario.name) [\(tier)]: turn did not finish cleanly — \(events)")
+        }
+
+        if !gated.isEmpty {
+            // Refusal contract (§5.3 UX gating; the server enforces spend):
+            // the model saw the refusal for every gated call…
+            let toolMessages = transport.requests
+                .flatMap { $0.messages.filter { $0.role == .tool } }
+                .map(\.textContent).joined(separator: "\n")
+            for name in gated.sorted() {
+                XCTAssertTrue(
+                    toolMessages.contains(
+                        "tool '\(name)' is not included in this account's plan"),
+                    "\(scenario.name) [\(tier)]: no clean refusal for '\(name)'")
+            }
+            // …no gated action ever started…
+            let started = events.compactMap { event -> String? in
+                if case .toolStarted(let name) = event { return name }
+                return nil
+            }
+            XCTAssertTrue(started.allSatisfy { !gated.contains($0) },
+                          "\(scenario.name) [\(tier)]: gated action started — \(started)")
+            // …and nothing above the session tier was proposed for review.
+            let plan = events.compactMap { event -> TurnPlan? in
+                if case .turnPlan(let plan) = event { return plan }
+                return nil
+            }.first
+            for item in plan?.items ?? [] {
+                let minimum = registry.action(named: item.actionName)?.minimumTier ?? .free
+                XCTAssertTrue(minimum <= tier,
+                              "\(scenario.name) [\(tier)]: plan proposes gated '\(item.actionName)'")
+            }
+            // The free half of a mixed turn must still deliver its results.
+            for (index, needle) in scenario.freeExpectToolResults {
+                guard transport.requests.indices.contains(index) else {
+                    return XCTFail("\(scenario.name) [\(tier)]: no request #\(index)")
+                }
+                let messages = transport.requests[index].messages
+                    .filter { $0.role == .tool }
+                    .map(\.textContent).joined(separator: "\n")
+                XCTAssertTrue(messages.contains(needle),
+                    "\(scenario.name) [\(tier)]: result[\(index)] missing '\(needle)'")
+            }
+            return
         }
 
         let plan = events.compactMap { event -> TurnPlan? in

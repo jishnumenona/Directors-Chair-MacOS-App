@@ -550,6 +550,9 @@ extension LocationDetailView {
                                     }
                                     .buttonStyle(.plain)
                                     .help("Annotate & edit image")
+                                    // Annotate exists to REGENERATE with
+                                    // annotations — a spend, so Creator.
+                                    .requiresTier(.creator, feature: "AI location images")
 
                                     Button(action: {
                                         downloadImage(from: fullPath, suggestedName: "\(location.name)_\(selectedPreviewVariation).png")
@@ -586,6 +589,7 @@ extension LocationDetailView {
                                 .buttonStyle(.plain)
                                 .disabled(generatingProgress[selectedPreviewVariation] != nil)
                                 .help(generatingProgress[selectedPreviewVariation] != nil ? "Generating..." : "Regenerate image")
+                                .requiresTier(.creator, feature: "AI location images")
                             }
                         }
                         .padding(12)
@@ -627,6 +631,7 @@ extension LocationDetailView {
                     generateVariationImage(variation: "primary", prompt: buildLocationPrompt())
                 }
                 .disabled(generatingProgress["primary"] != nil)
+                .requiresTier(.creator, feature: "AI location images")
             }
 
             // Variations section header

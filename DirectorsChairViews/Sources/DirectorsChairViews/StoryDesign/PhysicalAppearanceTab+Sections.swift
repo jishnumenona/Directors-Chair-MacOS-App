@@ -375,16 +375,18 @@ extension PhysicalAppearanceTab {
         .padding(.vertical, 8)
     }
 
-    // MARK: - Image Gallery Section
+    // MARK: - Base Image Display
 
-    var imageGallerySection: some View {
-        ScrollView {
-        VStack(spacing: 12) {
-            // Image style selector
-            imageStyleSection
-
-            // Main image display
-            ZStack {
+    /// Extracted from `imageGallerySection` (DC-0016): the gallery was ONE
+    /// enormous view expression, so close to the compiler's type-depth
+    /// cliff that adding ANY three modifiers made copying the view value
+    /// overflow the stack (SIGBUS — caught by the story-design snapshot
+    /// suite). A named subview caps the parent's expression at one opaque
+    /// type. Keep it that way: grow this section by adding subviews, not
+    /// by inlining more branches.
+    private var baseImageDisplay: some View {
+        // Hero image + hover controls
+        ZStack {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.1))
                     .frame(height: 300)
@@ -441,6 +443,7 @@ extension PhysicalAppearanceTab {
                                     }
                                     .buttonStyle(.plain)
                                     .help("Annotate & edit image")
+                                    .requiresTier(.creator, feature: "AI character images")
 
                                     Button(action: {
                                         downloadImage(from: fullPath, suggestedName: "\(character.name)_base.png")
@@ -490,6 +493,7 @@ extension PhysicalAppearanceTab {
                                 .buttonStyle(.plain)
                                 .disabled(generatingProgress["base"] != nil)
                                 .help(generatingProgress["base"] != nil ? "Generating..." : "Regenerate base image")
+                                .requiresTier(.creator, feature: "AI character images")
                             }
                             .padding(12)
                             Spacer()
@@ -512,6 +516,19 @@ extension PhysicalAppearanceTab {
                     isHoveringBaseImage = hovering
                 }
             }
+    }
+
+    // MARK: - Image Gallery Section
+
+    var imageGallerySection: some View {
+        ScrollView {
+        VStack(spacing: 12) {
+            // Image style selector
+            imageStyleSection
+
+            // Main image display (extracted: this expression
+            // sat at the type-depth cliff — see baseImageDisplay)
+            baseImageDisplay
 
             // Analysis overlay when processing uploaded image
             if isAnalyzingUpload {
@@ -541,6 +558,7 @@ extension PhysicalAppearanceTab {
                 }
                 .disabled(generatingProgress["base"] != nil)
                 .help("AI: Generate a base character image")
+                .requiresTier(.creator, feature: "AI character images")
 
                 // Divider with "or upload"
                 HStack(spacing: 8) {

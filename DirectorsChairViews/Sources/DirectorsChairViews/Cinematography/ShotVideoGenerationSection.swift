@@ -481,6 +481,8 @@ struct ShotVideoGenerationSection: View {
     // MARK: - Generate Buttons
 
     private var generateButtons: some View {
+        // AI shot video generation is Creator (§3.3) — the whole trigger
+        // row locks as one control; playback of existing takes stays free.
         HStack(spacing: 12) {
             Button(action: { startGeneration() }) {
                 HStack(spacing: 8) {
@@ -512,6 +514,7 @@ struct ShotVideoGenerationSection: View {
             }
             .buttonStyle(.plain)
         }
+        .requiresTier(.creator, feature: "AI shot video")
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 4)
     }

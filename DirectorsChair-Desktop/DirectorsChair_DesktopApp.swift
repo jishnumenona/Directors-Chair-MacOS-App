@@ -179,7 +179,8 @@ struct DirectorsChair_DesktopApp: App {
                 }
         }
         .commands {
-            FileCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
+            FileCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel,
+                         authManagerRef: authManager)
             ViewCommands(coordinatorRef: coordinator, projectViewModelRef: projectViewModel)
             ExportCommands(projectViewModelRef: projectViewModel,
                            authManagerRef: authManager,
