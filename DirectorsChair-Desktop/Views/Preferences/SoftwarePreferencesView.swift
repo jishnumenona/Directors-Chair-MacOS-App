@@ -673,6 +673,7 @@ struct SoftwarePreferencesView: View {
                         PrefServiceRow(
                             function: function,
                             health: serviceHealth.health,
+                            localModel: serviceHealth.insightsAvailability,
                             selection: providerBinding(for: function)
                         )
                     }
@@ -1195,6 +1196,8 @@ final class ServiceHealthModel: ObservableObject {
 private struct PrefServiceRow: View {
     let function: AIFunction
     let health: AIProviderHealth?
+    /// The local model's state (DC-0057) — gates requiresLocalModel options.
+    var localModel: InsightAvailability?
     @Binding var selection: String
 
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: 6)]
@@ -1204,8 +1207,30 @@ private struct PrefServiceRow: View {
     }
 
     private func isAvailable(_ option: AIServiceOption) -> Bool {
+        if option.requiresLocalModel {
+            // The local model is selectable only when genuinely READY —
+            // "unknown" here means not downloaded, not "assume fine".
+            if case .ready = localModel { return true }
+            return false
+        }
         guard let health else { return true }   // unknown = don't block choosing
         return health.isAvailable(option)
+    }
+
+    private func unavailableHint(_ option: AIServiceOption) -> String {
+        guard option.requiresLocalModel else {
+            return "\(option.displayName) isn't enabled on the server right now"
+        }
+        switch localModel {
+        case .needsDownload:
+            return "Local model not downloaded yet — start it from any project's Overview"
+        case .downloading(let progress):
+            return "Local model downloading… \(Int(progress * 100))%"
+        case .unavailable(let reason):
+            return reason
+        default:
+            return "Local model isn't ready yet"
+        }
     }
 
     var body: some View {
@@ -1227,7 +1252,7 @@ private struct PrefServiceRow: View {
                         selection = option.wireId
                     } label: {
                         HStack(spacing: 4) {
-                            if health != nil {
+                            if health != nil || option.requiresLocalModel {
                                 Circle()
                                     .fill(available ? Color.green : Color.secondary.opacity(0.4))
                                     .frame(width: 5, height: 5)
@@ -1247,16 +1272,14 @@ private struct PrefServiceRow: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!available && !selected)
-                    .help(available
-                          ? option.displayName
-                          : "\(option.displayName) isn't enabled on the server right now")
+                    .help(available ? option.displayName : unavailableHint(option))
                     .accessibilityIdentifier("ai-service-\(function.rawValue)-\(option.wireId)")
                 }
             }
 
             if let chosen = options.first(where: { $0.wireId == selection }),
                !isAvailable(chosen) {
-                Label("\(chosen.displayName) is currently unavailable — calls will fail until the server enables it or you pick another service.",
+                Label("\(chosen.displayName) is currently unavailable — \(unavailableHint(chosen)). Calls will fail until then; pick another service to keep working.",
                       systemImage: "exclamationmark.triangle")
                     .font(.system(size: 10))
                     .foregroundColor(.orange)

@@ -50,11 +50,33 @@ final class AIProviderSelectionTests: XCTestCase {
                 }
             }
         }
-        // Exactly one on-device option exists today (assistant voice).
-        let onDevice = AIFunction.allCases.flatMap {
-            AIProviderCatalog.options(for: $0).filter { $0.healthKey == nil }
+        // On-device options: the always-available system voice, and the
+        // local model for text (DC-0057) — which gates on the DC-0055
+        // engine being READY, never "assume fine".
+        let onDevice = AIFunction.allCases.flatMap { function in
+            AIProviderCatalog.options(for: function)
+                .filter { $0.healthKey == nil }
+                .map { (function, $0) }
         }
-        XCTAssertEqual(onDevice.map(\.wireId), ["device"])
+        XCTAssertEqual(onDevice.map(\.1.wireId), ["device", "device"])
+        XCTAssertEqual(onDevice.map(\.1.requiresLocalModel),
+                       [true, false])          // text gates; voice doesn't
+        XCTAssertEqual(onDevice.map(\.0), [.text, .voiceReplies])
+    }
+
+    func testLocalModelChoiceResolvesToOnDeviceProvider() {
+        let defaults = freshDefaults()
+        let selection = AIProviderSelection(defaults: defaults)
+        defaults.set("device", forKey: AIFunction.text.preferenceKey)
+        XCTAssertEqual(selection.wireId(for: .text), "device")
+        // The typed provider is the routing sentinel generateText branches
+        // on before any network code — never a wire value.
+        XCTAssertEqual(selection.provider(for: .text), .onDevice)
+        // The local model is a TEXT option only — a stored "device" for
+        // image must degrade to the default, not route to a model that
+        // cannot draw.
+        defaults.set("device", forKey: AIFunction.image.preferenceKey)
+        XCTAssertEqual(selection.wireId(for: .image), "google_imagen")
     }
 
     func testPreferenceKeysAreFrozen() {
