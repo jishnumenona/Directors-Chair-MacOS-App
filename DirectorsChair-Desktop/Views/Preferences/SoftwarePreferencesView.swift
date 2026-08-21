@@ -622,29 +622,80 @@ struct SoftwarePreferencesView: View {
         }
     }
 
-    /// On-device insights (DC-0055) run through their own engine, not the
-    /// gateway — shown here so the pane covers EVERY AI function, with the
-    /// engine's honest state instead of a picker it doesn't need yet (a
-    /// second engine arrives with Apple FoundationModels).
+    /// The LOCAL model itself (DC-0059): which bundled model serves every
+    /// on-device function (insights, on-device text, on-device chat), its
+    /// per-option download state, and an inline download for the selected
+    /// one — the pane is now a complete home for local AI, not a pointer.
     private var insightsEngineRow: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "brain")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-            Text("On-device Insights")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.secondary)
-            Spacer()
-            Text(insightsStateText)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "brain")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text("Local Model")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(insightsStateText)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6)],
+                      alignment: .leading, spacing: 6) {
+                ForEach(LocalModelCatalog.options) { option in
+                    let selected = serviceHealth.selectedLocalModelId == option.id
+                    let downloaded = serviceHealth.downloadedLocalModels.contains(option.id)
+                    Button {
+                        UserDefaults.standard.set(option.id,
+                                                  forKey: LocalModelCatalog.preferenceKey)
+                        Task { await serviceHealth.refresh() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(downloaded ? Color.green : Color.secondary.opacity(0.4))
+                                .frame(width: 5, height: 5)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(option.displayName)
+                                    .font(.system(size: 10,
+                                                  weight: selected ? .semibold : .regular))
+                                Text(downloaded ? option.detail
+                                     : "\(ByteCountFormatter.string(fromByteCount: option.approxBytes, countStyle: .file)) download")
+                                    .font(.system(size: 8))
+                                    .opacity(0.75)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selected ? Color.accentColor : Color(nsColor: .quaternarySystemFill)))
+                        .foregroundColor(selected ? .white : .primary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(option.detail)
+                    .accessibilityIdentifier("local-model-\(option.id)")
+                }
+            }
+
+            if case .needsDownload(let bytes) = serviceHealth.insightsAvailability {
+                Button {
+                    Task { await serviceHealth.downloadLocalModel() }
+                } label: {
+                    Label("Download \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) — runs on this Mac, free",
+                          systemImage: "arrow.down.circle")
+                        .font(.system(size: 10))
+                }
+                .accessibilityIdentifier("local-model-download")
+            }
         }
     }
 
     private var insightsStateText: String {
         switch serviceHealth.insightsAvailability {
         case .ready: return "Local model ready — runs on this Mac, free on every plan"
-        case .needsDownload: return "Local model not downloaded yet — start it from any project's Overview"
+        case .needsDownload: return "Selected model not downloaded yet"
         case .downloading(let progress): return "Downloading local model… \(Int(progress * 100))%"
         case .unavailable(let reason): return reason
         case nil: return "Checking…"
@@ -1178,6 +1229,10 @@ final class ServiceHealthModel: ObservableObject {
 
     @Published private(set) var state: CheckState = .unchecked
     @Published private(set) var insightsAvailability: InsightAvailability?
+    /// DC-0059: every catalog model's on-disk state + the current choice,
+    /// for the Local Model picker.
+    @Published private(set) var downloadedLocalModels: Set<String> = []
+    @Published private(set) var selectedLocalModelId: String = LocalModelCatalog.selected.id
 
     var health: AIProviderHealth? {
         if case .checked(let health) = state { return health }
@@ -1190,12 +1245,40 @@ final class ServiceHealthModel: ObservableObject {
 
     func refresh() async {
         state = .checking
+        refreshLocalModels()
         insightsAvailability = await MLXInsightEngine.shared.availability()
         if let health = await AIProviderHealthClient().fetch() {
             state = .checked(health)
         } else {
             state = .unreachable
         }
+    }
+
+    private func refreshLocalModels() {
+        selectedLocalModelId = LocalModelCatalog.selected.id
+        downloadedLocalModels = Set(LocalModelCatalog.options
+            .filter { MLXInsightEngine.shared.isModelDownloaded($0.id) }
+            .map(\.id))
+    }
+
+    /// Consent-gated download of the SELECTED local model, with progress
+    /// mirrored into `insightsAvailability` (same pattern as the Overview
+    /// panel's InsightsViewModel.download).
+    func downloadLocalModel() async {
+        insightsAvailability = .downloading(progress: 0)
+        let poll = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                let current = await MLXInsightEngine.shared.availability()
+                await MainActor.run { [weak self] in
+                    if case .downloading = current { self?.insightsAvailability = current }
+                }
+            }
+        }
+        defer { poll.cancel() }
+        try? await MLXInsightEngine.shared.prepare()
+        insightsAvailability = await MLXInsightEngine.shared.availability()
+        refreshLocalModels()
     }
 }
 
@@ -1289,6 +1372,14 @@ private struct PrefServiceRow: View {
                 }
             }
 
+            // DC-0059: model choice for the selected service, where the
+            // server genuinely honors one (video's adapter ignores request
+            // models, so no picker pretends otherwise).
+            if AIModelCatalog.hasChoice(for: function, wireId: selection) {
+                PrefModelPicker(function: function, wireId: selection)
+                    .id(function.rawValue + selection)
+            }
+
             if let chosen = options.first(where: { $0.wireId == selection }),
                !isAvailable(chosen) {
                 Label("\(chosen.displayName) is currently unavailable — \(unavailableHint(chosen)). Calls will fail until then; pick another service to keep working.",
@@ -1297,6 +1388,74 @@ private struct PrefServiceRow: View {
                     .foregroundColor(.orange)
             }
         }
+    }
+}
+
+// MARK: - Model picker (DC-0059)
+
+/// The model choice for one (function, service) pairing. @AppStorage can't
+/// take a dynamic key, so the row syncs a local copy against UserDefaults;
+/// "" = Server default (the request omits the field). Custom entries are
+/// power-user wire ids forwarded verbatim.
+private struct PrefModelPicker: View {
+    let function: AIFunction
+    let wireId: String
+
+    @State private var value: String = ""
+    @State private var customMode = false
+
+    private static let customTag = "__custom__"
+
+    private var key: String {
+        AIProviderSelection.modelKey(function: function, wireId: wireId)
+    }
+    private var options: [AIModelOption] {
+        AIModelCatalog.options(for: function, wireId: wireId)
+    }
+    private var valueIsCustom: Bool {
+        !value.isEmpty && !options.contains { $0.id == value }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Model")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+            Picker("", selection: Binding(
+                get: { customMode || valueIsCustom ? Self.customTag : value },
+                set: { picked in
+                    if picked == Self.customTag {
+                        customMode = true
+                    } else {
+                        customMode = false
+                        value = picked
+                        UserDefaults.standard.set(picked, forKey: key)
+                    }
+                })) {
+                ForEach(options) { option in
+                    Text(option.displayName).tag(option.id)
+                }
+                Text("Custom…").tag(Self.customTag)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .frame(maxWidth: 260, alignment: .leading)
+            .accessibilityIdentifier("ai-model-\(function.rawValue)-\(wireId)")
+
+            if customMode || valueIsCustom {
+                TextField("model id", text: Binding(
+                    get: { value },
+                    set: { typed in
+                        value = typed
+                        UserDefaults.standard.set(typed, forKey: key)
+                    }))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 10, design: .monospaced))
+                    .frame(maxWidth: 220)
+            }
+            Spacer()
+        }
+        .onAppear { value = UserDefaults.standard.string(forKey: key) ?? "" }
     }
 }
 

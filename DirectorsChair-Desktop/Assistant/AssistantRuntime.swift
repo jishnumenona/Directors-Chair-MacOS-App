@@ -42,12 +42,15 @@ final class AssistantRuntime {
         }
     }
 
-    /// A6.5 routing table: the chat-capable providers the gateway serves.
-    /// Anything else stored in preferences falls back to the default.
-    static let chatProviders: Set<String> = ["google", "anthropic", "deepseek"]
+    /// A6.5 routing table: the chat-capable providers — the gateway's
+    /// three, plus DC-0059's on-device conversation-only mode. Anything
+    /// else stored in preferences falls back to the default.
+    static let chatProviders: Set<String> = ["google", "anthropic", "deepseek", "device"]
 
     /// Resolves the assistant's engine configuration from Preferences —
-    /// the wired half of the "DEFAULT PROVIDERS" pickers (A6.5).
+    /// the wired half of the AI Services pickers (A6.5 + DC-0059: the
+    /// per-provider MODEL choice rides along; "device" carries no model
+    /// field — the local engine follows the local-model preference).
     static func routedConfiguration() -> EngineConfiguration {
         let stored = UserDefaults.standard.string(forKey: PrefKey.aiChatProvider)
             ?? "google"
@@ -55,7 +58,10 @@ final class AssistantRuntime {
         var temperature = UserDefaults.standard.object(forKey: PrefKey.aiTemperature)
             .flatMap { $0 as? Double } ?? 0.7
         temperature = min(max(temperature, 0), 1)
-        return EngineConfiguration(provider: provider, temperature: temperature)
+        let model = provider == "device"
+            ? nil : AIProviderSelection.shared.modelId(for: .chat)
+        return EngineConfiguration(provider: provider, model: model,
+                                   temperature: temperature)
     }
 
     /// A fresh engine per turn: the registry is rebuilt so its weak seams
@@ -65,8 +71,13 @@ final class AssistantRuntime {
     func makeEngine(registry: ActionRegistry) -> AssistantEngine {
         var configuration = Self.routedConfiguration()
         configuration.sessionTier = authManager?.tier ?? .free  // fail-closed
+        // DC-0059: "device" chats through the local model — conversation
+        // only (the transport states the limitation to model and user).
+        let chosenTransport: any ChatTransporting = configuration.provider == "device"
+            ? LocalChatTransport()
+            : transport
         return AssistantEngine(
-            transport: transport,
+            transport: chosenTransport,
             registry: registry,
             configuration: configuration)
     }

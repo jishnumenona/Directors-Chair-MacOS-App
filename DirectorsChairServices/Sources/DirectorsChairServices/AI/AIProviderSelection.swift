@@ -110,6 +110,11 @@ public enum AIProviderCatalog {
                 AIServiceOption(wireId: "google", displayName: "Google Gemini", healthKey: "google"),
                 AIServiceOption(wireId: "anthropic", displayName: "Anthropic Claude", healthKey: "anthropic"),
                 AIServiceOption(wireId: "deepseek", displayName: "DeepSeek", healthKey: "deepseek"),
+                // DC-0059: conversation-only on-device chat — the local
+                // model answers questions but cannot run project actions
+                // (a 3B model can't drive the tool-call loop honestly).
+                AIServiceOption(wireId: "device", displayName: "On-device (chat only)",
+                                healthKey: nil, requiresLocalModel: true),
             ]
         case .text:
             return [
@@ -163,7 +168,7 @@ public final class AIProviderSelection: @unchecked Sendable {
 
     public static let shared = AIProviderSelection()
 
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -189,6 +194,135 @@ public final class AIProviderSelection: @unchecked Sendable {
         AIProvider(rawValue: wireId(for: function))
             ?? AIProvider(rawValue: AIProviderCatalog.defaultOption(for: function).wireId)
             ?? .google
+    }
+}
+
+// MARK: - Model choice (DC-0059)
+
+/// One selectable model within a provider. `id` is the wire value the
+/// gateway forwards verbatim to the provider ("" = the server's default —
+/// the request omits the field entirely).
+public struct AIModelOption: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let displayName: String
+
+    public init(id: String, displayName: String) {
+        self.id = id
+        self.displayName = displayName
+    }
+
+    public static let serverDefault = AIModelOption(id: "", displayName: "Server default")
+}
+
+public enum AIModelCatalog {
+
+    /// Models a provider genuinely accepts for a function, verified against
+    /// the gateway adapters (every list starts with Server default — the
+    /// adapter's own documented fallback). Functions absent here have no
+    /// client model choice: VIDEO because the Veo adapter ignores request
+    /// models (adapter-pinned), speech because only ElevenLabs would honor
+    /// it. The local "device" service has its own catalog below.
+    public static func options(for function: AIFunction,
+                               wireId: String) -> [AIModelOption] {
+        guard function == .text || function == .chat || function == .image else {
+            return []
+        }
+        switch wireId {
+        case "google" where function != .image:
+            return [.serverDefault,
+                    AIModelOption(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash (server default)"),
+                    AIModelOption(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro")]
+        case "deepseek":
+            return [.serverDefault,
+                    AIModelOption(id: "deepseek-chat", displayName: "DeepSeek Chat (server default)"),
+                    AIModelOption(id: "deepseek-reasoner", displayName: "DeepSeek Reasoner")]
+        case "openai":
+            return [.serverDefault,
+                    AIModelOption(id: "gpt-4o", displayName: "GPT-4o (server default)"),
+                    AIModelOption(id: "gpt-4o-mini", displayName: "GPT-4o mini")]
+        case "anthropic":
+            return [.serverDefault,
+                    AIModelOption(id: "claude-sonnet-5", displayName: "Claude Sonnet 5 (server default)"),
+                    AIModelOption(id: "claude-opus-5", displayName: "Claude Opus 5"),
+                    AIModelOption(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5")]
+        case "google_imagen":
+            return [.serverDefault,
+                    AIModelOption(id: "gemini-2.5-flash-image", displayName: "Gemini 2.5 Flash Image (server default)")]
+        case "stability":
+            return [.serverDefault]
+        default:
+            return []
+        }
+    }
+
+    /// Whether the pane should render a model picker for this pairing.
+    public static func hasChoice(for function: AIFunction, wireId: String) -> Bool {
+        options(for: function, wireId: wireId).count > 1
+    }
+}
+
+/// The curated LOCAL models (DC-0059): one family, three sizes, all
+/// ungated mlx-community 4-bit conversions — the 3B is the proven
+/// original. Bigger sizes are for Macs with the memory to enjoy them.
+public struct LocalModelOption: Equatable, Identifiable, Sendable {
+    public let id: String            // Hugging Face repo id
+    public let displayName: String
+    public let approxBytes: Int64
+    public let detail: String
+
+    public init(id: String, displayName: String, approxBytes: Int64, detail: String) {
+        self.id = id
+        self.displayName = displayName
+        self.approxBytes = approxBytes
+        self.detail = detail
+    }
+}
+
+public enum LocalModelCatalog {
+    public static let options: [LocalModelOption] = [
+        LocalModelOption(id: "mlx-community/Qwen2.5-3B-Instruct-4bit",
+                         displayName: "Qwen 2.5 3B (balanced)",
+                         approxBytes: 1_900_000_000,
+                         detail: "The default — good quality, comfortable on 8GB Macs"),
+        LocalModelOption(id: "mlx-community/Qwen2.5-1.5B-Instruct-4bit",
+                         displayName: "Qwen 2.5 1.5B (fast)",
+                         approxBytes: 1_000_000_000,
+                         detail: "Snappiest, lighter answers"),
+        LocalModelOption(id: "mlx-community/Qwen2.5-7B-Instruct-4bit",
+                         displayName: "Qwen 2.5 7B (best quality)",
+                         approxBytes: 4_400_000_000,
+                         detail: "Needs a 16GB+ Mac"),
+    ]
+
+    public static let preferenceKey = "pref.ai.localModel"
+
+    public static var selected: LocalModelOption {
+        selected(in: .standard)
+    }
+
+    /// The stored choice, degraded to the default when the stored id is
+    /// unknown (same fail-safe rule as provider selection).
+    public static func selected(in defaults: UserDefaults) -> LocalModelOption {
+        let stored = defaults.string(forKey: preferenceKey)
+        return options.first { $0.id == stored } ?? options[0]
+    }
+}
+
+extension AIProviderSelection {
+
+    /// The chosen model for the function's CURRENT service, nil when the
+    /// user left "Server default" (the request then omits the field and
+    /// the adapter's documented fallback applies). Unknown stored values
+    /// pass through deliberately — Custom entries are power-user wire ids.
+    public func modelId(for function: AIFunction) -> String? {
+        let stored = defaults.string(forKey: Self.modelKey(
+            function: function, wireId: wireId(for: function)))
+        guard let stored, !stored.isEmpty else { return nil }
+        return stored
+    }
+
+    public static func modelKey(function: AIFunction, wireId: String) -> String {
+        "pref.ai.model.\(function.rawValue).\(wireId)"
     }
 }
 

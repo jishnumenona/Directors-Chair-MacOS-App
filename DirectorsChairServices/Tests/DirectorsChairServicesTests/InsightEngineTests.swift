@@ -53,13 +53,13 @@ final class InsightEngineTests: XCTestCase {
         // Fresh root → the one-time download is asked for, with its size.
         var state = await engine.availability()
         XCTAssertEqual(state,
-                       .needsDownload(expectedBytes: MLXInsightEngine.expectedDownloadBytes))
+                       .needsDownload(expectedBytes: engine.expectedDownloadBytes))
 
         // A completed download leaves the marker; presence = ready.
         try FileManager.default.createDirectory(at: root,
                                                 withIntermediateDirectories: true)
         let marker = root.appendingPathComponent(
-            ".ready-" + MLXInsightEngine.modelId.replacingOccurrences(of: "/", with: "_"))
+            ".ready-" + engine.modelId.replacingOccurrences(of: "/", with: "_"))
         try Data().write(to: marker)
         state = await engine.availability()
         XCTAssertEqual(state, .ready)
