@@ -12,6 +12,22 @@ import DirectorsChairViews
 
 extension ProjectSettingsView {
 
+    // MARK: - Chosen services (DC-0058)
+
+    /// The user's ACTUAL per-function choice — same resolution point the
+    /// generation calls use, so this panel can never contradict behavior.
+    func chosenServiceName(for function: AIFunction) -> String {
+        let wireId = AIProviderSelection.shared.wireId(for: function)
+        return AIProviderCatalog.options(for: function)
+            .first { $0.wireId == wireId }?.displayName ?? wireId
+    }
+
+    func chosenServiceDetail(for function: AIFunction) -> String {
+        AIProviderSelection.shared.wireId(for: function) == "device"
+            ? "runs on this Mac — free, offline"
+            : "server default model"
+    }
+
     // MARK: - AI Server Section
 
     var aiServerSection: some View {
@@ -92,50 +108,72 @@ extension ProjectSettingsView {
     var aiProvidersSection: some View {
         SettingsCard(title: "PROVIDERS", icon: "cpu") {
             VStack(alignment: .leading, spacing: 16) {
-                // Default providers info
+                // DC-0058: these rows used to be HARDCODED "Google Gemini"
+                // and contradicted the real per-function choices — now
+                // they read AIProviderSelection, the same resolution point
+                // the generation calls use. This panel stays display-only;
+                // the one editor is Settings → AI Services (button below).
                 VStack(alignment: .leading, spacing: 10) {
                     aiProviderRow(
                         label: "Text Generation",
                         icon: "text.bubble",
-                        provider: "Google Gemini",
-                        detail: "gemini-2.5-flash-preview"
+                        provider: chosenServiceName(for: .text),
+                        detail: chosenServiceDetail(for: .text)
                     )
                     Divider().opacity(0.3)
                     aiProviderRow(
                         label: "Image Generation",
                         icon: "photo",
-                        provider: "Google Imagen",
-                        detail: "imagen-3.0-generate"
+                        provider: chosenServiceName(for: .image),
+                        detail: "server default model"
                     )
                     Divider().opacity(0.3)
                     aiProviderRow(
                         label: "Video Generation",
                         icon: "film",
-                        provider: "Google Veo",
-                        detail: "veo-3"
+                        provider: chosenServiceName(for: .video),
+                        detail: "server default model"
                     )
                     Divider().opacity(0.3)
                     aiProviderRow(
                         label: "AI Chat",
                         icon: "bubble.left.and.bubble.right",
-                        provider: "Google Gemini",
-                        detail: "4000 tokens, temp 0.7"
+                        provider: chosenServiceName(for: .chat),
+                        detail: "\(PreferencesManager.shared.aiMaxTokensChat) tokens, temp \(String(format: "%.1f", PreferencesManager.shared.aiTemperature))"
+                    )
+                    Divider().opacity(0.3)
+                    aiProviderRow(
+                        label: "Dialogue Voices",
+                        icon: "waveform",
+                        provider: chosenServiceName(for: .speech),
+                        detail: "per-character voices"
                     )
                     Divider().opacity(0.3)
                     aiProviderRow(
                         label: "Character Analysis",
                         icon: "person.text.rectangle",
-                        provider: "Google Gemini",
+                        provider: "Google Gemini (pinned)",
                         detail: "8000 tokens, temp 0.3"
                     )
                     Divider().opacity(0.3)
                     aiProviderRow(
                         label: "Screenplay Import",
                         icon: "doc.text.magnifyingglass",
-                        provider: "Google Gemini",
-                        detail: "65000 tokens, 5 passes"
+                        provider: "Google Gemini (pinned)",
+                        detail: "65000 tokens, 5 passes — Gemini-only context window"
                     )
                 }
+
+                // The one place choices are MADE — lands on the AI pane.
+                SettingsLink {
+                    Label("Change services in Settings → AI Services…",
+                          systemImage: "slider.horizontal.3")
+                        .font(.system(size: 11))
+                }
+                .simultaneousGesture(TapGesture().onEnded {
+                    SoftwarePreferencesView.requestedSection = .ai
+                })
+                .accessibilityIdentifier("open-ai-preferences")
 
                 // Available providers from health check
                 if !aiAvailableProviders.isEmpty {
