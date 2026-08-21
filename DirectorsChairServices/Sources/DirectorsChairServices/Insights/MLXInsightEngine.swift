@@ -16,7 +16,15 @@ import MLXLLM
 import MLXLMCommon
 #endif
 
-public final class MLXInsightEngine: InsightEngine, @unchecked Sendable {
+/// What AIServiceClient needs from an on-device text engine (DC-0057) —
+/// a seam so unit tests never load real MLX (its metallib only exists
+/// inside app bundles; SPM test runners abort on it).
+public protocol OnDeviceTextResponding: Sendable {
+    func respond(prompt: String, systemPrompt: String?,
+                 maxTokens: Int, temperature: Double) async throws -> String
+}
+
+public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unchecked Sendable {
 
     /// One engine per app — the loaded model is ~2GB of unified memory,
     /// so it must never be instantiated per view (ShortcutStore.shared
@@ -93,21 +101,34 @@ public final class MLXInsightEngine: InsightEngine, @unchecked Sendable {
     }
 
     public func insight(for family: InsightFamily, context: String) async throws -> String {
+        try await respond(prompt: family.instructions + "\n\nPROJECT DATA:\n" + context,
+                          systemPrompt: nil, maxTokens: 700, temperature: 0.6)
+    }
+
+    /// Raw single-turn completion (DC-0057): the same loaded model serves
+    /// text generation when the user picks "On-device" in preferences.
+    /// Refuses (never downloads) when the model isn't ready — a 2GB fetch
+    /// only ever starts from the consent button.
+    public func respond(prompt: String, systemPrompt: String?,
+                        maxTokens: Int, temperature: Double) async throws -> String {
         #if arch(arm64)
         let state = await availability()
         guard case .ready = state else { throw InsightEngineError.notReady(state) }
         do {
             let container = try await loadedContainer()
-            let prompt = family.instructions + "\n\nPROJECT DATA:\n" + context
+            let full = systemPrompt.map { $0 + "\n\n" + prompt } ?? prompt
+            // 3B-model ceiling: past ~2000 tokens of output the small model
+            // rambles; server providers handle the long-form asks.
+            let cap = max(64, min(maxTokens, 2000))
             return try await container.perform { modelContext in
                 let input = try await modelContext.processor.prepare(
-                    input: UserInput(prompt: prompt))
+                    input: UserInput(prompt: full))
                 let result = try MLXLMCommon.generate(
                     input: input,
-                    parameters: GenerateParameters(temperature: 0.6),
+                    parameters: GenerateParameters(temperature: Float(temperature)),
                     context: modelContext
                 ) { tokens in
-                    tokens.count >= 700 ? .stop : .more
+                    tokens.count >= cap ? .stop : .more
                 }
                 return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
             }

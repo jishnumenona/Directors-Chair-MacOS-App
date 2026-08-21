@@ -19,6 +19,10 @@ public enum AIProvider: String, Sendable, CaseIterable {
     case deepseek = "deepseek"
     case elevenlabs = "elevenlabs"
     case googleVeo = "google_veo"
+    /// DC-0057: the bundled local model (Qwen 3B via MLX). Never sent to
+    /// the wire — generateText routes it to the on-device engine before
+    /// any network code runs.
+    case onDevice = "device"
 
     /// Default provider for text generation
     public static var defaultTextProvider: AIProvider { .deepseek }
@@ -434,6 +438,13 @@ public actor AIServiceClient {
     /// Shared instance with default configuration
     public static let shared = AIServiceClient()
 
+    /// DC-0057: the engine behind `.onDevice` text requests. A seam, not
+    /// a convenience — real MLX aborts under SPM test runners (its
+    /// metallib only ships inside app bundles), so tests MUST be able to
+    /// substitute a stub. Production never touches this.
+    nonisolated(unsafe) public static var onDeviceTextEngine: any OnDeviceTextResponding
+        = MLXInsightEngine.shared
+
     // MARK: - Initialization
 
     /// Initialize with custom configuration
@@ -571,6 +582,21 @@ public actor AIServiceClient {
     
     /// Generate text using AI
     public func generateText(_ request: TextGenerationRequest) async throws -> TextGenerationResponse {
+        // DC-0057: the local model never touches the network — route it to
+        // the on-device engine BEFORE the server availability guard (which
+        // would otherwise ask /health about a provider the server has
+        // never heard of).
+        if request.provider == .onDevice {
+            let text = try await Self.onDeviceTextEngine.respond(
+                prompt: request.prompt,
+                systemPrompt: request.systemPrompt,
+                maxTokens: request.maxTokens,
+                temperature: request.temperature)
+            return TextGenerationResponse(
+                text: text, provider: .onDevice,
+                model: MLXInsightEngine.modelId,
+                usage: TokenUsage())   // on-device = $0, no metering
+        }
         // Verify provider availability
         guard await isProviderAvailable(request.provider) else {
             throw AIClientError.providerNotAvailable(request.provider.rawValue)

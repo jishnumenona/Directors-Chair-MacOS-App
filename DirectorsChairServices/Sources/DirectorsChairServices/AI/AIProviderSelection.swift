@@ -81,13 +81,20 @@ public struct AIServiceOption: Equatable, Identifiable, Sendable {
     /// The gateway /health `providers` key that must be true for this
     /// option to work — nil for on-device options, which need no server.
     public let healthKey: String?
+    /// DC-0057: true when the option runs on the bundled local model —
+    /// available only while the DC-0055 engine reports READY (weights on
+    /// disk, Apple Silicon). Distinct from plain on-device options like
+    /// system TTS, which are always available.
+    public let requiresLocalModel: Bool
 
     public var id: String { wireId }
 
-    public init(wireId: String, displayName: String, healthKey: String?) {
+    public init(wireId: String, displayName: String, healthKey: String?,
+                requiresLocalModel: Bool = false) {
         self.wireId = wireId
         self.displayName = displayName
         self.healthKey = healthKey
+        self.requiresLocalModel = requiresLocalModel
     }
 }
 
@@ -110,6 +117,11 @@ public enum AIProviderCatalog {
                 AIServiceOption(wireId: "deepseek", displayName: "DeepSeek", healthKey: "deepseek"),
                 AIServiceOption(wireId: "openai", displayName: "OpenAI", healthKey: "openai"),
                 AIServiceOption(wireId: "anthropic", displayName: "Anthropic Claude", healthKey: "anthropic"),
+                // DC-0057: the bundled local model (DC-0055's engine)
+                // serves one-shot text — free, offline, selectable only
+                // while its weights are actually on disk.
+                AIServiceOption(wireId: "device", displayName: "On-device (local model)",
+                                healthKey: nil, requiresLocalModel: true),
             ]
         case .image:
             return [
