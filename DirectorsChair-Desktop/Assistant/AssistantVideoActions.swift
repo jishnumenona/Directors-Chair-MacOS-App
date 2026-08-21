@@ -156,7 +156,7 @@ final class GenerateShotVideoAction: ProjectAssistantAction, AssistantAction {
 
         let request = VideoGenerationRequest(
             prompt: prompt,
-            provider: .google,
+            provider: AIProviderSelection.shared.provider(for: .video),
             durationSeconds: duration,
             quality: shot.videoQuality ?? "Standard",
             aspectRatio: "16:9",

@@ -284,7 +284,7 @@ extension AssistantActionFactory {
                     { prompt, referenceBase64 in
                         let request = ImageGenerationRequest(
                             prompt: prompt,
-                            provider: .googleImagen,
+                            provider: AIProviderSelection.shared.provider(for: .image),
                             aspectRatio: "1:1",
                             numberOfImages: 1,
                             referenceImageBase64: referenceBase64,

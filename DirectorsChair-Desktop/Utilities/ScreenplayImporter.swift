@@ -210,6 +210,9 @@ struct ScreenplayImporter {
         ---
         """
 
+        // DELIBERATELY PINNED to Gemini (not AIProviderSelection): the 5-pass
+        // import is tuned for a 65k-token output window only Gemini serves —
+        // routing it to a user-chosen text provider would truncate mid-JSON.
         let json = try await callAI(prompt: prompt, systemPrompt: "You analyze screenplays and output metadata as JSON. Output ONLY valid JSON.", provider: .google, maxTokens: 65000)
         return try parseJSON(json) as? [String: Any] ?? [:]
     }

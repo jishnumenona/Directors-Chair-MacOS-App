@@ -104,7 +104,7 @@ struct AIChatOverlayView: View {
             voice.synthesizeStudioAudio = { text in
                 try await AIServiceClient.shared.generateSpeech(
                     SpeechGenerationRequest(text: text,
-                                            provider: .google)).audioData
+                                            provider: .google)).audioData  // pinned: this IS the voiceReplies 'gemini' engine branch
             }
             viewModel.addWelcomeMessageIfNeeded()
             viewModel.runProactiveChecksIfEnabled()

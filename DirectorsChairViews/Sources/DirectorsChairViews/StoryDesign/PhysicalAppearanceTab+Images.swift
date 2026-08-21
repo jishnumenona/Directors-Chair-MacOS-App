@@ -70,7 +70,7 @@ extension PhysicalAppearanceTab {
         let referenceBase64 = imageData.base64EncodedString()
         let request = ImageGenerationRequest(
             prompt: editPrompt,
-            provider: .googleImagen,
+            provider: AIProviderSelection.shared.provider(for: .image),
             aspectRatio: "1:1",
             referenceImageBase64: referenceBase64,
             referenceMimeType: "image/png"

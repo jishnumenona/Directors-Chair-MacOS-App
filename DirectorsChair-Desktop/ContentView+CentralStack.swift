@@ -348,7 +348,7 @@ struct CentralViewStack: View {
         ImageGenerationRequest(
             prompt: "Cinematic mood-board reference image: \(request.prompt). "
                   + "Evocative, high production value, no text, no watermarks.",
-            provider: .googleImagen,
+            provider: AIProviderSelection.shared.provider(for: .image),
             aspectRatio: request.aspectRatio,
             numberOfImages: request.variationCount,
             referenceImages: references.isEmpty ? nil
@@ -370,7 +370,7 @@ struct CentralViewStack: View {
             do {
                 let request = ImageGenerationRequest(
                     prompt: edit.prompt,
-                    provider: .googleImagen,
+                    provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     referenceImages: [
                         ReferenceImage(
@@ -439,7 +439,7 @@ struct CentralViewStack: View {
 
             let request = ImageGenerationRequest(
                 prompt: prompt,
-                provider: .googleImagen,
+                provider: AIProviderSelection.shared.provider(for: .image),
                 aspectRatio: "1:1",
                 numberOfImages: 1,
                 referenceImageBase64: referenceBase64,
@@ -772,7 +772,7 @@ struct CentralViewStack: View {
         do {
             let request = TextGenerationRequest(
                 prompt: prompt,
-                provider: .google,
+                provider: AIProviderSelection.shared.provider(for: .text),
                 maxTokens: 2000,
                 temperature: 0.3,
                 imageBase64: base64,
@@ -1123,7 +1123,7 @@ struct CentralViewStack: View {
 
             let request = ImageGenerationRequest(
                 prompt: prompt,
-                provider: .googleImagen,
+                provider: AIProviderSelection.shared.provider(for: .image),
                 aspectRatio: "16:9",
                 numberOfImages: 1,
                 referenceImageBase64: referenceBase64,

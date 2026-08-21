@@ -271,7 +271,7 @@ struct TimelineContainer: View {
 
                         let request = SpeechGenerationRequest(
                             text: text,
-                            provider: .google,
+                            provider: AIProviderSelection.shared.provider(for: .speech),
                             voiceName: voiceName,
                             emotion: emotion,
                             characterName: segment.character,

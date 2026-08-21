@@ -415,7 +415,7 @@ struct ShotContextCard: View {
         do {
             let request = TextGenerationRequest(
                 prompt: prompt,
-                provider: .google,
+                provider: AIProviderSelection.shared.provider(for: .text),
                 maxTokens: 2000,
                 temperature: 0.1,
                 systemPrompt: "You extract structured data from screenplay text. Output raw JSON only, never markdown code fences."
