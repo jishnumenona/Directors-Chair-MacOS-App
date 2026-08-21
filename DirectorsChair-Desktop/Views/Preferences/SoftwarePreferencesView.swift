@@ -48,6 +48,11 @@ struct SoftwarePreferencesView: View {
     // on-device insights engine's state — drives the AI Services pane.
     @StateObject private var serviceHealth = ServiceHealthModel()
     @State private var selectedSection: PreferenceSection = .general
+
+    /// DC-0058: a one-shot deep link — surfaces that tell the user to
+    /// "change it in Settings" (the project AI panel) set this before
+    /// opening the window, so they land on the right pane, not General.
+    nonisolated(unsafe) static var requestedSection: PreferenceSection?
     @State private var showResetAlert = false
 
     // §2.18 remappable shortcuts.
@@ -65,6 +70,13 @@ struct SoftwarePreferencesView: View {
             // Sidebar
             preferencesSidebar
                 .frame(width: 180)
+                .onAppear {
+                    // Consume a pending deep link (DC-0058).
+                    if let requested = Self.requestedSection {
+                        selectedSection = requested
+                        Self.requestedSection = nil
+                    }
+                }
 
             // Content
             ScrollView(.vertical, showsIndicators: true) {
