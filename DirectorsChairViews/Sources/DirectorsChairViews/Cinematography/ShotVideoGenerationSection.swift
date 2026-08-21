@@ -609,7 +609,7 @@ struct ShotVideoGenerationSection: View {
 
         let request = ImageGenerationRequest(
             prompt: fullPrompt,
-            provider: .googleImagen,
+            provider: AIProviderSelection.shared.provider(for: .image),
             aspectRatio: aspectRatio,
             referenceImages: refs.isEmpty ? nil : refs
         )
@@ -681,7 +681,7 @@ struct ShotVideoGenerationSection: View {
 
         let request = ImageGenerationRequest(
             prompt: editPrompt,
-            provider: .googleImagen,
+            provider: AIProviderSelection.shared.provider(for: .image),
             aspectRatio: aspectRatio,
             referenceImageBase64: referenceBase64,
             referenceMimeType: "image/png"

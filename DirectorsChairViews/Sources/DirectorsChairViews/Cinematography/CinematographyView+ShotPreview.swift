@@ -645,7 +645,7 @@ struct ShotPreviewSection: View {
 
                 let request = ImageGenerationRequest(
                     prompt: fullPrompt,
-                    provider: .googleImagen,
+                    provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
                     referenceImages: refs.isEmpty ? nil : refs
@@ -763,7 +763,7 @@ struct ShotPreviewSection: View {
 
                 let request = ImageGenerationRequest(
                     prompt: combinedPrompt,
-                    provider: .googleImagen,
+                    provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
                     referenceImages: refs.isEmpty ? nil : refs

@@ -303,7 +303,7 @@ extension CostumeTab {
 
                 let request = ImageGenerationRequest(
                     prompt: prompt,
-                    provider: .googleImagen,
+                    provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "1:1",
                     referenceImages: allRefs
                 )

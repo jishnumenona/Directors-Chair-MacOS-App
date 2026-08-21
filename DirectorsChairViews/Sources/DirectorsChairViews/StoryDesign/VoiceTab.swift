@@ -527,7 +527,7 @@ public struct VoiceTab: View {
         do {
             let request = SpeechGenerationRequest(
                 text: previewText,
-                provider: .google,
+                provider: AIProviderSelection.shared.provider(for: .speech),
                 voiceName: character.voice,
                 emotion: character.voiceStyle,
                 characterName: character.name,
@@ -651,7 +651,7 @@ public struct VoiceTab: View {
         do {
             let request = TextGenerationRequest(
                 prompt: prompt,
-                provider: .google,
+                provider: AIProviderSelection.shared.provider(for: .speech),
                 maxTokens: 1000,
                 temperature: 0.3,
                 systemPrompt: "You are a JSON API. Respond with ONLY valid JSON, no markdown, no explanation, no code fences. Output a single JSON object on one line."

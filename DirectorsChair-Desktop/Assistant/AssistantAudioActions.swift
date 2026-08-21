@@ -157,7 +157,7 @@ final class GenerateDialogueAudioAction: ProjectAssistantAction, AssistantAction
 
             let request = SpeechGenerationRequest(
                 text: Self.plainText(line.text),
-                provider: .google,
+                provider: AIProviderSelection.shared.provider(for: .speech),
                 voiceName: voiceName,
                 emotion: emotion,
                 characterName: line.character,

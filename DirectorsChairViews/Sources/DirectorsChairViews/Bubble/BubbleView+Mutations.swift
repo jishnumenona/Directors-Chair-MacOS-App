@@ -341,7 +341,7 @@ extension BubbleView {
 
             let request = SpeechGenerationRequest(
                 text: text,
-                provider: .google,
+                provider: AIProviderSelection.shared.provider(for: .speech),
                 voiceName: voiceName,
                 emotion: emotion,
                 characterName: dialogue.character,
@@ -418,7 +418,7 @@ extension BubbleView {
 
             let request = TextGenerationRequest(
                 prompt: prompt,
-                provider: .google,
+                provider: AIProviderSelection.shared.provider(for: .speech),
                 maxTokens: 50,
                 temperature: 0.3
             )

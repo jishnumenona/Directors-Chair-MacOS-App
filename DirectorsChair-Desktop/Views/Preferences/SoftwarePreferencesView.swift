@@ -8,6 +8,7 @@
 
 import SwiftUI
 import DirectorsChairCore
+import DirectorsChairServices
 import AppKit
 import DirectorsChairViews
 
@@ -43,6 +44,9 @@ enum PreferenceSection: String, CaseIterable, Identifiable {
 
 struct SoftwarePreferencesView: View {
     @ObservedObject var prefs: PreferencesManager = .shared
+    // DC-0056: what the server can actually serve, per /health, plus the
+    // on-device insights engine's state — drives the AI Services pane.
+    @StateObject private var serviceHealth = ServiceHealthModel()
     @State private var selectedSection: PreferenceSection = .general
     @State private var showResetAlert = false
 
@@ -559,6 +563,82 @@ struct SoftwarePreferencesView: View {
     // MARK: - 5. AI SERVICES
     // =========================================================================
 
+    /// The preferences field each AI function's choice lives in. The keys
+    /// are asserted equal in tests — the pane and AIProviderSelection must
+    /// read the same storage or a choice here would silently not apply.
+    private func providerBinding(for function: AIFunction) -> Binding<String> {
+        switch function {
+        case .chat: return $prefs.aiChatProvider
+        case .text: return $prefs.aiTextProvider
+        case .image: return $prefs.aiImageProvider
+        case .video: return $prefs.aiVideoProvider
+        case .speech: return $prefs.aiSpeechProvider
+        case .voiceReplies: return $prefs.voiceReplyEngine
+        }
+    }
+
+    private var serviceHealthStatusRow: some View {
+        HStack(spacing: 8) {
+            switch serviceHealth.state {
+            case .unchecked, .checking:
+                ProgressView().controlSize(.mini)
+                Text("Checking which services the server can offer…")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            case .checked(let health):
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 10))
+                    .foregroundColor(.green)
+                Text("Availability checked \(health.checkedAt.formatted(date: .omitted, time: .shortened)) — greyed services aren't enabled on the server")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            case .unreachable:
+                Image(systemName: "wifi.slash")
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange)
+                Text("Couldn't reach the server — availability unknown, choices still save")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button("Refresh") {
+                Task { await serviceHealth.refresh() }
+            }
+            .font(.system(size: 10))
+            .buttonStyle(.link)
+            .accessibilityIdentifier("ai-services-refresh")
+        }
+    }
+
+    /// On-device insights (DC-0055) run through their own engine, not the
+    /// gateway — shown here so the pane covers EVERY AI function, with the
+    /// engine's honest state instead of a picker it doesn't need yet (a
+    /// second engine arrives with Apple FoundationModels).
+    private var insightsEngineRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "brain")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+            Text("On-device Insights")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(insightsStateText)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var insightsStateText: String {
+        switch serviceHealth.insightsAvailability {
+        case .ready: return "Local model ready — runs on this Mac, free on every plan"
+        case .needsDownload: return "Local model not downloaded yet — start it from any project's Overview"
+        case .downloading(let progress): return "Downloading local model… \(Int(progress * 100))%"
+        case .unavailable(let reason): return reason
+        case nil: return "Checking…"
+        }
+    }
+
     private var aiSection: some View {
         VStack(alignment: .leading, spacing: 24) {
             sectionHeader("AI Services", subtitle: "Connection, provider defaults, and generation parameters")
@@ -580,50 +660,28 @@ struct SoftwarePreferencesView: View {
                 }
             }
 
-            // Provider Defaults
-            PrefCard(title: "DEFAULT PROVIDERS", icon: "cpu") {
+            // Services by function (DC-0056): every AI function lists the
+            // services that can genuinely do it (AIProviderCatalog — the
+            // same table the generation calls resolve through), and each
+            // chip wears the server's live availability from /health. The
+            // old hardcoded lists offered providers the wire had dropped.
+            PrefCard(title: "SERVICES BY FUNCTION", icon: "cpu") {
                 VStack(alignment: .leading, spacing: 14) {
-                    PrefChipRow(
-                        label: "AI Assistant (chat)",
-                        icon: "sparkles",
-                        options: ["google", "anthropic", "deepseek"],
-                        displayNames: ["Google Gemini", "Anthropic Claude", "DeepSeek"],
-                        selection: $prefs.aiChatProvider
-                    )
+                    serviceHealthStatusRow
 
-                    PrefChipRow(
-                        label: "Voice replies",
-                        icon: "speaker.wave.2",
-                        options: ["gemini", "device"],
-                        displayNames: ["Gemini (~1¢/reply)", "On-device (free)"],
-                        selection: $prefs.voiceReplyEngine
-                    )
+                    ForEach(AIFunction.allCases) { function in
+                        PrefServiceRow(
+                            function: function,
+                            health: serviceHealth.health,
+                            selection: providerBinding(for: function)
+                        )
+                    }
 
-                    PrefChipRow(
-                        label: "Text Generation",
-                        icon: "text.bubble",
-                        options: ["deepseek", "google", "openai", "anthropic"],
-                        displayNames: ["DeepSeek", "Google Gemini", "OpenAI", "Anthropic"],
-                        selection: $prefs.aiTextProvider
-                    )
-
-                    PrefChipRow(
-                        label: "Image Generation",
-                        icon: "photo",
-                        options: ["google_imagen", "stability"],
-                        displayNames: ["Google Imagen", "Stability AI"],
-                        selection: $prefs.aiImageProvider
-                    )
-
-                    PrefChipRow(
-                        label: "Video Generation",
-                        icon: "film",
-                        options: ["google_veo", "sora", "kling"],
-                        displayNames: ["Google Veo", "Sora", "Kling"],
-                        selection: $prefs.aiVideoProvider
-                    )
+                    Divider().opacity(0.5)
+                    insightsEngineRow
                 }
             }
+            .task { await serviceHealth.refreshIfNeeded() }
 
             // Generation Parameters
             PrefCard(title: "GENERATION PARAMETERS", icon: "slider.horizontal.3") {
@@ -1091,6 +1149,121 @@ private struct PrefToggle: View {
 }
 
 // MARK: - Preference Chip Row
+
+// MARK: - AI service health model (DC-0056)
+
+/// Fetches what the gateway can serve (/health providers) and the local
+/// insights engine's state, once per pane visit plus manual refresh.
+@MainActor
+final class ServiceHealthModel: ObservableObject {
+    enum CheckState {
+        case unchecked
+        case checking
+        case checked(AIProviderHealth)
+        case unreachable
+    }
+
+    @Published private(set) var state: CheckState = .unchecked
+    @Published private(set) var insightsAvailability: InsightAvailability?
+
+    var health: AIProviderHealth? {
+        if case .checked(let health) = state { return health }
+        return nil
+    }
+
+    func refreshIfNeeded() async {
+        if case .unchecked = state { await refresh() }
+    }
+
+    func refresh() async {
+        state = .checking
+        insightsAvailability = await MLXInsightEngine.shared.availability()
+        if let health = await AIProviderHealthClient().fetch() {
+            state = .checked(health)
+        } else {
+            state = .unreachable
+        }
+    }
+}
+
+// MARK: - AI service row (DC-0056)
+
+/// PrefChipRow's availability-aware sibling: chips come from the catalog
+/// (never hand-listed), unavailable services stay VISIBLE but disabled —
+/// a hidden option looks like a removed feature, a greyed one explains
+/// itself — and a selected-but-unavailable service warns inline.
+private struct PrefServiceRow: View {
+    let function: AIFunction
+    let health: AIProviderHealth?
+    @Binding var selection: String
+
+    private let columns = [GridItem(.adaptive(minimum: 96), spacing: 6)]
+
+    private var options: [AIServiceOption] {
+        AIProviderCatalog.options(for: function)
+    }
+
+    private func isAvailable(_ option: AIServiceOption) -> Bool {
+        guard let health else { return true }   // unknown = don't block choosing
+        return health.isAvailable(option)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: function.systemImage)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text(function.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
+                ForEach(options) { option in
+                    let available = isAvailable(option)
+                    let selected = selection == option.wireId
+                    Button {
+                        selection = option.wireId
+                    } label: {
+                        HStack(spacing: 4) {
+                            if health != nil {
+                                Circle()
+                                    .fill(available ? Color.green : Color.secondary.opacity(0.4))
+                                    .frame(width: 5, height: 5)
+                            }
+                            Text(option.displayName)
+                                .font(.system(size: 10, weight: selected ? .semibold : .regular))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selected ? Color.accentColor : Color(nsColor: .quaternarySystemFill))
+                        )
+                        .foregroundColor(selected ? .white : .primary)
+                        .opacity(available ? 1 : 0.45)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!available && !selected)
+                    .help(available
+                          ? option.displayName
+                          : "\(option.displayName) isn't enabled on the server right now")
+                    .accessibilityIdentifier("ai-service-\(function.rawValue)-\(option.wireId)")
+                }
+            }
+
+            if let chosen = options.first(where: { $0.wireId == selection }),
+               !isAvailable(chosen) {
+                Label("\(chosen.displayName) is currently unavailable — calls will fail until the server enables it or you pick another service.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange)
+            }
+        }
+    }
+}
 
 private struct PrefChipRow: View {
     let label: String

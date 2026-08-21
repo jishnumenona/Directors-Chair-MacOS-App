@@ -114,6 +114,9 @@ enum PrefKey {
     static let voiceReplyEngine = "pref.ai.voiceReplyEngine"
     static let aiImageProvider = "pref.ai.imageProvider"
     static let aiVideoProvider = "pref.ai.videoProvider"
+    /// DC-0056: dialogue-voice (TTS) service — key mirrored in
+    /// AIFunction.speech.preferenceKey; both sides must agree.
+    static let aiSpeechProvider = "pref.ai.speechProvider"
 
     // AI > Generation
     static let aiTemperature = "pref.ai.temperature"              // 0.0-1.0
@@ -270,6 +273,7 @@ class PreferencesManager: ObservableObject {
     @AppStorage(PrefKey.voiceReplyEngine) var voiceReplyEngine: String = "gemini"
     @AppStorage(PrefKey.aiImageProvider) var aiImageProvider: String = "google_imagen"
     @AppStorage(PrefKey.aiVideoProvider) var aiVideoProvider: String = "google_veo"
+    @AppStorage(PrefKey.aiSpeechProvider) var aiSpeechProvider: String = "google"
 
     // MARK: - AI > Generation
 
@@ -393,6 +397,7 @@ class PreferencesManager: ObservableObject {
         aiTextProvider = "google"
         aiImageProvider = "google_imagen"
         aiVideoProvider = "google_veo"
+        aiSpeechProvider = "google"
         aiTemperature = 0.7
         aiMaxTokensChat = 4000
         aiMaxTokensImport = 65000

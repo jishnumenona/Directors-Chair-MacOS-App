@@ -306,3 +306,34 @@ final class AssistantActionsTests: XCTestCase {
         XCTAssertFalse(viewModel.canUndoAssistantChanges)
     }
 }
+
+
+// MARK: - AI preferences wiring (DC-0056)
+
+/// The AI Services pane writes preferences through PrefKey; generation
+/// call sites read them through AIFunction.preferenceKey via
+/// AIProviderSelection. If the two vocabularies drift, a choice in the
+/// pane silently stops applying — this class makes that drift a red test.
+/// (Lives in this file, not its own: the synchronized-group gotcha from
+/// DC-0038 — a brand-new test file under the app targets may silently
+/// never join the bundle.)
+final class AIPreferencesWiringTests: XCTestCase {
+
+    func testPaneKeysAndResolutionKeysAgree() {
+        XCTAssertEqual(PrefKey.aiChatProvider, AIFunction.chat.preferenceKey)
+        XCTAssertEqual(PrefKey.aiTextProvider, AIFunction.text.preferenceKey)
+        XCTAssertEqual(PrefKey.aiImageProvider, AIFunction.image.preferenceKey)
+        XCTAssertEqual(PrefKey.aiVideoProvider, AIFunction.video.preferenceKey)
+        XCTAssertEqual(PrefKey.aiSpeechProvider, AIFunction.speech.preferenceKey)
+        XCTAssertEqual(PrefKey.voiceReplyEngine, AIFunction.voiceReplies.preferenceKey)
+    }
+
+    func testShippedDefaultsMatchTheCatalogDefaults() {
+        XCTAssertEqual(AIProviderCatalog.defaultOption(for: .chat).wireId, "google")
+        XCTAssertEqual(AIProviderCatalog.defaultOption(for: .text).wireId, "google")
+        XCTAssertEqual(AIProviderCatalog.defaultOption(for: .image).wireId, "google_imagen")
+        XCTAssertEqual(AIProviderCatalog.defaultOption(for: .video).wireId, "google_veo")
+        XCTAssertEqual(AIProviderCatalog.defaultOption(for: .speech).wireId, "google")
+        XCTAssertEqual(AIProviderCatalog.defaultOption(for: .voiceReplies).wireId, "gemini")
+    }
+}

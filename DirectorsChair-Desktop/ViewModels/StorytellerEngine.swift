@@ -165,7 +165,7 @@ final class StorytellerEngine: ObservableObject {
     nonisolated init(
         transformText: @escaping TransformText = { system, user in
             let request = TextGenerationRequest(
-                prompt: user, provider: .google, maxTokens: 4096,
+                prompt: user, provider: AIProviderSelection.shared.provider(for: .text), maxTokens: 4096,
                 temperature: 0.8, systemPrompt: system)
             return try await AIServiceClient.shared.generateText(request).text
         },
@@ -304,7 +304,7 @@ final class StorytellerEngine: ObservableObject {
 
         let request = SpeechGenerationRequest(
             text: narration,
-            provider: .google,
+            provider: AIProviderSelection.shared.provider(for: .speech),
             voiceName: StorytellerVoice.defaultVoice,
             emotion: chunk.emotion,
             voiceTone: StorytellerVoice.tone,

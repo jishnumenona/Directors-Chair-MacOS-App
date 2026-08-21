@@ -734,7 +734,7 @@ struct PropShopView: View {
             do {
                 let request = ImageGenerationRequest(
                     prompt: prompt,
-                    provider: .googleImagen,
+                    provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "1:1",
                     referenceImages: refs.isEmpty ? nil : refs
                 )

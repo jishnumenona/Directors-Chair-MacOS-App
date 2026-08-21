@@ -385,7 +385,7 @@ struct OverviewHeroBanner: View {
 
                 let request = ImageGenerationRequest(
                     prompt: finalPrompt,
-                    provider: .googleImagen,
+                    provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "3:4",
                     numberOfImages: 1
                 )

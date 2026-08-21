@@ -101,7 +101,7 @@ enum ReceiptAnalysisService {
 
         let request = TextGenerationRequest(
             prompt: buildPrompt(categoryNames: categoryNames),
-            provider: .google,
+            provider: AIProviderSelection.shared.provider(for: .text),
             maxTokens: 4000,
             temperature: 0.1,
             imageBase64: imageData.base64EncodedString(),

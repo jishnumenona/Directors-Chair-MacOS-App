@@ -342,7 +342,7 @@ struct SceneCardView: View {
 
                 let request = ImageGenerationRequest(
                     prompt: prompt,
-                    provider: .googleImagen,
+                    provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
                     referenceImageBase64: ref?.base64,
