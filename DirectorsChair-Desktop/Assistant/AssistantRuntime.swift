@@ -68,16 +68,21 @@ final class AssistantRuntime {
     /// track the live view models, and configuration follows the routing
     /// table (Preferences → provider/temperature) plus the session tier
     /// (the engine advertises only the actions the tier includes).
+    /// DC-0059: "device" chats through the local model — conversation
+    /// only (the transport states the limitation to model and user).
+    /// Static and pure so the owner-reported "says Gemini, which model
+    /// actually answered?" class of doubt has a test, not a guess.
+    static func chooseTransport(provider: String?,
+                                gateway: any ChatTransporting) -> any ChatTransporting {
+        provider == "device" ? LocalChatTransport() : gateway
+    }
+
     func makeEngine(registry: ActionRegistry) -> AssistantEngine {
         var configuration = Self.routedConfiguration()
         configuration.sessionTier = authManager?.tier ?? .free  // fail-closed
-        // DC-0059: "device" chats through the local model — conversation
-        // only (the transport states the limitation to model and user).
-        let chosenTransport: any ChatTransporting = configuration.provider == "device"
-            ? LocalChatTransport()
-            : transport
         return AssistantEngine(
-            transport: chosenTransport,
+            transport: Self.chooseTransport(provider: configuration.provider,
+                                            gateway: transport),
             registry: registry,
             configuration: configuration)
     }
