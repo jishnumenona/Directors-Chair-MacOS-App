@@ -50,18 +50,19 @@ final class AIProviderSelectionTests: XCTestCase {
                 }
             }
         }
-        // On-device options: the always-available system voice, and the
-        // local model for text (DC-0057) — which gates on the DC-0055
-        // engine being READY, never "assume fine".
+        // On-device options: local-model chat (DC-0059, conversation
+        // only), local-model text (DC-0057), and the always-available
+        // system voice. The local-model ones gate on the DC-0055 engine
+        // being READY, never "assume fine".
         let onDevice = AIFunction.allCases.flatMap { function in
             AIProviderCatalog.options(for: function)
                 .filter { $0.healthKey == nil }
                 .map { (function, $0) }
         }
-        XCTAssertEqual(onDevice.map(\.1.wireId), ["device", "device"])
+        XCTAssertEqual(onDevice.map(\.1.wireId), ["device", "device", "device"])
         XCTAssertEqual(onDevice.map(\.1.requiresLocalModel),
-                       [true, false])          // text gates; voice doesn't
-        XCTAssertEqual(onDevice.map(\.0), [.text, .voiceReplies])
+                       [true, true, false])    // chat/text gate; voice doesn't
+        XCTAssertEqual(onDevice.map(\.0), [.chat, .text, .voiceReplies])
     }
 
     func testLocalModelChoiceResolvesToOnDeviceProvider() {

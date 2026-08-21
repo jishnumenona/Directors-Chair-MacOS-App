@@ -594,7 +594,7 @@ public actor AIServiceClient {
                 temperature: request.temperature)
             return TextGenerationResponse(
                 text: text, provider: .onDevice,
-                model: MLXInsightEngine.modelId,
+                model: MLXInsightEngine.shared.modelId,
                 usage: TokenUsage())   // on-device = $0, no metering
         }
         // Verify provider availability
@@ -615,8 +615,12 @@ public actor AIServiceClient {
             "max_tokens": request.maxTokens,
             "temperature": request.temperature
         ]
-        
-        if let model = request.model {
+
+        // DC-0059: an explicit model from the call site wins; otherwise the
+        // preferences' per-provider choice; otherwise omit the field and the
+        // adapter's documented default applies.
+        if let model = request.model
+            ?? AIProviderSelection.shared.modelId(for: .text) {
             body["model"] = model
         }
         if let systemPrompt = request.systemPrompt {
@@ -712,8 +716,11 @@ public actor AIServiceClient {
             "aspect_ratio": request.aspectRatio,
             "n": request.numberOfImages
         ]
-        
-        if let model = request.model {
+
+        // DC-0059: call-site model wins; else the preferences choice; else
+        // the server default (field omitted).
+        if let model = request.model
+            ?? AIProviderSelection.shared.modelId(for: .image) {
             body["model"] = model
         }
         if let refs = request.referenceImages, !refs.isEmpty {

@@ -32,26 +32,36 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
     /// environment objects).
     public static let shared = MLXInsightEngine()
 
-    /// The model this build ships against. 4-bit Qwen 2.5 3B Instruct:
-    /// strong small-model quality, ~1.8GB on disk, comfortable on 8GB
-    /// Apple Silicon.
-    public static let modelId = "mlx-community/Qwen2.5-3B-Instruct-4bit"
-    public static let expectedDownloadBytes: Int64 = 1_900_000_000
+    /// DC-0059: the engine follows the user's local-model choice
+    /// (LocalModelCatalog; default = the proven Qwen 2.5 3B). Kept as a
+    /// computed read so a switch in preferences takes effect on the next
+    /// call — the loaded container invalidates when the id changes.
+    public var modelId: String { LocalModelCatalog.selected(in: modelDefaults).id }
+    public var expectedDownloadBytes: Int64 {
+        LocalModelCatalog.selected(in: modelDefaults).approxBytes
+    }
+
+    /// Frozen pre-DC-0059 identifiers, kept for callers/tests that need
+    /// the shipped default's identity rather than the current choice.
+    public static let defaultModelId = "mlx-community/Qwen2.5-3B-Instruct-4bit"
 
     private let lock = NSLock()
     private var progress: Double?
     private let storageRoot: URL
+    private let modelDefaults: UserDefaults
 
     #if arch(arm64)
     private var container: ModelContainer?
+    private var loadedModelId: String?
     #endif
 
     /// Weights live under Application Support so they survive cache
     /// purges — a 2GB re-download for a cleaned cache is user-hostile.
-    public init(storageRoot: URL? = nil) {
+    public init(storageRoot: URL? = nil, modelDefaults: UserDefaults = .standard) {
         self.storageRoot = storageRoot ?? FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("DirectorsChair/InsightModels", isDirectory: true)
+        self.modelDefaults = modelDefaults
     }
 
     private func withLock<T>(_ body: () -> T) -> T {
@@ -62,7 +72,19 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
     /// The marker written after a COMPLETE download — presence of a
     /// partial hub directory must never read as ready.
     private var readyMarker: URL {
-        storageRoot.appendingPathComponent(".ready-\(Self.modelId.replacingOccurrences(of: "/", with: "_"))")
+        marker(for: modelId)
+    }
+
+    private func marker(for id: String) -> URL {
+        storageRoot.appendingPathComponent(
+            ".ready-\(id.replacingOccurrences(of: "/", with: "_"))")
+    }
+
+    /// Whether a SPECIFIC catalog model's weights are complete on disk —
+    /// the preferences picker shows every option's state, not just the
+    /// selected one (DC-0059).
+    public func isModelDownloaded(_ id: String) -> Bool {
+        FileManager.default.fileExists(atPath: marker(for: id).path)
     }
 
     // MARK: - InsightEngine
@@ -75,7 +97,7 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
         if FileManager.default.fileExists(atPath: readyMarker.path) {
             return .ready
         }
-        return .needsDownload(expectedBytes: Self.expectedDownloadBytes)
+        return .needsDownload(expectedBytes: expectedDownloadBytes)
         #else
         return .unavailable(reason: "On-device insights need an Apple Silicon Mac.")
         #endif
@@ -147,9 +169,15 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
 
     #if arch(arm64)
     private func loadedContainer() async throws -> ModelContainer {
-        if let container = withLock({ container }) { return container }
+        let selected = modelId
+        // A preferences switch drops the old container — ~2-4GB of unified
+        // memory must not stay resident for a model no longer chosen.
+        if let container = withLock({
+            loadedModelId == selected ? container : nil
+        }) { return container }
+        withLock { container = nil; loadedModelId = nil }
         let hub = HubApi(downloadBase: storageRoot)
-        let configuration = ModelConfiguration(id: Self.modelId)
+        let configuration = ModelConfiguration(id: selected)
         let loaded = try await LLMModelFactory.shared.loadContainer(
             hub: hub, configuration: configuration
         ) { [weak self] downloadProgress in
@@ -157,7 +185,7 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
                 self?.progress = downloadProgress.fractionCompleted
             }
         }
-        withLock { container = loaded }
+        withLock { container = loaded; loadedModelId = selected }
         return loaded
     }
     #endif
