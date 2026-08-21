@@ -112,6 +112,10 @@ struct AIChatMessageView: View {
             icon = "cloud"
             label = provider
             color = .accentColor
+        case .onDeviceModel:
+            icon = "brain"
+            label = "On-device"
+            color = .green
         }
         return HStack(spacing: 3) {
             Image(systemName: icon)

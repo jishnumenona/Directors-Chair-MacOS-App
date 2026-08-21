@@ -50,11 +50,14 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     /// Provenance of an assistant-produced message.
     enum MessageSource: Codable, Equatable {
         /// Produced by deterministic on-device logic — no AI call at all
-        /// (welcome, proactive checks, error notices). Phase L's local
-        /// model tier will get its own case when it exists.
+        /// (welcome, proactive checks, error notices).
         case local
         /// Answered by the routed third-party model ("Gemini", "Claude"…).
         case cloud(provider: String)
+        /// Answered by the LOCAL MODEL (DC-0059's on-device chat) — the
+        /// case this enum's comment reserved for "Phase L's local model
+        /// tier". Distinct from `.local`: an AI answered, just privately.
+        case onDeviceModel
     }
 
     /// A story element referenced in a reply that has an image to show.
@@ -312,13 +315,24 @@ class AIChatViewModel: ObservableObject {
 
     // MARK: - Reply provenance + referenced entities
 
-    /// Display name of the routed third-party chat provider (A6.5 table).
+    /// Display name of the routed chat provider (A6.5 table). The
+    /// pre-DC-0059 version defaulted EVERYTHING unknown to "Gemini" —
+    /// which put a Gemini badge on on-device replies (owner-reported).
     static func routedProviderDisplayName() -> String {
         switch AssistantRuntime.routedConfiguration().provider {
         case "anthropic": return "Claude"
         case "deepseek": return "DeepSeek"
+        case "device": return "On-device"
         default: return "Gemini"
         }
+    }
+
+    /// The provenance a finished reply wears — the on-device model gets
+    /// its own case (never a cloud badge for a private local answer).
+    static func routedReplySource() -> ChatMessage.MessageSource {
+        AssistantRuntime.routedConfiguration().provider == "device"
+            ? .onDeviceModel
+            : .cloud(provider: routedProviderDisplayName())
     }
 
     /// Story elements mentioned in a reply that have artwork: characters,
@@ -481,7 +495,7 @@ class AIChatViewModel: ObservableObject {
                 if !fullText.isEmpty {
                     messages.append(ChatMessage(
                         role: .assistant, content: fullText,
-                        source: .cloud(provider: Self.routedProviderDisplayName()),
+                        source: Self.routedReplySource(),
                         entityRefs: entityRefs(in: fullText)))
                     onAssistantReply?(fullText)
                 } else if turnPlan == nil,

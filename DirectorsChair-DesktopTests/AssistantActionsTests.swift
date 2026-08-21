@@ -337,3 +337,54 @@ final class AIPreferencesWiringTests: XCTestCase {
         XCTAssertEqual(AIProviderCatalog.defaultOption(for: .voiceReplies).wireId, "gemini")
     }
 }
+
+
+// MARK: - On-device chat routing (DC-0059 fix)
+
+/// Owner-reported: with AI Chat set to the local model, replies wore a
+/// "Gemini" badge — the display map defaulted unknowns to Gemini, and
+/// there was no test proving which transport a stored choice yields.
+/// Both are pinned here.
+final class OnDeviceChatRoutingTests: XCTestCase {
+
+    @MainActor
+    func testStoredDeviceChoiceRoutesToTheLocalTransport() {
+        let gateway = GatewayChatTransport()
+        XCTAssertTrue(AssistantRuntime.chooseTransport(
+            provider: "device", gateway: gateway) is LocalChatTransport)
+        // Every server provider keeps the gateway transport.
+        for provider in ["google", "anthropic", "deepseek", nil] {
+            XCTAssertTrue(AssistantRuntime.chooseTransport(
+                provider: provider, gateway: gateway) is GatewayChatTransport,
+                String(describing: provider))
+        }
+    }
+
+    @MainActor
+    func testRoutedConfigurationHonorsDeviceAndFallsBackOnGarbage() {
+        let saved = UserDefaults.standard.string(forKey: PrefKey.aiChatProvider)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: PrefKey.aiChatProvider) }
+            else { UserDefaults.standard.removeObject(forKey: PrefKey.aiChatProvider) }
+        }
+        UserDefaults.standard.set("device", forKey: PrefKey.aiChatProvider)
+        XCTAssertEqual(AssistantRuntime.routedConfiguration().provider, "device")
+        UserDefaults.standard.set("sora", forKey: PrefKey.aiChatProvider)
+        XCTAssertEqual(AssistantRuntime.routedConfiguration().provider, "google")
+    }
+
+    @MainActor
+    func testReplyProvenanceNamesTheDeviceHonestly() {
+        let saved = UserDefaults.standard.string(forKey: PrefKey.aiChatProvider)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: PrefKey.aiChatProvider) }
+            else { UserDefaults.standard.removeObject(forKey: PrefKey.aiChatProvider) }
+        }
+        UserDefaults.standard.set("device", forKey: PrefKey.aiChatProvider)
+        XCTAssertEqual(AIChatViewModel.routedProviderDisplayName(), "On-device")
+        XCTAssertEqual(AIChatViewModel.routedReplySource(), .onDeviceModel)
+        UserDefaults.standard.set("google", forKey: PrefKey.aiChatProvider)
+        XCTAssertEqual(AIChatViewModel.routedReplySource(),
+                       .cloud(provider: "Gemini"))
+    }
+}
