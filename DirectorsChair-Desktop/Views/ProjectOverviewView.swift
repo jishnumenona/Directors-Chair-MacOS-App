@@ -10,6 +10,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairServices
+import DirectorsChairViews
 
 // MARK: - Image Cache
 
@@ -121,6 +122,11 @@ struct ProjectOverviewView: View {
                         shotCount: totalShotCount,
                         locationCount: project.locations.count
                     )
+
+                    // 3.5 On-device AI insights (DC-0055 — Free on every
+                    // plan; the model runs locally, so no quota is spent).
+                    InsightsPanel(engine: MLXInsightEngine.shared,
+                                  project: project)
 
                     // 4. Scene Gallery
                     if !scenes.isEmpty {

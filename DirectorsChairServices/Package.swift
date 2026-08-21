@@ -15,12 +15,21 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../DirectorsChairCore")
+        .package(path: "../DirectorsChairCore"),
+        // On-device insights (DC-0055): MLX runs the bundled open-weights
+        // model on Apple Silicon. The examples repo publishes the LLM
+        // loading/generation libraries as products.
+        .package(url: "https://github.com/ml-explore/mlx-swift-examples",
+                 from: "2.21.0"),
     ],
     targets: [
         .target(
             name: "DirectorsChairServices",
-            dependencies: ["DirectorsChairCore"]
+            dependencies: [
+                "DirectorsChairCore",
+                .product(name: "MLXLLM", package: "mlx-swift-examples"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
+            ]
         ),
         .testTarget(
             name: "DirectorsChairServicesTests",
