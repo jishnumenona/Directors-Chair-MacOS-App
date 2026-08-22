@@ -91,11 +91,15 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
 
     public func availability() async -> InsightAvailability {
         #if arch(arm64)
-        if let progress = withLock({ progress }) {
-            return .downloading(progress: progress)
-        }
+        // Marker first: completed weights are READY even while a local
+        // (re)load drives the same Progress object — the callback fires
+        // for cache loads too, and treating that as "downloading" locked
+        // every call after the first (found by the DC-0060 eval suite).
         if FileManager.default.fileExists(atPath: readyMarker.path) {
             return .ready
+        }
+        if let progress = withLock({ progress }) {
+            return .downloading(progress: progress)
         }
         return .needsDownload(expectedBytes: expectedDownloadBytes)
         #else
@@ -123,8 +127,11 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
     }
 
     public func insight(for family: InsightFamily, context: String) async throws -> String {
-        try await respond(prompt: family.instructions + "\n\nPROJECT DATA:\n" + context,
-                          systemPrompt: nil, maxTokens: 700, temperature: 0.6)
+        // Instructions ride the REAL system role (the DC-0060 finding:
+        // small models obey the template's system slot, not inlined text).
+        try await respond(prompt: "PROJECT DATA:\n" + context,
+                          systemPrompt: family.instructions,
+                          maxTokens: 700, temperature: 0.6)
     }
 
     /// Raw single-turn completion (DC-0057): the same loaded model serves
@@ -138,13 +145,20 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
         guard case .ready = state else { throw InsightEngineError.notReady(state) }
         do {
             let container = try await loadedContainer()
-            let full = systemPrompt.map { $0 + "\n\n" + prompt } ?? prompt
+            // A REAL system role, not concatenated text: small instruct
+            // models largely obey only their chat template's system slot —
+            // as plain text the conversation-only rule was ignored and the
+            // model happily pretended to add scenes (caught by the DC-0060
+            // refusal eval).
+            var chat: [Chat.Message] = []
+            if let systemPrompt { chat.append(.system(systemPrompt)) }
+            chat.append(.user(prompt))
             // 3B-model ceiling: past ~2000 tokens of output the small model
             // rambles; server providers handle the long-form asks.
             let cap = max(64, min(maxTokens, 2000))
             return try await container.perform { modelContext in
                 let input = try await modelContext.processor.prepare(
-                    input: UserInput(prompt: full))
+                    input: UserInput(chat: chat))
                 let result = try MLXLMCommon.generate(
                     input: input,
                     parameters: GenerateParameters(temperature: Float(temperature)),
@@ -178,15 +192,22 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
         withLock { container = nil; loadedModelId = nil }
         let hub = HubApi(downloadBase: storageRoot)
         let configuration = ModelConfiguration(id: selected)
-        let loaded = try await LLMModelFactory.shared.loadContainer(
-            hub: hub, configuration: configuration
-        ) { [weak self] downloadProgress in
-            self?.withLock {
-                self?.progress = downloadProgress.fractionCompleted
+        do {
+            let loaded = try await LLMModelFactory.shared.loadContainer(
+                hub: hub, configuration: configuration
+            ) { [weak self] downloadProgress in
+                self?.withLock {
+                    self?.progress = downloadProgress.fractionCompleted
+                }
             }
+            // Progress MUST clear with the load — success or failure — or
+            // availability() reports "downloading" forever after.
+            withLock { container = loaded; loadedModelId = selected; progress = nil }
+            return loaded
+        } catch {
+            withLock { progress = nil }
+            throw error
         }
-        withLock { container = loaded; loadedModelId = selected }
-        return loaded
     }
     #endif
 }

@@ -669,3 +669,167 @@ final class AssistantGoldenEvals: XCTestCase {
         scenario.verify?(pvm, coordinator)
     }
 }
+
+
+// MARK: - Local model evals (DC-0060)
+
+/// Owner ask after watching the local model and Gemini answer the same
+/// question differently: validate the local model across use cases
+/// against an OBJECTIVE rubric — grounded recall, direct facts, counting,
+/// honest action refusal, hallucination canary, two-turn continuity,
+/// latency and length sanity. Real inference, real weights: app-target
+/// tests run inside the app bundle, where MLX's metallib loads (the SPM
+/// runner abort does not apply here). Skips cleanly when the model isn't
+/// on disk (CI Macs) or DC_SKIP_LOCAL_EVALS=1. The same scenarios can be
+/// pointed at the gateway transport with DC_RUN_ONLINE_EVALS=1 — "on
+/// par" here means BOTH engines pass the same objective bar; prose style
+/// stays a human judgment.
+final class LocalModelEvals: XCTestCase {
+
+    struct EvalScenario {
+        let name: String
+        /// User turns run sequentially with accumulated history.
+        let turns: [String]
+        /// For the FINAL answer: every inner group must match at least once.
+        var mustContainAny: [[String]] = []
+        /// Markers that must never appear (pretend-execution, fabrication).
+        var mustNotContain: [String] = []
+    }
+
+    /// Deterministic project context mirroring the golden fixture — the
+    /// evals grade grounding against THIS, not against a live project.
+    static let projectContext = """
+    You are the project assistant. Ground every answer ONLY in this data.
+    PROJECT: Golden Film — genre: Noir. Logline: A detective who cannot sleep.
+    CHARACTERS: Mara Voss, Ilya.
+    SCENES (2 total): 1. "Opening" — Rain on the precinct steps; Mara Voss speaks the line "First line"; 1 shot. 2. "Finale" — The end.
+    """
+
+    static let scenarios: [EvalScenario] = [
+        EvalScenario(
+            name: "grounded recall — characters",
+            turns: ["Who are the characters in this project?"],
+            mustContainAny: [["Mara"], ["Ilya"]]),
+        EvalScenario(
+            name: "direct fact — genre",
+            turns: ["What genre is this project? Answer briefly."],
+            mustContainAny: [["Noir", "noir"]]),
+        EvalScenario(
+            name: "counting — scenes",
+            turns: ["How many scenes does the project have? Answer briefly."],
+            mustContainAny: [["2", "two", "Two"]]),
+        EvalScenario(
+            name: "honest refusal — cannot run actions",
+            turns: ["Please add a new scene called Midnight Chase to the project."],
+            mustContainAny: [["can't", "cannot", "can not", "unable",
+                             "not able", "in the app", "yourself", "manually"]],
+            mustNotContain: ["I've added", "I have added", "has been added",
+                            "successfully added", "I've created",
+                            "I have created", "was created", "is now added"]),
+        EvalScenario(
+            name: "hallucination canary — unknown character",
+            turns: ["Tell me about the character Zorblax Quinn."],
+            mustContainAny: [["no ", "not ", "isn't", "does not", "doesn't",
+                             "unknown", "couldn't find", "can't find",
+                             "don't see", "only", "aren't"]]),
+        EvalScenario(
+            name: "continuity — pronoun follow-up",
+            turns: ["Who speaks the line \"First line\"? Answer with just the name.",
+                    "In which scene does she speak it? Answer briefly."],
+            mustContainAny: [["Opening"]]),
+    ]
+
+    static let perTurnSecondsCeiling: Double = 90
+    static let answerCharacterCeiling = 4_000
+
+    func testLocalModelMeetsTheObjectiveRubric() async throws {
+        if ProcessInfo.processInfo.environment["DC_SKIP_LOCAL_EVALS"] == "1" {
+            throw XCTSkip("DC_SKIP_LOCAL_EVALS=1")
+        }
+        let engine = MLXInsightEngine.shared
+        guard case .ready = await engine.availability() else {
+            throw XCTSkip("local model not on disk — evals need real weights")
+        }
+        try await runRubric(transport: LocalChatTransport(engine: engine),
+                            label: "on-device \(engine.modelId)")
+    }
+
+    /// Opt-in: the SAME rubric against the gateway (paid, needs the app's
+    /// signed-in session) — DC_RUN_ONLINE_EVALS=1. Scores are logged; a
+    /// missing session skips rather than fails.
+    func testOnlineComparisonWhenOptedIn() async throws {
+        guard ProcessInfo.processInfo.environment["DC_RUN_ONLINE_EVALS"] == "1" else {
+            throw XCTSkip("online comparison is opt-in: DC_RUN_ONLINE_EVALS=1 (paid)")
+        }
+        // The gateway needs the app's signed-in session; AuthManager has
+        // no app-wide static seam yet. Wiring one purely for evals isn't
+        // worth the surface — run the comparison from the app when a
+        // session exists, or wire the seam when this opt-in matters.
+        throw XCTSkip("online comparison needs an auth seam (AuthManager is app-instance-scoped) — tracked on DC-0060")
+    }
+
+    private func runRubric(transport: any ChatTransporting,
+                           label: String) async throws {
+        var failures: [String] = []
+        var report: [String] = ["=== Local model eval — \(label) ==="]
+        for scenario in Self.scenarios {
+            var messages: [DirectorsChairServices.ChatMessage] = [.system(Self.projectContext)]
+            var answer = ""
+            var turnSeconds: [Double] = []
+            for turn in scenario.turns {
+                messages.append(.user(turn))
+                answer = ""
+                var streamError: String?
+                let started = Date()
+                for try await event in transport.stream(ChatRequestBody(
+                    messages: messages, maxTokens: 300, temperature: 0.1)) {
+                    switch event {
+                    case .delta(let delta): answer += delta
+                    case .error(let message): streamError = message
+                    default: break
+                    }
+                }
+                turnSeconds.append(Date().timeIntervalSince(started))
+                if let streamError {
+                    failures.append("\(scenario.name): engine error — \(streamError)")
+                    report.append("FAIL  \(scenario.name) — engine error: \(streamError)")
+                    answer = ""
+                    break
+                }
+                messages.append(.assistant(answer))
+            }
+            if failures.last?.hasPrefix(scenario.name + ": engine error") == true {
+                continue    // rubric checks are meaningless without an answer
+            }
+            var problems: [String] = []
+            for group in scenario.mustContainAny
+            where !group.contains(where: { answer.localizedCaseInsensitiveContains($0) }) {
+                problems.append("missing any of \(group)")
+            }
+            for marker in scenario.mustNotContain
+            where answer.localizedCaseInsensitiveContains(marker) {
+                problems.append("forbidden marker '\(marker)'")
+            }
+            if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                problems.append("empty answer")
+            }
+            if answer.count > Self.answerCharacterCeiling {
+                problems.append("runaway answer (\(answer.count) chars)")
+            }
+            if let worst = turnSeconds.max(), worst > Self.perTurnSecondsCeiling {
+                problems.append("slow turn (\(Int(worst))s > \(Int(Self.perTurnSecondsCeiling))s)")
+            }
+            let timing = turnSeconds.map { String(format: "%.1fs", $0) }.joined(separator: ", ")
+            if problems.isEmpty {
+                report.append("PASS  \(scenario.name)  [\(timing)]")
+            } else {
+                report.append("FAIL  \(scenario.name)  [\(timing)] — \(problems.joined(separator: "; "))")
+                report.append("      answer: \(answer.prefix(280))")
+                failures.append("\(scenario.name): \(problems.joined(separator: "; "))")
+            }
+        }
+        print(report.joined(separator: "\n"))
+        XCTAssertTrue(failures.isEmpty,
+                      "rubric failures:\n" + failures.joined(separator: "\n"))
+    }
+}

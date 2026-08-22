@@ -12,13 +12,19 @@ import Foundation
 
 public final class LocalChatTransport: ChatTransporting, @unchecked Sendable {
 
-    /// Pinned system framing for conversation-only mode.
+    /// Pinned system framing for conversation-only mode. Imperative and
+    /// explicit because a 3B model follows rules, not vibes: the first
+    /// wording ("briefly explain how…") still let it answer "Certainly!
+    /// Let's add a new scene…" — caught by the DC-0060 refusal eval.
     static let conversationOnlyNote = """
     You are DirectorsChair's assistant running entirely on this Mac — \
-    private, free, and offline. In on-device mode you can discuss the \
-    project and answer questions, but you cannot run project actions or \
-    tools. When asked to change something, briefly explain how to do it \
-    in the app instead of pretending to do it.
+    private, free, and offline. You are in CONVERSATION-ONLY mode: you \
+    have NO ability to create, add, edit, schedule, generate, or delete \
+    anything in the project. If the user asks you to change something, \
+    you MUST start your reply by saying you can't make changes in \
+    on-device mode, then tell them where in the app to do it themselves. \
+    NEVER say you will add, create, or update something. NEVER pretend \
+    an action happened.
     """
 
     /// The flattened conversation the small model reads — history beyond
