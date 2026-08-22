@@ -80,9 +80,14 @@ final class AssistantRuntime {
     func makeEngine(registry: ActionRegistry) -> AssistantEngine {
         var configuration = Self.routedConfiguration()
         configuration.sessionTier = authManager?.tier ?? .free  // fail-closed
+        let chosen = Self.chooseTransport(provider: configuration.provider,
+                                          gateway: transport)
+        // Owner-debuggable provenance: every turn logs its route, so a
+        // "which model answered?" report is a Console read, not a guess.
+        debugLog("[Assistant] turn route: provider=\(configuration.provider ?? "default") "
+                 + "transport=\(chosen is LocalChatTransport ? "local" : "gateway")")
         return AssistantEngine(
-            transport: Self.chooseTransport(provider: configuration.provider,
-                                            gateway: transport),
+            transport: chosen,
             registry: registry,
             configuration: configuration)
     }
