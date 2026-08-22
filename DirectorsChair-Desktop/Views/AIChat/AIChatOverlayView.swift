@@ -145,6 +145,34 @@ struct AIChatOverlayView: View {
 
     // MARK: - Header
 
+    /// Recomputed whenever preferences change, so a settings switch is
+    /// visible here IMMEDIATELY — before any question is asked.
+    @State private var routeRefresh = 0
+
+    private var liveRouteChip: some View {
+        let provider = AIChatViewModel.routedProviderDisplayName()
+        let isDevice = provider == "On-device"
+        return HStack(spacing: 3) {
+            Image(systemName: isDevice ? "brain" : "cloud")
+                .font(.system(size: 7, weight: .semibold))
+            Text(provider)
+                .font(.system(size: 8, weight: .semibold))
+        }
+        .id(routeRefresh)
+        .foregroundColor(isDevice ? .green : .accentColor)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill((isDevice ? Color.green : Color.accentColor).opacity(0.12)))
+        .help(isDevice
+              ? "Replies will come from the local model on this Mac — conversation only, no project actions"
+              : "Replies will come from \(provider) via the server, with project actions")
+        .accessibilityIdentifier("chat-live-route")
+        .onReceive(NotificationCenter.default.publisher(
+            for: UserDefaults.didChangeNotification)) { _ in
+            routeRefresh += 1
+        }
+    }
+
     private var chatHeader: some View {
         HStack(spacing: 10) {
             // History toggle
@@ -181,6 +209,13 @@ struct AIChatOverlayView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(1.2)
                     .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+
+                // The LIVE route (owner-demanded observability): which
+                // service the NEXT reply will use, read from the same
+                // resolution the engine uses — so settings, this chip,
+                // and reply badges can never silently disagree. Updates
+                // the moment preferences change.
+                liveRouteChip
             }
 
             Spacer()
