@@ -65,6 +65,27 @@ public enum StoryboardEngineError: Error, Equatable, Sendable {
     case downloadFailed(String)
     case generationFailed(String)
     case cancelled
+
+    /// One user-facing wording for every generation surface (grid, scene
+    /// strip) — states explain themselves, never a broken surface. The
+    /// preferences pane keeps its own richer download wording.
+    public var userMessage: String {
+        switch self {
+        case .notReady(.unavailable(let reason)):
+            return reason
+        case .notReady:
+            return "The Storyboard model isn't downloaded yet — get it in Settings → AI Services (5.5 GB, runs on this Mac, free)."
+        case .insufficientDisk(let needed, let free):
+            let fmt = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+            return "Not enough disk space: needs \(fmt(needed)) free, this Mac has \(fmt(free))."
+        case .downloadFailed(let reason):
+            return "Model download failed — \(reason)"
+        case .generationFailed(let reason):
+            return reason
+        case .cancelled:
+            return "Sketch cancelled."
+        }
+    }
 }
 
 // MARK: - Engine protocol

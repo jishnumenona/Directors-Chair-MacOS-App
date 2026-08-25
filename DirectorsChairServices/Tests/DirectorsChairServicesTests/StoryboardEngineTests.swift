@@ -212,3 +212,107 @@ private final class RecordingImageCore: OnDeviceImageGenerating, @unchecked Send
         return Self.pngStub
     }
 }
+
+// MARK: - Subjects & persistence (DC-0064)
+
+final class StoryboardSubjectsTests: XCTestCase {
+
+    private func makeScene() -> Scene {
+        var scene = Scene(name: "Kitchen Confrontation")
+        scene.location = "INT. FARMHOUSE KITCHEN"
+        scene.timeOfDay = "Night"
+        scene.weather = "Storm"
+        scene.sceneOverviewSummary = "Maya confronts her brother over the deed."
+        return scene
+    }
+
+    func testShotSubjectLeadsWithDescriptionAndCarriesSetting() {
+        var shot = Shot(shotId: 3)
+        shot.description = "Maya slams the deed onto the table"
+        let subject = StoryboardSubjects.subject(for: shot, in: makeScene())
+        XCTAssertTrue(subject.hasPrefix("Maya slams the deed"), subject)
+        XCTAssertTrue(subject.contains("FARMHOUSE KITCHEN"), subject)
+        XCTAssertTrue(subject.contains("Night"), subject)
+    }
+
+    func testDescriptionlessShotFallsBackToSceneProse() {
+        let shot = Shot(shotId: 4, description: "")
+        let subject = StoryboardSubjects.subject(for: shot, in: makeScene())
+        XCTAssertTrue(subject.contains("Maya confronts her brother"), subject)
+    }
+
+    func testCameraNotesReadAsDirectionAndOmitStatic() {
+        var shot = Shot(shotId: 5)
+        shot.shotType = "Close-up"
+        shot.cameraAngle = "Low"
+        shot.movement = "Static"
+        shot.lensMm = 85
+        let notes = try! XCTUnwrap(StoryboardSubjects.notes(for: shot))
+        XCTAssertTrue(notes.contains("Close-up"))
+        XCTAssertTrue(notes.contains("Low angle"))
+        XCTAssertTrue(notes.contains("85mm lens"))
+        XCTAssertFalse(notes.contains("Static"), "static camera is not direction")
+    }
+
+    func testSceneSubjectIsAnEstablishingFrameWithSlugFacts() {
+        let subject = StoryboardSubjects.subject(for: makeScene())
+        XCTAssertTrue(subject.hasPrefix("Establishing frame: Kitchen Confrontation"), subject)
+        XCTAssertTrue(subject.contains("Storm"), subject)
+        XCTAssertTrue(subject.contains("Maya confronts her brother"), subject)
+    }
+
+    func testEngineErrorsExplainThemselvesToUsers() {
+        XCTAssertTrue(StoryboardEngineError
+            .notReady(.needsDownload(expectedBytes: 1)).userMessage
+            .contains("Settings"))
+        let disk = StoryboardEngineError
+            .insufficientDisk(neededBytes: 7_916_000_000, freeBytes: 8_000_000_000)
+            .userMessage
+        XCTAssertTrue(disk.contains("7.92 GB"), disk)
+        XCTAssertTrue(disk.contains("8 GB"), disk)
+    }
+}
+
+final class StoryboardFrameStoreTests: XCTestCase {
+
+    func testSaveWritesTimestampedPlusLatestAndReturnsRelativePaths() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-framestore-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        let stamp = Date(timeIntervalSince1970: 1_756_000_000)
+
+        let saved = try StoryboardFrameStore.save(
+            png: png, projectBasePath: base,
+            relativeDirectory: "assets/shots/shot_7", timestamp: stamp)
+
+        XCTAssertEqual(saved.relativePath, "assets/shots/shot_7/storyboard_latest.png")
+        XCTAssertTrue(saved.timestampedRelativePath.hasPrefix("assets/shots/shot_7/storyboard_2025"))
+        for relative in [saved.relativePath, saved.timestampedRelativePath] {
+            let url = base.appendingPathComponent(relative)
+            XCTAssertEqual(try Data(contentsOf: url), png, relative)
+        }
+    }
+
+    func testSecondSaveReplacesLatestButKeepsHistory() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-framestore-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let first = try StoryboardFrameStore.save(
+            png: Data([1]), projectBasePath: base,
+            relativeDirectory: "assets/scenes/Kitchen",
+            timestamp: Date(timeIntervalSince1970: 1_756_000_000))
+        let second = try StoryboardFrameStore.save(
+            png: Data([2]), projectBasePath: base,
+            relativeDirectory: "assets/scenes/Kitchen",
+            timestamp: Date(timeIntervalSince1970: 1_756_000_100))
+
+        XCTAssertEqual(second.relativePath, first.relativePath)
+        XCTAssertEqual(
+            try Data(contentsOf: base.appendingPathComponent(second.relativePath)),
+            Data([2]), "latest must carry the newest frame")
+        XCTAssertEqual(
+            try Data(contentsOf: base.appendingPathComponent(first.timestampedRelativePath)),
+            Data([1]), "history must survive")
+    }
+}

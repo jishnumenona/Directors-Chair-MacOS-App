@@ -20,6 +20,7 @@ struct SceneDetailView: View {
     var onSelectShot: ((DirectorsChairCore.Scene, Shot) -> Void)? = nil
     var onJumpShotToScript: ((DirectorsChairCore.Scene, Shot) -> Void)? = nil
     var onImageGenerated: ((String) -> Void)? = nil
+    var onStoryboardGenerated: ((String) -> Void)? = nil
     var onPromptUsed: ((String) -> Void)? = nil
     var onSceneAboutChanged: ((String) -> Void)? = nil
     var onSceneDescriptionChanged: ((String) -> Void)? = nil
@@ -40,6 +41,12 @@ struct SceneDetailView: View {
     @State var allOverviewImages: [URL] = []
     @State var currentImageIndex: Int = -1
 
+    // On-device storyboard sketch (DC-0064)
+    @State var storyboardSketch: NSImage?
+    @State var isSketchingStoryboard = false
+    @State var storyboardEngineReady = false
+    @State var storyboardErrorText: String?
+
     var parsed: (prefix: String?, location: String, time: String?) {
         SceneCardHelpers.parseSceneLocation(scene.location)
     }
@@ -59,6 +66,7 @@ struct SceneDetailView: View {
             VStack(spacing: 0) {
                 heroSection
                 statsBar
+                storyboardSection
                 mainContent
             }
         }
@@ -77,6 +85,10 @@ struct SceneDetailView: View {
             loadHeroImage()
             lastUsedPrompt = scene.sceneOverviewPrompt ?? ""
             discoverOverviewImages()
+            storyboardSketch = nil
+            isSketchingStoryboard = false
+            storyboardErrorText = nil
+            loadStoryboardSketch()
         }
         .sheet(isPresented: $showingFullSize) {
             ScenePreviewFullSizeSheet(

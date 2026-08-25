@@ -147,3 +147,113 @@ extension SceneDetailView {
         }
     }
 }
+
+// MARK: - On-device storyboard sketch (DC-0064)
+
+extension SceneDetailView {
+
+    /// A slim strip under the stats bar: the scene's ink-sketch frame,
+    /// drawn locally by the Storyboard model. States explain themselves —
+    /// undownloaded shows a pointer to Settings, never a dead button.
+    var storyboardSection: some View {
+        HStack(spacing: 12) {
+            Group {
+                if let sketch = storyboardSketch {
+                    Image(nsImage: sketch)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Rectangle().fill(Color(nsColor: .quaternarySystemFill))
+                        Image(systemName: "pencil.and.outline")
+                            .font(.system(size: 18))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .frame(width: 128, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Storyboard sketch")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(storyboardEngineReady
+                     ? "Ink-sketch frame drawn on this Mac — free, works offline"
+                     : "Download the Storyboard model in Settings → AI Services (5.5 GB, free)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                if let error = storyboardErrorText {
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                        .accessibilityIdentifier("scene-storyboard-error")
+                }
+            }
+
+            Spacer()
+
+            if isSketchingStoryboard {
+                ProgressView().controlSize(.small)
+            }
+
+            Button(scene.sceneStoryboardImage == nil ? "Sketch" : "Redraw") {
+                sketchStoryboardFrame()
+            }
+            .disabled(!storyboardEngineReady || isSketchingStoryboard)
+            .help(storyboardEngineReady
+                  ? "Draw this scene as an ink-sketch storyboard frame on this Mac"
+                  : "The Storyboard model isn't downloaded yet — Settings → AI Services")
+            .accessibilityIdentifier("scene-storyboard-generate")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .task {
+            storyboardEngineReady =
+                await ZImageStoryboardEngine.shared.availability() == .ready
+            loadStoryboardSketch()
+        }
+    }
+
+    func loadStoryboardSketch() {
+        guard let relative = scene.sceneStoryboardImage,
+              let basePath = projectBasePath else { return }
+        storyboardSketch = NSImage(contentsOf:
+            basePath.appendingPathComponent(relative))
+    }
+
+    /// One frame through the on-device engine: subject from the scene's
+    /// own fields, saved beside its other assets, relative path persisted
+    /// through the same write-back the hero image uses.
+    func sketchStoryboardFrame() {
+        guard !isSketchingStoryboard, let basePath = projectBasePath else { return }
+        isSketchingStoryboard = true
+        storyboardErrorText = nil
+        Task {
+            do {
+                let spec = StoryboardFrameSpec(
+                    subject: StoryboardSubjects.subject(for: scene))
+                let png = try await ZImageStoryboardEngine.shared.generateFrame(spec)
+                let directory = "assets/scenes/\(SceneCardHelpers.sanitizeFilename(scene.name))"
+                let saved = try StoryboardFrameStore.save(
+                    png: png, projectBasePath: basePath,
+                    relativeDirectory: directory)
+                await MainActor.run {
+                    storyboardSketch = NSImage(data: png)
+                    onStoryboardGenerated?(saved.relativePath)
+                    isSketchingStoryboard = false
+                }
+            } catch let error as StoryboardEngineError {
+                await MainActor.run {
+                    storyboardErrorText = error.userMessage
+                    isSketchingStoryboard = false
+                }
+            } catch {
+                await MainActor.run {
+                    storyboardErrorText = error.localizedDescription
+                    isSketchingStoryboard = false
+                }
+            }
+        }
+    }
+}
