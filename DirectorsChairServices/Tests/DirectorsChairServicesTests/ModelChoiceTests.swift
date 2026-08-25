@@ -139,9 +139,11 @@ final class ModelChoiceTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Context: Catalog and rules."))
         XCTAssertTrue(prompt.contains("User: What's scene 2 about?"))
         XCTAssertTrue(prompt.hasSuffix("Assistant:"))
-        // …and the conversation-only limitation is pinned to the model.
-        XCTAssertTrue(try XCTUnwrap(recorder.systems.first)?
-            .contains("cannot run project actions") ?? false)
+        // …and the conversation-only limitation rides the REAL system slot,
+        // verbatim — identity, not phrasing, so rewording the note (as
+        // DC-0060's refusal fix did) can never silently strand this test.
+        XCTAssertEqual(try XCTUnwrap(recorder.systems.first),
+                       LocalChatTransport.conversationOnlyNote)
     }
 
     func testLocalChatTransportRefusalBecomesAReadableErrorEvent() async throws {
