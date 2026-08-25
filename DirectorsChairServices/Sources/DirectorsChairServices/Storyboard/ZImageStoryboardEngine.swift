@@ -113,6 +113,19 @@ public final class ZImageStoryboardEngine: StoryboardEngine, @unchecked Sendable
         #endif
     }
 
+    /// Whether the engine can actually DRAW right now — availability
+    /// downgraded while the diffusion core (DC-0065) is absent. The
+    /// provider chips gate on this, never on the download alone: a
+    /// selectable option that cannot render is a broken surface.
+    public func generationAvailability() async -> InsightAvailability {
+        let state = await availability()
+        if case .ready = state, Self.core == nil {
+            return .unavailable(reason:
+                "The sketch engine is still being built — the model is downloaded and ready for it.")
+        }
+        return state
+    }
+
     public func prepare() async throws {
         #if arch(arm64)
         if case .ready = await availability() { return }

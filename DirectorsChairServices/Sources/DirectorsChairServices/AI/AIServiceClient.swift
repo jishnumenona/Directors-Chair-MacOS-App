@@ -445,6 +445,25 @@ public actor AIServiceClient {
     nonisolated(unsafe) public static var onDeviceTextEngine: any OnDeviceTextResponding
         = MLXInsightEngine.shared
 
+    /// DC-0065: the engine behind `.onDevice` IMAGE requests — the same
+    /// seam discipline as text (tests substitute a scripted engine; the
+    /// real one only draws inside app bundles).
+    nonisolated(unsafe) public static var onDeviceImageEngine: any StoryboardEngine
+        = ZImageStoryboardEngine.shared
+
+    /// The frame sizes the on-device sketch engine draws per requested
+    /// aspect ratio (multiples of 16 for the latent grid; 512–768-class,
+    /// where the 8-step model is fastest).
+    static func onDeviceImageSize(for aspectRatio: String) -> (width: Int, height: Int) {
+        switch aspectRatio {
+        case "9:16": return (432, 768)
+        case "1:1": return (640, 640)
+        case "4:3": return (704, 528)
+        case "3:4": return (528, 704)
+        default: return (768, 432)   // 16:9 and anything unrecognized
+        }
+    }
+
     // MARK: - Initialization
 
     /// Initialize with custom configuration
@@ -703,6 +722,19 @@ public actor AIServiceClient {
     
     /// Generate images using AI
     public func generateImage(_ request: ImageGenerationRequest) async throws -> ImageGenerationResponse {
+        // DC-0065: the on-device sketch engine never touches the network —
+        // route it BEFORE the availability guard (the text-generation
+        // precedent). One frame per call: the engine draws sequentially,
+        // and reference images don't apply to the sketch surface.
+        if request.provider == .onDevice {
+            let size = Self.onDeviceImageSize(for: request.aspectRatio)
+            let frame = try await Self.onDeviceImageEngine.generateFrame(
+                StoryboardFrameSpec(subject: request.prompt,
+                                    width: size.width, height: size.height))
+            return ImageGenerationResponse(
+                images: [frame], provider: .onDevice,
+                model: ZImageStoryboardEngine.model.id)   // on-device = $0
+        }
         let url = baseURL.appendingPathComponent("generate/image")
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"

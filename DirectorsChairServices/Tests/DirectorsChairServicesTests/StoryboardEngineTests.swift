@@ -316,3 +316,113 @@ final class StoryboardFrameStoreTests: XCTestCase {
             Data([1]), "history must survive")
     }
 }
+
+// MARK: - Drawing-capability gate + image routing (DC-0065 surfaces)
+
+final class StoryboardGenerationGateTests: XCTestCase {
+
+    func testDownloadedModelWithoutCoreIsNotDrawable() async throws {
+        #if arch(arm64)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-gate-\(UUID().uuidString)")
+        let engine = ZImageStoryboardEngine(storageRoot: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent(
+            ".ready-\(ZImageStoryboardEngine.model.id.replacingOccurrences(of: "/", with: "_"))"))
+        let previous = ZImageStoryboardEngine.core
+        defer { ZImageStoryboardEngine.core = previous }
+
+        ZImageStoryboardEngine.core = nil
+        let gated = await engine.generationAvailability()
+        guard case .unavailable(let reason) = gated else {
+            return XCTFail("core-less engine must not read as drawable, got \(gated)")
+        }
+        XCTAssertTrue(reason.contains("downloaded"), reason)
+
+        ZImageStoryboardEngine.core = NullImageCore()
+        let drawable = await engine.generationAvailability()
+        XCTAssertEqual(drawable, .ready)
+        #endif
+    }
+
+    func testUndownloadedModelGatesOnDownloadNotOnCore() async {
+        let engine = ZImageStoryboardEngine(
+            storageRoot: FileManager.default.temporaryDirectory
+                .appendingPathComponent("dc-gate-\(UUID().uuidString)"))
+        let state = await engine.generationAvailability()
+        #if arch(arm64)
+        XCTAssertEqual(state, .needsDownload(
+            expectedBytes: ZImageStoryboardEngine.model.approxBytes))
+        #else
+        guard case .unavailable = state else {
+            return XCTFail("non-arm64 must be unavailable")
+        }
+        #endif
+    }
+}
+
+final class OnDeviceImageRoutingTests: XCTestCase {
+
+    func testOnDeviceImageRequestRoutesToTheEngineNotTheWire() async throws {
+        let scripted = ScriptedStoryboardEngine()
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+
+        // A dead-end URL proves no network is touched: reaching the wire
+        // would fail, the engine route succeeds.
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        let response = try await client.generateImage(ImageGenerationRequest(
+            prompt: "Maya at the window", provider: .onDevice, aspectRatio: "1:1"))
+
+        XCTAssertEqual(response.provider, .onDevice)
+        XCTAssertEqual(response.model, ZImageStoryboardEngine.model.id)
+        XCTAssertFalse(response.images.isEmpty)
+        let spec = try XCTUnwrap(scripted.requests.first)
+        XCTAssertEqual(spec.subject, "Maya at the window")
+        XCTAssertEqual(spec.width, 640)
+        XCTAssertEqual(spec.height, 640)
+    }
+
+    func testUnreadyEngineRefusalPropagatesInsteadOfFallingBack() async {
+        let scripted = ScriptedStoryboardEngine(
+            availability: .needsDownload(expectedBytes: 5))
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        do {
+            _ = try await client.generateImage(ImageGenerationRequest(
+                prompt: "x", provider: .onDevice))
+            XCTFail("must refuse, never silently fall back to a paid provider")
+        } catch let error as StoryboardEngineError {
+            guard case .notReady = error else {
+                return XCTFail("expected notReady, got \(error)")
+            }
+        } catch {
+            XCTFail("unexpected error type: \(error)")
+        }
+    }
+
+    func testAspectRatioMapsToLatentFriendlySizes() {
+        XCTAssertEqual(AIServiceClient.onDeviceImageSize(for: "16:9").width, 768)
+        XCTAssertEqual(AIServiceClient.onDeviceImageSize(for: "9:16").height, 768)
+        let square = AIServiceClient.onDeviceImageSize(for: "1:1")
+        XCTAssertEqual(square.width, 640)
+        XCTAssertEqual(square.height, 640)
+        // Every size must sit on the 16-pixel latent grid.
+        for ratio in ["16:9", "9:16", "1:1", "4:3", "3:4", "banana"] {
+            let size = AIServiceClient.onDeviceImageSize(for: ratio)
+            XCTAssertEqual(size.width % 16, 0, ratio)
+            XCTAssertEqual(size.height % 16, 0, ratio)
+        }
+    }
+}
+
+private struct NullImageCore: OnDeviceImageGenerating {
+    func renderFrame(prompt: String, width: Int, height: Int,
+                     seed: UInt64?, weightsDirectory: URL) async throws -> Data {
+        Data()
+    }
+}

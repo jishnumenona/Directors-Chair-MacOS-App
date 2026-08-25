@@ -86,15 +86,21 @@ public struct AIServiceOption: Equatable, Identifiable, Sendable {
     /// disk, Apple Silicon). Distinct from plain on-device options like
     /// system TTS, which are always available.
     public let requiresLocalModel: Bool
+    /// DC-0065: true when the option runs on the STORYBOARD image model —
+    /// gated on that engine being able to actually draw (weights on disk
+    /// AND the diffusion core present), the same never-assume-fine rule.
+    public let requiresStoryboardModel: Bool
 
     public var id: String { wireId }
 
     public init(wireId: String, displayName: String, healthKey: String?,
-                requiresLocalModel: Bool = false) {
+                requiresLocalModel: Bool = false,
+                requiresStoryboardModel: Bool = false) {
         self.wireId = wireId
         self.displayName = displayName
         self.healthKey = healthKey
         self.requiresLocalModel = requiresLocalModel
+        self.requiresStoryboardModel = requiresStoryboardModel
     }
 }
 
@@ -132,6 +138,11 @@ public enum AIProviderCatalog {
             return [
                 AIServiceOption(wireId: "google_imagen", displayName: "Google Imagen", healthKey: "google"),
                 AIServiceOption(wireId: "stability", displayName: "Stability AI", healthKey: "stability"),
+                // DC-0065: the downloaded Storyboard model serves image
+                // generation as ink-sketch frames — free and offline, and
+                // deliberately sketch-only (Product-Versions v1.8 §3.7).
+                AIServiceOption(wireId: "device", displayName: "On-device (ink sketch)",
+                                healthKey: nil, requiresStoryboardModel: true),
             ]
         case .video:
             // Veo is the only provider the wire can address (server spec

@@ -814,6 +814,7 @@ struct SoftwarePreferencesView: View {
                             function: function,
                             health: serviceHealth.health,
                             localModel: serviceHealth.insightsAvailability,
+                            storyboardModel: serviceHealth.storyboardGenerationAvailability,
                             selection: providerBinding(for: function)
                         )
                     }
@@ -1321,6 +1322,9 @@ final class ServiceHealthModel: ObservableObject {
     /// refusal (disk preflight) worded for the pane.
     @Published private(set) var storyboardAvailability: InsightAvailability?
     @Published private(set) var storyboardDownloadError: String?
+    /// DC-0065: whether the sketch engine can actually DRAW (weights AND
+    /// core) — what the Image Generation on-device chip gates on.
+    @Published private(set) var storyboardGenerationAvailability: InsightAvailability?
 
     var health: AIProviderHealth? {
         if case .checked(let health) = state { return health }
@@ -1336,6 +1340,7 @@ final class ServiceHealthModel: ObservableObject {
         refreshLocalModels()
         insightsAvailability = await MLXInsightEngine.shared.availability()
         storyboardAvailability = await ZImageStoryboardEngine.shared.availability()
+        storyboardGenerationAvailability = await ZImageStoryboardEngine.shared.generationAvailability()
         if let health = await AIProviderHealthClient().fetch() {
             state = .checked(health)
         } else {
@@ -1394,6 +1399,7 @@ final class ServiceHealthModel: ObservableObject {
             storyboardDownloadError = "Download failed — \(error.localizedDescription)"
         }
         storyboardAvailability = await ZImageStoryboardEngine.shared.availability()
+        storyboardGenerationAvailability = await ZImageStoryboardEngine.shared.generationAvailability()
     }
 
     /// Pane wording for engine errors — pure, unit-tested.
@@ -1423,6 +1429,10 @@ private struct PrefServiceRow: View {
     let health: AIProviderHealth?
     /// The local model's state (DC-0057) — gates requiresLocalModel options.
     var localModel: InsightAvailability?
+    /// The storyboard engine's DRAWING state (DC-0065) — gates
+    /// requiresStoryboardModel options on can-actually-render, not on
+    /// the download alone.
+    var storyboardModel: InsightAvailability?
     @Binding var selection: String
 
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: 6)]
@@ -1432,6 +1442,11 @@ private struct PrefServiceRow: View {
     }
 
     private func isAvailable(_ option: AIServiceOption) -> Bool {
+        if option.requiresStoryboardModel {
+            // Selectable only when the sketch engine can genuinely draw.
+            if case .ready = storyboardModel { return true }
+            return false
+        }
         if option.requiresLocalModel {
             // The local model is selectable only when genuinely READY —
             // "unknown" here means not downloaded, not "assume fine".
@@ -1443,6 +1458,18 @@ private struct PrefServiceRow: View {
     }
 
     private func unavailableHint(_ option: AIServiceOption) -> String {
+        if option.requiresStoryboardModel {
+            switch storyboardModel {
+            case .needsDownload:
+                return "Storyboard model not downloaded yet — get it in the Storyboard Model card below (5.5 GB, free)"
+            case .downloading(let progress):
+                return "Storyboard model downloading… \(Int(progress * 100))%"
+            case .unavailable(let reason):
+                return reason
+            default:
+                return "The sketch engine isn't ready yet"
+            }
+        }
         guard option.requiresLocalModel else {
             return "\(option.displayName) isn't enabled on the server right now"
         }
