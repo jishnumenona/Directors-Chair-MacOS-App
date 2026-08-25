@@ -702,6 +702,83 @@ struct SoftwarePreferencesView: View {
         }
     }
 
+    /// The STORYBOARD model (DC-0063): the on-device image engine that
+    /// draws sketch storyboard frames for scenes & shots. Same consent
+    /// contract as the local text model — a 5.5GB download never starts
+    /// silently — plus the disk preflight surfaced as a readable refusal
+    /// instead of a mid-download failure.
+    private var storyboardEngineRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "pencil.and.outline")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text("Storyboard Model")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(storyboardStateText)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(serviceHealth.storyboardAvailability == .ready
+                          ? Color.green : Color.secondary.opacity(0.4))
+                    .frame(width: 5, height: 5)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(ZImageStoryboardEngine.model.displayName)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(ZImageStoryboardEngine.model.detail)
+                        .font(.system(size: 8))
+                        .opacity(0.75)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .quaternarySystemFill)))
+            .accessibilityIdentifier("storyboard-model-\(ZImageStoryboardEngine.model.id)")
+
+            if case .downloading(let progress) = serviceHealth.storyboardAvailability {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .controlSize(.small)
+            }
+
+            if case .needsDownload(let bytes) = serviceHealth.storyboardAvailability {
+                Button {
+                    Task { await serviceHealth.downloadStoryboardModel() }
+                } label: {
+                    Label("Download \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) — draws storyboard frames on this Mac, free",
+                          systemImage: "arrow.down.circle")
+                        .font(.system(size: 10))
+                }
+                .accessibilityIdentifier("storyboard-model-download")
+            }
+
+            if let error = serviceHealth.storyboardDownloadError {
+                Label(error, systemImage: "externaldrive.badge.exclamationmark")
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange)
+                    .accessibilityIdentifier("storyboard-model-error")
+            }
+        }
+    }
+
+    private var storyboardStateText: String {
+        switch serviceHealth.storyboardAvailability {
+        case .ready: return "Storyboard model ready — draws frames on this Mac, free on every plan"
+        case .needsDownload: return "Not downloaded yet"
+        case .downloading(let progress): return "Downloading… \(Int(progress * 100))%"
+        case .unavailable(let reason): return reason
+        case nil: return "Checking…"
+        }
+    }
+
     private var aiSection: some View {
         VStack(alignment: .leading, spacing: 24) {
             sectionHeader("AI Services", subtitle: "Connection, provider defaults, and generation parameters")
@@ -746,6 +823,13 @@ struct SoftwarePreferencesView: View {
                 }
             }
             .task { await serviceHealth.refreshIfNeeded() }
+
+            // Storyboard model (DC-0063): the on-device image engine —
+            // its own card because it is its own engine, not a provider
+            // choice; scene/shot surfaces deep-link here for consent.
+            PrefCard(title: "STORYBOARD MODEL", icon: "pencil.and.outline") {
+                storyboardEngineRow
+            }
 
             // Generation Parameters
             PrefCard(title: "GENERATION PARAMETERS", icon: "slider.horizontal.3") {
@@ -1233,6 +1317,10 @@ final class ServiceHealthModel: ObservableObject {
     /// for the Local Model picker.
     @Published private(set) var downloadedLocalModels: Set<String> = []
     @Published private(set) var selectedLocalModelId: String = LocalModelCatalog.selected.id
+    /// DC-0063: the storyboard image model's state + the last download
+    /// refusal (disk preflight) worded for the pane.
+    @Published private(set) var storyboardAvailability: InsightAvailability?
+    @Published private(set) var storyboardDownloadError: String?
 
     var health: AIProviderHealth? {
         if case .checked(let health) = state { return health }
@@ -1247,6 +1335,7 @@ final class ServiceHealthModel: ObservableObject {
         state = .checking
         refreshLocalModels()
         insightsAvailability = await MLXInsightEngine.shared.availability()
+        storyboardAvailability = await ZImageStoryboardEngine.shared.availability()
         if let health = await AIProviderHealthClient().fetch() {
             state = .checked(health)
         } else {
@@ -1279,6 +1368,47 @@ final class ServiceHealthModel: ObservableObject {
         try? await MLXInsightEngine.shared.prepare()
         insightsAvailability = await MLXInsightEngine.shared.availability()
         refreshLocalModels()
+    }
+
+    /// Consent-gated download of the storyboard model (DC-0063). Unlike
+    /// the text model's path this KEEPS the error: the disk preflight's
+    /// refusal must reach the user as guidance, not vanish into a retry.
+    func downloadStoryboardModel() async {
+        storyboardDownloadError = nil
+        storyboardAvailability = .downloading(progress: 0)
+        let poll = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                let current = await ZImageStoryboardEngine.shared.availability()
+                await MainActor.run { [weak self] in
+                    if case .downloading = current { self?.storyboardAvailability = current }
+                }
+            }
+        }
+        defer { poll.cancel() }
+        do {
+            try await ZImageStoryboardEngine.shared.prepare()
+        } catch let error as StoryboardEngineError {
+            storyboardDownloadError = Self.storyboardErrorText(error)
+        } catch {
+            storyboardDownloadError = "Download failed — \(error.localizedDescription)"
+        }
+        storyboardAvailability = await ZImageStoryboardEngine.shared.availability()
+    }
+
+    /// Pane wording for engine errors — pure, unit-tested.
+    nonisolated static func storyboardErrorText(_ error: StoryboardEngineError) -> String {
+        switch error {
+        case .insufficientDisk(let needed, let free):
+            let fmt = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+            return "Not enough disk space: the model needs \(fmt(needed)) free (download plus working room) and this Mac has \(fmt(free)). Free up space, then try again."
+        case .downloadFailed(let reason):
+            return "Download failed — \(reason)"
+        case .notReady(.unavailable(let reason)):
+            return reason
+        case .notReady, .generationFailed, .cancelled:
+            return "Download couldn't start — try again."
+        }
     }
 }
 

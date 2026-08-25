@@ -388,3 +388,36 @@ final class OnDeviceChatRoutingTests: XCTestCase {
                        .cloud(provider: "Gemini"))
     }
 }
+
+// MARK: - Storyboard model wiring (DC-0063)
+
+/// The prefs pane's storyboard-model card runs on ServiceHealthModel's
+/// pure pieces — worded errors and the engine's displayed identity. If
+/// these drift, the consent UI lies about sizes or swallows the disk
+/// refusal.
+final class StoryboardPrefsWiringTests: XCTestCase {
+
+    func testDiskRefusalWordsBothNumbersAsGuidance() {
+        let text = ServiceHealthModel.storyboardErrorText(
+            .insufficientDisk(neededBytes: 7_916_000_000, freeBytes: 8_000_000_000))
+        XCTAssertTrue(text.contains("7.92 GB"), text)
+        XCTAssertTrue(text.contains("8 GB"), text)
+        XCTAssertTrue(text.lowercased().contains("free up space"), text)
+    }
+
+    func testDownloadFailureCarriesTheReason() {
+        let text = ServiceHealthModel.storyboardErrorText(
+            .downloadFailed("offline"))
+        XCTAssertTrue(text.contains("offline"))
+    }
+
+    func testStoryboardModelIdentityMatchesTheConsentContract() {
+        // The size shown in the consent button is the engine's approxBytes —
+        // measured 5.51GB via the HF API (DC-0063). If the model constant
+        // changes, the Product-Versions §3.7 copy must move with it.
+        XCTAssertEqual(ZImageStoryboardEngine.model.id,
+                       "filipstrand/Z-Image-Turbo-mflux-4bit")
+        XCTAssertEqual(ZImageStoryboardEngine.model.approxBytes, 5_916_000_000)
+        XCTAssertTrue(ZImageStoryboardEngine.model.detail.contains("Apache-2.0"))
+    }
+}
