@@ -141,7 +141,7 @@ public enum AIProviderCatalog {
                 // DC-0065: the downloaded Storyboard model serves image
                 // generation as ink-sketch frames — free and offline, and
                 // deliberately sketch-only (Product-Versions v1.8 §3.7).
-                AIServiceOption(wireId: "device", displayName: "On-device (ink sketch)",
+                AIServiceOption(wireId: "device", displayName: "On-device",
                                 healthKey: nil, requiresStoryboardModel: true),
             ]
         case .video:

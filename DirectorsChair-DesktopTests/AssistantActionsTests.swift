@@ -415,9 +415,9 @@ final class StoryboardPrefsWiringTests: XCTestCase {
         // The size shown in the consent button is the engine's approxBytes —
         // measured 5.51GB via the HF API (DC-0063). If the model constant
         // changes, the Product-Versions §3.7 copy must move with it.
-        XCTAssertEqual(ZImageStoryboardEngine.model.id,
-                       "filipstrand/Z-Image-Turbo-mflux-4bit")
-        XCTAssertEqual(ZImageStoryboardEngine.model.approxBytes, 5_916_000_000)
-        XCTAssertTrue(ZImageStoryboardEngine.model.detail.contains("Apache-2.0"))
+        XCTAssertEqual(LocalImageEngine.model.id,
+                       "Runpod/FLUX.2-klein-4B-mflux-4bit")
+        XCTAssertEqual(LocalImageEngine.model.approxBytes, 4_620_000_000)
+        XCTAssertTrue(LocalImageEngine.model.detail.contains("Apache-2.0"))
     }
 }

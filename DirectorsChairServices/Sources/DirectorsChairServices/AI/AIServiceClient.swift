@@ -217,6 +217,21 @@ public struct ImageGenerationRequest: Sendable {
     }
 }
 
+extension AIServiceClient {
+    /// The request's pictures as raw bytes, single reference first, then
+    /// the labelled set, capped at klein's practical four.
+    static func onDeviceReferences(for request: ImageGenerationRequest) -> [Data] {
+        var references: [Data] = []
+        if let single = request.referenceImageBase64, let data = Data(base64Encoded: single) {
+            references.append(data)
+        }
+        for reference in request.referenceImages ?? [] {
+            if let data = Data(base64Encoded: reference.base64) { references.append(data) }
+        }
+        return Array(references.prefix(4))
+    }
+}
+
 // MARK: - Image Generation Response
 
 /// Response from image generation
@@ -463,7 +478,7 @@ public actor AIServiceClient {
     /// seam discipline as text (tests substitute a scripted engine; the
     /// real one only draws inside app bundles).
     nonisolated(unsafe) public static var onDeviceImageEngine: any StoryboardEngine
-        = ZImageStoryboardEngine.shared
+        = LocalImageEngine.shared
 
     /// The frame sizes the on-device sketch engine draws per requested
     /// aspect ratio (multiples of 16 for the latent grid; 512–768-class,
@@ -749,22 +764,32 @@ public actor AIServiceClient {
         // precedent). One frame per call: the engine draws sequentially,
         // and reference images don't apply to the sketch surface.
         if request.provider == .onDevice {
-            // The sketch engine draws from text alone: an edit of an
-            // existing picture would silently produce an unrelated drawing
-            // (DC-0066) — refuse with the way out instead.
-            if request.isEditOfExistingImage {
-                throw StoryboardEngineError.generationFailed(
-                    "On-device sketches are drawn from text only, so an existing picture can't be edited this way — choose a cloud service under Settings → AI Services → Image Generation to edit it.")
-            }
+            // DC-0068: the klein engine takes pictures in. Every reference
+            // the request carries (the picture to edit, characters, garments,
+            // a place) rides along in order — the first is "the reference
+            // picture" in prompt language. klein's practical limit is four.
+            let references = Self.onDeviceReferences(for: request)
             let size = Self.onDeviceImageSize(for: request.aspectRatio)
-            let brief = request.brief ?? VisualBrief(
-                purpose: .moodboard,
-                subject: StoryboardSubjects.plainSubject(from: request.prompt))
+            let brief: VisualBrief
+            if let requested = request.brief {
+                brief = requested
+            } else if request.isEditOfExistingImage {
+                guard !references.isEmpty else {
+                    throw StoryboardEngineError.generationFailed(
+                        "There is no picture to edit — generate one first, then mark it up.")
+                }
+                brief = VisualBrief(purpose: .edit,
+                                    subject: StoryboardSubjects.editInstruction(from: request.prompt))
+            } else {
+                brief = VisualBrief(purpose: .moodboard,
+                                    subject: StoryboardSubjects.plainSubject(from: request.prompt))
+            }
             let frame = try await Self.onDeviceImageEngine.generateFrame(
-                StoryboardFrameSpec(brief: brief, width: size.width, height: size.height))
+                StoryboardFrameSpec(brief: brief, width: size.width, height: size.height,
+                                    references: references))
             return ImageGenerationResponse(
                 images: [frame], provider: .onDevice,
-                model: ZImageStoryboardEngine.model.id)   // on-device = $0
+                model: LocalImageEngine.model.id)   // on-device = $0
         }
         let url = baseURL.appendingPathComponent("generate/image")
         var urlRequest = URLRequest(url: url)

@@ -1,10 +1,10 @@
-// DirectorsChairServices/Storyboard/ZImageStoryboardEngine.swift
+// DirectorsChairServices/Storyboard/LocalImageEngine.swift
 //
-// The Z-Image Turbo backend for on-device storyboard frames (DC-0063):
+// The on-device image backend (DC-0063 manager, DC-0068 FLUX.2 klein):
 // owns the consent-gated weight download, disk preflight, ready state,
-// and the locked style layer — and delegates actual diffusion to the
-// injected OnDeviceImageGenerating core (DC-0065), which only exists
-// inside app bundles (MLX metallib rule). Mirrors MLXInsightEngine:
+// and the look/purpose prompt layer — and delegates actual diffusion to
+// the injected OnDeviceImageGenerating core, which only exists inside
+// app bundles (MLX metallib rule). Mirrors MLXInsightEngine:
 // weights live under Application Support so cache purges don't cost the
 // user a 5.5GB re-download; a ready marker is written only after a
 // COMPLETE snapshot; availability checks the marker FIRST (the DC-0060
@@ -16,23 +16,23 @@ import DirectorsChairCore
 import Hub
 #endif
 
-public final class ZImageStoryboardEngine: StoryboardEngine, @unchecked Sendable {
+public final class LocalImageEngine: StoryboardEngine, @unchecked Sendable {
 
     /// One engine per app (ShortcutStore.shared precedent) — state is a
     /// download in flight plus markers, never per-view.
-    public static let shared = ZImageStoryboardEngine()
+    public static let shared = LocalImageEngine()
 
     /// The single bundled model (owner decision 2026-08-25 — no picker).
-    public static let model = StoryboardModel.zImageTurbo
+    public static let model = StoryboardModel.fluxKlein4B
 
-    /// The diffusion core (DC-0065): the native MLX Z-Image pipeline by
+    /// The diffusion core (DC-0068): the native MLX klein pipeline by
     /// default on Apple Silicon — construction touches no MLX state, so
     /// SPM test runners stay safe (the metallib rule) and tests swap in
     /// scripted cores freely. nil (non-arm64) keeps generateFrame failing
     /// with an honest message instead of a broken surface.
     nonisolated(unsafe) public static var core: (any OnDeviceImageGenerating)? = {
         #if arch(arm64)
-        return ZImageCore()
+        return KleinCore()
         #else
         return nil
         #endif
@@ -155,6 +155,7 @@ public final class ZImageStoryboardEngine: StoryboardEngine, @unchecked Sendable
             try FileManager.default.createDirectory(
                 at: storageRoot, withIntermediateDirectories: true)
             try Data().write(to: readyMarker)
+            retireReplacedModels()
         } catch let error as StoryboardEngineError {
             throw error
         } catch {
@@ -164,6 +165,26 @@ public final class ZImageStoryboardEngine: StoryboardEngine, @unchecked Sendable
         throw StoryboardEngineError.notReady(
             .unavailable(reason: "On-device storyboard frames need an Apple Silicon Mac."))
         #endif
+    }
+
+    /// Removes the weights and marker of the model this build replaced
+    /// (Z-Image Turbo, 5.5GB) once the current model is on disk — never
+    /// before, so a failed download can't leave the user with nothing.
+    func retireReplacedModels() {
+        let fm = FileManager.default
+        let retiredId = StoryboardModel.retiredZImageTurboId
+        let retiredMarker = storageRoot.appendingPathComponent(
+            ".ready-\(retiredId.replacingOccurrences(of: "/", with: "_"))")
+        let retiredWeights = storageRoot
+            .appendingPathComponent("models", isDirectory: true)
+            .appendingPathComponent(retiredId, isDirectory: true)
+        try? fm.removeItem(at: retiredMarker)
+        try? fm.removeItem(at: retiredWeights)
+        // The org folder, if now empty.
+        let org = retiredWeights.deletingLastPathComponent()
+        if let left = try? fm.contentsOfDirectory(atPath: org.path), left.isEmpty {
+            try? fm.removeItem(at: org)
+        }
     }
 
     public func generateFrame(_ spec: StoryboardFrameSpec) async throws -> Data {
@@ -184,6 +205,7 @@ public final class ZImageStoryboardEngine: StoryboardEngine, @unchecked Sendable
                                               width: spec.width,
                                               height: spec.height,
                                               seed: spec.seed,
+                                              references: spec.references,
                                               weightsDirectory: weightsDirectory)
         } catch let error as StoryboardEngineError {
             throw error

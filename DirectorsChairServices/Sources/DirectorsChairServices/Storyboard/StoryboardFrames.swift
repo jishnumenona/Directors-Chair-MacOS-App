@@ -278,6 +278,21 @@ public enum StoryboardSubjects {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The plain instruction inside an annotation-edit prompt ("Edit this
+    /// image by making the following changes …: 1. red scarf at position
+    /// (40%, 55%)") — the numbered changes, one per line, positions kept
+    /// (klein reads them as rough placement).
+    public static func editInstruction(from prompt: String) -> String {
+        let lines = prompt.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        let changes = lines.filter { $0.range(of: #"^\d+\."#, options: .regularExpression) != nil }
+        if !changes.isEmpty { return changes.joined(separator: "\n") }
+        var text = prompt
+        text = text.replacingOccurrences(
+            of: "Edit this image by making the following changes while keeping everything else identical:",
+            with: "", options: .caseInsensitive)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: Helpers
 
     /// Joins parts as sentences without doubling full stops when a part

@@ -76,42 +76,42 @@ final class StoryboardPromptStylerTests: XCTestCase {
 final class StoryboardDiskPreflightTests: XCTestCase {
 
     func testRefusesWhenFreeSpaceBelowModelPlusHeadroom() {
-        let model: Int64 = 5_916_000_000
-        let error = ZImageStoryboardEngine.validateDiskSpace(
+        let model: Int64 = 4_620_000_000
+        let error = LocalImageEngine.validateDiskSpace(
             freeBytes: 6_000_000_000, modelBytes: model)
         guard case .insufficientDisk(let needed, let free)? = error else {
             return XCTFail("expected insufficientDisk, got \(String(describing: error))")
         }
-        XCTAssertEqual(needed, model + ZImageStoryboardEngine.downloadHeadroomBytes)
+        XCTAssertEqual(needed, model + LocalImageEngine.downloadHeadroomBytes)
         XCTAssertEqual(free, 6_000_000_000)
     }
 
     func testAllowsWhenFreeSpaceCoversModelPlusHeadroom() {
-        XCTAssertNil(ZImageStoryboardEngine.validateDiskSpace(
-            freeBytes: 20_000_000_000, modelBytes: 5_916_000_000))
+        XCTAssertNil(LocalImageEngine.validateDiskSpace(
+            freeBytes: 20_000_000_000, modelBytes: 4_620_000_000))
     }
 
     func testFreeDiskBytesReportsARealNumberEvenBeforeStorageExists() {
-        let engine = ZImageStoryboardEngine(
+        let engine = LocalImageEngine(
             storageRoot: FileManager.default.temporaryDirectory
                 .appendingPathComponent("dc-storyboard-nonexistent-\(UUID().uuidString)"))
         XCTAssertGreaterThan(engine.freeDiskBytes(), 0)
     }
 }
 
-final class ZImageStoryboardEngineTests: XCTestCase {
+final class LocalImageEngineTests: XCTestCase {
 
-    private func makeEngine() -> (ZImageStoryboardEngine, URL) {
+    private func makeEngine() -> (LocalImageEngine, URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dc-storyboard-tests-\(UUID().uuidString)")
-        return (ZImageStoryboardEngine(storageRoot: root), root)
+        return (LocalImageEngine(storageRoot: root), root)
     }
 
     private func writeMarker(in root: URL) throws {
         try FileManager.default.createDirectory(
             at: root, withIntermediateDirectories: true)
         let marker = root.appendingPathComponent(
-            ".ready-\(ZImageStoryboardEngine.model.id.replacingOccurrences(of: "/", with: "_"))")
+            ".ready-\(LocalImageEngine.model.id.replacingOccurrences(of: "/", with: "_"))")
         try Data().write(to: marker)
     }
 
@@ -120,7 +120,7 @@ final class ZImageStoryboardEngineTests: XCTestCase {
         let state = await engine.availability()
         #if arch(arm64)
         XCTAssertEqual(state, .needsDownload(
-            expectedBytes: ZImageStoryboardEngine.model.approxBytes))
+            expectedBytes: LocalImageEngine.model.approxBytes))
         #else
         guard case .unavailable = state else {
             return XCTFail("non-arm64 must be unavailable, got \(state)")
@@ -157,9 +157,9 @@ final class ZImageStoryboardEngineTests: XCTestCase {
         let (engine, root) = makeEngine()
         try writeMarker(in: root)
         let core = RecordingImageCore()
-        let previous = ZImageStoryboardEngine.core
-        ZImageStoryboardEngine.core = core
-        defer { ZImageStoryboardEngine.core = previous }
+        let previous = LocalImageEngine.core
+        LocalImageEngine.core = core
+        defer { LocalImageEngine.core = previous }
 
         let data = try await engine.generateFrame(
             .init(subject: "Two-shot at the diner window", notes: "over-the-shoulder",
@@ -174,7 +174,7 @@ final class ZImageStoryboardEngineTests: XCTestCase {
         XCTAssertEqual(call.seed, 7)
         XCTAssertEqual(call.weightsDirectory,
                        root.appendingPathComponent("models", isDirectory: true)
-                           .appendingPathComponent(ZImageStoryboardEngine.model.id,
+                           .appendingPathComponent(LocalImageEngine.model.id,
                                                    isDirectory: true))
         #endif
     }
@@ -184,9 +184,9 @@ final class ZImageStoryboardEngineTests: XCTestCase {
         let (engine, root) = makeEngine()
         try writeMarker(in: root)
         let core = RecordingImageCore()
-        let previous = ZImageStoryboardEngine.core
-        ZImageStoryboardEngine.core = core
-        defer { ZImageStoryboardEngine.core = previous }
+        let previous = LocalImageEngine.core
+        LocalImageEngine.core = core
+        defer { LocalImageEngine.core = previous }
 
         // An explicit spec style wins outright.
         _ = try await engine.generateFrame(.init(subject: "explicit", style: .comic))
@@ -208,9 +208,9 @@ final class ZImageStoryboardEngineTests: XCTestCase {
         #if arch(arm64)
         let (engine, root) = makeEngine()
         try writeMarker(in: root)
-        let previous = ZImageStoryboardEngine.core
-        ZImageStoryboardEngine.core = nil
-        defer { ZImageStoryboardEngine.core = previous }
+        let previous = LocalImageEngine.core
+        LocalImageEngine.core = nil
+        defer { LocalImageEngine.core = previous }
         do {
             _ = try await engine.generateFrame(.init(subject: "frame"))
             XCTFail("must throw without a core")
@@ -254,6 +254,7 @@ private final class RecordingImageCore: OnDeviceImageGenerating, @unchecked Send
         let width: Int
         let height: Int
         let seed: UInt64?
+        let references: [Data]
         let weightsDirectory: URL
     }
     private let lock = NSLock()
@@ -261,10 +262,10 @@ private final class RecordingImageCore: OnDeviceImageGenerating, @unchecked Send
     var calls: [Call] { lock.lock(); defer { lock.unlock() }; return _calls }
 
     func renderFrame(prompt: String, width: Int, height: Int,
-                     seed: UInt64?, weightsDirectory: URL) async throws -> Data {
+                     seed: UInt64?, references: [Data], weightsDirectory: URL) async throws -> Data {
         lock.lock()
         _calls.append(Call(prompt: prompt, width: width, height: height,
-                           seed: seed, weightsDirectory: weightsDirectory))
+                           seed: seed, references: references, weightsDirectory: weightsDirectory))
         lock.unlock()
         return Self.pngStub
     }
@@ -385,34 +386,34 @@ final class StoryboardGenerationGateTests: XCTestCase {
         #if arch(arm64)
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dc-gate-\(UUID().uuidString)")
-        let engine = ZImageStoryboardEngine(storageRoot: root)
+        let engine = LocalImageEngine(storageRoot: root)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data().write(to: root.appendingPathComponent(
-            ".ready-\(ZImageStoryboardEngine.model.id.replacingOccurrences(of: "/", with: "_"))"))
-        let previous = ZImageStoryboardEngine.core
-        defer { ZImageStoryboardEngine.core = previous }
+            ".ready-\(LocalImageEngine.model.id.replacingOccurrences(of: "/", with: "_"))"))
+        let previous = LocalImageEngine.core
+        defer { LocalImageEngine.core = previous }
 
-        ZImageStoryboardEngine.core = nil
+        LocalImageEngine.core = nil
         let gated = await engine.generationAvailability()
         guard case .unavailable(let reason) = gated else {
             return XCTFail("core-less engine must not read as drawable, got \(gated)")
         }
         XCTAssertTrue(reason.contains("downloaded"), reason)
 
-        ZImageStoryboardEngine.core = NullImageCore()
+        LocalImageEngine.core = NullImageCore()
         let drawable = await engine.generationAvailability()
         XCTAssertEqual(drawable, .ready)
         #endif
     }
 
     func testUndownloadedModelGatesOnDownloadNotOnCore() async {
-        let engine = ZImageStoryboardEngine(
+        let engine = LocalImageEngine(
             storageRoot: FileManager.default.temporaryDirectory
                 .appendingPathComponent("dc-gate-\(UUID().uuidString)"))
         let state = await engine.generationAvailability()
         #if arch(arm64)
         XCTAssertEqual(state, .needsDownload(
-            expectedBytes: ZImageStoryboardEngine.model.approxBytes))
+            expectedBytes: LocalImageEngine.model.approxBytes))
         #else
         guard case .unavailable = state else {
             return XCTFail("non-arm64 must be unavailable")
@@ -436,7 +437,7 @@ final class OnDeviceImageRoutingTests: XCTestCase {
             prompt: "Maya at the window", provider: .onDevice, aspectRatio: "1:1"))
 
         XCTAssertEqual(response.provider, .onDevice)
-        XCTAssertEqual(response.model, ZImageStoryboardEngine.model.id)
+        XCTAssertEqual(response.model, LocalImageEngine.model.id)
         XCTAssertFalse(response.images.isEmpty)
         let spec = try XCTUnwrap(scripted.requests.first)
         XCTAssertEqual(spec.subject, "Maya at the window")
@@ -483,7 +484,7 @@ final class OnDeviceImageRoutingTests: XCTestCase {
 
 private struct NullImageCore: OnDeviceImageGenerating {
     func renderFrame(prompt: String, width: Int, height: Int,
-                     seed: UInt64?, weightsDirectory: URL) async throws -> Data {
+                     seed: UInt64?, references: [Data], weightsDirectory: URL) async throws -> Data {
         Data()
     }
 }
@@ -552,7 +553,24 @@ final class VisualBriefAndCleaningTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(spec.notes).contains("back view"))
     }
 
-    func testEditRequestsAreRefusedOnDeviceWithTheWayOut() async {
+    func testEditWithAPictureRoutesAsAnEditWithTheInstructionAndReference() async throws {
+        let scripted = ScriptedStoryboardEngine()
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        let picture = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3])
+        _ = try await client.generateImage(ImageGenerationRequest(
+            prompt: "Edit this image by making the following changes while keeping everything else identical:\n1. red scarf at position (40%, 55%)\n2. remove the hat at position (50%, 10%)",
+            provider: .onDevice, referenceImageBase64: picture.base64EncodedString(),
+            referenceMimeType: "image/png"))
+        let spec = try XCTUnwrap(scripted.requests.first)
+        XCTAssertEqual(spec.purpose, .edit)
+        XCTAssertEqual(spec.subject, "1. red scarf at position (40%, 55%)\n2. remove the hat at position (50%, 10%)")
+        XCTAssertEqual(spec.references, [picture], "the picture being edited is the first reference")
+    }
+
+    func testEditWithoutAPictureIsRefusedHonestly() async {
         let scripted = ScriptedStoryboardEngine()
         let previous = AIServiceClient.onDeviceImageEngine
         AIServiceClient.onDeviceImageEngine = scripted
@@ -561,16 +579,92 @@ final class VisualBriefAndCleaningTests: XCTestCase {
         do {
             _ = try await client.generateImage(ImageGenerationRequest(
                 prompt: "Edit this image by making the following changes while keeping everything else identical:\n1. red scarf",
-                provider: .onDevice, referenceImageBase64: "AAAA", referenceMimeType: "image/png"))
-            XCTFail("an edit cannot be drawn from text; it must refuse")
+                provider: .onDevice))
+            XCTFail("nothing to edit must refuse")
         } catch let error as StoryboardEngineError {
             guard case .generationFailed(let message) = error else { return XCTFail("\(error)") }
-            XCTAssertTrue(message.contains("Settings"), message)
+            XCTAssertTrue(message.contains("no picture"), message)
         } catch {
             XCTFail("unexpected \(error)")
         }
-        XCTAssertTrue(scripted.requests.isEmpty, "nothing reaches the engine")
+        XCTAssertTrue(scripted.requests.isEmpty)
     }
+
+    func testEveryReferenceRidesAlongInOrderCappedAtFour() async throws {
+        let scripted = ScriptedStoryboardEngine()
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        let pictures = (0 ..< 6).map { Data([UInt8($0), 9, 9]) }
+        _ = try await client.generateImage(ImageGenerationRequest(
+            prompt: "Costume", provider: .onDevice, aspectRatio: "1:1",
+            referenceImageBase64: pictures[0].base64EncodedString(), referenceMimeType: "image/png",
+            referenceImages: pictures[1...].map {
+                ReferenceImage(base64: $0.base64EncodedString(), mimeType: "image/png", label: "g")
+            },
+            brief: VisualBrief(purpose: .costume, subject: "Dana in tweed")))
+        let spec = try XCTUnwrap(scripted.requests.first)
+        XCTAssertEqual(spec.references, Array(pictures.prefix(4)), "single first, then labelled, max four")
+        XCTAssertEqual(spec.purpose, .costume)
+    }
+
+    func testEditInstructionKeepsTheNumberedChangesOnly() {
+        let prompt = "Edit this image by making the following changes while keeping everything else identical:\n1. red scarf at position (40%, 55%)\n2. no hat at position (50%, 10%)"
+        XCTAssertEqual(StoryboardSubjects.editInstruction(from: prompt),
+                       "1. red scarf at position (40%, 55%)\n2. no hat at position (50%, 10%)")
+        XCTAssertEqual(StoryboardSubjects.editInstruction(from: "Edit this image by making the following changes while keeping everything else identical: make it night"),
+                       "make it night")
+    }
+
+    func testReferencePromptsFollowTheReferenceLookForContinuityPurposes() {
+        let turnaround = StoryboardPromptStyler.prompt(subject: "Mara", purpose: .character,
+                                                        style: .comic, referenceCount: 1)
+        XCTAssertTrue(turnaround.contains("same person as in the reference picture"), turnaround)
+        XCTAssertTrue(turnaround.contains("same style as the reference"), turnaround)
+        XCTAssertFalse(turnaround.contains("comic book panel"), "a photo character must stay a photo")
+
+        let costume = StoryboardPromptStyler.prompt(subject: "Dana", purpose: .costume, referenceCount: 3)
+        XCTAssertTrue(costume.contains("wearing the garments shown in the other reference pictures"), costume)
+
+        let shot = StoryboardPromptStyler.prompt(subject: "Dana hands over the camera", purpose: .shot,
+                                                  style: .sketch, referenceCount: 2)
+        XCTAssertTrue(shot.contains("ink sketch"), "storytelling purposes keep the owner's look")
+        XCTAssertTrue(shot.contains("match the reference pictures"), shot)
+
+        let edit = StoryboardPromptStyler.prompt(subject: "1. red scarf", purpose: .edit, style: .comic, referenceCount: 1)
+        XCTAssertTrue(edit.hasPrefix("1. red scarf\n"), edit)
+        XCTAssertTrue(edit.contains("Keep everything not mentioned"), edit)
+        XCTAssertFalse(edit.contains("comic"), edit)
+    }
+
+    func testRetiringTheReplacedModelRemovesOnlyItsWeightsAndMarker() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-retire-\(UUID().uuidString)")
+        let engine = LocalImageEngine(storageRoot: root)
+        let retired = root.appendingPathComponent("models/filipstrand/Z-Image-Turbo-mflux-4bit", isDirectory: true)
+        let current = root.appendingPathComponent("models/Runpod/FLUX.2-klein-4B-mflux-4bit", isDirectory: true)
+        try FileManager.default.createDirectory(at: retired, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: current, withIntermediateDirectories: true)
+        try Data([1]).write(to: retired.appendingPathComponent("w.safetensors"))
+        try Data().write(to: root.appendingPathComponent(".ready-filipstrand_Z-Image-Turbo-mflux-4bit"))
+        engine.retireReplacedModels()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: retired.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".ready-filipstrand_Z-Image-Turbo-mflux-4bit").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("models/filipstrand").path), "empty org folder goes too")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: current.path), "the current model is untouched")
+    }
+
+    #if arch(arm64)
+    func testKleinScheduleMatchesTheReferenceFor512Square() {
+        // mflux FlowMatchEulerDiscrete, empirical μ, 1,024 image tokens, 4 steps.
+        let sigmas = KleinCore.schedule(imageTokens: 1024, steps: 4)
+        let reference: [Float] = [1.0, 0.9580853581428528, 0.8839818239212036, 0.7174965739250183, 0.0]
+        XCTAssertEqual(sigmas.count, reference.count)
+        for (a, b) in zip(sigmas, reference) { XCTAssertEqual(a, b, accuracy: 1e-5) }
+    }
+
+    #endif
 
     func testVisualStylePreferenceDefaultsToSketchAndDegradesUnknownValues() {
         let suite = "dc-visual-style-\(UUID().uuidString)"

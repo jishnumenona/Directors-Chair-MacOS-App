@@ -1,12 +1,13 @@
-// DirectorsChairServices/Storyboard/ZImageLayers.swift
+// DirectorsChairServices/Storyboard/LocalDiffusionLayers.swift
 //
-// Primitive layers for the native Z-Image core (DC-0065), ported from
-// mflux (MIT) — the exact implementation that produced the reference
-// frames. Deliberately written as plain structs over MLXArrays, not
-// nn.Module machinery: every weight is loaded by its verbatim key from
-// the mflux-saved safetensors, so there is no reflection layer to
-// mismatch. Faithfulness rule: no dtype casts that aren't in the mflux
-// source — parity against the reference frames is the correctness bar.
+// Primitive layers for the native on-device image core (DC-0065 Z-Image,
+// DC-0068 FLUX.2 klein), ported from mflux (MIT) — the implementation
+// that produced the reference frames. Deliberately written as plain
+// structs over MLXArrays, not nn.Module machinery: every weight is
+// loaded by its verbatim key from the mflux-saved safetensors, so there
+// is no reflection layer to mismatch. Faithfulness rule: no dtype casts
+// that aren't in the mflux source — parity against the reference frames
+// is the correctness bar.
 
 #if arch(arm64)
 import Foundation
@@ -161,16 +162,24 @@ struct ZConv2d {
     let weight: MLXArray
     let bias: MLXArray
     let padding: Int
+    let stride: Int
 
-    init(_ weights: ZWeights, _ prefix: String, padding: Int) throws {
+    init(_ weights: ZWeights, _ prefix: String, padding: Int, stride: Int = 1) throws {
         self.weight = try weights.tensor("\(prefix).weight")
         self.bias = try weights.tensor("\(prefix).bias")
         self.padding = padding
+        self.stride = stride
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        conv2d(x, weight, stride: .init(1), padding: .init(padding)) + bias
+        conv2d(x, weight, stride: .init(stride), padding: .init(padding)) + bias
     }
+}
+
+/// Non-affine LayerNorm (FLUX.2 block norms, eps 1e-6) — fp32 statistics
+/// through the fast kernel, output in the input precision.
+@inline(__always) func zLayerNorm(_ x: MLXArray, eps: Float = 1e-6) -> MLXArray {
+    MLXFast.layerNorm(x, weight: nil, bias: nil, eps: eps)
 }
 
 // MARK: - Small math helpers

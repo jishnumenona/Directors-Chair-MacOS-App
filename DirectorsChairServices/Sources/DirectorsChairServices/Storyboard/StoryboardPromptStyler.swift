@@ -67,7 +67,36 @@ public enum StoryboardPromptStyler {
         case .character: return "Character design study of "
         case .costume: return "Costume design sheet for "
         case .shot, .scene, .location, .moodboard: return "The drawing shows: "
+        case .edit: return ""
         }
+    }
+
+    /// What the engine should take from the reference pictures (DC-0068).
+    /// Continuity purposes follow the reference's own look — a photo
+    /// character turned to profile must stay a photo — so those skip the
+    /// Sketch/Comic lead; storytelling purposes keep the look and borrow
+    /// only who and where.
+    static func referenceClause(for purpose: VisualPurpose, count: Int) -> String? {
+        guard count > 0 else { return nil }
+        switch purpose {
+        case .character:
+            return "The same person as in the reference picture — same face, hair, skin and build — drawn in exactly the same style as the reference."
+        case .costume:
+            return count > 1
+                ? "The person from the first reference picture wearing the garments shown in the other reference pictures, in the same style as the first reference."
+                : "The same person as in the reference picture, in the same style as the reference."
+        case .location:
+            return "The same place as in the reference picture — same architecture, layout and details."
+        case .shot, .scene, .moodboard:
+            return "The people and places match the reference pictures."
+        case .edit:
+            return nil
+        }
+    }
+
+    /// Purposes whose look is dictated by the reference, not by Settings.
+    static func followsReferenceStyle(_ purpose: VisualPurpose, referenceCount: Int) -> Bool {
+        referenceCount > 0 && [.character, .costume, .location, .edit].contains(purpose)
     }
 
     /// The framing a purpose gets when the caller supplies none — the
@@ -86,6 +115,8 @@ public enum StoryboardPromptStyler {
             return "Full figure standing in a front view from head to feet, centered on the page, arms relaxed, plain white background, garments drawn clearly with fabric folds and seam detail."
         case .moodboard:
             return "One clear composition filling the page."
+        case .edit:
+            return "Keep everything not mentioned exactly as it is in the picture."
         }
     }
 
@@ -98,7 +129,8 @@ public enum StoryboardPromptStyler {
     /// framing (caller's notes or the purpose default) + medium tail.
     public static func prompt(subject: String, notes: String? = nil,
                               purpose: VisualPurpose = .shot,
-                              style: VisualStyle = .sketch) -> String {
+                              style: VisualStyle = .sketch,
+                              referenceCount: Int = 0) -> String {
         var body = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.count > subjectCharacterBudget {
             body = String(body.prefix(subjectCharacterBudget)) + "…"
@@ -107,17 +139,25 @@ public enum StoryboardPromptStyler {
         let framing = trimmedNotes.isEmpty
             ? defaultFraming(for: purpose)
             : Self.framingSentence(trimmedNotes)
-        return [
-            lead(for: style),
-            subjectLead(for: purpose) + body,
-            framing,
-            tail(for: style),
-        ].joined(separator: "\n")
+        // An edit is the instruction itself plus the keep-everything-else
+        // rule; the picture being edited supplies the look.
+        if purpose == .edit {
+            return [body, framing].joined(separator: "\n")
+        }
+        var lines: [String] = []
+        let referenceLed = followsReferenceStyle(purpose, referenceCount: referenceCount)
+        if !referenceLed { lines.append(lead(for: style)) }
+        lines.append(subjectLead(for: purpose) + body)
+        if let clause = referenceClause(for: purpose, count: referenceCount) { lines.append(clause) }
+        lines.append(framing)
+        if !referenceLed { lines.append(tail(for: style)) }
+        return lines.joined(separator: "\n")
     }
 
     public static func prompt(_ spec: StoryboardFrameSpec, style: VisualStyle) -> String {
         prompt(subject: spec.subject, notes: spec.notes,
-               purpose: spec.purpose, style: style)
+               purpose: spec.purpose, style: style,
+               referenceCount: spec.references.count)
     }
 
     /// Caller notes become a "Framing:" sentence — the model treats a

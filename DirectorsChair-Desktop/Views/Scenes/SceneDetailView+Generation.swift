@@ -183,7 +183,7 @@ extension SceneDetailView {
                     .font(.system(size: 13, weight: .semibold))
                 Text(storyboardEngineReady
                      ? "Ink-sketch frame drawn on this Mac — free, works offline"
-                     : "Download the Storyboard model in Settings → AI Services (5.5 GB, free)")
+                     : "Download the local image model in Settings → AI Services (\(ByteCountFormatter.string(fromByteCount: LocalImageEngine.model.approxBytes, countStyle: .file)), free)")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 if let error = storyboardErrorText {
@@ -214,7 +214,7 @@ extension SceneDetailView {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         .task {
             storyboardEngineReady =
-                await ZImageStoryboardEngine.shared.availability() == .ready
+                await LocalImageEngine.shared.availability() == .ready
             loadStoryboardSketch()
         }
     }
@@ -238,7 +238,7 @@ extension SceneDetailView {
                 let spec = StoryboardFrameSpec(
                     subject: StoryboardSubjects.subject(for: scene),
                     purpose: .scene)
-                let png = try await ZImageStoryboardEngine.shared.generateFrame(spec)
+                let png = try await LocalImageEngine.shared.generateFrame(spec)
                 let directory = "assets/scenes/\(SceneCardHelpers.sanitizeFilename(scene.name))"
                 let saved = try StoryboardFrameStore.save(
                     png: png, projectBasePath: basePath,

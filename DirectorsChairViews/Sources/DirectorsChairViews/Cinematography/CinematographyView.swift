@@ -923,7 +923,7 @@ public struct CinematographyView: View {
             }
             .padding()
         }
-        .task { storyboardEngineReady = await ZImageStoryboardEngine.shared.availability() == .ready }
+        .task { storyboardEngineReady = await LocalImageEngine.shared.availability() == .ready }
         .alert("Storyboard sketch failed", isPresented: Binding(
             get: { storyboardError != nil },
             set: { if !$0 { storyboardError = nil } })) {
@@ -949,7 +949,7 @@ public struct CinematographyView: View {
                                                         characters: characters),
                     notes: StoryboardSubjects.notes(for: shot),
                     purpose: .shot)
-                let png = try await ZImageStoryboardEngine.shared.generateFrame(spec)
+                let png = try await LocalImageEngine.shared.generateFrame(spec)
                 guard let base = projectBasePath?.deletingLastPathComponent() else {
                     throw StoryboardEngineError.generationFailed("No project path")
                 }

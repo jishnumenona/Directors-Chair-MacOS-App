@@ -12,22 +12,28 @@ import DirectorsChairCore
 
 // MARK: - Model identity
 
-/// The bundled storyboard model. One model by owner decision (2026-08-25):
-/// a single "Storyboard" download, not a picker.
+/// The bundled local image model. One model by owner decision
+/// (2026-08-25): a single download, not a picker.
 public struct StoryboardModel: Equatable, Sendable {
     public let id: String
     public let displayName: String
     public let approxBytes: Int64
     public let detail: String
 
-    /// Z-Image Turbo, pre-quantized 4-bit for MLX (Apache-2.0). Size is
-    /// the repo total measured via the HF API on 2026-08-25 — shown in
-    /// the consent UI, so it must stay honest.
-    public static let zImageTurbo = StoryboardModel(
-        id: "filipstrand/Z-Image-Turbo-mflux-4bit",
-        displayName: "Z-Image Turbo",
-        approxBytes: 5_916_000_000,
-        detail: "6B open image model (Apache-2.0) — draws ink-sketch storyboard frames on this Mac")
+    /// FLUX.2 [klein] 4B, pre-quantized 4-bit for MLX (Apache-2.0) —
+    /// generation, instruction editing and multi-reference composition in
+    /// one model (DC-0067 pick, replacing Z-Image Turbo which could not
+    /// take a picture in). Size is the repo total measured via the HF API
+    /// on 2026-08-25 — shown in the consent UI, so it must stay honest.
+    public static let fluxKlein4B = StoryboardModel(
+        id: "Runpod/FLUX.2-klein-4B-mflux-4bit",
+        displayName: "FLUX.2 klein 4B",
+        approxBytes: 4_620_000_000,
+        detail: "4B open image model (Apache-2.0) — draws, edits and composes from references on this Mac")
+
+    /// The model this build replaced; its weights and marker are removed
+    /// on the next successful download so a 5.5GB folder doesn't linger.
+    public static let retiredZImageTurboId = "filipstrand/Z-Image-Turbo-mflux-4bit"
 }
 
 // MARK: - Visual style & purpose (DC-0066)
@@ -65,6 +71,9 @@ public enum VisualPurpose: String, Sendable {
     case costume
     case location
     case moodboard
+    /// Change an existing picture by instruction; the picture rides along
+    /// as the first reference and defines the look.
+    case edit
 }
 
 /// The clean, provider-neutral description of a picture: plain language
@@ -97,12 +106,18 @@ public struct StoryboardFrameSpec: Equatable, Sendable {
     public var purpose: VisualPurpose
     /// nil = the owner's Settings choice at generation time.
     public var style: VisualStyle?
+    /// Encoded pictures (PNG/JPEG) the engine should look at while it
+    /// draws: the picture to edit, a character to keep, garments to put
+    /// on them, a place to revisit. Order matters — the first is "the
+    /// reference picture" in prompt language.
+    public var references: [Data]
 
     /// 16:9 default (768×432, both multiples of 16 for the latent grid) —
     /// storyboard frames are film frames, not squares.
     public init(subject: String, notes: String? = nil,
                 width: Int = 768, height: Int = 432, seed: UInt64? = nil,
-                purpose: VisualPurpose = .shot, style: VisualStyle? = nil) {
+                purpose: VisualPurpose = .shot, style: VisualStyle? = nil,
+                references: [Data] = []) {
         self.subject = subject
         self.notes = notes
         self.width = width
@@ -110,13 +125,14 @@ public struct StoryboardFrameSpec: Equatable, Sendable {
         self.seed = seed
         self.purpose = purpose
         self.style = style
+        self.references = references
     }
 
     public init(brief: VisualBrief, width: Int = 768, height: Int = 432,
-                seed: UInt64? = nil, style: VisualStyle? = nil) {
+                seed: UInt64? = nil, style: VisualStyle? = nil, references: [Data] = []) {
         self.init(subject: brief.subject, notes: brief.framing,
                   width: width, height: height, seed: seed,
-                  purpose: brief.purpose, style: style)
+                  purpose: brief.purpose, style: style, references: references)
     }
 }
 
@@ -140,7 +156,8 @@ public enum StoryboardEngineError: Error, Equatable, Sendable {
         case .notReady(.unavailable(let reason)):
             return reason
         case .notReady:
-            return "The Storyboard model isn't downloaded yet — get it in Settings → AI Services (5.5 GB, runs on this Mac, free)."
+            let size = ByteCountFormatter.string(fromByteCount: StoryboardModel.fluxKlein4B.approxBytes, countStyle: .file)
+            return "The local image model isn't downloaded yet — get it in Settings → AI Services (\(size), runs on this Mac, free)."
         case .insufficientDisk(let needed, let free):
             let fmt = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
             return "Not enough disk space: needs \(fmt(needed)) free, this Mac has \(fmt(free))."
@@ -180,10 +197,13 @@ public protocol StoryboardEngine: AnyObject, Sendable {
 /// download/consent machinery ships and is testable independently of
 /// the diffusion core.
 public protocol OnDeviceImageGenerating: Sendable {
-    /// `prompt` is the fully-styled text; `weightsDirectory` is where the
-    /// engine's snapshot lives on disk. Returns encoded PNG bytes.
+    /// `prompt` is the fully-styled text; `references` are encoded
+    /// pictures to condition on (empty = pure text-to-image);
+    /// `weightsDirectory` is where the engine's snapshot lives on disk.
+    /// Returns encoded PNG bytes.
     func renderFrame(prompt: String, width: Int, height: Int,
-                     seed: UInt64?, weightsDirectory: URL) async throws -> Data
+                     seed: UInt64?, references: [Data],
+                     weightsDirectory: URL) async throws -> Data
 }
 
 // MARK: - Test double

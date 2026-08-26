@@ -708,7 +708,7 @@ struct SoftwarePreferencesView: View {
 
     /// The STORYBOARD model (DC-0063): the on-device image engine that
     /// draws sketch storyboard frames for scenes & shots. Same consent
-    /// contract as the local text model — a 5.5GB download never starts
+    /// contract as the local text model — a multi-GB download never starts
     /// silently — plus the disk preflight surfaced as a readable refusal
     /// instead of a mid-download failure.
     private var storyboardEngineRow: some View {
@@ -732,9 +732,9 @@ struct SoftwarePreferencesView: View {
                           ? Color.green : Color.secondary.opacity(0.4))
                     .frame(width: 5, height: 5)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(ZImageStoryboardEngine.model.displayName)
+                    Text(LocalImageEngine.model.displayName)
                         .font(.system(size: 10, weight: .semibold))
-                    Text(ZImageStoryboardEngine.model.detail)
+                    Text(LocalImageEngine.model.detail)
                         .font(.system(size: 8))
                         .opacity(0.75)
                 }
@@ -745,7 +745,7 @@ struct SoftwarePreferencesView: View {
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(nsColor: .quaternarySystemFill)))
-            .accessibilityIdentifier("storyboard-model-\(ZImageStoryboardEngine.model.id)")
+            .accessibilityIdentifier("storyboard-model-\(LocalImageEngine.model.id)")
 
             // DC-0066: the look every on-device drawing uses — two looks,
             // one switch, read at generation time (no relaunch).
@@ -1366,8 +1366,8 @@ final class ServiceHealthModel: ObservableObject {
         state = .checking
         refreshLocalModels()
         insightsAvailability = await MLXInsightEngine.shared.availability()
-        storyboardAvailability = await ZImageStoryboardEngine.shared.availability()
-        storyboardGenerationAvailability = await ZImageStoryboardEngine.shared.generationAvailability()
+        storyboardAvailability = await LocalImageEngine.shared.availability()
+        storyboardGenerationAvailability = await LocalImageEngine.shared.generationAvailability()
         if let health = await AIProviderHealthClient().fetch() {
             state = .checked(health)
         } else {
@@ -1411,7 +1411,7 @@ final class ServiceHealthModel: ObservableObject {
         let poll = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 300_000_000)
-                let current = await ZImageStoryboardEngine.shared.availability()
+                let current = await LocalImageEngine.shared.availability()
                 await MainActor.run { [weak self] in
                     if case .downloading = current { self?.storyboardAvailability = current }
                 }
@@ -1419,14 +1419,14 @@ final class ServiceHealthModel: ObservableObject {
         }
         defer { poll.cancel() }
         do {
-            try await ZImageStoryboardEngine.shared.prepare()
+            try await LocalImageEngine.shared.prepare()
         } catch let error as StoryboardEngineError {
             storyboardDownloadError = Self.storyboardErrorText(error)
         } catch {
             storyboardDownloadError = "Download failed — \(error.localizedDescription)"
         }
-        storyboardAvailability = await ZImageStoryboardEngine.shared.availability()
-        storyboardGenerationAvailability = await ZImageStoryboardEngine.shared.generationAvailability()
+        storyboardAvailability = await LocalImageEngine.shared.availability()
+        storyboardGenerationAvailability = await LocalImageEngine.shared.generationAvailability()
     }
 
     /// Pane wording for engine errors — pure, unit-tested.
@@ -1488,7 +1488,7 @@ private struct PrefServiceRow: View {
         if option.requiresStoryboardModel {
             switch storyboardModel {
             case .needsDownload:
-                return "Storyboard model not downloaded yet — get it in the Storyboard Model card below (5.5 GB, free)"
+                return "Local image model not downloaded yet — get it in the Storyboard Model card below (\(ByteCountFormatter.string(fromByteCount: LocalImageEngine.model.approxBytes, countStyle: .file)), free)"
             case .downloading(let progress):
                 return "Storyboard model downloading… \(Int(progress * 100))%"
             case .unavailable(let reason):
