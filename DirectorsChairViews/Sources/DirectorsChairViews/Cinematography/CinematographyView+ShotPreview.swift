@@ -614,7 +614,7 @@ struct ShotPreviewSection: View {
             do {
                 let aiClient = AIServiceClient.shared
 
-                guard await aiClient.testConnection() else {
+                guard await aiClient.imageServiceReachable() else {
                     await MainActor.run {
                         errorMessage = "Could not connect to AI server. Please ensure the AI Proxy server is running."
                         showingError = true
@@ -643,12 +643,21 @@ struct ShotPreviewSection: View {
                     fullPrompt = prompt
                 }
 
+                // DC-0066: the on-device engine draws from the shot's own
+                // facts (or the user's edited prompt, cleaned), never from
+                // the photoreal wording above.
+                let onDeviceSubject = prompt == buildPrompt()
+                    ? StoryboardSubjects.subject(for: shot, in: scene,
+                                                 locations: locations, characters: characters)
+                    : StoryboardSubjects.plainSubject(from: prompt)
                 let request = ImageGenerationRequest(
                     prompt: fullPrompt,
                     provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
-                    referenceImages: refs.isEmpty ? nil : refs
+                    referenceImages: refs.isEmpty ? nil : refs,
+                    brief: VisualBrief(purpose: .shot, subject: onDeviceSubject,
+                                       framing: StoryboardSubjects.notes(for: shot))
                 )
 
                 let response = try await aiClient.generateImage(request)

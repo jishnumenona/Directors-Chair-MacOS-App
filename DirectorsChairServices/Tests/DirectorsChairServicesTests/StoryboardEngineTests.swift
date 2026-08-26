@@ -18,16 +18,48 @@ final class StoryboardPromptStylerTests: XCTestCase {
                           "style marker '\(marker)' missing")
         }
         XCTAssertTrue(prompt.contains("MAYA enters the abandoned station"))
-        XCTAssertTrue(prompt.contains("no color"), "monochrome lock missing")
+        // Z-Image is CFG-distilled: negatives are ignored and only inject
+        // the concept — the monochrome lock must be stated positively.
+        XCTAssertTrue(prompt.contains("Monochrome black ink"), "positive monochrome lock missing")
+        XCTAssertFalse(prompt.contains("no color"))
+        XCTAssertFalse(prompt.contains("no photorealism"))
+        XCTAssertTrue(prompt.contains("one frame filling the whole page"),
+                      "the single-frame lock keeps 'storyboard' from drawing a grid")
+    }
+
+    func testComicLookCarriesItsOwnMarkersAndNoNegatives() {
+        let comic = StoryboardPromptStyler.prompt(subject: "Dana at the sale", style: .comic)
+        for marker in StoryboardPromptStyler.requiredMarkers(for: .comic) {
+            XCTAssertTrue(comic.lowercased().contains(marker), marker)
+        }
+        XCTAssertTrue(comic.contains("flat printed colors"), "comic is the colour look")
+        XCTAssertFalse(comic.contains("ink sketch"), "looks must not bleed into each other")
+        XCTAssertFalse(comic.lowercased().contains(" no "), "no negatives anywhere")
+        let sketch = StoryboardPromptStyler.prompt(subject: "Dana at the sale", style: .sketch)
+        XCTAssertNotEqual(comic, sketch)
+    }
+
+    func testPurposeChoosesTheDefaultFraming() {
+        let costume = StoryboardPromptStyler.prompt(subject: "Dana, 1950s tweed", purpose: .costume)
+        XCTAssertTrue(costume.contains("Costume design sheet for Dana"))
+        XCTAssertTrue(costume.contains("Full figure standing in a front view from head to feet"))
+        let character = StoryboardPromptStyler.prompt(subject: "Mara: adult woman", purpose: .character)
+        XCTAssertTrue(character.contains("Character design study of Mara"))
+        XCTAssertTrue(character.contains("head-and-shoulders portrait"))
+        let scene = StoryboardPromptStyler.prompt(subject: "The parlor", purpose: .scene)
+        XCTAssertTrue(scene.contains("The drawing shows: The parlor"))
+        XCTAssertTrue(scene.contains("Wide establishing view"))
     }
 
     func testPromptIncludesFramingNotesOnlyWhenPresent() {
         let with = StoryboardPromptStyler.prompt(subject: "Close-up on the letter",
                                                  notes: "low angle, 35mm")
-        XCTAssertTrue(with.contains("FRAMING: low angle, 35mm"))
+        XCTAssertTrue(with.contains("Framing: low angle, 35mm."), with)
         let without = StoryboardPromptStyler.prompt(subject: "Close-up on the letter",
                                                     notes: "   ")
-        XCTAssertFalse(without.contains("FRAMING:"))
+        XCTAssertFalse(without.contains("Framing:"))
+        XCTAssertTrue(without.contains(StoryboardPromptStyler.defaultFraming(for: .shot)),
+                      "blank notes fall back to the purpose's framing")
     }
 
     func testOverlongSubjectIsCutFromTheEndNotTheFront() {
@@ -136,7 +168,7 @@ final class ZImageStoryboardEngineTests: XCTestCase {
         let call = try XCTUnwrap(core.calls.first)
         XCTAssertTrue(call.prompt.contains("ink sketch"))
         XCTAssertTrue(call.prompt.contains("Two-shot at the diner window"))
-        XCTAssertTrue(call.prompt.contains("FRAMING: over-the-shoulder"))
+        XCTAssertTrue(call.prompt.contains("Framing: over-the-shoulder."))
         XCTAssertEqual(call.width, 640)
         XCTAssertEqual(call.height, 360)
         XCTAssertEqual(call.seed, 7)
@@ -144,6 +176,31 @@ final class ZImageStoryboardEngineTests: XCTestCase {
                        root.appendingPathComponent("models", isDirectory: true)
                            .appendingPathComponent(ZImageStoryboardEngine.model.id,
                                                    isDirectory: true))
+        #endif
+    }
+
+    func testSpecStyleAndOwnerPreferenceReachTheCorePrompt() async throws {
+        #if arch(arm64)
+        let (engine, root) = makeEngine()
+        try writeMarker(in: root)
+        let core = RecordingImageCore()
+        let previous = ZImageStoryboardEngine.core
+        ZImageStoryboardEngine.core = core
+        defer { ZImageStoryboardEngine.core = previous }
+
+        // An explicit spec style wins outright.
+        _ = try await engine.generateFrame(.init(subject: "explicit", style: .comic))
+        XCTAssertTrue(try XCTUnwrap(core.calls.last).prompt.contains("comic book panel"))
+
+        // nil = the owner's Settings choice at that moment.
+        let saved = AIProviderSelection.shared.visualStyle
+        defer { AIProviderSelection.shared.visualStyle = saved }
+        AIProviderSelection.shared.visualStyle = .comic
+        _ = try await engine.generateFrame(.init(subject: "preference"))
+        XCTAssertTrue(try XCTUnwrap(core.calls.last).prompt.contains("comic book panel"))
+        AIProviderSelection.shared.visualStyle = .sketch
+        _ = try await engine.generateFrame(.init(subject: "preference"))
+        XCTAssertTrue(try XCTUnwrap(core.calls.last).prompt.contains("ink sketch"))
         #endif
     }
 
@@ -248,15 +305,18 @@ final class StoryboardSubjectsTests: XCTestCase {
         shot.movement = "Static"
         shot.lensMm = 85
         let notes = try! XCTUnwrap(StoryboardSubjects.notes(for: shot))
-        XCTAssertTrue(notes.contains("Close-up"))
-        XCTAssertTrue(notes.contains("Low angle"))
-        XCTAssertTrue(notes.contains("85mm lens"))
+        XCTAssertTrue(notes.contains("close-up shot"), notes)
+        XCTAssertTrue(notes.contains("from a low angle"), notes)
+        XCTAssertTrue(notes.contains("compressed telephoto perspective"), notes)
+        // Object nouns get drawn as objects (a shot once rendered a camera).
+        XCTAssertFalse(notes.lowercased().contains("lens"), notes)
+        XCTAssertFalse(notes.lowercased().contains("camera"), notes)
         XCTAssertFalse(notes.contains("Static"), "static camera is not direction")
     }
 
     func testSceneSubjectIsAnEstablishingFrameWithSlugFacts() {
         let subject = StoryboardSubjects.subject(for: makeScene())
-        XCTAssertTrue(subject.hasPrefix("Establishing frame: Kitchen Confrontation"), subject)
+        XCTAssertTrue(subject.hasPrefix("Kitchen Confrontation — INT. FARMHOUSE KITCHEN"), subject)
         XCTAssertTrue(subject.contains("Storm"), subject)
         XCTAssertTrue(subject.contains("Maya confronts her brother"), subject)
     }
@@ -380,6 +440,7 @@ final class OnDeviceImageRoutingTests: XCTestCase {
         XCTAssertFalse(response.images.isEmpty)
         let spec = try XCTUnwrap(scripted.requests.first)
         XCTAssertEqual(spec.subject, "Maya at the window")
+        XCTAssertEqual(spec.purpose, .moodboard, "no brief = a generic picture, cleaned")
         XCTAssertEqual(spec.width, 640)
         XCTAssertEqual(spec.height, 640)
     }
@@ -424,5 +485,177 @@ private struct NullImageCore: OnDeviceImageGenerating {
     func renderFrame(prompt: String, width: Int, height: Int,
                      seed: UInt64?, weightsDirectory: URL) async throws -> Data {
         Data()
+    }
+}
+
+
+// MARK: - Visual styles, briefs & prompt cleaning (DC-0066)
+
+final class VisualBriefAndCleaningTests: XCTestCase {
+
+    /// The exact scene-overview prompt that drew a photograph-in-a-panel
+    /// with a garbage caption on the owner's Mac (2026-08-25).
+    private let ownerPrompt = "Cinematic film still, professional cinematography, establishing shot, " +
+        "set in INT. BELLHAVEN ESTATE HOUSE - PARLOR - DAY, Mara buys Henry Okafor's 1950s rangefinder " +
+        "at his estate sale; his daughter Dana lets it go for almost nothing -- with a warning she " +
+        "half-swallows., stillness mood and atmosphere, featuring characters in the scene, dramatic " +
+        "lighting, cinematic color grading, movie quality, 16:9 widescreen composition"
+
+    func testPlainSubjectStripsPhotorealBoilerplateAndKeepsTheStory() {
+        let plain = StoryboardSubjects.plainSubject(from: ownerPrompt)
+        for gone in ["Cinematic film still", "professional cinematography", "dramatic lighting",
+                     "cinematic color grading", "movie quality", "16:9", "widescreen"] {
+            XCTAssertFalse(plain.lowercased().contains(gone.lowercased()), "'\(gone)' survived: \(plain)")
+        }
+        XCTAssertTrue(plain.contains("Mara buys Henry Okafor's 1950s rangefinder"), plain)
+        XCTAssertTrue(plain.contains("stillness mood"), plain)
+        XCTAssertFalse(plain.contains(", ,"), plain)
+        XCTAssertFalse(plain.hasSuffix(","), plain)
+    }
+
+    func testPlainSubjectDropsQuotedMoodAndCameraWords() {
+        let shotPrompt = "Cinematic film still. Close-up shot. Mara at the window. " +
+            "mood: \"You never asked me.\"... Dramatic lighting, film grain, 35mm film aesthetic, " +
+            "photorealistic. front facing view, looking directly at camera. " +
+            "IMPORTANT: Generate the EXACT SAME person as shown in the reference image. Match the face, " +
+            "skin tone, hair, clothing, and art style precisely. This is a different angle of the same " +
+            "character, not a new character., character turnaround sheet"
+        let plain = StoryboardSubjects.plainSubject(from: shotPrompt)
+        XCTAssertFalse(plain.contains("You never asked me"), "quoted dialogue becomes lettering: \(plain)")
+        XCTAssertFalse(plain.lowercased().contains("camera"), plain)
+        XCTAssertTrue(plain.contains("looking straight ahead"), plain)
+        XCTAssertFalse(plain.contains("reference image"), plain)
+        XCTAssertFalse(plain.contains("turnaround"), plain)
+        XCTAssertTrue(plain.contains("Mara at the window"), plain)
+    }
+
+    func testPlainSubjectIsIdempotentOnCleanText() {
+        let clean = "Mara holds the rangefinder; Dana hesitates. Setting: parlor, day"
+        XCTAssertEqual(StoryboardSubjects.plainSubject(from: clean), clean)
+        XCTAssertEqual(StoryboardSubjects.plainSubject(from: StoryboardSubjects.plainSubject(from: ownerPrompt)),
+                       StoryboardSubjects.plainSubject(from: ownerPrompt))
+    }
+
+    func testBriefRoutesPurposeSubjectAndFramingToTheEngine() async throws {
+        let scripted = ScriptedStoryboardEngine()
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        _ = try await client.generateImage(ImageGenerationRequest(
+            prompt: ownerPrompt, provider: .onDevice, aspectRatio: "1:1",
+            brief: VisualBrief(purpose: .costume, subject: "Dana in 1950s tweed",
+                               framing: StoryboardSubjects.costumeFraming(angle: "back"))))
+        let spec = try XCTUnwrap(scripted.requests.first)
+        XCTAssertEqual(spec.purpose, .costume)
+        XCTAssertEqual(spec.subject, "Dana in 1950s tweed", "the brief wins over the photoreal prompt")
+        XCTAssertTrue(try XCTUnwrap(spec.notes).contains("back view"))
+    }
+
+    func testEditRequestsAreRefusedOnDeviceWithTheWayOut() async {
+        let scripted = ScriptedStoryboardEngine()
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        do {
+            _ = try await client.generateImage(ImageGenerationRequest(
+                prompt: "Edit this image by making the following changes while keeping everything else identical:\n1. red scarf",
+                provider: .onDevice, referenceImageBase64: "AAAA", referenceMimeType: "image/png"))
+            XCTFail("an edit cannot be drawn from text; it must refuse")
+        } catch let error as StoryboardEngineError {
+            guard case .generationFailed(let message) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(message.contains("Settings"), message)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+        XCTAssertTrue(scripted.requests.isEmpty, "nothing reaches the engine")
+    }
+
+    func testVisualStylePreferenceDefaultsToSketchAndDegradesUnknownValues() {
+        let suite = "dc-visual-style-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let selection = AIProviderSelection(defaults: defaults)
+        XCTAssertEqual(selection.visualStyle, .sketch)
+        selection.visualStyle = .comic
+        XCTAssertEqual(selection.visualStyle, .comic)
+        XCTAssertEqual(defaults.string(forKey: AIProviderSelection.visualStyleKey), "comic")
+        defaults.set("neon-hologram", forKey: AIProviderSelection.visualStyleKey)
+        XCTAssertEqual(selection.visualStyle, .sketch, "unknown stored looks degrade to Sketch")
+    }
+
+    func testCharacterSubjectStatesAgeOrAdultAndWhatTheyWear() {
+        var mara = Character(name: "Mara", about: "A photojournalist, guarded and quick.", gender: "female")
+        mara.age = 34
+        mara.build = "Slim"
+        mara.hairColor = "Dark"
+        mara.hairLength = "Medium"
+        mara.distinguishingFeatures = "small scar through her left eyebrow"
+        mara.costume = "worn leather jacket over a grey sweater"
+        mara.occupation = "Photojournalist"
+        let subject = StoryboardSubjects.subject(for: mara)
+        XCTAssertTrue(subject.hasPrefix("Mara: 34-year-old female"), subject)
+        XCTAssertTrue(subject.contains("slim build"), subject)
+        XCTAssertTrue(subject.contains("dark medium straight hair"), subject)
+        XCTAssertTrue(subject.contains("wearing worn leather jacket"), subject)
+        XCTAssertTrue(subject.contains("a photojournalist"), subject)
+        XCTAssertTrue(subject.contains("guarded and quick"), subject)
+
+        var unknown = Character(name: "Stranger")
+        unknown.age = 0
+        XCTAssertTrue(StoryboardSubjects.subject(for: unknown).hasPrefix("Stranger: adult"),
+                      "unspecified people are drawn as adults, not mannequins")
+    }
+
+    func testCostumeSubjectCarriesGarmentsPaletteEraAndFabric() {
+        var dana = Character(name: "Dana", gender: "female")
+        dana.age = 28
+        let tweed = CharacterCostume(name: "Estate-sale tweed", description: "Her mother's suit, taken in.",
+                                     era: "1950s", styleCategory: "Vintage tailored",
+                                     colorPalette: ["olive", "cream", "oxblood"],
+                                     garmentTop: "cream blouse", garmentBottom: "oxblood A-line wool skirt",
+                                     footwear: "low heels", outerwear: "fitted olive tweed jacket",
+                                     primaryFabric: "wool")
+        let subject = StoryboardSubjects.subject(for: tweed, wornBy: dana)
+        XCTAssertTrue(subject.hasPrefix("Dana, 28-year-old female"), subject)
+        for fact in ["wearing Estate-sale tweed", "cream blouse", "oxblood A-line wool skirt",
+                     "fitted olive tweed jacket", "low heels", "Her mother's suit", "1950s period",
+                     "Vintage tailored style", "colours olive, cream, oxblood", "wool fabric"] {
+            XCTAssertTrue(subject.contains(fact), "missing '\(fact)' in \(subject)")
+        }
+    }
+
+    func testAngleFramingsSpeakDrawingLanguage() {
+        XCTAssertTrue(StoryboardSubjects.characterFraming(angle: "profile_left").contains("Exact left profile"))
+        XCTAssertTrue(StoryboardSubjects.characterFraming(angle: "back").contains("Back view"))
+        XCTAssertEqual(StoryboardSubjects.characterFraming(angle: "base"),
+                       StoryboardPromptStyler.defaultFraming(for: .character))
+        XCTAssertTrue(StoryboardSubjects.costumeFraming(angle: "back").contains("back view from head to feet"))
+        XCTAssertTrue(StoryboardSubjects.costumeFraming(angle: "front").contains("front view"))
+        for framing in [StoryboardSubjects.characterFraming(angle: "front"),
+                        StoryboardSubjects.costumeFraming(angle: "three_quarter_left")] {
+            XCTAssertFalse(framing.lowercased().contains("camera"), framing)
+        }
+    }
+
+    func testShotSubjectAddsPlaceAndPeopleFromProjectRecords() {
+        var scene = Scene(name: "Estate Sale")
+        scene.location = "Bellhaven parlor"
+        scene.dialogues = [Dialogue(character: "Dana", text: "Take it.")]
+        var dana = Character(name: "Dana", gender: "female")
+        dana.age = 28
+        dana.hairColor = "Black"
+        let parlor = Location(name: "Bellhaven parlor",
+                              description: "A grand old parlor, belongings tagged for sale.")
+        var shot = Shot(shotId: 9)
+        shot.description = "Dana hands over the rangefinder"
+        let subject = StoryboardSubjects.subject(for: shot, in: scene,
+                                                 locations: [parlor], characters: [dana])
+        XCTAssertTrue(subject.hasPrefix("Dana hands over the rangefinder"), subject)
+        XCTAssertTrue(subject.contains("The place: A grand old parlor"), subject)
+        XCTAssertTrue(subject.contains("People in the frame: Dana: 28-year-old female"), subject)
+        XCTAssertTrue(subject.contains("black medium straight hair"), subject)
+        XCTAssertFalse(subject.contains(".."), subject)
     }
 }

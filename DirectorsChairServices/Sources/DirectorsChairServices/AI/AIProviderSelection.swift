@@ -382,3 +382,23 @@ public struct AIProviderHealthClient: Sendable {
         return AIProviderHealth(providers: providers, checkedAt: Date())
     }
 }
+
+// MARK: - On-device visual style (DC-0066)
+
+extension AIProviderSelection {
+
+    /// UserDefaults key for the on-device look — stable, never rename.
+    public static let visualStyleKey = "pref.ai.onDeviceVisualStyle"
+
+    /// The look every on-device drawing uses (Settings → Storyboard
+    /// Model). Unknown stored values degrade to Sketch, the classic
+    /// storyboard look — the same fail-safe rule as provider selection.
+    public var visualStyle: VisualStyle {
+        get {
+            VisualStyle(rawValue: defaults.string(forKey: Self.visualStyleKey) ?? "") ?? .sketch
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Self.visualStyleKey)
+        }
+    }
+}

@@ -372,7 +372,7 @@ struct OverviewHeroBanner: View {
             do {
                 let aiClient = AIServiceClient.shared
 
-                guard await aiClient.testConnection() else {
+                guard await aiClient.imageServiceReachable() else {
                     await MainActor.run {
                         posterError = "Could not connect to AI server."
                         showingPosterError = true

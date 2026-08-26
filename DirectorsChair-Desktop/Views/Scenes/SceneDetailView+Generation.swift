@@ -42,7 +42,7 @@ extension SceneDetailView {
         Task {
             do {
                 let aiClient = AIServiceClient.shared
-                guard await aiClient.testConnection() else {
+                guard await aiClient.imageServiceReachable() else {
                     await MainActor.run { isGeneratingImage = false }
                     return
                 }
@@ -59,7 +59,11 @@ extension SceneDetailView {
                     aspectRatio: "16:9",
                     numberOfImages: 1,
                     referenceImageBase64: ref?.base64,
-                    referenceMimeType: ref?.mimeType
+                    referenceMimeType: ref?.mimeType,
+                    brief: VisualBrief(
+                        purpose: .scene,
+                        subject: customPrompt.map(StoryboardSubjects.plainSubject)
+                            ?? StoryboardSubjects.subject(for: scene))
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -232,7 +236,8 @@ extension SceneDetailView {
         Task {
             do {
                 let spec = StoryboardFrameSpec(
-                    subject: StoryboardSubjects.subject(for: scene))
+                    subject: StoryboardSubjects.subject(for: scene),
+                    purpose: .scene)
                 let png = try await ZImageStoryboardEngine.shared.generateFrame(spec)
                 let directory = "assets/scenes/\(SceneCardHelpers.sanitizeFilename(scene.name))"
                 let saved = try StoryboardFrameStore.save(

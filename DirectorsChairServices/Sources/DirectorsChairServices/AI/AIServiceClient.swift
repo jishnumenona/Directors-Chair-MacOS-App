@@ -181,6 +181,11 @@ public struct ImageGenerationRequest: Sendable {
     public var referenceMimeType: String?
     /// Multiple labeled reference images (location, character, costume).
     public var referenceImages: [ReferenceImage]?
+    /// DC-0066: the provider-neutral description of the picture. The
+    /// on-device engine draws from THIS (purpose + plain subject +
+    /// framing); `prompt` stays the cloud providers' photoreal text.
+    /// nil = the on-device route recovers a subject from `prompt`.
+    public var brief: VisualBrief?
 
     public init(
         prompt: String,
@@ -190,7 +195,8 @@ public struct ImageGenerationRequest: Sendable {
         numberOfImages: Int = 1,
         referenceImageBase64: String? = nil,
         referenceMimeType: String? = nil,
-        referenceImages: [ReferenceImage]? = nil
+        referenceImages: [ReferenceImage]? = nil,
+        brief: VisualBrief? = nil
     ) {
         self.prompt = prompt
         self.provider = provider
@@ -200,6 +206,14 @@ public struct ImageGenerationRequest: Sendable {
         self.referenceImageBase64 = referenceImageBase64
         self.referenceMimeType = referenceMimeType
         self.referenceImages = referenceImages
+        self.brief = brief
+    }
+
+    /// True for "change this existing picture" asks (annotation edits,
+    /// vision-board redraws): they only make sense with a provider that
+    /// takes the picture as input.
+    public var isEditOfExistingImage: Bool {
+        prompt.lowercased().hasPrefix("edit this image")
     }
 }
 
@@ -718,6 +732,14 @@ public actor AIServiceClient {
         return textResponse
     }
     
+    /// Whether an image ask can be served right now: the on-device
+    /// engine needs no server at all (DC-0066 — a sketch must work on a
+    /// train), every other provider needs the gateway reachable.
+    public func imageServiceReachable() async -> Bool {
+        if AIProviderSelection.shared.provider(for: .image) == .onDevice { return true }
+        return await testConnection()
+    }
+
     // MARK: - Image Generation
     
     /// Generate images using AI
@@ -727,10 +749,19 @@ public actor AIServiceClient {
         // precedent). One frame per call: the engine draws sequentially,
         // and reference images don't apply to the sketch surface.
         if request.provider == .onDevice {
+            // The sketch engine draws from text alone: an edit of an
+            // existing picture would silently produce an unrelated drawing
+            // (DC-0066) — refuse with the way out instead.
+            if request.isEditOfExistingImage {
+                throw StoryboardEngineError.generationFailed(
+                    "On-device sketches are drawn from text only, so an existing picture can't be edited this way — choose a cloud service under Settings → AI Services → Image Generation to edit it.")
+            }
             let size = Self.onDeviceImageSize(for: request.aspectRatio)
+            let brief = request.brief ?? VisualBrief(
+                purpose: .moodboard,
+                subject: StoryboardSubjects.plainSubject(from: request.prompt))
             let frame = try await Self.onDeviceImageEngine.generateFrame(
-                StoryboardFrameSpec(subject: request.prompt,
-                                    width: size.width, height: size.height))
+                StoryboardFrameSpec(brief: brief, width: size.width, height: size.height))
             return ImageGenerationResponse(
                 images: [frame], provider: .onDevice,
                 model: ZImageStoryboardEngine.model.id)   // on-device = $0

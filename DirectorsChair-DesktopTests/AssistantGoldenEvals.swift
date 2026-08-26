@@ -899,6 +899,42 @@ final class StoryboardCoreRealEvals: XCTestCase {
                           "ink-sketch frames must be near-monochrome (divergence=\(meanDivergence))")
     }
 
+    /// DC-0066: the Comic look is the COLOUR look (costume ideas need
+    /// colour) and a costume brief must come out as a design sheet —
+    /// objective checks: colour divergence well above the sketch bound,
+    /// ink present, and the page mostly white paper (a full figure on a
+    /// plain background, not a painted scene).
+    func testComicCostumeSheetDrawsInColourOnWhitePaper() async throws {
+        try requireWeights()
+        let spec = StoryboardFrameSpec(
+            subject: "Dana, 28-year-old female. wearing Estate-sale tweed — cream blouse, oxblood A-line wool skirt, fitted olive tweed jacket, low heels. 1950s period, colours olive, cream, oxblood, wool fabric",
+            width: 512, height: 512, seed: 42, purpose: .costume, style: .comic)
+        let png = try await ZImageStoryboardEngine.shared.generateFrame(spec)
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-storyboard-eval-comic-costume.png")
+        try png.write(to: out)
+        print("[StoryboardEval] comic costume sheet written to \(out.path)")
+
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: png))
+        var divergence: [Double] = []
+        var whitePaper = 0
+        var samples = 0
+        for y in stride(from: 8, to: 512, by: 16) {
+            for x in stride(from: 8, to: 512, by: 16) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let (r, g, b) = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
+                divergence.append(abs(r - g) + abs(g - b))
+                if r > 0.9 && g > 0.9 && b > 0.9 { whitePaper += 1 }
+                samples += 1
+            }
+        }
+        let meanDivergence = divergence.reduce(0, +) / Double(divergence.count)
+        XCTAssertGreaterThan(meanDivergence, 0.04,
+                             "the comic look must carry colour (divergence=\(meanDivergence))")
+        XCTAssertGreaterThan(Double(whitePaper) / Double(samples), 0.35,
+                             "a costume sheet stands on white paper (white=\(whitePaper)/\(samples))")
+    }
+
     func testSeedsChangeTheFrameDeterministically() async throws {
         try requireWeights()
         // Small frames keep this pair affordable; determinism and seed

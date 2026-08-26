@@ -64,6 +64,10 @@ struct SoftwarePreferencesView: View {
     /// §2.17 proxy playback — stored under ProxyPlayback.preferenceKey so
     /// the Core resolver and this toggle can never disagree.
     @AppStorage(ProxyPlayback.preferenceKey) private var useProxyMedia = true
+    /// DC-0066: the on-device look (Sketch | Comic) — same key
+    /// AIProviderSelection.visualStyle reads at generation time.
+    @AppStorage(AIProviderSelection.visualStyleKey)
+    private var onDeviceVisualStyle = VisualStyle.sketch.rawValue
 
     var body: some View {
         HSplitView {
@@ -742,6 +746,29 @@ struct SoftwarePreferencesView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(nsColor: .quaternarySystemFill)))
             .accessibilityIdentifier("storyboard-model-\(ZImageStoryboardEngine.model.id)")
+
+            // DC-0066: the look every on-device drawing uses — two looks,
+            // one switch, read at generation time (no relaunch).
+            HStack(spacing: 8) {
+                Text("Look")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Picker("Look", selection: $onDeviceVisualStyle) {
+                    ForEach(VisualStyle.allCases, id: \.rawValue) { style in
+                        Text(style.displayName).tag(style.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(maxWidth: 160)
+                .accessibilityIdentifier("storyboard-visual-style")
+                Spacer()
+            }
+            Text(VisualStyle(rawValue: onDeviceVisualStyle)?.detail ?? "")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+                .accessibilityIdentifier("storyboard-visual-style-detail")
 
             if case .downloading(let progress) = serviceHealth.storyboardAvailability {
                 ProgressView(value: progress)

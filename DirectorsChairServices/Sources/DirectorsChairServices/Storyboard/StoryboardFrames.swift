@@ -12,16 +12,22 @@ import DirectorsChairCore
 
 // MARK: - Subjects
 
-/// Turns scene/shot fields into the plain shot language the styler wraps.
-/// Pure and deterministic: same entities, same subject — regeneration is
-/// a seed change, not a prompt lottery.
+/// Turns project entities into the plain drawing language the styler
+/// wraps. Pure and deterministic: same entities, same subject —
+/// regeneration is a seed change, not a prompt lottery. Every builder
+/// speaks about WHAT is in the picture; medium, lens and quality words
+/// belong to the styler (DC-0066 lesson: they were drawn literally).
 public enum StoryboardSubjects {
 
     /// The shot's own description leads; the scene supplies setting and
-    /// mood facts the description usually omits (slug-line style).
-    public static func subject(for shot: Shot, in scene: Scene?) -> String {
+    /// mood facts the description usually omits (slug-line style); the
+    /// project's location record and the characters present add the
+    /// detail that makes a frame recognisably THIS film.
+    public static func subject(for shot: Shot, in scene: Scene?,
+                               locations: [Location] = [],
+                               characters: [Character] = []) -> String {
         var parts: [String] = []
-        let description = shot.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = plainSubject(from: shot.description)
         if !description.isEmpty { parts.append(description) }
         if let scene {
             var setting: [String] = []
@@ -33,25 +39,46 @@ public enum StoryboardSubjects {
             if !setting.isEmpty { parts.append("Setting: \(setting.joined(separator: ", "))") }
             if parts.count == 1 && description.isEmpty {
                 // A shot with no description still deserves a drawable subject.
-                let summary = (scene.sceneOverviewSummary ?? scene.description)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let summary = plainSubject(from: scene.sceneOverviewSummary ?? scene.description)
                 if !summary.isEmpty { parts.append(summary) }
+            }
+            if let locationName = scene.location,
+               let record = locations.first(where: { $0.name.lowercased() == locationName.lowercased() }),
+               !record.description.isEmpty {
+                parts.append("The place: \(plainSubject(from: String(record.description.prefix(200))))")
+            }
+            let present = charactersPresent(in: scene, from: characters).prefix(3)
+            if !present.isEmpty {
+                let described = present.map { describe($0, in: scene) }
+                parts.append("People in the frame: \(described.joined(separator: "; "))")
             }
         }
         if parts.isEmpty { parts.append("Untitled shot") }
-        return parts.joined(separator: ". ")
+        return sentences(parts)
     }
 
-    /// Camera facts ride the styler's FRAMING line, not the subject —
-    /// the model treats them as direction, not content.
+    /// Camera facts as drawing direction, in words the model reads as
+    /// viewpoint rather than as objects: no "camera", no "lens" (both get
+    /// drawn as things — a shot once rendered an actual camera).
     public static func notes(for shot: Shot) -> String? {
         var terms: [String] = []
-        if !shot.shotType.isEmpty { terms.append(shot.shotType) }
-        if !shot.cameraAngle.isEmpty { terms.append("\(shot.cameraAngle) angle") }
-        if shot.movement != "Static" && !shot.movement.isEmpty {
-            terms.append("\(shot.movement) camera")
+        let type = shot.shotType.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !type.isEmpty {
+            terms.append(type.lowercased().hasSuffix("shot") ? type.lowercased() : "\(type.lowercased()) shot")
         }
-        if let lens = shot.lensMm { terms.append("\(lens)mm lens") }
+        let angle = shot.cameraAngle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !angle.isEmpty && angle.lowercased() != "eye level" {
+            terms.append("from a \(angle.lowercased()) angle")
+        } else if !angle.isEmpty {
+            terms.append("at eye level")
+        }
+        if let lens = shot.lensMm {
+            if lens <= 24 { terms.append("wide-angle perspective with deep space") }
+            else if lens >= 85 { terms.append("compressed telephoto perspective") }
+        }
+        if shot.movement != "Static" && !shot.movement.isEmpty {
+            terms.append("a sense of \(shot.movement.lowercased()) movement")
+        }
         return terms.isEmpty ? nil : terms.joined(separator: ", ")
     }
 
@@ -60,17 +87,243 @@ public enum StoryboardSubjects {
     public static func subject(for scene: Scene) -> String {
         var parts: [String] = []
         let name = scene.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !name.isEmpty { parts.append("Establishing frame: \(name)") }
         var setting: [String] = []
         if let location = scene.location, !location.isEmpty { setting.append(location) }
         if let timeOfDay = scene.timeOfDay, !timeOfDay.isEmpty { setting.append(timeOfDay) }
         if let weather = scene.weather, !weather.isEmpty { setting.append(weather) }
-        if !setting.isEmpty { parts.append(setting.joined(separator: ", ")) }
-        let prose = (scene.sceneOverviewSummary ?? scene.description)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let head = [name, setting.joined(separator: ", ")].filter { !$0.isEmpty }
+        if !head.isEmpty { parts.append(head.joined(separator: " — ")) }
+        let prose = plainSubject(from: scene.sceneOverviewSummary ?? scene.description)
         if !prose.isEmpty { parts.append(prose) }
         if parts.isEmpty { parts.append("Untitled scene") }
-        return parts.joined(separator: ". ")
+        return sentences(parts)
+    }
+
+    /// A character as a design study: who they are, physically and in
+    /// what they wear, stated plainly (age or "adult" up front — the
+    /// model draws unspecified people as generic mannequins).
+    public static func subject(for character: Character) -> String {
+        var parts = [describe(character, in: nil)]
+        let about = plainSubject(from: String(character.about.prefix(240)))
+        if !about.isEmpty { parts.append(about) }
+        return sentences(parts)
+    }
+
+    /// A costume as a design sheet: the wearer in two strokes, then every
+    /// garment, era, palette and fabric the costume record holds.
+    public static func subject(for costume: CharacterCostume, wornBy character: Character) -> String {
+        var wearer: [String] = []
+        wearer.append(ageWord(character))
+        if !character.gender.isEmpty && character.gender.lowercased() != "neutral" {
+            wearer.append(character.gender.lowercased())
+        }
+        if !character.build.isEmpty && character.build != "Average" {
+            wearer.append("\(character.build.lowercased()) build")
+        }
+        var parts = ["\(character.name), \(wearer.joined(separator: " "))"]
+        var outfit = "wearing \(costume.name)"
+        var garments: [String] = []
+        if let top = costume.garmentTop, !top.isEmpty { garments.append(top) }
+        if let bottom = costume.garmentBottom, !bottom.isEmpty { garments.append(bottom) }
+        if let outer = costume.outerwear, !outer.isEmpty { garments.append(outer) }
+        if let head = costume.headwear, !head.isEmpty { garments.append(head) }
+        if let foot = costume.footwear, !foot.isEmpty { garments.append(foot) }
+        if !garments.isEmpty { outfit += " — \(garments.joined(separator: ", "))" }
+        parts.append(outfit)
+        let description = plainSubject(from: costume.description)
+        if !description.isEmpty { parts.append(description) }
+        var facts: [String] = []
+        if let era = costume.era, !era.isEmpty { facts.append("\(era) period") }
+        if let style = costume.styleCategory, !style.isEmpty { facts.append("\(style) style") }
+        if let palette = costume.colorPalette, !palette.isEmpty {
+            facts.append("colours \(palette.joined(separator: ", "))")
+        }
+        if let fabric = costume.primaryFabric, !fabric.isEmpty { facts.append("\(fabric) fabric") }
+        if !facts.isEmpty { parts.append(facts.joined(separator: ", ")) }
+        return sentences(parts)
+    }
+
+    /// One character in a sentence — the shared description used inside
+    /// shot subjects and as the head of a character study.
+    public static func describe(_ character: Character, in scene: Scene?) -> String {
+        var traits: [String] = []
+        traits.append(ageWord(character))
+        if !character.gender.isEmpty && character.gender.lowercased() != "neutral" {
+            traits.append(character.gender.lowercased())
+        }
+        var line = "\(character.name): \(traits.joined(separator: " "))"
+        var details: [String] = []
+        if !character.build.isEmpty && character.build != "Average" {
+            details.append("\(character.build.lowercased()) build")
+        }
+        // Hair only when the record names a colour (the default is a hex
+        // swatch); the default style "Medium, Straight" already carries
+        // the length, so the length is only added when the style omits it.
+        if !character.hairColor.isEmpty && !character.hairColor.hasPrefix("#") {
+            var hair = [character.hairColor.lowercased()]
+            let style = character.hairStyle.lowercased().replacingOccurrences(of: ",", with: "")
+            let length = character.hairLength.lowercased()
+            if !length.isEmpty && !style.contains(length) { hair.append(length) }
+            if !style.isEmpty { hair.append(style) }
+            details.append("\(hair.joined(separator: " ")) hair")
+        }
+        if !character.eyeColorDescription.isEmpty { details.append("\(character.eyeColorDescription.lowercased()) eyes") }
+        if !character.skinTone.isEmpty && !character.skinTone.hasPrefix("#") { details.append("\(character.skinTone.lowercased()) skin") }
+        if !character.distinguishingFeatures.isEmpty { details.append(plainSubject(from: character.distinguishingFeatures)) }
+        if let attire = attire(for: character, in: scene) { details.append("wearing \(attire)") }
+        if let occupation = character.occupation, !occupation.isEmpty { details.append("a \(occupation.lowercased())") }
+        if !details.isEmpty { line += ", " + details.joined(separator: ", ") }
+        return line
+    }
+
+    /// Framing for the character-sheet angle keys the appearance and
+    /// costume tabs use, in drawing language.
+    public static func characterFraming(angle: String) -> String {
+        switch angle {
+        case "three_quarter_left":
+            return "Three-quarter view turned to their left, head-and-shoulders portrait centered on the page, plain white background."
+        case "three_quarter_right":
+            return "Three-quarter view turned to their right, head-and-shoulders portrait centered on the page, plain white background."
+        case "profile_left", "profile":
+            return "Exact left profile, head-and-shoulders portrait centered on the page, plain white background."
+        case "profile_right":
+            return "Exact right profile, head-and-shoulders portrait centered on the page, plain white background."
+        case "back":
+            return "Back view showing the back of the head and shoulders, centered on the page, plain white background."
+        default:
+            return StoryboardPromptStyler.defaultFraming(for: .character)
+        }
+    }
+
+    public static func costumeFraming(angle: String) -> String {
+        let view: String
+        switch angle {
+        case "back": view = "back view"
+        case "profile", "profile_left": view = "left side view"
+        case "profile_right": view = "right side view"
+        case "three_quarter_left": view = "three-quarter view turned to their left"
+        case "three_quarter_right": view = "three-quarter view turned to their right"
+        default: view = "front view"
+        }
+        return "Full figure standing in a \(view) from head to feet, centered on the page, arms relaxed, plain white background, garments drawn clearly with fabric folds and seam detail."
+    }
+
+    // MARK: Cleaning provider prompts
+
+    /// Phrases the cloud-provider prompt builders add that mean nothing
+    /// to a drawing — or actively wreck one. Z-Image draws what it is
+    /// told: "film still" made a photograph, "16:9 widescreen" drew a
+    /// panel border, reference-image instructions and quoted dialogue
+    /// got lettered onto the page (DC-0066 root cause).
+    static let boilerplate: [String] = [
+        "Cinematic film still", "professional cinematography",
+        "dramatic lighting", "cinematic color grading", "movie quality",
+        "16:9 widescreen composition", "Widescreen 16:9 landscape composition",
+        "full frame edge-to-edge", "no black bars or letterboxing",
+        "film grain", "35mm film aesthetic", "photorealistic",
+        "ultra-realistic photograph", "natural lighting",
+        "shallow depth of field", "bokeh background", "deep focus", "sharp throughout",
+        "cinematic still frame", "dramatic movie lighting",
+        "Cinematic mood-board reference image:",
+        "Evocative, high production value, no text, no watermarks.",
+        "professional film production design", "cinematic quality",
+        "professional filmmaking", "cinematic depth", "natural perspective",
+        "compressed perspective", "telephoto lens", "wide angle lens", "expansive view",
+        "3D rendered character", "CGI", "Pixar-quality", "subsurface scattering",
+        "classical oil painting", "rich textures", "museum quality", "fine brush work",
+        "watercolor painting", "soft washes", "visible brush strokes", "paper texture",
+        "anime style", "Japanese animation", "cel-shaded", "large expressive eyes",
+        "comic book art", "bold ink outlines", "halftone dots", "vibrant colors",
+        "digital illustration", "hand-drawn style", "detailed line art with color",
+        "IMPORTANT: Generate the EXACT SAME person as shown in the reference image. Match the face, skin tone, hair, clothing, and art style precisely. This is a different angle of the same character, not a new character.",
+        "EXACT SAME location as reference, maintain architectural details and environment precisely.",
+        "character turnaround sheet", "consistent character appearance across all angles",
+        "Same person as the reference image,", "identical appearance and lighting",
+        "even lighting", "studio reference portrait",
+        "costume design reference", "full body shot",
+        "Match the character's face, body, and skin tone exactly from the \"character\" reference.",
+    ]
+
+    /// Word swaps for terms the model draws literally.
+    static let substitutions: [(String, String)] = [
+        ("looking directly at camera", "looking straight ahead"),
+        ("looking at the camera", "looking straight ahead"),
+        ("toward the camera", "toward the viewer"),
+        ("towards the camera", "toward the viewer"),
+        ("at camera", "straight ahead"),
+        ("to camera", "straight ahead"),
+    ]
+
+    /// Strips a provider prompt down to its picture content: boilerplate
+    /// out, quoted "mood" dialogue out, camera words swapped, separators
+    /// tidied. Idempotent on already-plain text.
+    public static func plainSubject(from prompt: String) -> String {
+        var text = prompt
+        // Quoted dialogue used as a mood hint becomes lettering on the page.
+        text = text.replacingOccurrences(
+            of: #"mood:\s*"[^"]*"\.{0,3}"#, with: "", options: [.regularExpression, .caseInsensitive])
+        for phrase in boilerplate {
+            text = text.replacingOccurrences(of: phrase, with: "", options: .caseInsensitive)
+        }
+        for (from, to) in substitutions {
+            text = text.replacingOccurrences(of: from, with: to, options: .caseInsensitive)
+        }
+        // Tidy what the removals left behind: ", ," / ". ." / dangling separators.
+        text = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        // A comma/semicolon directly followed by another separator is a leftover.
+        text = text.replacingOccurrences(of: #"\s*[,;]\s*(?=[,;.])"#, with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"(\s*\.\s*){2,}"#, with: ". ", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"\s+([,.;])"#, with: "$1", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"^[\s,.;]+|[\s,;]+$"#, with: "", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: Helpers
+
+    /// Joins parts as sentences without doubling full stops when a part
+    /// already ends with one.
+    static func sentences(_ parts: [String]) -> String {
+        parts.map { part in
+            var p = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            while p.hasSuffix(".") { p.removeLast() }
+            return p
+        }.filter { !$0.isEmpty }.joined(separator: ". ")
+    }
+
+    static func ageWord(_ character: Character) -> String {
+        character.age > 0 ? "\(character.age)-year-old" : "adult"
+    }
+
+    /// The costume a character wears in a scene: the scene's explicit
+    /// assignment, else the active costume, else the first; else the
+    /// legacy free-text costume field.
+    static func attire(for character: Character, in scene: Scene?) -> String? {
+        if let costumes = character.costumes, !costumes.isEmpty {
+            let chosen: CharacterCostume
+            if let assignedId = scene?.costumeAssignments?[character.name],
+               let assigned = costumes.first(where: { $0.costumeId == assignedId }) {
+                chosen = assigned
+            } else if let index = character.activeCostumeIndex, costumes.indices.contains(index) {
+                chosen = costumes[index]
+            } else {
+                chosen = costumes[0]
+            }
+            var garments: [String] = []
+            if let top = chosen.garmentTop, !top.isEmpty { garments.append(top) }
+            if let bottom = chosen.garmentBottom, !bottom.isEmpty { garments.append(bottom) }
+            if let outer = chosen.outerwear, !outer.isEmpty { garments.append(outer) }
+            return garments.isEmpty ? chosen.name : "\(chosen.name) (\(garments.joined(separator: ", ")))"
+        }
+        if let costume = character.costume, !costume.isEmpty { return costume }
+        return nil
+    }
+
+    /// Characters appearing in a scene by dialogue or action, in project order.
+    static func charactersPresent(in scene: Scene, from characters: [Character]) -> [Character] {
+        var names = Set<String>()
+        for dialogue in scene.dialogues { names.insert(dialogue.character) }
+        for action in scene.actions { for name in action.characters { names.insert(name) } }
+        return characters.filter { names.contains($0.name) }
     }
 }
 

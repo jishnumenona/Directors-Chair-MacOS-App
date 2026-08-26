@@ -30,27 +30,93 @@ public struct StoryboardModel: Equatable, Sendable {
         detail: "6B open image model (Apache-2.0) — draws ink-sketch storyboard frames on this Mac")
 }
 
+// MARK: - Visual style & purpose (DC-0066)
+
+/// The look the owner chooses for every on-device drawing (Settings →
+/// Storyboard Model). Two looks by owner decision 2026-08-25: a pencil
+/// & ink sketch, or a comic-book panel. Raw values are the stored
+/// preference — stable, never rename.
+public enum VisualStyle: String, CaseIterable, Sendable {
+    case sketch
+    case comic
+
+    public var displayName: String {
+        switch self {
+        case .sketch: return "Sketch"
+        case .comic: return "Comic"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .sketch: return "Pencil & ink linework on white paper — the classic storyboard look"
+        case .comic: return "Bold inks, flat printed colour and halftone — costume and character ideas in colour"
+        }
+    }
+}
+
+/// What the drawing is FOR. Each purpose has its own subject lead and a
+/// default framing so a costume comes out as a full-figure design sheet
+/// and a scene as an establishing view — not the same generic picture.
+public enum VisualPurpose: String, Sendable {
+    case shot
+    case scene
+    case character
+    case costume
+    case location
+    case moodboard
+}
+
+/// The clean, provider-neutral description of a picture: plain language
+/// about WHAT is in it (no "cinematic film still", no lens jargon, no
+/// negatives) plus optional framing direction. Cloud providers keep
+/// their photoreal prompts; the on-device engine draws from this.
+public struct VisualBrief: Equatable, Sendable {
+    public var purpose: VisualPurpose
+    public var subject: String
+    public var framing: String?
+
+    public init(purpose: VisualPurpose, subject: String, framing: String? = nil) {
+        self.purpose = purpose
+        self.subject = subject
+        self.framing = framing
+    }
+}
+
 // MARK: - Frame request
 
 /// One storyboard frame ask. The subject is plain scene/shot language —
-/// the locked visual style is applied by StoryboardPromptStyler, never
-/// by callers, so every frame in a project speaks the same line language.
+/// the visual style is applied by StoryboardPromptStyler, never by
+/// callers, so every frame in a project speaks the same line language.
 public struct StoryboardFrameSpec: Equatable, Sendable {
     public var subject: String
     public var notes: String?
     public var width: Int
     public var height: Int
     public var seed: UInt64?
+    public var purpose: VisualPurpose
+    /// nil = the owner's Settings choice at generation time.
+    public var style: VisualStyle?
 
     /// 16:9 default (768×432, both multiples of 16 for the latent grid) —
     /// storyboard frames are film frames, not squares.
     public init(subject: String, notes: String? = nil,
-                width: Int = 768, height: Int = 432, seed: UInt64? = nil) {
+                width: Int = 768, height: Int = 432, seed: UInt64? = nil,
+                purpose: VisualPurpose = .shot, style: VisualStyle? = nil) {
         self.subject = subject
         self.notes = notes
         self.width = width
         self.height = height
         self.seed = seed
+        self.purpose = purpose
+        self.style = style
+    }
+
+    public init(brief: VisualBrief, width: Int = 768, height: Int = 432,
+                seed: UInt64? = nil, style: VisualStyle? = nil) {
+        self.init(subject: brief.subject, notes: brief.framing,
+                  width: width, height: height, seed: seed,
+                  purpose: brief.purpose, style: style)
     }
 }
 

@@ -283,7 +283,7 @@ struct CentralViewStack: View {
                                           completion: @escaping ([URL]) -> Void) {
         Task {
             let client = AIServiceClient.shared
-            guard await client.testConnection() else {
+            guard await client.imageServiceReachable() else {
                 await MainActor.run {
                     projectViewModel.errorAlert = ErrorAlert(
                         title: "Image Generation Failed",
@@ -356,7 +356,23 @@ struct CentralViewStack: View {
                     ReferenceImage(base64: reference.data.base64EncodedString(),
                                    mimeType: reference.mime,
                                    label: "reference \(index + 1)")
-                })
+                },
+            brief: VisualBrief(purpose: .moodboard, subject: request.prompt))
+    }
+
+    /// DC-0066: what the on-device engine draws for a character-tab ask —
+    /// a design study of the character record itself (framed per angle),
+    /// or a costume sheet from the costume prompt's garment facts.
+    static func onDeviceBrief(character: Character, angle: String, prompt: String) -> VisualBrief {
+        if angle.hasPrefix("costume:") {
+            let costumeAngle = angle.split(separator: ":").last.map(String.init) ?? "front"
+            return VisualBrief(purpose: .costume,
+                               subject: StoryboardSubjects.plainSubject(from: prompt),
+                               framing: StoryboardSubjects.costumeFraming(angle: costumeAngle))
+        }
+        return VisualBrief(purpose: .character,
+                           subject: StoryboardSubjects.subject(for: character),
+                           framing: StoryboardSubjects.characterFraming(angle: angle))
     }
 
     /// Redraws an existing vision-board picture from marks made on it.
@@ -411,7 +427,7 @@ struct CentralViewStack: View {
         await MainActor.run { progressHandler(0.05) }
 
         // Check if AI server is available
-        guard await aiClient.testConnection() else {
+        guard await aiClient.imageServiceReachable() else {
             await MainActor.run {
                 progressHandler(1.0) // Clear progress
                 projectViewModel.errorAlert = ErrorAlert(
@@ -443,7 +459,8 @@ struct CentralViewStack: View {
                 aspectRatio: "1:1",
                 numberOfImages: 1,
                 referenceImageBase64: referenceBase64,
-                referenceMimeType: referenceMime
+                referenceMimeType: referenceMime,
+                brief: Self.onDeviceBrief(character: character, angle: angle, prompt: prompt)
             )
 
             // Simulate gradual progress during the AI call
@@ -1095,7 +1112,7 @@ struct CentralViewStack: View {
 
         await MainActor.run { progressHandler(0.05) }
 
-        guard await aiClient.testConnection() else {
+        guard await aiClient.imageServiceReachable() else {
             await MainActor.run {
                 progressHandler(1.0)
                 projectViewModel.errorAlert = ErrorAlert(
@@ -1127,7 +1144,9 @@ struct CentralViewStack: View {
                 aspectRatio: "16:9",
                 numberOfImages: 1,
                 referenceImageBase64: referenceBase64,
-                referenceMimeType: referenceMime
+                referenceMimeType: referenceMime,
+                brief: VisualBrief(purpose: .location,
+                                   subject: StoryboardSubjects.plainSubject(from: prompt))
             )
 
             // Simulate gradual progress during the AI call

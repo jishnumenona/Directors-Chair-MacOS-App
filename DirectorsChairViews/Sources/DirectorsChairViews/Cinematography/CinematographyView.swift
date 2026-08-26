@@ -944,8 +944,11 @@ public struct CinematographyView: View {
             defer { Task { @MainActor in generatingStoryboardShotIds.remove(shot.uuid) } }
             do {
                 let spec = StoryboardFrameSpec(
-                    subject: StoryboardSubjects.subject(for: shot, in: scene),
-                    notes: StoryboardSubjects.notes(for: shot))
+                    subject: StoryboardSubjects.subject(for: shot, in: scene,
+                                                        locations: locations,
+                                                        characters: characters),
+                    notes: StoryboardSubjects.notes(for: shot),
+                    purpose: .shot)
                 let png = try await ZImageStoryboardEngine.shared.generateFrame(spec)
                 guard let base = projectBasePath?.deletingLastPathComponent() else {
                     throw StoryboardEngineError.generationFailed("No project path")

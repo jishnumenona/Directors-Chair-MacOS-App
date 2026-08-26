@@ -175,8 +175,10 @@ public final class ZImageStoryboardEngine: StoryboardEngine, @unchecked Sendable
             throw StoryboardEngineError.generationFailed(
                 "The storyboard engine core isn't part of this build yet — the model is downloaded and ready for it.")
         }
-        let prompt = StoryboardPromptStyler.prompt(subject: spec.subject,
-                                                   notes: spec.notes)
+        // The look: the spec's explicit choice, else the owner's Settings
+        // choice at this moment (DC-0066) — never a hardcoded style.
+        let style = spec.style ?? AIProviderSelection.shared.visualStyle
+        let prompt = StoryboardPromptStyler.prompt(spec, style: style)
         do {
             return try await core.renderFrame(prompt: prompt,
                                               width: spec.width,
