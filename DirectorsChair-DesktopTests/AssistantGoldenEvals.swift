@@ -1140,6 +1140,78 @@ final class KleinCoreParityEvals: XCTestCase {
         XCTAssertGreaterThan(diff.within8, 0.5)
     }
 
+    /// DC-0070 memory profile: the three workloads the owner hit, with
+    /// MLX + process memory after each, and the footprint once the core
+    /// is done. Run with TEST_RUNNER_DC_KLEIN_MEMTRACE=1 for per-stage lines.
+    func testMemoryProfileOfRealWorkloads() async throws {
+        let f = try loadFixtures()
+        let source = try Data(contentsOf: f.directory.appendingPathComponent("ref_char_sketch.png"))
+        // A 1024² reference like a cloud-generated scene frame.
+        let big = try XCTUnwrap(Self.upscaledPNG(source, to: 1024))
+        let weights = LocalImageEngine.shared.weightsDirectory
+        let core = KleinCore()
+        func report(_ label: String) {
+            let m = KleinCore.memorySample(label)
+            print("[KleinMem] == \(label): active \(m.activeMB) MB · cache \(m.cacheMB) MB · peak \(m.peakMB) MB · footprint \(m.footprintMB) MB")
+        }
+        report("before load")
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "A lighthouse on a cliff, ink sketch", width: 768, height: 432, seed: 1),
+                                  weightsDirectory: weights)
+        report("after 768×432 text-to-image")
+        assertBounded("after a 768×432 frame")
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "Change the jacket to a tweed blazer", width: 1024, height: 1024, seed: 1, references: [big]),
+                                  weightsDirectory: weights)
+        report("after 1024² edit with a 1024² reference")
+        assertBounded("after a 1024² edit")
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "1. remove the badge\nKeep everything not mentioned exactly as it is in the picture.",
+                                                        width: 0, height: 0, seed: 1, references: [big],
+                                                        editRegions: [EditRegion(x: 0.5, y: 0.6)]),
+                                  weightsDirectory: weights)
+        report("after 1024² inpaint")
+        assertBounded("after a 1024² inpaint")
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        report("idle 2s later")
+        await core.releaseModel()
+        report("after releaseModel")
+        XCTAssertLessThan(KleinCore.physicalFootprintMB(), 1_500, "released model must give the memory back")
+        XCTAssertEqual(GPU.snapshot().cacheMemory, 0)
+    }
+
+    /// The owner's release bar (DC-0070): between jobs the process holds
+    /// the weights and nothing else — no MLX cache, footprint bounded.
+    private func assertBounded(_ when: String) {
+        let m = KleinCore.memorySample(when)
+        XCTAssertEqual(m.cacheMB, 0, "\(when): MLX cache must be empty between jobs")
+        XCTAssertLessThan(m.footprintMB, 7_000, "\(when): footprint must stay near the ~4 GB of weights")
+        XCTAssertLessThan(m.peakMB, 12_000, "\(when): transient peak on a 36 GB Mac")
+    }
+
+    /// Weights are dropped after the idle interval — the app returns to
+    /// its own footprint when the user walks away.
+    func testWeightsAreReleasedAfterIdling() async throws {
+        _ = try loadFixtures()
+        let saved = MLXMemoryPolicy.idleReleaseInterval
+        MLXMemoryPolicy.idleReleaseInterval = 0.3
+        defer { MLXMemoryPolicy.idleReleaseInterval = saved }
+        let core = KleinCore()
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "a tree", width: 256, height: 256, seed: 3),
+                                  weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let residentAfterRender = await core.isModelResident
+        XCTAssertTrue(residentAfterRender)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        let residentAfterIdle = await core.isModelResident
+        XCTAssertFalse(residentAfterIdle, "idle release must fire")
+        XCTAssertEqual(GPU.snapshot().cacheMemory, 0)
+    }
+
+    static func upscaledPNG(_ png: Data, to side: Int) -> Data? {
+        guard let image = NSImage(data: png) else { return nil }
+        let out = NSImage(size: NSSize(width: side, height: side))
+        out.lockFocus(); image.draw(in: NSRect(x: 0, y: 0, width: side, height: side)); out.unlockFocus()
+        guard let tiff = out.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+    }
+
     /// Ad-hoc local edit on any picture — for reproducing an owner report
     /// through the real core: DC_KLEIN_ADHOC_SOURCE=<png> DC_KLEIN_ADHOC_REGION="x,y,r"
     /// DC_KLEIN_ADHOC_PROMPT="1. …". Skips without the env; writes

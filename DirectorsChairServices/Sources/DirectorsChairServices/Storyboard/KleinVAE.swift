@@ -31,8 +31,11 @@ struct KleinVAEResnet {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        var h = conv1(zSilu(norm1(x.asType(.float32)).asType(KleinCore.precision)))
-        h = conv2(zSilu(norm2(h.asType(.float32)).asType(KleinCore.precision)))
+        // Norm statistics accumulate in fp32 inside the fast kernel; the
+        // tensors stay bf16 — half the working set of casting a 1024²
+        // activation to fp32 (DC-0070), parity-checked against mflux.
+        var h = conv1(zSilu(norm1(x)))
+        h = conv2(zSilu(norm2(h)))
         let skip = shortcut.map { $0(x) } ?? x
         return skip + h
     }
@@ -55,7 +58,7 @@ struct KleinVAEAttention {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         let (b, h, w, c) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
-        let normed = groupNorm(x.asType(.float32)).asType(KleinCore.precision)
+        let normed = groupNorm(x)
         let q = toQ(normed).reshaped([b, h * w, 1, c]).transposed(0, 2, 1, 3)
         let k = toK(normed).reshaped([b, h * w, 1, c]).transposed(0, 2, 1, 3)
         let v = toV(normed).reshaped([b, h * w, 1, c]).transposed(0, 2, 1, 3)
@@ -155,14 +158,18 @@ struct KleinVAE {
     func encode(_ image: MLXArray) -> MLXArray {
         var h = encConvIn(image)
         for block in downBlocks {
-            for resnet in block.resnets { h = resnet(h) }
+            // Evaluate per block: a lazy graph over a 1024² picture holds
+            // every fp32 activation at once (DC-0070 — the VAE was the peak).
+            for resnet in block.resnets { h = resnet(h); eval(h) }
             if let down = block.downsampler {
                 // Asymmetric (0,1) padding then a stride-2 conv, as in the source.
                 h = down(padded(h, widths: [.init((0, 0)), .init((0, 1)), .init((0, 1)), .init((0, 0))]))
+                eval(h)
             }
         }
         h = encMid(h)
-        h = encNormOut(h.asType(.float32)).asType(KleinCore.precision)
+        eval(h)
+        h = encNormOut(h)
         h = encConvOut(zSilu(h))
         h = quantConv(h)
         return h[.ellipsis, ..<Self.latentChannels]      // mean half; scale 1, shift 0
@@ -194,10 +201,10 @@ struct KleinVAE {
         x = decConvIn(x)
         x = decMid(x)
         for block in upBlocks {
-            for resnet in block.resnets { x = resnet(x) }
-            if let up = block.upsampler { x = up(Self.upsampleNearest2x(x)) }
+            for resnet in block.resnets { x = resnet(x); eval(x) }     // bound the graph (DC-0070)
+            if let up = block.upsampler { x = up(Self.upsampleNearest2x(x)); eval(x) }
         }
-        x = decNormOut(x.asType(.float32)).asType(KleinCore.precision)
+        x = decNormOut(x)
         return decConvOut(zSilu(x))
     }
 

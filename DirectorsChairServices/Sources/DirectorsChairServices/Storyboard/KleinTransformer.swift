@@ -113,10 +113,12 @@ struct KleinTransformer {
 
         for b in doubles {
             (ctx, x) = Self.double(b, x: x, ctx: ctx, modI: modI, modT: modT, cosT: cosT, sinT: sinT)
+            eval(ctx, x)                                                  // bound the graph (DC-0070)
         }
         var h = concatenated([ctx, x], axis: 1)
         for b in singles {
             h = Self.single(b, h, mod: modS, cosT: cosT, sinT: sinT)
+            eval(h)
         }
         h = h[0..., ctx.dim(1)..., 0...]
 

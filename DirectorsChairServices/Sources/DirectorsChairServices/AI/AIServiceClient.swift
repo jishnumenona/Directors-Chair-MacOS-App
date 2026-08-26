@@ -225,6 +225,34 @@ public struct ImageGenerationRequest: Sendable {
 }
 
 extension AIServiceClient {
+    /// The wire body every CLOUD provider receives for an image ask — the
+    /// contract the Gemini/Imagen adapters were built against. Pure so a
+    /// test can pin that on-device-only fields (brief, edit regions) never
+    /// change a byte of it.
+    static func cloudImageBody(for request: ImageGenerationRequest,
+                               preferredModel: String?) -> [String: Any] {
+        var body: [String: Any] = [
+            "prompt": request.prompt,
+            "provider": request.provider.rawValue,
+            "aspect_ratio": request.aspectRatio,
+            "n": request.numberOfImages
+        ]
+        // DC-0059: call-site model wins; else the preferences choice; else
+        // the server default (field omitted).
+        if let model = request.model ?? preferredModel {
+            body["model"] = model
+        }
+        if let refs = request.referenceImages, !refs.isEmpty {
+            body["reference_images"] = refs.map { ref in
+                ["base64": ref.base64, "mime_type": ref.mimeType, "label": ref.label]
+            }
+        } else if let refImage = request.referenceImageBase64 {
+            body["reference_image_base64"] = refImage
+            body["reference_mime_type"] = request.referenceMimeType ?? "image/png"
+        }
+        return body
+    }
+
     /// The request's pictures as raw bytes, single reference first, then
     /// the labelled set, capped at klein's practical four.
     static func onDeviceReferences(for request: ImageGenerationRequest) -> [Data] {
@@ -805,28 +833,8 @@ public actor AIServiceClient {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         applyAuthHeader(to: &urlRequest)
 
-        var body: [String: Any] = [
-            "prompt": request.prompt,
-            "provider": request.provider.rawValue,
-            "aspect_ratio": request.aspectRatio,
-            "n": request.numberOfImages
-        ]
-
-        // DC-0059: call-site model wins; else the preferences choice; else
-        // the server default (field omitted).
-        if let model = request.model
-            ?? AIProviderSelection.shared.modelId(for: .image) {
-            body["model"] = model
-        }
-        if let refs = request.referenceImages, !refs.isEmpty {
-            body["reference_images"] = refs.map { ref in
-                ["base64": ref.base64, "mime_type": ref.mimeType, "label": ref.label]
-            }
-        } else if let refImage = request.referenceImageBase64 {
-            body["reference_image_base64"] = refImage
-            body["reference_mime_type"] = request.referenceMimeType ?? "image/png"
-        }
-        
+        let body = Self.cloudImageBody(
+            for: request, preferredModel: AIProviderSelection.shared.modelId(for: .image))
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, httpResponse) = try await performWithAutoRefresh(urlRequest)

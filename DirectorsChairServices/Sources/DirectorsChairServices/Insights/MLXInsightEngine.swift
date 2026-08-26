@@ -193,6 +193,7 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
         let hub = HubApi(downloadBase: storageRoot)
         let configuration = ModelConfiguration(id: selected)
         do {
+            MLXMemoryPolicy.apply()   // DC-0070: one cache policy for every MLX engine
             let loaded = try await LLMModelFactory.shared.loadContainer(
                 hub: hub, configuration: configuration
             ) { [weak self] downloadProgress in

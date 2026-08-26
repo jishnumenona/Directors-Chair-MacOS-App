@@ -97,6 +97,7 @@ struct KleinTextEncoder {
         for (i, layer) in layers.enumerated() {
             h = Self.step(layer: layer, h: h, mask: mask,
                           cosTable: cosTable, sinTable: sinTable, seqLen: seqLen)
+            eval(h)                                                       // bound the graph (DC-0070)
             if Self.tapLayers.contains(i + 1) { taps.append(h) }
             if i + 1 == Self.tapLayers.max()! { break }   // later layers never matter
         }

@@ -795,3 +795,56 @@ final class VisualBriefAndCleaningTests: XCTestCase {
         XCTAssertFalse(subject.contains(".."), subject)
     }
 }
+
+
+// MARK: - Cloud providers are untouched by the on-device work (owner rule)
+
+/// The Gemini/Imagen path must receive exactly what it received before
+/// the local engine existed: the same prompt (positions and all), the
+/// same references, the same fields — no matter which on-device-only
+/// hints (brief, edit regions) ride on the request.
+final class CloudImageRequestUnchangedTests: XCTestCase {
+
+    private func canonical(_ body: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    func testOnDeviceHintsNeverReachTheCloudBody() throws {
+        let annotationPrompt = "Edit this scene preview with the following changes:\n1. At (43%, 15%): remove the speech bubble that says KEEP\nKeep all other areas unchanged.\n\nOriginal prompt: Cinematic film still, porch at dusk"
+        let plain = ImageGenerationRequest(
+            prompt: annotationPrompt, provider: .google, aspectRatio: "16:9",
+            referenceImageBase64: "QUJD", referenceMimeType: "image/png")
+        let hinted = ImageGenerationRequest(
+            prompt: annotationPrompt, provider: .google, aspectRatio: "16:9",
+            referenceImageBase64: "QUJD", referenceMimeType: "image/png",
+            brief: VisualBrief(purpose: .edit, subject: "1. remove the speech bubble"),
+            editRegions: [EditRegion(x: 0.43, y: 0.15)])
+        let a = try canonical(AIServiceClient.cloudImageBody(for: plain, preferredModel: nil))
+        let b = try canonical(AIServiceClient.cloudImageBody(for: hinted, preferredModel: nil))
+        XCTAssertEqual(a, b, "brief/editRegions are on-device hints only")
+        XCTAssertTrue(a.contains("At (43%, 15%)"), "cloud keeps the positions in the prompt text")
+        XCTAssertFalse(a.contains("brief")); XCTAssertFalse(a.contains("edit_regions")); XCTAssertFalse(a.contains("editRegions"))
+        let body = AIServiceClient.cloudImageBody(for: hinted, preferredModel: nil)
+        XCTAssertEqual(Set(body.keys), ["prompt", "provider", "aspect_ratio", "n", "reference_image_base64", "reference_mime_type"])
+        XCTAssertEqual(body["provider"] as? String, "google")
+        XCTAssertEqual(body["n"] as? Int, 1)
+    }
+
+    func testLabelledReferencesAndModelStillSerialiseAsBefore() {
+        let request = ImageGenerationRequest(
+            prompt: "p", provider: .googleImagen, model: "imagen-4", aspectRatio: "1:1", numberOfImages: 2,
+            referenceImages: [ReferenceImage(base64: "QQ==", mimeType: "image/jpeg", label: "character")],
+            brief: VisualBrief(purpose: .character, subject: "x"))
+        let body = AIServiceClient.cloudImageBody(for: request, preferredModel: "ignored-when-call-site-sets-model")
+        XCTAssertEqual(body["model"] as? String, "imagen-4")
+        XCTAssertEqual(body["n"] as? Int, 2)
+        let refs = body["reference_images"] as? [[String: String]]
+        XCTAssertEqual(refs, [["base64": "QQ==", "mime_type": "image/jpeg", "label": "character"]])
+        XCTAssertNil(body["reference_image_base64"], "labelled set wins over the single field, as before")
+        let preferred = AIServiceClient.cloudImageBody(for: ImageGenerationRequest(prompt: "p", provider: .google), preferredModel: "gemini-pref")
+        XCTAssertEqual(preferred["model"] as? String, "gemini-pref")
+        let none = AIServiceClient.cloudImageBody(for: ImageGenerationRequest(prompt: "p", provider: .google), preferredModel: nil)
+        XCTAssertNil(none["model"], "server default = field omitted")
+    }
+}

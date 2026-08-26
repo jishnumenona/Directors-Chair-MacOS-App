@@ -32,9 +32,18 @@ public actor KleinCore: OnDeviceImageGenerating {
 
     static let precision: DType = .bfloat16
     static let steps = 4
-    /// References are conditioned at no more than this many pixels
-    /// (aspect-preserving downscale, then a centre crop to 16px multiples).
-    static let maxReferenceArea = 1024 * 1024
+    /// References (and therefore inpaint outputs) are conditioned at no
+    /// more than this many pixels — aspect-preserving downscale, then a
+    /// centre crop to 16px multiples. Scaled to the Mac: the VAE's peak
+    /// working set grows with area (measured 11 GB at 1024² before the
+    /// bf16 path), so smaller-memory Macs edit at a smaller size rather
+    /// than run out of memory (DC-0070).
+    static let maxReferenceArea: Int = {
+        let gib = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824
+        if gib >= 30 { return 1024 * 1024 }
+        if gib >= 20 { return 832 * 832 }
+        return 640 * 640
+    }()
     /// Soft edge of an edit region, as a fraction of the shorter side.
     static let regionFeather = 0.06
 
@@ -46,11 +55,62 @@ public actor KleinCore: OnDeviceImageGenerating {
     }
 
     private var bundle: Bundle?
+    /// Bumped per render; the idle-release task only fires if no newer
+    /// render has started since it was scheduled.
+    private var generation = 0
 
+    /// Construction touches no MLX state (the metallib rule: SPM test
+    /// runners abort on first MLX use) — the memory policy is applied on
+    /// the first load instead.
     public init() {}
 
+    // MARK: - Memory instrumentation (DC-0070)
+
+    /// Opt-in per-stage memory trace: DC_KLEIN_MEMTRACE=1 prints MLX
+    /// active / cache / peak and the process footprint after each stage.
+    static let memoryTrace = ProcessInfo.processInfo.environment["DC_KLEIN_MEMTRACE"] == "1"
+
+    public struct MemorySample: Sendable {
+        public let label: String
+        public let activeMB: Int
+        public let cacheMB: Int
+        public let peakMB: Int
+        public let footprintMB: Int
+    }
+
+    /// MLX + process memory right now.
+    public static func memorySample(_ label: String) -> MemorySample {
+        let snap = GPU.snapshot()
+        return MemorySample(label: label,
+                            activeMB: snap.activeMemory / 1_048_576,
+                            cacheMB: snap.cacheMemory / 1_048_576,
+                            peakMB: snap.peakMemory / 1_048_576,
+                            footprintMB: physicalFootprintMB())
+    }
+
+    /// The process's physical footprint (what Activity Monitor and the
+    /// out-of-memory dialog report), in MB.
+    public static func physicalFootprintMB() -> Int {
+        var usage = rusage_info_v4()
+        let rc = withUnsafeMutablePointer(to: &usage) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(getpid(), RUSAGE_INFO_V4, $0)
+            }
+        }
+        return rc == 0 ? Int(usage.ri_phys_footprint / 1_048_576) : -1
+    }
+
+    @inline(__always) static func trace(_ label: String) {
+        guard memoryTrace else { return }
+        let m = memorySample(label)
+        print("[KleinMem] \(label): active \(m.activeMB) MB · cache \(m.cacheMB) MB · peak \(m.peakMB) MB · footprint \(m.footprintMB) MB")
+    }
+
     public func render(_ request: OnDeviceRenderRequest, weightsDirectory: URL) async throws -> Data {
+        generation += 1
+        defer { finishRender() }
         let bundle = try await loadedBundle(weightsDirectory: weightsDirectory)
+        Self.trace("loaded")
 
         // 0. Decode references. An inpaint renders at the source's size.
         var sources: [MLXArray] = []
@@ -69,6 +129,8 @@ public actor KleinCore: OnDeviceImageGenerating {
         //    padded to 512 inside the encoder).
         let ids = Self.tokenIds(for: request.prompt, tokenizer: bundle.tokenizer)
         let context = bundle.textEncoder.encode(ids).expandedDimensions(axis: 0)   // [1, 512, 7680]
+        eval(context)
+        Self.trace("text encoded")
         let textIds = Self.textIds(count: KleinTextEncoder.maxTokens)
 
         // 2. Seeded noise in patch space, packed row-major.
@@ -95,6 +157,7 @@ public actor KleinCore: OnDeviceImageGenerating {
         }
         let allIds = concatenated([imageIds] + refIds, axis: 0)
         let n = lh * lw
+        Self.trace("references encoded")
 
         // Token-space keep mask for an inpaint: 1 = repaint, 0 = keep.
         var tokenMask: MLXArray?
@@ -122,6 +185,7 @@ public actor KleinCore: OnDeviceImageGenerating {
                 latents = tokenMask * latents + (1 - tokenMask) * pinned
             }
             eval(latents)
+            Self.trace("step \(t + 1)/\(Self.steps)")
         }
 
         // 5. Decode; for an inpaint, composite the untouched pixels back.
@@ -136,13 +200,43 @@ public actor KleinCore: OnDeviceImageGenerating {
         let pixels = MLX.round(clip(rgb / 2 + 0.5, min: 0, max: 1) * 255)
             .asType(.uint8).squeezed(axis: 0)
         eval(pixels)
+        Self.trace("decoded")
         return try Self.encodePNG(pixels: pixels.asArray(UInt8.self), width: w, height: h)
     }
 
     // MARK: - Loading
 
+    /// Drops the resident weights and returns MLX's buffer cache to the
+    /// system. The next render reloads (~1s from disk cache).
+    public func releaseModel() {
+        bundle = nil
+        MLXMemoryPolicy.releaseCache()
+        Self.trace("released")
+    }
+
+    /// After every render: hand the cache back immediately (the working
+    /// set is rebuilt in milliseconds) and arm the idle release.
+    private func finishRender() {
+        MLXMemoryPolicy.releaseCache()
+        Self.trace("cache released")
+        let mine = generation
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(MLXMemoryPolicy.idleReleaseInterval * 1_000_000_000))
+            await self?.releaseIfIdle(since: mine)
+        }
+    }
+
+    private func releaseIfIdle(since scheduled: Int) {
+        guard scheduled == generation, bundle != nil else { return }
+        releaseModel()
+    }
+
+    /// Whether weights are resident (tests and the Settings status).
+    public var isModelResident: Bool { bundle != nil }
+
     private func loadedBundle(weightsDirectory: URL) async throws -> Bundle {
         if let bundle { return bundle }
+        MLXMemoryPolicy.apply()
         do {
             let tokenizer = try await AutoTokenizer.from(
                 modelFolder: weightsDirectory.appendingPathComponent("tokenizer"))
