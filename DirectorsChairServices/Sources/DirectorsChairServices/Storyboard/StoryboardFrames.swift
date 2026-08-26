@@ -284,7 +284,12 @@ public enum StoryboardSubjects {
     /// (klein reads them as rough placement).
     public static func editInstruction(from prompt: String) -> String {
         let lines = prompt.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-        let changes = lines.filter { $0.range(of: #"^\d+\."#, options: .regularExpression) != nil }
+        // Positions become edit regions (DC-0069); as text they only
+        // tempt the model to letter coordinates onto the picture.
+        let changes = lines
+            .filter { $0.range(of: #"^\d+\."#, options: .regularExpression) != nil }
+            .map { $0.replacingOccurrences(of: #"\s*at position \(\d+%,\s*\d+%\)"#, with: "",
+                                           options: .regularExpression) }
         if !changes.isEmpty { return changes.joined(separator: "\n") }
         var text = prompt
         text = text.replacingOccurrences(

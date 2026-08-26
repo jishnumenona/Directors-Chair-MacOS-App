@@ -250,22 +250,21 @@ final class ScriptedStoryboardEngineTests: XCTestCase {
 private final class RecordingImageCore: OnDeviceImageGenerating, @unchecked Sendable {
     static let pngStub = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     struct Call {
-        let prompt: String
-        let width: Int
-        let height: Int
-        let seed: UInt64?
-        let references: [Data]
+        let request: OnDeviceRenderRequest
         let weightsDirectory: URL
+        var prompt: String { request.prompt }
+        var width: Int { request.width }
+        var height: Int { request.height }
+        var seed: UInt64? { request.seed }
+        var references: [Data] { request.references }
     }
     private let lock = NSLock()
     private var _calls: [Call] = []
     var calls: [Call] { lock.lock(); defer { lock.unlock() }; return _calls }
 
-    func renderFrame(prompt: String, width: Int, height: Int,
-                     seed: UInt64?, references: [Data], weightsDirectory: URL) async throws -> Data {
+    func render(_ request: OnDeviceRenderRequest, weightsDirectory: URL) async throws -> Data {
         lock.lock()
-        _calls.append(Call(prompt: prompt, width: width, height: height,
-                           seed: seed, references: references, weightsDirectory: weightsDirectory))
+        _calls.append(Call(request: request, weightsDirectory: weightsDirectory))
         lock.unlock()
         return Self.pngStub
     }
@@ -483,8 +482,7 @@ final class OnDeviceImageRoutingTests: XCTestCase {
 }
 
 private struct NullImageCore: OnDeviceImageGenerating {
-    func renderFrame(prompt: String, width: Int, height: Int,
-                     seed: UInt64?, references: [Data], weightsDirectory: URL) async throws -> Data {
+    func render(_ request: OnDeviceRenderRequest, weightsDirectory: URL) async throws -> Data {
         Data()
     }
 }
@@ -566,7 +564,7 @@ final class VisualBriefAndCleaningTests: XCTestCase {
             referenceMimeType: "image/png"))
         let spec = try XCTUnwrap(scripted.requests.first)
         XCTAssertEqual(spec.purpose, .edit)
-        XCTAssertEqual(spec.subject, "1. red scarf at position (40%, 55%)\n2. remove the hat at position (50%, 10%)")
+        XCTAssertEqual(spec.subject, "1. red scarf\n2. remove the hat")
         XCTAssertEqual(spec.references, [picture], "the picture being edited is the first reference")
     }
 
@@ -612,7 +610,7 @@ final class VisualBriefAndCleaningTests: XCTestCase {
     func testEditInstructionKeepsTheNumberedChangesOnly() {
         let prompt = "Edit this image by making the following changes while keeping everything else identical:\n1. red scarf at position (40%, 55%)\n2. no hat at position (50%, 10%)"
         XCTAssertEqual(StoryboardSubjects.editInstruction(from: prompt),
-                       "1. red scarf at position (40%, 55%)\n2. no hat at position (50%, 10%)")
+                       "1. red scarf\n2. no hat", "positions become regions, never lettering")
         XCTAssertEqual(StoryboardSubjects.editInstruction(from: "Edit this image by making the following changes while keeping everything else identical: make it night"),
                        "make it night")
     }
@@ -637,6 +635,44 @@ final class VisualBriefAndCleaningTests: XCTestCase {
         XCTAssertTrue(edit.contains("Keep everything not mentioned"), edit)
         XCTAssertFalse(edit.contains("comic"), edit)
     }
+
+    func testEditRegionsRideFromTheRequestToTheSpec() async throws {
+        let scripted = ScriptedStoryboardEngine()
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        let regions = [EditRegion(x: 0.4, y: 0.55), EditRegion(x: 0.5, y: 0.1, radius: 0.1)]
+        _ = try await client.generateImage(ImageGenerationRequest(
+            prompt: "Edit this image by making the following changes while keeping everything else identical:\n1. red scarf at position (40%, 55%)",
+            provider: .onDevice, referenceImageBase64: Data([1, 2, 3]).base64EncodedString(),
+            referenceMimeType: "image/png", editRegions: regions))
+        let spec = try XCTUnwrap(scripted.requests.first)
+        XCTAssertEqual(spec.editRegions, regions)
+        XCTAssertEqual(EditRegion.defaultRadius, 0.18, accuracy: 1e-9)
+    }
+
+    #if arch(arm64)
+    func testRegionMaskIsOneInsideZeroFarAndSoftBetween() {
+        // 16-token grid over a 256×256 picture, one region at the centre.
+        let mask = KleinCore.regionMask(regions: [EditRegion(x: 0.5, y: 0.5, radius: 0.2)],
+                                        width: 256, height: 256, gridWidth: 16, gridHeight: 16, feather: 0.06)
+        XCTAssertEqual(mask.count, 256)
+        XCTAssertEqual(mask[8 * 16 + 8], 1, "centre token is fully repainted")
+        XCTAssertEqual(mask[0], 0, "a far corner is kept")
+        let ring = mask[8 * 16 + 11]   // ~0.22 from the centre: inside the feather band
+        XCTAssertGreaterThan(ring, 0); XCTAssertLessThan(ring, 1)
+        // Two regions: the max wins, never a sum above 1.
+        let two = KleinCore.regionMask(regions: [EditRegion(x: 0.5, y: 0.5, radius: 0.2), EditRegion(x: 0.5, y: 0.5, radius: 0.3)],
+                                       width: 256, height: 256, gridWidth: 16, gridHeight: 16, feather: 0.06)
+        XCTAssertEqual(two.max(), 1)
+        // A landscape picture measures distances against the shorter side.
+        let wide = KleinCore.regionMask(regions: [EditRegion(x: 0.5, y: 0.5, radius: 0.2)],
+                                        width: 512, height: 256, gridWidth: 32, gridHeight: 16, feather: 0)
+        XCTAssertEqual(wide[8 * 32 + 16], 1)
+        XCTAssertEqual(wide[8 * 32 + 31], 0)
+    }
+    #endif
 
     func testRetiringTheReplacedModelRemovesOnlyItsWeightsAndMarker() throws {
         let root = FileManager.default.temporaryDirectory

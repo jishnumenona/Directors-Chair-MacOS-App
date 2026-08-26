@@ -201,12 +201,11 @@ public final class LocalImageEngine: StoryboardEngine, @unchecked Sendable {
         let style = spec.style ?? AIProviderSelection.shared.visualStyle
         let prompt = StoryboardPromptStyler.prompt(spec, style: style)
         do {
-            return try await core.renderFrame(prompt: prompt,
-                                              width: spec.width,
-                                              height: spec.height,
-                                              seed: spec.seed,
-                                              references: spec.references,
-                                              weightsDirectory: weightsDirectory)
+            return try await core.render(
+                OnDeviceRenderRequest(prompt: prompt, width: spec.width, height: spec.height,
+                                      seed: spec.seed, references: spec.references,
+                                      editRegions: spec.editRegions),
+                weightsDirectory: weightsDirectory)
         } catch let error as StoryboardEngineError {
             throw error
         } catch {

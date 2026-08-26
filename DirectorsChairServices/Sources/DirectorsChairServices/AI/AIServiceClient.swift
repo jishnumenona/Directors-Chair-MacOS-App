@@ -186,6 +186,10 @@ public struct ImageGenerationRequest: Sendable {
     /// framing); `prompt` stays the cloud providers' photoreal text.
     /// nil = the on-device route recovers a subject from `prompt`.
     public var brief: VisualBrief?
+    /// DC-0069: marked spots of an annotation edit — the on-device
+    /// engine repaints only these; cloud providers read the positions
+    /// from the prompt text as before.
+    public var editRegions: [EditRegion]
 
     public init(
         prompt: String,
@@ -196,7 +200,8 @@ public struct ImageGenerationRequest: Sendable {
         referenceImageBase64: String? = nil,
         referenceMimeType: String? = nil,
         referenceImages: [ReferenceImage]? = nil,
-        brief: VisualBrief? = nil
+        brief: VisualBrief? = nil,
+        editRegions: [EditRegion] = []
     ) {
         self.prompt = prompt
         self.provider = provider
@@ -207,6 +212,7 @@ public struct ImageGenerationRequest: Sendable {
         self.referenceMimeType = referenceMimeType
         self.referenceImages = referenceImages
         self.brief = brief
+        self.editRegions = editRegions
     }
 
     /// True for "change this existing picture" asks (annotation edits,
@@ -786,7 +792,7 @@ public actor AIServiceClient {
             }
             let frame = try await Self.onDeviceImageEngine.generateFrame(
                 StoryboardFrameSpec(brief: brief, width: size.width, height: size.height,
-                                    references: references))
+                                    references: references, editRegions: request.editRegions))
             return ImageGenerationResponse(
                 images: [frame], provider: .onDevice,
                 model: LocalImageEngine.model.id)   // on-device = $0

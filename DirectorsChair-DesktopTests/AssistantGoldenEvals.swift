@@ -1109,9 +1109,9 @@ final class KleinCoreParityEvals: XCTestCase {
         let f = try loadFixtures()
         let core = KleinCore()
         let started = Date()
-        let png = try await core.renderFrame(prompt: try XCTUnwrap(f.prompts["t2i"]), width: 512, height: 512,
-                                             seed: 42, references: [],
-                                             weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let png = try await core.render(
+            OnDeviceRenderRequest(prompt: try XCTUnwrap(f.prompts["t2i"]), width: 512, height: 512, seed: 42),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
         let seconds = Date().timeIntervalSince(started)
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-parity-t2i.png")
         try png.write(to: out)
@@ -1127,9 +1127,10 @@ final class KleinCoreParityEvals: XCTestCase {
         let reference = try Data(contentsOf: f.directory.appendingPathComponent("ref_char_sketch.png"))
         let core = KleinCore()
         let started = Date()
-        let png = try await core.renderFrame(prompt: try XCTUnwrap(f.prompts["edit"]), width: 512, height: 512,
-                                             seed: 42, references: [reference],
-                                             weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let png = try await core.render(
+            OnDeviceRenderRequest(prompt: try XCTUnwrap(f.prompts["edit"]), width: 512, height: 512,
+                                  seed: 42, references: [reference]),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
         let seconds = Date().timeIntervalSince(started)
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-parity-edit.png")
         try png.write(to: out)
@@ -1137,5 +1138,44 @@ final class KleinCoreParityEvals: XCTestCase {
         print("[KleinParity] edit mean diff \(diff.mean) within8 \(diff.within8) in \(String(format: "%.1f", seconds))s → \(out.path)")
         XCTAssertLessThan(diff.mean, 0.06, "the reference path (VAE encode → tokens) must match too")
         XCTAssertGreaterThan(diff.within8, 0.5)
+    }
+
+    /// DC-0069: an annotation edit repaints the marked spot and NOTHING
+    /// else — pixels outside the region are byte-identical to the source.
+    func testInpaintChangesOnlyTheMarkedRegion() async throws {
+        let f = try loadFixtures()
+        let sourceData = try Data(contentsOf: f.directory.appendingPathComponent("ref_char_sketch.png"))
+        let region = EditRegion(x: 0.5, y: 0.62, radius: 0.16)      // the jacket front
+        let core = KleinCore()
+        let started = Date()
+        let png = try await core.render(
+            OnDeviceRenderRequest(prompt: "1. a large round enamel badge pinned on the jacket\nKeep everything not mentioned exactly as it is in the picture.",
+                                  width: 640, height: 640, seed: 7,
+                                  references: [sourceData], editRegions: [region]),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let seconds = Date().timeIntervalSince(started)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-inpaint.png")
+        try png.write(to: out)
+        let a = try XCTUnwrap(NSBitmapImageRep(data: png))
+        let b = try XCTUnwrap(NSBitmapImageRep(data: sourceData))
+        XCTAssertEqual(a.pixelsWide, b.pixelsWide, "an inpaint keeps the source size")
+        XCTAssertEqual(a.pixelsHigh, b.pixelsHigh)
+        let (w, h) = (a.pixelsWide, a.pixelsHigh)
+        var outsideDiff: Float = 0, outsideN = 0, insideDiff: Float = 0, insideN = 0
+        for y in stride(from: 0, to: h, by: 4) {
+            for x in stride(from: 0, to: w, by: 4) {
+                guard let ca = a.colorAt(x: x, y: y), let cb = b.colorAt(x: x, y: y) else { continue }
+                let d = (abs(Float(ca.redComponent - cb.redComponent)) + abs(Float(ca.greenComponent - cb.greenComponent))
+                         + abs(Float(ca.blueComponent - cb.blueComponent))) / 3
+                let dx = (Double(x) / Double(w) - region.x) * Double(w), dy = (Double(y) / Double(h) - region.y) * Double(h)
+                let dist = (dx * dx + dy * dy).squareRoot() / Double(min(w, h))
+                if dist > region.radius + KleinCore.regionFeather + 0.01 { outsideDiff += d; outsideN += 1 }
+                else if dist < region.radius * 0.6 { insideDiff += d; insideN += 1 }
+            }
+        }
+        let outside = outsideDiff / Float(outsideN), inside = insideDiff / Float(insideN)
+        print("[KleinParity] inpaint outside-region diff \(outside) inside \(inside) in \(String(format: "%.1f", seconds))s → \(out.path)")
+        XCTAssertLessThan(outside, 0.002, "everything outside the marked region must be untouched")
+        XCTAssertGreaterThan(inside, 0.01, "the marked region must actually change")
     }
 }

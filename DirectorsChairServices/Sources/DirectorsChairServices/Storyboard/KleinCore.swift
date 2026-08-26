@@ -9,6 +9,13 @@
 // the VAE and placed on their own time plane, so the transformer can
 // look at them while it draws. 4 distilled steps, no guidance.
 //
+// Local edits (DC-0069): when the request carries edit regions, the
+// render becomes an inpaint of the first reference at its own size —
+// outside the marked regions the latents are pinned to the original's
+// (re-noised to each step's σ, RePaint-style) and the final pixels are
+// composited back, so an annotation changes what was marked and
+// nothing else.
+//
 // An actor: one picture at a time — a second concurrent render would
 // double a ~5GB working set for no wall-clock win.
 
@@ -28,6 +35,8 @@ public actor KleinCore: OnDeviceImageGenerating {
     /// References are conditioned at no more than this many pixels
     /// (aspect-preserving downscale, then a centre crop to 16px multiples).
     static let maxReferenceArea = 1024 * 1024
+    /// Soft edge of an edit region, as a fraction of the shorter side.
+    static let regionFeather = 0.06
 
     private struct Bundle {
         let tokenizer: any Tokenizer
@@ -40,43 +49,60 @@ public actor KleinCore: OnDeviceImageGenerating {
 
     public init() {}
 
-    public func renderFrame(prompt: String, width: Int, height: Int,
-                            seed: UInt64?, references: [Data],
-                            weightsDirectory: URL) async throws -> Data {
-        let w = max(256, 16 * (width / 16))
-        let h = max(256, 16 * (height / 16))
+    public func render(_ request: OnDeviceRenderRequest, weightsDirectory: URL) async throws -> Data {
         let bundle = try await loadedBundle(weightsDirectory: weightsDirectory)
+
+        // 0. Decode references. An inpaint renders at the source's size.
+        var sources: [MLXArray] = []
+        for data in request.references {
+            guard let image = Self.referenceArray(from: data) else {
+                throw StoryboardEngineError.generationFailed("A reference picture could not be read.")
+            }
+            sources.append(image)
+        }
+        let inpainting = !request.editRegions.isEmpty && !sources.isEmpty
+        let (w, h): (Int, Int) = inpainting
+            ? (sources[0].dim(2), sources[0].dim(1))
+            : (max(256, 16 * (request.width / 16)), max(256, 16 * (request.height / 16)))
 
         // 1. Prompt → the klein context (Qwen chat template, thinking off,
         //    padded to 512 inside the encoder).
-        let ids = Self.tokenIds(for: prompt, tokenizer: bundle.tokenizer)
+        let ids = Self.tokenIds(for: request.prompt, tokenizer: bundle.tokenizer)
         let context = bundle.textEncoder.encode(ids).expandedDimensions(axis: 0)   // [1, 512, 7680]
         let textIds = Self.textIds(count: KleinTextEncoder.maxTokens)
 
         // 2. Seeded noise in patch space, packed row-major.
         let (lh, lw) = (h / 16, w / 16)
-        let frameSeed = seed ?? UInt64.random(in: 0 ..< UInt64(Int32.max))
-        var latents = MLXRandom.normal([1, KleinVAE.packedChannels, lh, lw],
-                                       key: MLXRandom.key(frameSeed))
+        let frameSeed = request.seed ?? UInt64.random(in: 0 ..< UInt64(Int32.max))
+        let noise = MLXRandom.normal([1, KleinVAE.packedChannels, lh, lw],
+                                     key: MLXRandom.key(frameSeed))
             .asType(Self.precision)
             .reshaped([1, KleinVAE.packedChannels, lh * lw])
             .transposed(0, 2, 1)                                          // [1, N, 128]
+        var latents = noise
         let imageIds = Self.gridIds(height: lh, width: lw, t: 0)
 
         // 3. References → extra image tokens on time planes 10, 20, …
         var refTokens: [MLXArray] = []
         var refIds: [MLXArray] = []
-        for (i, data) in references.enumerated() {
-            guard let image = Self.referenceArray(from: data) else {
-                throw StoryboardEngineError.generationFailed("A reference picture could not be read.")
-            }
-            let encoded = bundle.vae.encodeReference(image)
+        var clean: MLXArray?
+        for (i, image) in sources.enumerated() {
+            let encoded = bundle.vae.encodeReference(image.asType(Self.precision))
             refTokens.append(encoded.tokens)
             refIds.append(Self.gridIds(height: encoded.height, width: encoded.width, t: Int32(10 + 10 * i)))
             eval(encoded.tokens)
+            if i == 0 && inpainting { clean = encoded.tokens }             // same grid as the output
         }
         let allIds = concatenated([imageIds] + refIds, axis: 0)
         let n = lh * lw
+
+        // Token-space keep mask for an inpaint: 1 = repaint, 0 = keep.
+        var tokenMask: MLXArray?
+        if inpainting {
+            let values = Self.regionMask(regions: request.editRegions, width: w, height: h,
+                                         gridWidth: lw, gridHeight: lh, feather: Self.regionFeather)
+            tokenMask = MLXArray(values, [1, n, 1]).asType(Self.precision)
+        }
 
         // 4. Resolution-shifted schedule and the Euler loop.
         let sigmas = Self.schedule(imageTokens: n, steps: Self.steps)
@@ -86,14 +112,28 @@ public actor KleinCore: OnDeviceImageGenerating {
                 latents: hidden, context: context,
                 timestep: MLXArray(sigmas[t] * 1000),
                 imageIds: allIds, textIds: textIds)[0..., ..<n, 0...]
-            let dt = MLXArray(sigmas[t + 1] - sigmas[t]).asType(latents.dtype)
+            let next = sigmas[t + 1]
+            let dt = MLXArray(next - sigmas[t]).asType(latents.dtype)
             latents = latents + dt * velocity.asType(latents.dtype)
+            if let tokenMask, let clean {
+                // Outside the marked regions, the trajectory is the
+                // original re-noised to σ_{t+1}; at σ=0 that is the original.
+                let pinned = clean * (1 - next) + noise * next
+                latents = tokenMask * latents + (1 - tokenMask) * pinned
+            }
             eval(latents)
         }
 
-        // 5. Decode and encode PNG.
-        let rgb = bundle.vae.decodePacked(latents, height: lh, width: lw)   // [1, H, W, 3] in [-1, 1]
-        let pixels = MLX.round(clip(rgb.asType(.float32) / 2 + 0.5, min: 0, max: 1) * 255)
+        // 5. Decode; for an inpaint, composite the untouched pixels back.
+        var rgb = bundle.vae.decodePacked(latents, height: lh, width: lw).asType(.float32) // [1, H, W, 3] in [-1, 1]
+        if inpainting {
+            let pixelMask = MLXArray(
+                Self.regionMask(regions: request.editRegions, width: w, height: h,
+                                gridWidth: w, gridHeight: h, feather: Self.regionFeather),
+                [1, h, w, 1])
+            rgb = pixelMask * rgb + (1 - pixelMask) * sources[0]
+        }
+        let pixels = MLX.round(clip(rgb / 2 + 0.5, min: 0, max: 1) * 255)
             .asType(.uint8).squeezed(axis: 0)
         eval(pixels)
         return try Self.encodePNG(pixels: pixels.asArray(UInt8.self), width: w, height: h)
@@ -180,11 +220,42 @@ public actor KleinCore: OnDeviceImageGenerating {
         return sigmas
     }
 
+    // MARK: - Edit regions
+
+    /// Soft mask over a grid (token grid or pixel grid) for the marked
+    /// regions: 1 inside a region, falling to 0 over `feather`, distances
+    /// measured as fractions of the picture's shorter side. Pure Swift so
+    /// it is testable without MLX.
+    static func regionMask(regions: [EditRegion], width: Int, height: Int,
+                           gridWidth: Int, gridHeight: Int, feather: Double) -> [Float] {
+        let shorter = Double(min(width, height))
+        var values = [Float](repeating: 0, count: gridWidth * gridHeight)
+        for row in 0 ..< gridHeight {
+            let cy = (Double(row) + 0.5) / Double(gridHeight)
+            for col in 0 ..< gridWidth {
+                let cx = (Double(col) + 0.5) / Double(gridWidth)
+                var best = 0.0
+                for region in regions {
+                    let dx = (cx - region.x) * Double(width)
+                    let dy = (cy - region.y) * Double(height)
+                    let distance = (dx * dx + dy * dy).squareRoot() / shorter
+                    let value = feather > 0
+                        ? min(1, max(0, (region.radius + feather - distance) / feather))
+                        : (distance <= region.radius ? 1 : 0)
+                    best = max(best, value)
+                }
+                values[row * gridWidth + col] = Float(best)
+            }
+        }
+        return values
+    }
+
     // MARK: - Reference pictures
 
-    /// Decodes a PNG/JPEG into [1, H, W, 3] in [-1, 1] at the conditioning
-    /// size: aspect-preserving downscale to ≤ 1024² pixels, then a centre
-    /// crop so both sides are multiples of 16 (mflux prepare_reference_image).
+    /// Decodes a PNG/JPEG into [1, H, W, 3] fp32 in [-1, 1] at the
+    /// conditioning size: aspect-preserving downscale to ≤ 1024² pixels,
+    /// then a centre crop so both sides are multiples of 16 (mflux
+    /// prepare_reference_image).
     static func referenceArray(from data: Data) -> MLXArray? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
@@ -215,7 +286,7 @@ public actor KleinCore: OnDeviceImageGenerating {
             floats[i * 3 + 1] = Float(pixels[i * 4 + 1]) / 255
             floats[i * 3 + 2] = Float(pixels[i * 4 + 2]) / 255
         }
-        return (MLXArray(floats, [1, th, tw, 3]) * 2 - 1).asType(precision)
+        return MLXArray(floats, [1, th, tw, 3]) * 2 - 1
     }
 
     // MARK: - PNG

@@ -92,6 +92,47 @@ public struct VisualBrief: Equatable, Sendable {
     }
 }
 
+/// One marked spot on a picture being edited (DC-0069): normalised
+/// centre plus a radius as a fraction of the shorter side. The engine
+/// repaints ONLY inside these regions; every other pixel is kept.
+public struct EditRegion: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var radius: Double
+
+    /// The default reach of an annotation pin — a marked spot names a
+    /// part (a scarf, a lamp), not a pixel.
+    public static let defaultRadius = 0.18
+
+    public init(x: Double, y: Double, radius: Double = EditRegion.defaultRadius) {
+        self.x = x
+        self.y = y
+        self.radius = radius
+    }
+}
+
+/// Everything the diffusion core needs for one render.
+public struct OnDeviceRenderRequest: Equatable, Sendable {
+    public var prompt: String
+    public var width: Int
+    public var height: Int
+    public var seed: UInt64?
+    public var references: [Data]
+    /// Non-empty = inpaint: repaint only these regions of `references[0]`
+    /// at that picture's own size.
+    public var editRegions: [EditRegion]
+
+    public init(prompt: String, width: Int, height: Int, seed: UInt64? = nil,
+                references: [Data] = [], editRegions: [EditRegion] = []) {
+        self.prompt = prompt
+        self.width = width
+        self.height = height
+        self.seed = seed
+        self.references = references
+        self.editRegions = editRegions
+    }
+}
+
 // MARK: - Frame request
 
 /// One storyboard frame ask. The subject is plain scene/shot language —
@@ -111,13 +152,15 @@ public struct StoryboardFrameSpec: Equatable, Sendable {
     /// on them, a place to revisit. Order matters — the first is "the
     /// reference picture" in prompt language.
     public var references: [Data]
+    /// Marked spots for a local edit of `references[0]` (DC-0069).
+    public var editRegions: [EditRegion]
 
     /// 16:9 default (768×432, both multiples of 16 for the latent grid) —
     /// storyboard frames are film frames, not squares.
     public init(subject: String, notes: String? = nil,
                 width: Int = 768, height: Int = 432, seed: UInt64? = nil,
                 purpose: VisualPurpose = .shot, style: VisualStyle? = nil,
-                references: [Data] = []) {
+                references: [Data] = [], editRegions: [EditRegion] = []) {
         self.subject = subject
         self.notes = notes
         self.width = width
@@ -126,13 +169,16 @@ public struct StoryboardFrameSpec: Equatable, Sendable {
         self.purpose = purpose
         self.style = style
         self.references = references
+        self.editRegions = editRegions
     }
 
     public init(brief: VisualBrief, width: Int = 768, height: Int = 432,
-                seed: UInt64? = nil, style: VisualStyle? = nil, references: [Data] = []) {
+                seed: UInt64? = nil, style: VisualStyle? = nil, references: [Data] = [],
+                editRegions: [EditRegion] = []) {
         self.init(subject: brief.subject, notes: brief.framing,
                   width: width, height: height, seed: seed,
-                  purpose: brief.purpose, style: style, references: references)
+                  purpose: brief.purpose, style: style, references: references,
+                  editRegions: editRegions)
     }
 }
 
@@ -197,13 +243,12 @@ public protocol StoryboardEngine: AnyObject, Sendable {
 /// download/consent machinery ships and is testable independently of
 /// the diffusion core.
 public protocol OnDeviceImageGenerating: Sendable {
-    /// `prompt` is the fully-styled text; `references` are encoded
-    /// pictures to condition on (empty = pure text-to-image);
-    /// `weightsDirectory` is where the engine's snapshot lives on disk.
-    /// Returns encoded PNG bytes.
-    func renderFrame(prompt: String, width: Int, height: Int,
-                     seed: UInt64?, references: [Data],
-                     weightsDirectory: URL) async throws -> Data
+    /// `request.prompt` is the fully-styled text; references are encoded
+    /// pictures to condition on (empty = pure text-to-image); edit
+    /// regions turn the render into a local repaint of the first
+    /// reference. `weightsDirectory` is where the engine's snapshot lives
+    /// on disk. Returns encoded PNG bytes.
+    func render(_ request: OnDeviceRenderRequest, weightsDirectory: URL) async throws -> Data
 }
 
 // MARK: - Test double
