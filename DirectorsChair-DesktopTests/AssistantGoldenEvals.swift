@@ -833,3 +833,83 @@ final class LocalModelEvals: XCTestCase {
                       "rubric failures:\n" + failures.joined(separator: "\n"))
     }
 }
+
+// MARK: - Storyboard core real-frame evals (DC-0065)
+
+/// REAL diffusion through the native Z-Image core — full MLX inside the
+/// app bundle (the metallib rule), gated exactly like the text evals:
+/// skips on CI Macs without the 5.5GB weights or with
+/// DC_SKIP_LOCAL_EVALS=1. The rubric is objective: the locked ink-sketch
+/// style must produce a near-monochrome, non-blank frame of the exact
+/// requested size within a sane time; the rendered PNG is left in the
+/// temporary directory for eyeball/parity checks against the mflux
+/// reference frames (seeds 42/7/101).
+final class StoryboardCoreRealEvals: XCTestCase {
+
+    private func requireWeights() throws {
+        if ProcessInfo.processInfo.environment["DC_SKIP_LOCAL_EVALS"] == "1" {
+            throw XCTSkip("DC_SKIP_LOCAL_EVALS=1")
+        }
+        guard ZImageStoryboardEngine.shared.isModelDownloaded() else {
+            throw XCTSkip("storyboard model not on disk — evals need real weights")
+        }
+    }
+
+    func testRendersTheReferenceFrameSubjectAsInkSketch() async throws {
+        try requireWeights()
+        let spec = StoryboardFrameSpec(
+            subject: "Maya slams the deed onto the farmhouse kitchen table. Setting: INT. FARMHOUSE KITCHEN, Night, Storm",
+            notes: "Close-up, Low angle, 85mm lens",
+            width: 768, height: 432, seed: 42)
+
+        let started = Date()
+        let png = try await ZImageStoryboardEngine.shared.generateFrame(spec)
+        let seconds = Date().timeIntervalSince(started)
+
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-storyboard-eval-seed42.png")
+        try png.write(to: out)
+        print("[StoryboardEval] frame written to \(out.path) in \(String(format: "%.1f", seconds))s")
+
+        XCTAssertLessThan(seconds, 300, "a single 768×432 frame must not take 5 minutes")
+
+        let image = try XCTUnwrap(NSImage(data: png), "output must decode as an image")
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: png))
+        XCTAssertEqual(rep.pixelsWide, 768)
+        XCTAssertEqual(rep.pixelsHigh, 432)
+        _ = image
+
+        // Objective look checks on a coarse sample grid.
+        var luminance: [Double] = []
+        var colorDivergence: [Double] = []
+        for y in stride(from: 8, to: 432, by: 24) {
+            for x in stride(from: 8, to: 768, by: 24) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let (r, g, b) = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
+                luminance.append((r + g + b) / 3)
+                colorDivergence.append(abs(r - g) + abs(g - b))
+            }
+        }
+        let mean = luminance.reduce(0, +) / Double(luminance.count)
+        let variance = luminance.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(luminance.count)
+        XCTAssertGreaterThan(variance.squareRoot(), 0.05,
+                             "frame must not be blank/flat (σ=\(variance.squareRoot()))")
+        let meanDivergence = colorDivergence.reduce(0, +) / Double(colorDivergence.count)
+        XCTAssertLessThan(meanDivergence, 0.25,
+                          "ink-sketch frames must be near-monochrome (divergence=\(meanDivergence))")
+    }
+
+    func testSeedsChangeTheFrameDeterministically() async throws {
+        try requireWeights()
+        // Small frames keep this pair affordable; determinism and seed
+        // sensitivity are resolution-independent properties.
+        let a = try await ZImageStoryboardEngine.shared.generateFrame(
+            .init(subject: "A lighthouse on a cliff", width: 384, height: 256, seed: 7))
+        let b = try await ZImageStoryboardEngine.shared.generateFrame(
+            .init(subject: "A lighthouse on a cliff", width: 384, height: 256, seed: 7))
+        let c = try await ZImageStoryboardEngine.shared.generateFrame(
+            .init(subject: "A lighthouse on a cliff", width: 384, height: 256, seed: 8))
+        XCTAssertEqual(a, b, "same seed must reproduce the identical PNG")
+        XCTAssertNotEqual(a, c, "a different seed must draw a different frame")
+    }
+}

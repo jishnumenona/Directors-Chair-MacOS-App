@@ -25,11 +25,18 @@ public final class ZImageStoryboardEngine: StoryboardEngine, @unchecked Sendable
     /// The single bundled model (owner decision 2026-08-25 — no picker).
     public static let model = StoryboardModel.zImageTurbo
 
-    /// The diffusion core, injected by the app target at launch (DC-0065).
-    /// nil in SPM test runners and in builds where the core hasn't landed
-    /// — generateFrame then fails with an honest message instead of a
-    /// broken surface.
-    nonisolated(unsafe) public static var core: (any OnDeviceImageGenerating)?
+    /// The diffusion core (DC-0065): the native MLX Z-Image pipeline by
+    /// default on Apple Silicon — construction touches no MLX state, so
+    /// SPM test runners stay safe (the metallib rule) and tests swap in
+    /// scripted cores freely. nil (non-arm64) keeps generateFrame failing
+    /// with an honest message instead of a broken surface.
+    nonisolated(unsafe) public static var core: (any OnDeviceImageGenerating)? = {
+        #if arch(arm64)
+        return ZImageCore()
+        #else
+        return nil
+        #endif
+    }()
 
     /// Free space the preflight insists on BEYOND the model itself —
     /// downloading 5.5GB onto a nearly-full disk trades a feature for a
