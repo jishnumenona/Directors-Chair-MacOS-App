@@ -1140,6 +1140,29 @@ final class KleinCoreParityEvals: XCTestCase {
         XCTAssertGreaterThan(diff.within8, 0.5)
     }
 
+    /// Ad-hoc local edit on any picture — for reproducing an owner report
+    /// through the real core: DC_KLEIN_ADHOC_SOURCE=<png> DC_KLEIN_ADHOC_REGION="x,y,r"
+    /// DC_KLEIN_ADHOC_PROMPT="1. …". Skips without the env; writes
+    /// dc-klein-adhoc.png to the temporary directory.
+    func testAdhocLocalEditFromEnvironment() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let source = env["DC_KLEIN_ADHOC_SOURCE"], let regionText = env["DC_KLEIN_ADHOC_REGION"],
+              let prompt = env["DC_KLEIN_ADHOC_PROMPT"] else { throw XCTSkip("no ad-hoc edit requested") }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        let parts = regionText.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 3 else { return XCTFail("region must be x,y,r") }
+        let data = try Data(contentsOf: URL(fileURLWithPath: source))
+        let started = Date()
+        let png = try await KleinCore().render(
+            OnDeviceRenderRequest(prompt: prompt + "\nKeep everything not mentioned exactly as it is in the picture.",
+                                  width: 0, height: 0, seed: 42, references: [data],
+                                  editRegions: [EditRegion(x: parts[0], y: parts[1], radius: parts[2])]),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-adhoc.png")
+        try png.write(to: out)
+        print("[KleinParity] ad-hoc edit in \(String(format: "%.1f", Date().timeIntervalSince(started)))s → \(out.path)")
+    }
+
     /// DC-0069: an annotation edit repaints the marked spot and NOTHING
     /// else — pixels outside the region are byte-identical to the source.
     func testInpaintChangesOnlyTheMarkedRegion() async throws {

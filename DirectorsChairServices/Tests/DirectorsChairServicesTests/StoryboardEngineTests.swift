@@ -613,6 +613,12 @@ final class VisualBriefAndCleaningTests: XCTestCase {
                        "1. red scarf\n2. no hat", "positions become regions, never lettering")
         XCTAssertEqual(StoryboardSubjects.editInstruction(from: "Edit this image by making the following changes while keeping everything else identical: make it night"),
                        "make it night")
+        // The scene/shot preview annotation form (ImageAnnotationEditor).
+        let preview = "Edit this scene preview with the following changes:\n1. At (43%, 15%): remove the speech bubble that says KEEP\nKeep all other areas unchanged.\n\nOriginal prompt: Cinematic film still, porch at dusk"
+        XCTAssertEqual(StoryboardSubjects.editInstruction(from: preview), "1. remove the speech bubble that says KEEP")
+        XCTAssertTrue(ImageGenerationRequest(prompt: preview).isEditOfExistingImage)
+        XCTAssertTrue(ImageGenerationRequest(prompt: "Edit this shot preview with the following changes:\n1. At (1%, 2%): x").isEditOfExistingImage)
+        XCTAssertFalse(ImageGenerationRequest(prompt: "Editorial photo of a door").isEditOfExistingImage)
     }
 
     func testReferencePromptsFollowTheReferenceLookForContinuityPurposes() {

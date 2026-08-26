@@ -290,6 +290,8 @@ public enum StoryboardSubjects {
             .filter { $0.range(of: #"^\d+\."#, options: .regularExpression) != nil }
             .map { $0.replacingOccurrences(of: #"\s*at position \(\d+%,\s*\d+%\)"#, with: "",
                                            options: .regularExpression) }
+            .map { $0.replacingOccurrences(of: #"^(\d+\.)\s*At \(\d+%,\s*\d+%\):\s*"#, with: "$1 ",
+                                           options: .regularExpression) }
         if !changes.isEmpty { return changes.joined(separator: "\n") }
         var text = prompt
         text = text.replacingOccurrences(

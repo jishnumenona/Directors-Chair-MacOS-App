@@ -770,12 +770,17 @@ struct ShotPreviewSection: View {
                     refs.append(contentsOf: sceneRefs)
                 }
 
+                // DC-0069: on-device this is a local repaint of the current
+                // preview (refs[0]) inside the pinned regions.
                 let request = ImageGenerationRequest(
                     prompt: combinedPrompt,
                     provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
-                    referenceImages: refs.isEmpty ? nil : refs
+                    referenceImages: refs.isEmpty ? nil : refs,
+                    brief: VisualBrief(purpose: .edit,
+                                       subject: StoryboardSubjects.editInstruction(from: editPrompt)),
+                    editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) }
                 )
 
                 let response = try await aiClient.generateImage(request)

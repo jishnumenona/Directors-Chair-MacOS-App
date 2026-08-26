@@ -219,7 +219,8 @@ public struct ImageGenerationRequest: Sendable {
     /// vision-board redraws): they only make sense with a provider that
     /// takes the picture as input.
     public var isEditOfExistingImage: Bool {
-        prompt.lowercased().hasPrefix("edit this image")
+        // "Edit this image…", "Edit this scene preview…", "Edit this shot preview…"
+        prompt.lowercased().hasPrefix("edit this ")
     }
 }
 

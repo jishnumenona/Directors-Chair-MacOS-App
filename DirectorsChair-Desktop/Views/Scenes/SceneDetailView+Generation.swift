@@ -32,12 +32,23 @@ extension SceneDetailView {
         }
     }
 
-    func generateOverviewImage(with customPrompt: String? = nil) {
+    func generateOverviewImage(with customPrompt: String? = nil,
+                               editRegions: [EditRegion] = []) {
         guard let basePath = projectBasePath else { return }
         isGeneratingImage = true
 
         let prompt = customPrompt ?? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene)
         lastUsedPrompt = prompt
+
+        // DC-0069: an annotation edit on-device is a LOCAL repaint of the
+        // picture on screen — that picture rides as the reference, the pins
+        // as regions. Cloud providers keep their proven request unchanged.
+        let localEdit: (png: Data, regions: [EditRegion])? = {
+            guard !editRegions.isEmpty,
+                  AIProviderSelection.shared.provider(for: .image) == .onDevice,
+                  let png = currentHeroPNG(basePath: basePath) else { return nil }
+            return (png, editRegions)
+        }()
 
         Task {
             do {
@@ -58,12 +69,16 @@ extension SceneDetailView {
                     provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
-                    referenceImageBase64: ref?.base64,
-                    referenceMimeType: ref?.mimeType,
-                    brief: VisualBrief(
-                        purpose: .scene,
-                        subject: customPrompt.map(StoryboardSubjects.plainSubject)
-                            ?? StoryboardSubjects.subject(for: scene))
+                    referenceImageBase64: localEdit?.png.base64EncodedString() ?? ref?.base64,
+                    referenceMimeType: localEdit != nil ? "image/png" : ref?.mimeType,
+                    brief: localEdit != nil
+                        ? VisualBrief(purpose: .edit,
+                                      subject: StoryboardSubjects.editInstruction(from: prompt))
+                        : VisualBrief(
+                            purpose: .scene,
+                            subject: customPrompt.map(StoryboardSubjects.plainSubject)
+                                ?? StoryboardSubjects.subject(for: scene)),
+                    editRegions: localEdit?.regions ?? []
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -126,7 +141,23 @@ extension SceneDetailView {
         let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "scene preview")
         let basePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
         let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
-        generateOverviewImage(with: combinedPrompt)
+        generateOverviewImage(with: combinedPrompt,
+                              editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) })
+    }
+
+    /// The picture currently on screen as PNG bytes — the hero image if
+    /// loaded, else the scene's latest overview file.
+    private func currentHeroPNG(basePath: URL) -> Data? {
+        if let image = heroImage, let tiff = image.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiff),
+           let png = bitmap.representation(using: .png, properties: [:]) {
+            return png
+        }
+        let latest = basePath
+            .appendingPathComponent("assets/scenes")
+            .appendingPathComponent(SceneCardHelpers.sanitizeFilename(scene.name))
+            .appendingPathComponent("overview_latest.png")
+        return try? Data(contentsOf: latest)
     }
 
     // MARK: - Download
