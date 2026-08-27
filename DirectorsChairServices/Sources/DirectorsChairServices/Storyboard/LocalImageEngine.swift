@@ -199,7 +199,16 @@ public final class LocalImageEngine: StoryboardEngine, @unchecked Sendable {
         // The look: the spec's explicit choice, else the owner's Settings
         // choice at this moment (DC-0066) — never a hardcoded style.
         let style = spec.style ?? AIProviderSelection.shared.visualStyle
-        let prompt = StoryboardPromptStyler.prompt(spec, style: style)
+        // Story purposes are drawn from what the camera SEES, not from the
+        // action line (prose becomes lettering; see VisualBriefWriter).
+        var drawn = spec
+        if [.shot, .scene, .moodboard].contains(spec.purpose) {
+            drawn.subject = await VisualBriefWriter.visualDescription(of: spec.subject)
+        }
+        let prompt = StoryboardPromptStyler.prompt(drawn, style: style)
+        if ProcessInfo.processInfo.environment["DC_KLEIN_PROMPTTRACE"] == "1" {
+            print("[KleinPrompt] rewritten=\(drawn.subject != spec.subject)\n\(prompt)")
+        }
         do {
             return try await core.render(
                 OnDeviceRenderRequest(prompt: prompt, width: spec.width, height: spec.height,

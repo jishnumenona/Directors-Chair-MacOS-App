@@ -122,11 +122,14 @@ public enum StoryboardPromptStyler {
             }
         }
         guard !sentences.isEmpty else { return nil }
-        // Several pictures tempt the model into a multi-panel page; say
-        // what the page IS instead (positives only — negatives are ignored).
-        let opening = sentences.count > 1
-            ? "Compose one single frame, one continuous scene across the whole page, in which all of these appear together. "
-            : ""
+        // Reference pictures tempt the model into reproducing them as a
+        // sheet of panels with lettering (the owner's collage). Say what
+        // the page IS, in positives only — negatives are ignored: one
+        // new wordless frame, the pictures used for likeness alone.
+        let opening = "These pictures are only for likeness. Draw one new picture of the shot described above: " +
+            "a single wordless frame filling the entire page edge to edge, one continuous scene, the people " +
+            "speaking through expression and gesture alone, with everyone and everything from the pictures " +
+            "placed inside that one scene. "
         return opening + sentences.joined(separator: " ")
     }
 

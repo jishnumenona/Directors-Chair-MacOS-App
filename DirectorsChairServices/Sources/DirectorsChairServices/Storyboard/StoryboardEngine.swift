@@ -284,6 +284,10 @@ public final class ScriptedStoryboardEngine: StoryboardEngine, @unchecked Sendab
         withLock { _availability = value }
     }
 
+    public func clearRequests() {
+        withLock { requests = [] }
+    }
+
     public func availability() async -> InsightAvailability {
         withLock { _availability }
     }

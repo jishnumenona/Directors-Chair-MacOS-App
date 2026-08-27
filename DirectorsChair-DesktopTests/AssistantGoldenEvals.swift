@@ -1234,7 +1234,6 @@ final class KleinCoreParityEvals: XCTestCase {
         let spec = StoryboardFrameSpec(subject: subject, notes: env["DC_KLEIN_ADHOC_FRAMING"],
                                        width: 768, height: 432, seed: 42, purpose: .shot, style: style,
                                        references: pictures, referenceLabels: labels)
-        print("[KleinParity] scene prompt:\n" + StoryboardPromptStyler.prompt(spec, style: style))
         let started = Date()
         let png = try await LocalImageEngine.shared.generateFrame(spec)
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-adhoc-scene.png")

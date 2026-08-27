@@ -33,7 +33,7 @@ public enum StoryboardSubjects {
             var setting: [String] = []
             let name = scene.name.trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty { setting.append(name) }
-            if let location = scene.location, !location.isEmpty { setting.append(location) }
+            if let location = scene.location, !location.isEmpty { setting.append(humanizeSlugLines(location)) }
             if let timeOfDay = scene.timeOfDay, !timeOfDay.isEmpty { setting.append(timeOfDay) }
             if let weather = scene.weather, !weather.isEmpty { setting.append(weather) }
             if !setting.isEmpty { parts.append("Setting: \(setting.joined(separator: ", "))") }
@@ -88,7 +88,7 @@ public enum StoryboardSubjects {
         var parts: [String] = []
         let name = scene.name.trimmingCharacters(in: .whitespacesAndNewlines)
         var setting: [String] = []
-        if let location = scene.location, !location.isEmpty { setting.append(location) }
+        if let location = scene.location, !location.isEmpty { setting.append(humanizeSlugLines(location)) }
         if let timeOfDay = scene.timeOfDay, !timeOfDay.isEmpty { setting.append(timeOfDay) }
         if let weather = scene.weather, !weather.isEmpty { setting.append(weather) }
         let head = [name, setting.joined(separator: ", ")].filter { !$0.isEmpty }
@@ -254,11 +254,36 @@ public enum StoryboardSubjects {
         ("to camera", "straight ahead"),
     ]
 
+    /// Screenplay slug lines ("INT. BELLHAVEN ESTATE HOUSE - PARLOR - DAY")
+    /// are lettered onto the page verbatim by an image model; turn them
+    /// into plain description ("inside the Bellhaven Estate House, parlor,
+    /// day") and calm any all-caps run into title case.
+    public static func humanizeSlugLines(_ text: String) -> String {
+        var out = text
+        out = out.replacingOccurrences(of: #"\bINT\.?/EXT\.?\s*"#, with: "inside and outside ", options: .regularExpression)
+        out = out.replacingOccurrences(of: #"\bINT\.?\s+"#, with: "inside the ", options: .regularExpression)
+        out = out.replacingOccurrences(of: #"\bEXT\.?\s+"#, with: "outside the ", options: .regularExpression)
+        // Runs of two or more ALL-CAPS words (slug bodies) → Title Case, and
+        // the slug's " - " separators → ", ".
+        if let regex = try? NSRegularExpression(pattern: #"\b[A-Z][A-Z'’]+(?:[ \-]+[A-Z][A-Z'’]+)+\b"#) {
+            let ns = out as NSString
+            var result = out
+            for match in regex.matches(in: out, range: NSRange(location: 0, length: ns.length)).reversed() {
+                let run = ns.substring(with: match.range)
+                let titled = run.replacingOccurrences(of: #"\s*-\s*"#, with: ", ", options: .regularExpression)
+                    .capitalized
+                result = (result as NSString).replacingCharacters(in: match.range, with: titled)
+            }
+            out = result
+        }
+        return out
+    }
+
     /// Strips a provider prompt down to its picture content: boilerplate
     /// out, quoted "mood" dialogue out, camera words swapped, separators
     /// tidied. Idempotent on already-plain text.
     public static func plainSubject(from prompt: String) -> String {
-        var text = prompt
+        var text = humanizeSlugLines(prompt)
         // Quoted dialogue used as a mood hint becomes lettering on the page.
         text = text.replacingOccurrences(
             of: #"mood:\s*"[^"]*"\.{0,3}"#, with: "", options: [.regularExpression, .caseInsensitive])

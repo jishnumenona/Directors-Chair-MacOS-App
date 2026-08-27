@@ -264,11 +264,14 @@ extension AIServiceClient {
         if let single = request.referenceImageBase64, let data = Data(base64Encoded: single) {
             pictures.append(data); labels.append("")
         }
-        let rank: (String) -> Int = { label in
-            let kind = label.split(separator: ":").first.map(String.init)?.lowercased() ?? ""
-            return ["location": 0, "character": 1, "prop": 2, "costume": 3][kind] ?? 4
-        }
+        let kindOf: (String) -> String = { $0.split(separator: ":").first.map(String.init)?.lowercased() ?? "" }
+        let rank: (String) -> Int = { ["location": 0, "character": 1, "prop": 2, "costume": 3][kindOf($0)] ?? 4 }
+        // Composing a shot or scene: full-body costume sheets make the model
+        // reproduce a sheet of panels (owner-reported collage); wardrobe
+        // reaches it through the face picture and the subject text instead.
+        let composing = [.shot, .scene, .moodboard].contains(request.brief?.purpose ?? .moodboard)
         let ordered = (request.referenceImages ?? []).enumerated()
+            .filter { !(composing && kindOf($0.element.label) == "costume") }
             .sorted { (rank($0.element.label), $0.offset) < (rank($1.element.label), $1.offset) }
         for (_, reference) in ordered {
             if let data = Data(base64Encoded: reference.base64) {

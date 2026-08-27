@@ -288,7 +288,7 @@ final class StoryboardSubjectsTests: XCTestCase {
         shot.description = "Maya slams the deed onto the table"
         let subject = StoryboardSubjects.subject(for: shot, in: makeScene())
         XCTAssertTrue(subject.hasPrefix("Maya slams the deed"), subject)
-        XCTAssertTrue(subject.contains("FARMHOUSE KITCHEN"), subject)
+        XCTAssertTrue(subject.contains("inside the Farmhouse Kitchen"), "slug lines become description: \(subject)")
         XCTAssertTrue(subject.contains("Night"), subject)
     }
 
@@ -316,7 +316,7 @@ final class StoryboardSubjectsTests: XCTestCase {
 
     func testSceneSubjectIsAnEstablishingFrameWithSlugFacts() {
         let subject = StoryboardSubjects.subject(for: makeScene())
-        XCTAssertTrue(subject.hasPrefix("Kitchen Confrontation — INT. FARMHOUSE KITCHEN"), subject)
+        XCTAssertTrue(subject.hasPrefix("Kitchen Confrontation — inside the Farmhouse Kitchen"), subject)
         XCTAssertTrue(subject.contains("Storm"), subject)
         XCTAssertTrue(subject.contains("Maya confronts her brother"), subject)
     }
@@ -713,8 +713,30 @@ final class VisualBriefAndCleaningTests: XCTestCase {
             brief: VisualBrief(purpose: .shot, subject: "Mara hands Rez the camera")))
         let spec = try XCTUnwrap(scripted.requests.first)
         XCTAssertEqual(spec.referenceLabels, ["location:Voss House", "character:Mara Voss", "character:Rez", "prop:Okafor Rangefinder"],
-                       "both people and the prop beat the second costume within klein's four")
+                       "people and the prop; costume sheets never join a shot composition")
         XCTAssertEqual(spec.references.map { $0.first! }, [1, 2, 4, 6])
+
+        // A costume sheet IS the reference when the purpose is the costume itself.
+        scripted.clearRequests()
+        _ = try await client.generateImage(ImageGenerationRequest(
+            prompt: "costume", provider: .onDevice, aspectRatio: "1:1",
+            referenceImages: [ref("character:Mara Voss", 2), ref("costume:Mara Voss:Estate Grays", 3)],
+            brief: VisualBrief(purpose: .costume, subject: "Mara in Estate Grays")))
+        XCTAssertEqual(try XCTUnwrap(scripted.requests.first).referenceLabels, ["character:Mara Voss", "costume:Mara Voss:Estate Grays"])
+    }
+
+    func testSlugLinesAndNarrativeCapsBecomePlainDescription() {
+        XCTAssertEqual(StoryboardSubjects.humanizeSlugLines("INT. BELLHAVEN ESTATE HOUSE - PARLOR - DAY"),
+                       "inside the Bellhaven Estate House, Parlor, Day")
+        XCTAssertEqual(StoryboardSubjects.humanizeSlugLines("EXT. VOSS HOUSE PORCH - DUSK"),
+                       "outside the Voss House Porch, Dusk")
+        XCTAssertEqual(StoryboardSubjects.humanizeSlugLines("Mara buys the camera"), "Mara buys the camera",
+                       "ordinary prose is untouched")
+        XCTAssertTrue(StoryboardSubjects.plainSubject(from: "Cinematic film still, set in INT. BELLHAVEN ESTATE HOUSE - PARLOR - DAY, Mara buys the camera")
+                        .contains("inside the Bellhaven Estate House, Parlor, Day"))
+        let clause = try! XCTUnwrap(StoryboardPromptStyler.labelledReferenceClause(["location:Voss House", "character:Mara Voss"]))
+        XCTAssertTrue(clause.hasPrefix("These pictures are only for likeness. Draw one new picture"), clause)
+        XCTAssertTrue(clause.contains("single wordless frame"), clause)
     }
 
     func testRetiringTheReplacedModelRemovesOnlyItsWeightsAndMarker() throws {
@@ -883,5 +905,75 @@ final class CloudImageRequestUnchangedTests: XCTestCase {
         XCTAssertEqual(preferred["model"] as? String, "gemini-pref")
         let none = AIServiceClient.cloudImageBody(for: ImageGenerationRequest(prompt: "p", provider: .google), preferredModel: nil)
         XCTAssertNil(none["model"], "server default = field omitted")
+    }
+}
+
+
+// MARK: - Visual brief writer (prose → what the camera sees)
+
+final class VisualBriefWriterTests: XCTestCase {
+
+    private let actionLine = "Mara buys Henry Okafor's 1950s rangefinder at his estate sale; his daughter Dana lets it go for almost nothing, with a warning she half-swallows. Setting: Estate of Henry Okafor, inside the Bellhaven Estate House, Parlor, Day"
+
+    override func tearDown() {
+        VisualBriefWriter.rewrite = { _ in throw StoryboardEngineError.generationFailed("no writer in tests") }
+        super.tearDown()
+    }
+
+    func testShortSubjectsAreAlreadyVisualAndNeverSentOut() async {
+        VisualBriefWriter.rewrite = { _ in XCTFail("must not be called"); return "" }
+        let out = await VisualBriefWriter.visualDescription(of: "A lighthouse on a cliff at dusk")
+        XCTAssertEqual(out, "A lighthouse on a cliff at dusk")
+    }
+
+    func testUsableReplyReplacesTheActionLine() async {
+        VisualBriefWriter.rewrite = { _ in
+            "What the frame shows: Mara, in a grey coat, holds a 1950s rangefinder camera over a table of tagged belongings in a sunlit parlor; Dana stands close, arms crossed, her mouth tight and eyes hesitant."
+        }
+        let out = await VisualBriefWriter.visualDescription(of: actionLine)
+        XCTAssertTrue(out.hasPrefix("Mara, in a grey coat, holds"), out)
+        XCTAssertFalse(out.contains("half-swallows"))
+        XCTAssertTrue(out.hasSuffix("Setting: Estate of Henry Okafor, inside the Bellhaven Estate House, Parlor, Day."),
+                      "factual lines survive the rewrite: \(out)")
+        let withPeople = actionLine + ". People in the frame: Mara Voss: adult female, wearing Estate Grays (grey wool coat)"
+        VisualBriefWriter.rewrite = { _ in "Mara holds the camera." }
+        let out2 = await VisualBriefWriter.visualDescription(of: withPeople)
+        XCTAssertTrue(out2.contains("People in the frame: Mara Voss: adult female, wearing Estate Grays"), out2)
+    }
+
+    func testJunkOrFailureFallsBackToTheOriginal() async {
+        VisualBriefWriter.rewrite = { _ in "I'm sorry, I can't help with that." }
+        var out = await VisualBriefWriter.visualDescription(of: actionLine)
+        XCTAssertEqual(out, actionLine)
+        VisualBriefWriter.rewrite = { _ in "\"Take it,\" Dana says." }
+        out = await VisualBriefWriter.visualDescription(of: actionLine)
+        XCTAssertEqual(out, actionLine, "quoted speech is exactly what we are removing")
+        VisualBriefWriter.rewrite = { _ in throw StoryboardEngineError.generationFailed("offline") }
+        out = await VisualBriefWriter.visualDescription(of: actionLine)
+        XCTAssertEqual(out, actionLine)
+        XCTAssertNil(VisualBriefWriter.accepted("- a list\n- of things"))
+        XCTAssertNil(VisualBriefWriter.accepted("too short"))
+    }
+
+    func testEngineRewritesStoryPurposesOnlyBeforeStyling() async throws {
+        #if arch(arm64)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dc-writer-\(UUID().uuidString)")
+        let engine = LocalImageEngine(storageRoot: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent(".ready-\(LocalImageEngine.model.id.replacingOccurrences(of: "/", with: "_"))"))
+        let core = RecordingImageCore()
+        let previous = LocalImageEngine.core
+        LocalImageEngine.core = core
+        defer { LocalImageEngine.core = previous }
+        VisualBriefWriter.rewrite = { _ in "Mara holds the camera in the parlor while Dana watches with a guarded face." }
+
+        _ = try await engine.generateFrame(.init(subject: actionLine, purpose: .shot))
+        XCTAssertTrue(try XCTUnwrap(core.calls.last).prompt.contains("Mara holds the camera in the parlor"))
+        XCTAssertFalse(try XCTUnwrap(core.calls.last).prompt.contains("half-swallows"))
+
+        _ = try await engine.generateFrame(.init(subject: actionLine, purpose: .costume))
+        XCTAssertTrue(try XCTUnwrap(core.calls.last).prompt.contains("half-swallows"),
+                      "continuity purposes keep the caller's exact words")
+        #endif
     }
 }
