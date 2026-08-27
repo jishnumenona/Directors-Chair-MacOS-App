@@ -1212,6 +1212,36 @@ final class KleinCoreParityEvals: XCTestCase {
         return rep.representation(using: .png, properties: [:])
     }
 
+    /// Ad-hoc scene/shot composition from labelled references — the
+    /// Gemini-parity question (does the local model honour a location,
+    /// characters and props at once?). TEST_RUNNER_DC_KLEIN_ADHOC_REFS=
+    /// "path|kind:name;path|kind:name" DC_KLEIN_ADHOC_SCENE="subject"
+    /// [DC_KLEIN_ADHOC_STYLE=comic] [DC_KLEIN_ADHOC_FRAMING="…"]. Writes
+    /// dc-klein-adhoc-scene.png. Skips without the env.
+    func testAdhocSceneFromLabelledReferences() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let refsText = env["DC_KLEIN_ADHOC_REFS"], let subject = env["DC_KLEIN_ADHOC_SCENE"] else {
+            throw XCTSkip("no ad-hoc scene requested")
+        }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        var pictures: [Data] = [], labels: [String] = []
+        for entry in refsText.split(separator: ";") {
+            let parts = entry.split(separator: "|", maxSplits: 1).map(String.init)
+            pictures.append(try Data(contentsOf: URL(fileURLWithPath: parts[0])))
+            labels.append(parts.count > 1 ? parts[1] : "")
+        }
+        let style = VisualStyle(rawValue: env["DC_KLEIN_ADHOC_STYLE"] ?? "") ?? .sketch
+        let spec = StoryboardFrameSpec(subject: subject, notes: env["DC_KLEIN_ADHOC_FRAMING"],
+                                       width: 768, height: 432, seed: 42, purpose: .shot, style: style,
+                                       references: pictures, referenceLabels: labels)
+        print("[KleinParity] scene prompt:\n" + StoryboardPromptStyler.prompt(spec, style: style))
+        let started = Date()
+        let png = try await LocalImageEngine.shared.generateFrame(spec)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-adhoc-scene.png")
+        try png.write(to: out)
+        print("[KleinParity] scene with \(pictures.count) references in \(String(format: "%.1f", Date().timeIntervalSince(started)))s → \(out.path)")
+    }
+
     /// Ad-hoc local edit on any picture — for reproducing an owner report
     /// through the real core: DC_KLEIN_ADHOC_SOURCE=<png> DC_KLEIN_ADHOC_REGION="x,y,r"
     /// DC_KLEIN_ADHOC_PROMPT="1. …". Skips without the env; writes

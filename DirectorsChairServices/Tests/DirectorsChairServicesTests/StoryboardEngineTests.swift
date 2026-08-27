@@ -680,6 +680,43 @@ final class VisualBriefAndCleaningTests: XCTestCase {
     }
     #endif
 
+    func testLabelledReferencesAreNamedPictureByPictureInTheOrderSent() {
+        let clause = try! XCTUnwrap(StoryboardPromptStyler.labelledReferenceClause(
+            ["location:Voss House", "character:Mara Voss", "prop:Okafor Rangefinder", "costume:Mara Voss:Estate Grays"]))
+        XCTAssertTrue(clause.contains("The first picture is the location Voss House"), clause)
+        XCTAssertTrue(clause.contains("The second picture is Mara Voss: keep this person's face"), clause)
+        XCTAssertTrue(clause.contains("The third picture is the prop Okafor Rangefinder"), clause)
+        XCTAssertTrue(clause.contains("The fourth picture is the costume Estate Grays worn by Mara Voss"), clause)
+        XCTAssertNil(StoryboardPromptStyler.labelledReferenceClause([]))
+        XCTAssertNil(StoryboardPromptStyler.labelledReferenceClause([""]), "an unlabelled single reference says nothing")
+        let prompt = StoryboardPromptStyler.prompt(subject: "Mara on the porch", purpose: .shot, style: .comic,
+                                                   referenceCount: 2, referenceLabels: ["location:Voss House", "character:Mara Voss"])
+        XCTAssertTrue(prompt.contains("comic book panel"), "a shot keeps the owner's look")
+        XCTAssertTrue(prompt.contains("The first picture is the location Voss House"), prompt)
+        XCTAssertFalse(prompt.contains("match the reference pictures"), "the named clause replaces the generic one")
+    }
+
+    func testSceneReferencesAreOrderedLocationCharactersPropsCostumesAndCapped() async throws {
+        let scripted = ScriptedStoryboardEngine()
+        let previous = AIServiceClient.onDeviceImageEngine
+        AIServiceClient.onDeviceImageEngine = scripted
+        defer { AIServiceClient.onDeviceImageEngine = previous }
+        let client = AIServiceClient(baseURL: "http://127.0.0.1:9", timeout: 1)
+        func ref(_ label: String, _ byte: UInt8) -> ReferenceImage {
+            ReferenceImage(base64: Data([byte]).base64EncodedString(), mimeType: "image/png", label: label)
+        }
+        // The app's collect order: location, then character/costume pairs.
+        let refs = [ref("location:Voss House", 1), ref("character:Mara Voss", 2), ref("costume:Mara Voss:Estate Grays", 3),
+                    ref("character:Rez", 4), ref("costume:Rez:Coat", 5), ref("prop:Okafor Rangefinder", 6)]
+        _ = try await client.generateImage(ImageGenerationRequest(
+            prompt: "shot", provider: .onDevice, aspectRatio: "16:9", referenceImages: refs,
+            brief: VisualBrief(purpose: .shot, subject: "Mara hands Rez the camera")))
+        let spec = try XCTUnwrap(scripted.requests.first)
+        XCTAssertEqual(spec.referenceLabels, ["location:Voss House", "character:Mara Voss", "character:Rez", "prop:Okafor Rangefinder"],
+                       "both people and the prop beat the second costume within klein's four")
+        XCTAssertEqual(spec.references.map { $0.first! }, [1, 2, 4, 6])
+    }
+
     func testRetiringTheReplacedModelRemovesOnlyItsWeightsAndMarker() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dc-retire-\(UUID().uuidString)")

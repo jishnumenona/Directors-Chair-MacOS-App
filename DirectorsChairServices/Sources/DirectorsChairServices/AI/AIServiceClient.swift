@@ -253,17 +253,29 @@ extension AIServiceClient {
         return body
     }
 
-    /// The request's pictures as raw bytes, single reference first, then
-    /// the labelled set, capped at klein's practical four.
-    static func onDeviceReferences(for request: ImageGenerationRequest) -> [Data] {
-        var references: [Data] = []
+    /// The request's pictures as raw bytes with their labels: the single
+    /// reference first (the picture being edited, or the scene's one
+    /// reference), then the labelled set ordered by what a composition
+    /// needs most — location, characters, props, costumes — capped at
+    /// klein's practical four.
+    static func onDeviceReferences(for request: ImageGenerationRequest) -> (pictures: [Data], labels: [String]) {
+        var pictures: [Data] = []
+        var labels: [String] = []
         if let single = request.referenceImageBase64, let data = Data(base64Encoded: single) {
-            references.append(data)
+            pictures.append(data); labels.append("")
         }
-        for reference in request.referenceImages ?? [] {
-            if let data = Data(base64Encoded: reference.base64) { references.append(data) }
+        let rank: (String) -> Int = { label in
+            let kind = label.split(separator: ":").first.map(String.init)?.lowercased() ?? ""
+            return ["location": 0, "character": 1, "prop": 2, "costume": 3][kind] ?? 4
         }
-        return Array(references.prefix(4))
+        let ordered = (request.referenceImages ?? []).enumerated()
+            .sorted { (rank($0.element.label), $0.offset) < (rank($1.element.label), $1.offset) }
+        for (_, reference) in ordered {
+            if let data = Data(base64Encoded: reference.base64) {
+                pictures.append(data); labels.append(reference.label)
+            }
+        }
+        return (Array(pictures.prefix(4)), Array(labels.prefix(4)))
     }
 }
 
@@ -803,7 +815,7 @@ public actor AIServiceClient {
             // the request carries (the picture to edit, characters, garments,
             // a place) rides along in order — the first is "the reference
             // picture" in prompt language. klein's practical limit is four.
-            let references = Self.onDeviceReferences(for: request)
+            let (references, labels) = Self.onDeviceReferences(for: request)
             let size = Self.onDeviceImageSize(for: request.aspectRatio)
             let brief: VisualBrief
             if let requested = request.brief {
@@ -821,7 +833,8 @@ public actor AIServiceClient {
             }
             let frame = try await Self.onDeviceImageEngine.generateFrame(
                 StoryboardFrameSpec(brief: brief, width: size.width, height: size.height,
-                                    references: references, editRegions: request.editRegions))
+                                    references: references, editRegions: request.editRegions,
+                                    referenceLabels: brief.purpose == .edit ? [] : labels))
             return ImageGenerationResponse(
                 images: [frame], provider: .onDevice,
                 model: LocalImageEngine.model.id)   // on-device = $0

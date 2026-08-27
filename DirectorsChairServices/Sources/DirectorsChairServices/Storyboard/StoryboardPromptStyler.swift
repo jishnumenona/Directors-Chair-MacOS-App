@@ -94,6 +94,52 @@ public enum StoryboardPromptStyler {
         }
     }
 
+    /// The app's "kind:name" reference labels as one sentence per picture,
+    /// so a scene composed from a location, two characters and a prop
+    /// tells the model which picture carries whom (klein reads "the first
+    /// picture", "the second picture" reliably; it cannot read our labels).
+    public static func labelledReferenceClause(_ labels: [String]) -> String? {
+        let sentences = labels.enumerated().compactMap { index, label -> String? in
+            let parts = label.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            let kind = parts.first?.lowercased() ?? ""
+            let ordinal = Self.ordinal(index + 1)
+            switch kind {
+            case "location":
+                let name = parts.dropFirst().joined(separator: ":")
+                return "The \(ordinal) picture is the location\(name.isEmpty ? "" : " \(name)"): keep its architecture, layout and details."
+            case "character":
+                let name = parts.dropFirst().joined(separator: ":")
+                return "The \(ordinal) picture is \(name.isEmpty ? "a character" : name): keep this person's face, hair, skin and build exactly."
+            case "costume":
+                let who = parts.count > 1 ? parts[1] : ""
+                let outfit = parts.count > 2 ? parts[2...].joined(separator: ":") : ""
+                return "The \(ordinal) picture is the costume\(outfit.isEmpty ? "" : " \(outfit)")\(who.isEmpty ? "" : " worn by \(who)"): keep these garments."
+            case "prop":
+                let name = parts.dropFirst().joined(separator: ":")
+                return "The \(ordinal) picture is the prop\(name.isEmpty ? "" : " \(name)"): keep its exact design."
+            default:
+                return label.isEmpty ? nil : "The \(ordinal) picture shows \(label)."
+            }
+        }
+        guard !sentences.isEmpty else { return nil }
+        // Several pictures tempt the model into a multi-panel page; say
+        // what the page IS instead (positives only — negatives are ignored).
+        let opening = sentences.count > 1
+            ? "Compose one single frame, one continuous scene across the whole page, in which all of these appear together. "
+            : ""
+        return opening + sentences.joined(separator: " ")
+    }
+
+    static func ordinal(_ n: Int) -> String {
+        switch n {
+        case 1: return "first"
+        case 2: return "second"
+        case 3: return "third"
+        case 4: return "fourth"
+        default: return "\(n)th"
+        }
+    }
+
     /// Purposes whose look is dictated by the reference, not by Settings.
     static func followsReferenceStyle(_ purpose: VisualPurpose, referenceCount: Int) -> Bool {
         referenceCount > 0 && [.character, .costume, .location, .edit].contains(purpose)
@@ -130,7 +176,8 @@ public enum StoryboardPromptStyler {
     public static func prompt(subject: String, notes: String? = nil,
                               purpose: VisualPurpose = .shot,
                               style: VisualStyle = .sketch,
-                              referenceCount: Int = 0) -> String {
+                              referenceCount: Int = 0,
+                              referenceLabels: [String] = []) -> String {
         var body = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.count > subjectCharacterBudget {
             body = String(body.prefix(subjectCharacterBudget)) + "…"
@@ -148,7 +195,11 @@ public enum StoryboardPromptStyler {
         let referenceLed = followsReferenceStyle(purpose, referenceCount: referenceCount)
         if !referenceLed { lines.append(lead(for: style)) }
         lines.append(subjectLead(for: purpose) + body)
-        if let clause = referenceClause(for: purpose, count: referenceCount) { lines.append(clause) }
+        if let named = labelledReferenceClause(referenceLabels) {
+            lines.append(named)
+        } else if let clause = referenceClause(for: purpose, count: referenceCount) {
+            lines.append(clause)
+        }
         lines.append(framing)
         if !referenceLed { lines.append(tail(for: style)) }
         return lines.joined(separator: "\n")
@@ -157,7 +208,8 @@ public enum StoryboardPromptStyler {
     public static func prompt(_ spec: StoryboardFrameSpec, style: VisualStyle) -> String {
         prompt(subject: spec.subject, notes: spec.notes,
                purpose: spec.purpose, style: style,
-               referenceCount: spec.references.count)
+               referenceCount: spec.references.count,
+               referenceLabels: spec.referenceLabels)
     }
 
     /// Caller notes become a "Framing:" sentence — the model treats a

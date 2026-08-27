@@ -154,13 +154,19 @@ public struct StoryboardFrameSpec: Equatable, Sendable {
     public var references: [Data]
     /// Marked spots for a local edit of `references[0]` (DC-0069).
     public var editRegions: [EditRegion]
+    /// What each reference picture IS, in the app's "kind:name" form
+    /// ("location:Voss House", "character:Eli Voss", "costume:Eli:Tweed",
+    /// "prop:Rangefinder"), parallel to `references`. The prompt tells
+    /// the model which picture carries whom.
+    public var referenceLabels: [String]
 
     /// 16:9 default (768×432, both multiples of 16 for the latent grid) —
     /// storyboard frames are film frames, not squares.
     public init(subject: String, notes: String? = nil,
                 width: Int = 768, height: Int = 432, seed: UInt64? = nil,
                 purpose: VisualPurpose = .shot, style: VisualStyle? = nil,
-                references: [Data] = [], editRegions: [EditRegion] = []) {
+                references: [Data] = [], editRegions: [EditRegion] = [],
+                referenceLabels: [String] = []) {
         self.subject = subject
         self.notes = notes
         self.width = width
@@ -170,15 +176,16 @@ public struct StoryboardFrameSpec: Equatable, Sendable {
         self.style = style
         self.references = references
         self.editRegions = editRegions
+        self.referenceLabels = referenceLabels
     }
 
     public init(brief: VisualBrief, width: Int = 768, height: Int = 432,
                 seed: UInt64? = nil, style: VisualStyle? = nil, references: [Data] = [],
-                editRegions: [EditRegion] = []) {
+                editRegions: [EditRegion] = [], referenceLabels: [String] = []) {
         self.init(subject: brief.subject, notes: brief.framing,
                   width: width, height: height, seed: seed,
                   purpose: brief.purpose, style: style, references: references,
-                  editRegions: editRegions)
+                  editRegions: editRegions, referenceLabels: referenceLabels)
     }
 }
 

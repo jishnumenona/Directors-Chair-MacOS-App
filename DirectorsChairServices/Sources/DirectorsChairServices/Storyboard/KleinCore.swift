@@ -113,9 +113,16 @@ public actor KleinCore: OnDeviceImageGenerating {
         Self.trace("loaded")
 
         // 0. Decode references. An inpaint renders at the source's size.
+        //    A composition from several pictures shares the reference token
+        //    budget between them (identity survives 512²; time does not
+        //    survive four 1024² references).
+        let inpaintAsk = !request.editRegions.isEmpty && !request.references.isEmpty
+        let perReferenceArea = inpaintAsk
+            ? Self.maxReferenceArea
+            : max(512 * 512, Self.maxReferenceArea / max(1, request.references.count))
         var sources: [MLXArray] = []
         for data in request.references {
-            guard let image = Self.referenceArray(from: data) else {
+            guard let image = Self.referenceArray(from: data, maxArea: perReferenceArea) else {
                 throw StoryboardEngineError.generationFailed("A reference picture could not be read.")
             }
             sources.append(image)
@@ -350,12 +357,12 @@ public actor KleinCore: OnDeviceImageGenerating {
     /// conditioning size: aspect-preserving downscale to ≤ 1024² pixels,
     /// then a centre crop so both sides are multiples of 16 (mflux
     /// prepare_reference_image).
-    static func referenceArray(from data: Data) -> MLXArray? {
+    static func referenceArray(from data: Data, maxArea: Int = KleinCore.maxReferenceArea) -> MLXArray? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
         var (w, h) = (image.width, image.height)
-        if w * h > maxReferenceArea {
-            let scale = (Float(maxReferenceArea) / Float(w * h)).squareRoot()
+        if w * h > maxArea {
+            let scale = (Float(maxArea) / Float(w * h)).squareRoot()
             w = Int((Float(w) * scale).rounded()); h = Int((Float(h) * scale).rounded())
         }
         let tw = w - w % 16, th = h - h % 16
