@@ -627,7 +627,7 @@ struct ShotPreviewSection: View {
                 var refs: [ReferenceImage] = []
                 if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
                     refs = CharacterReferenceHelper.collectReferenceImages(
-                        forScene: scene,
+                        forShot: shot, in: scene,
                         characters: characters,
                         locations: locations,
                         projectDirectory: projDir
@@ -744,7 +744,7 @@ struct ShotPreviewSection: View {
         var context: [ReferenceImage] = []
         if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
             context = CharacterReferenceHelper.collectReferenceImages(
-                forScene: scene,
+                forShot: shot, in: scene,
                 characters: characters,
                 locations: locations,
                 projectDirectory: projDir

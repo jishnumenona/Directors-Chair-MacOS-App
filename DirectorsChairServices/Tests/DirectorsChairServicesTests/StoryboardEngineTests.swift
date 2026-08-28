@@ -308,6 +308,8 @@ final class LocalImageEngineTests: XCTestCase {
         // The subject's own cast list must not count as naming.
         XCTAssertEqual(AIServiceClient.charactersNamed(in: "Insert: Noor's hand. People in the frame: Noor; Teo; Idris",
                                                        among: ["character:Teo", "character:Noor", "character:Idris"]), ["character:Noor"])
+        XCTAssertEqual(AIServiceClient.charactersNamed(in: "Insert: Noor's hand. One person in the frame: Noor: adult female",
+                                                       among: ["character:Teo", "character:Noor"]), ["character:Noor"])
     }
 
     /// A shot's subject lists the people the shot names, not the scene's
@@ -321,17 +323,34 @@ final class LocalImageEngineTests: XCTestCase {
         let cast = [Character(name: "Noor"), Character(name: "Teo"), Character(name: "Idris")]
         var insert = Shot(shotId: 7, description: "Insert: Noor's scarred hand trimming the wick")
         let one = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
-        XCTAssertTrue(one.contains("People in the frame: Noor"), one)
+        XCTAssertTrue(one.contains("One person in the frame: Noor"), one)
         XCTAssertFalse(one.contains("Teo"), one)
         XCTAssertFalse(one.contains("Idris"), one)
         insert.description = "Two-shot at the ladder: Teo rising into frame, Noor turning from the lamp"
         let two = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
         XCTAssertTrue(two.contains("Noor") && two.contains("Teo") && !two.contains("Idris"), two)
+        XCTAssertTrue(two.contains("Two people in the frame:"), two)
         insert.description = "Three figures in single file on the cliff path at dawn"
         let wide = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
         XCTAssertTrue(wide.contains("Noor") && wide.contains("Teo") && wide.contains("Idris"), wide)
+        XCTAssertTrue(wide.contains("Three people in the frame:"), wide)
         XCTAssertTrue(StoryboardSubjects.mentions("Noor's hand", name: "Noor Haddad"))
         XCTAssertFalse(StoryboardSubjects.mentions("a meteor", name: "Teo"))
+
+        // A shot may name someone who never speaks in the scene (DC-0072:
+        // "Teo at the cottage wall" listed the scene's speakers, Noor and
+        // Idris, because Teo has no line in First Light).
+        var dawn = Scene(name: "First Light")
+        dawn.dialogues = [Dialogue(character: "Idris", text: "I counted it."),
+                          Dialogue(character: "Noor", text: "Keep counting.")]
+        let wall = Shot(shotId: 12, description: "Teo at the cottage wall looking back at the lighthouse")
+        XCTAssertEqual(StoryboardSubjects.cast(for: wall, in: dawn, characters: cast).map(\.name), ["Teo"])
+        let wallSubject = StoryboardSubjects.subject(for: wall, in: dawn, characters: cast)
+        XCTAssertTrue(wallSubject.contains("One person in the frame: Teo"), wallSubject)
+        XCTAssertFalse(wallSubject.contains("Noor") || wallSubject.contains("Idris"), wallSubject)
+        let unnamed = Shot(shotId: 11, description: "Three figures in single file on the cliff path")
+        XCTAssertEqual(StoryboardSubjects.cast(for: unnamed, in: dawn, characters: cast).map(\.name), ["Noor", "Idris"],
+                       "a shot that names nobody shows the scene's cast, in project order")
     }
 
     func testGenerateWithoutCoreFailsHonestlyWhenReady() async throws {
@@ -1001,7 +1020,7 @@ final class VisualBriefAndCleaningTests: XCTestCase {
                                                  locations: [parlor], characters: [dana])
         XCTAssertTrue(subject.hasPrefix("Dana hands over the rangefinder"), subject)
         XCTAssertTrue(subject.contains("The place: A grand old parlor"), subject)
-        XCTAssertTrue(subject.contains("People in the frame: Dana: 28-year-old female"), subject)
+        XCTAssertTrue(subject.contains("One person in the frame: Dana: 28-year-old female"), subject)
         XCTAssertTrue(subject.contains("black medium straight hair"), subject)
         XCTAssertFalse(subject.contains(".."), subject)
     }
@@ -1105,6 +1124,41 @@ final class VisualBriefWriterTests: XCTestCase {
         XCTAssertEqual(out, actionLine)
         XCTAssertNil(VisualBriefWriter.accepted("- a list\n- of things"))
         XCTAssertNil(VisualBriefWriter.accepted("too short"))
+    }
+
+    /// DC-0072: the writer may not add people the shot did not name — a
+    /// sentence that does is dropped; a reply made only of such sentences
+    /// falls back to the shot's own words.
+    func testSentencesNamingPeopleTheShotDidNotNameAreDropped() async {
+        let shot = "Teo at the cottage wall looking back at the lighthouse, the lamp still turning in daylight. Setting: First Light, Cliff Path, Dawn, Clearing. One person in the frame: Teo: 24-year-old male, wearing Authority Issue (yellow rain jacket)"
+        VisualBriefWriter.rewrite = { _ in
+            "Teo stands at the low stone wall of the cottage in his yellow rain jacket, looking back down the Cliff Path at the lighthouse. Noor and Idris follow behind him up the muddy path. The lamp still turns in the daylight."
+        }
+        let out = await VisualBriefWriter.visualDescription(of: shot)
+        XCTAssertTrue(out.hasPrefix("Teo stands at the low stone wall"), out)
+        XCTAssertFalse(out.contains("Noor"), out); XCTAssertFalse(out.contains("Idris"), out)
+        XCTAssertTrue(out.contains("The lamp still turns in the daylight."), "a sentence naming nobody new stays: \(out)")
+        XCTAssertTrue(out.hasSuffix("One person in the frame: Teo: 24-year-old male, wearing Authority Issue (yellow rain jacket)."), out)
+        // Only invented company → the shot's own words.
+        VisualBriefWriter.rewrite = { _ in "Noor and Idris climb the path together toward the cottage, heads down against the wind." }
+        let fallback = await VisualBriefWriter.visualDescription(of: shot)
+        XCTAssertEqual(fallback, shot)
+        // Names and places the shot already uses are fine, possessives included.
+        VisualBriefWriter.rewrite = { _ in "Teo's yellow jacket is bright against the Cliff Path as he looks back at the lighthouse from the cottage wall." }
+        let kept = await VisualBriefWriter.visualDescription(of: shot)
+        XCTAssertTrue(kept.hasPrefix("Teo's yellow jacket is bright"), kept)
+        XCTAssertEqual(VisualBriefWriter.keepingToTheCast("Noor waits. Teo looks back.", subject: shot), "Teo looks back.")
+        // Company the head count rules out is dropped even when unnamed.
+        XCTAssertEqual(VisualBriefWriter.keepingToTheCast("Teo stands by the wall. Two other figures walk behind him. They keep their heads down.", subject: shot),
+                       "Teo stands by the wall.")
+        XCTAssertTrue(VisualBriefWriter.prompt(for: shot).hasSuffix("What the frame shows (exactly one person — Teo, and no one else):"), VisualBriefWriter.prompt(for: shot))
+        XCTAssertEqual(VisualBriefWriter.castLine(in: shot)?.count, 1)
+        XCTAssertEqual(VisualBriefWriter.castLine(in: shot)?.names, ["Teo"])
+        let pair = "Noor and Teo at the ladder. Two people in the frame: Noor: adult female; Teo: adult male"
+        XCTAssertEqual(VisualBriefWriter.keepingToTheCast("They face each other at the ladder. Three figures crowd the rail.", subject: pair),
+                       "They face each other at the ladder.")
+        XCTAssertEqual(VisualBriefWriter.castLine(in: pair)?.names, ["Noor", "Teo"])
+        XCTAssertTrue(VisualBriefWriter.system.contains("Show only the people the shot names"))
     }
 
     func testEngineRewritesStoryPurposesOnlyBeforeStyling() async throws {

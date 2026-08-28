@@ -1558,7 +1558,7 @@ final class LocalProjectBuildEvals: XCTestCase {
                     // Shot preview: exactly what CinematographyView+ShotPreview sends.
                     var started = Date()
                     let prompt = ShotPromptBuilder.previewPrompt(shot: shot, scene: scene, locations: locations, characters: characters)
-                    let refs = CharacterReferenceHelper.collectReferenceImages(forScene: scene, characters: characters,
+                    let refs = CharacterReferenceHelper.collectReferenceImages(forShot: shot, in: scene, characters: characters,
                                                                                locations: locations, projectDirectory: projectDir)
                     let request = ImageGenerationRequest(
                         prompt: refs.isEmpty ? prompt : CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: refs) + prompt,

@@ -53,16 +53,47 @@ public enum StoryboardSubjects {
             // when it names nobody ("three figures in single file") does the
             // scene's cast stand in (DC-0071: an insert of one hand listed
             // all three characters as "in the frame" and drew them all).
-            let present = charactersPresent(in: scene, from: characters)
-            let named = present.filter { mentions(description, name: $0.name) }
-            let cast = (named.isEmpty ? present : named).prefix(3)
+            let cast = self.cast(for: shot, in: scene, characters: characters)
             if !cast.isEmpty {
                 let described = cast.map { describe($0, in: scene) }
-                parts.append("People in the frame: \(described.joined(separator: "; "))")
+                // A counted cast line ("One person in the frame") steers the
+                // drawing better than a list alone (DC-0072).
+                parts.append(castLead(count: cast.count) + described.joined(separator: "; "))
             }
         }
         if parts.isEmpty { parts.append("Untitled shot") }
         return sentences(parts)
+    }
+
+    /// The people a shot puts in the frame: the project characters its
+    /// description names — anyone, not only those who speak in the scene
+    /// (DC-0072: "Teo at the cottage wall" listed Noor and Idris, the
+    /// scene's speakers, because Teo has no line in that scene). A shot
+    /// that names nobody shows the scene's cast. At most three.
+    public static func cast(for shot: Shot, in scene: Scene, characters: [Character]) -> [Character] {
+        let description = plainSubject(from: shot.description)
+        let named = characters.filter { mentions(description, name: $0.name) }
+        let chosen = named.isEmpty ? charactersPresent(in: scene, from: characters) : named
+        return Array(chosen.prefix(3))
+    }
+
+    /// The cast line's opening for a given head count.
+    public static func castLead(count: Int) -> String {
+        switch count {
+        case 1: return "One person in the frame: "
+        case 2: return "Two people in the frame: "
+        case 3: return "Three people in the frame: "
+        default: return "People in the frame: "
+        }
+    }
+
+    /// Matches any cast-line opening the subject builders write.
+    public static let castLinePattern = #"(?:One person|Two people|Three people|People) in the frame:"#
+
+    /// The part of a subject before its cast line — the description proper.
+    public static func description(before subject: String) -> String {
+        guard let range = subject.range(of: castLinePattern, options: .regularExpression) else { return subject }
+        return String(subject[..<range.lowerBound])
     }
 
     /// Whether `text` names a character — the full name or its first word,

@@ -26,6 +26,33 @@ public enum CharacterReferenceHelper {
         locations: [Location],
         projectDirectory: URL?
     ) -> [ReferenceImage] {
+        referenceImages(for: scene,
+                        people: prominentCharactersInScene(scene, allCharacters: characters, max: 3),
+                        locations: locations, projectDirectory: projectDirectory)
+    }
+
+    /// The reference set for ONE SHOT: the scene's place, then the people
+    /// the shot puts in the frame — the characters its description names,
+    /// whether or not they speak in the scene (DC-0072: "Teo at the
+    /// cottage wall" travelled with the scene's speakers and no Teo).
+    public static func collectReferenceImages(
+        forShot shot: Shot,
+        in scene: DirectorsChairCore.Scene,
+        characters: [Character],
+        locations: [Location],
+        projectDirectory: URL?
+    ) -> [ReferenceImage] {
+        referenceImages(for: scene,
+                        people: StoryboardSubjects.cast(for: shot, in: scene, characters: characters),
+                        locations: locations, projectDirectory: projectDirectory)
+    }
+
+    private static func referenceImages(
+        for scene: DirectorsChairCore.Scene,
+        people: [Character],
+        locations: [Location],
+        projectDirectory: URL?
+    ) -> [ReferenceImage] {
         guard let projectDir = projectDirectory else { return [] }
         var refs: [ReferenceImage] = []
 
@@ -46,8 +73,7 @@ public enum CharacterReferenceHelper {
         }
 
         // 2. Character face images + active costume images (up to 3 characters)
-        let prominentCharacters = prominentCharactersInScene(scene, allCharacters: characters, max: 3)
-        for character in prominentCharacters {
+        for character in people {
             // Character face/base image
             if let charImage = loadCharacterImage(character, projectDirectory: projectDir) {
                 if let base64 = resizeAndEncodeImage(charImage, maxDimension: 512) {
