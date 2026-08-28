@@ -46,7 +46,7 @@ private struct RequiresTierModifier: ViewModifier {
                 .allowsHitTesting(unlocked)
                 .opacity(unlocked ? 1 : 0.55)
                 .overlay(alignment: .topTrailing) {
-                    if !unlocked { TierLockBadge() }
+                    if !unlocked { TierLockBadge(feature: feature) }
                 }
                 .overlay {
                     if !unlocked {
@@ -67,7 +67,13 @@ private struct RequiresTierModifier: ViewModifier {
 
 /// The small 🔒 worn by locked controls and navigator entries.
 public struct TierLockBadge: View {
-    public init() {}
+    /// The locked feature, when the badge knows it — VoiceOver (and the UI
+    /// tests) can then tell one lock from another on the same bar.
+    let feature: String?
+
+    public init(feature: String? = nil) {
+        self.feature = feature
+    }
 
     public var body: some View {
         Image(systemName: "lock.fill")
@@ -75,7 +81,8 @@ public struct TierLockBadge: View {
             .foregroundStyle(.secondary)
             .padding(2)
             .background(Circle().fill(.thinMaterial))
-            .accessibilityLabel("Locked — part of a plan coming soon")
+            .accessibilityLabel(feature.map { "Locked — \($0) is part of a plan coming soon" }
+                                ?? "Locked — part of a plan coming soon")
             .accessibilityIdentifier("tier-lock-badge")
     }
 }
@@ -146,11 +153,18 @@ public struct TierUpgradeSheet: View {
     public var body: some View {
         VStack(spacing: 0) {
             TierUpgradePrompt(feature: feature, requiredTier: requiredTier)
+            // The identifier sits on the button itself: applied after
+            // `.padding` it lands on the padding wrapper, which macOS does
+            // not expose, and the UI test could never find the OK (DC-0016).
             Button("OK") { dismiss() }
+                .accessibilityIdentifier("tier-sheet-ok")
                 .keyboardShortcut(.defaultAction)
                 .padding(.bottom, 20)
-                .accessibilityIdentifier("tier-sheet-ok")
         }
+        // A real container element: an identifier on a bare VStack is
+        // pushed down onto every child on macOS and overrode the OK
+        // button's own (DC-0016 UI run, 2026-08-28).
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tier-upgrade-sheet")
     }
 }

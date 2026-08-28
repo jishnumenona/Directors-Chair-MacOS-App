@@ -76,7 +76,10 @@ final class FreeSessionUITests: XCTestCase {
         navigate(to: "nav-playback")
         XCTAssertTrue(app.buttons["playback-play-pause"].waitForExistence(timeout: 10),
                       "Transport bar must mount")
-        let badge = lockBadges.firstMatch
+        // The Storyteller's own badge — the transport can carry other
+        // Creator locks ahead of it (voice all dialogue, DC-0081).
+        let badge = lockBadges
+            .matching(NSPredicate(format: "label CONTAINS[c] 'Storyteller'")).firstMatch
         XCTAssertTrue(badge.waitForExistence(timeout: 5),
                       "The Storyteller entry must wear the tier lock at .free")
         badge.click()
@@ -93,8 +96,13 @@ final class FreeSessionUITests: XCTestCase {
                     format: "title CONTAINS[c] %@", forbidden)).count, 0,
                 "No purchase CTA while billing is parked (DC-0011) — found '\(forbidden)'")
         }
-        let ok = app.buttons["tier-sheet-ok"].firstMatch
-        XCTAssertTrue(ok.exists, "The sheet dismisses with plain OK")
+        // Wait for the button, don't snapshot it: the sheet's container
+        // lands in the accessibility tree a beat before its children
+        // (first real run of this test, 2026-08-28, failed on `exists`).
+        let ok = app.descendants(matching: .any)
+            .matching(identifier: "tier-sheet-ok").firstMatch
+        XCTAssertTrue(ok.waitForExistence(timeout: 5), "The sheet dismisses with plain OK")
+        XCTAssertEqual(ok.title.isEmpty ? ok.label : ok.title, "OK", "plain OK, nothing to buy")
         ok.click()
         XCTAssertTrue(app.buttons["playback-play-pause"].waitForExistence(timeout: 5),
                       "Dismissing the sheet returns to the working app")
