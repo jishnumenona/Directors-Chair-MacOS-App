@@ -576,6 +576,16 @@ public struct CinematographyView: View {
                         }
                     )
 
+                    // Notes — the user's own free text on this shot (DC-0074).
+                    CollapsibleCard(icon: "note.text",
+                                    title: "Notes",
+                                    summary: shot.notes.isEmpty ? "Add a note" : String(shot.notes.prefix(60)),
+                                    storageKey: "shotNotes") {
+                        ShotNotesEditor(notes: shot.notes) { newNotes in
+                            updateShotField(shot) { $0.notes = newNotes }
+                        }
+                    }
+
                     // Shot Context — who/where/what of this shot's scene, plus
                     // the scene's script bubbles. Shot-level truth, so it lives
                     // here rather than inside video generation.

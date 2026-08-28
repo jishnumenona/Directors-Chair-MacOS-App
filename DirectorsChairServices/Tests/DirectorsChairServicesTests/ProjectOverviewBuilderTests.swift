@@ -587,4 +587,28 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         XCTAssertEqual(decoded.characters.first?.createdAt,
                        Date(timeIntervalSince1970: 1_700_000_000))
     }
+
+    /// DC-0074: the user's notes on a scene and on a shot reach the portal's
+    /// deck — a shot's on its card, a scene's on its entry — and never as an
+    /// empty field.
+    func testSceneAndShotNotesAreProjected() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dc-notes-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var noted = Shot(shotId: 1, description: "Wide on the gallery")
+        noted.notes = "Fog machine below the rail."
+        let plain = Shot(shotId: 2, description: "Insert")
+        var scene = Scene(name: "Last Light", description: "Dusk on the gallery")
+        scene.notes = "Golden-hour window 19:40–20:05."
+        scene.shots = [noted, plain]
+        var project = Project(name: "Keeper's Light")
+        project.sequences = [Sequence(name: "One night", scenes: [scene])]
+
+        let deck = ProjectOverviewBuilder.deck(project: project, projectDir: dir, projectID: "p-1")
+        let board = try XCTUnwrap(deck["shots"] as? [[String: Any]])
+        XCTAssertEqual(board[0]["notes"] as? String, "Fog machine below the rail.")
+        XCTAssertNil(board[1]["notes"], "no empty notes field on the card")
+        let scenes = try XCTUnwrap(deck["scenes"] as? [[String: Any]])
+        XCTAssertEqual(scenes[0]["notes"] as? String, "Golden-hour window 19:40–20:05.")
+    }
 }

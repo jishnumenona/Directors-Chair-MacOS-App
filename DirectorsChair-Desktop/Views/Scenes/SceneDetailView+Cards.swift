@@ -77,23 +77,6 @@ extension SceneDetailView {
                     ) { onSceneDescriptionChanged?($0) }
                 }
 
-                Divider()
-
-                // Notes — inline editable
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Notes")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-
-                    inlineTextField(
-                        text: $editNotes,
-                        placeholder: "Add notes...",
-                        font: .callout,
-                        lineSpacing: 3,
-                        foreground: .secondary
-                    ) { onSceneNotesChanged?($0) }
-                }
 
                 if let context = scene.locationContext, !context.isEmpty {
                     Divider()
@@ -510,10 +493,20 @@ extension SceneDetailView {
     // MARK: - Notes Card (Sidebar)
 
     var notesCard: some View {
-        let hasNotes = !scene.sceneNotes.isEmpty || !scene.soundNotes.isEmpty
-        return Group {
-            if hasNotes {
-                SidebarCard(title: "Notes", icon: "note.text") {
+        // DC-0074: the user's own notes, always here and edited in place;
+        // the production notes and sound notes the tools write sit below.
+        SidebarCard(title: "Notes", icon: "note.text") {
+            VStack(alignment: .leading, spacing: 10) {
+                inlineTextField(
+                    text: $editNotes,
+                    placeholder: "Add a note — anything you want to remember about this scene.",
+                    font: .callout,
+                    lineSpacing: 3,
+                    foreground: .primary
+                ) { onSceneNotesChanged?($0) }
+
+                if !scene.sceneNotes.isEmpty || !scene.soundNotes.isEmpty {
+                    Divider()
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(scene.sceneNotes) { note in
                             HStack(alignment: .top, spacing: 6) {

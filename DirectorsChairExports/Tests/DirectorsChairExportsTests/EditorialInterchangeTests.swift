@@ -62,6 +62,20 @@ final class EditorialInterchangeTests: XCTestCase {
                        "the shot's own estimate beats everything")
     }
 
+    /// DC-0074: the user's notes on a shot travel with the cut — a second
+    /// COMMENT line in the EDL, appended to the FCPXML note.
+    func testShotNotesTravelWithTheCut() {
+        var project = sampleProject()
+        project.sequences[0].scenes[0].shots[0].notes = "Fog machine below the rail"
+        let edl = EditorialInterchange.edl(project: project)
+        XCTAssertTrue(edl.contains("* COMMENT: FOG MACHINE BELOW THE RAIL"), edl)
+        let xml = EditorialInterchange.fcpxml(project: project)
+        XCTAssertTrue(xml.contains(" — Fog machine below the rail</note>"), xml)
+        XCTAssertEqual(EditorialInterchange.noteText(for: Shot(shotId: 9, description: "Wide")), "Wide")
+        var both = Shot(shotId: 9, description: "Wide"); both.notes = "Slate first"
+        XCTAssertEqual(EditorialInterchange.noteText(for: both), "Wide — Slate first")
+    }
+
     // MARK: - EDL
 
     func testEDLIsACutSkeletonWithContinuousRecordTimes() {

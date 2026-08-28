@@ -98,6 +98,9 @@ public enum ProjectOverviewBuilder {
                 if !scene.description.isEmpty {
                     entry["summary"] = scene.description
                 }
+                if !scene.notes.isEmpty {
+                    entry["notes"] = scene.notes
+                }
                 if let image = blobURL(scene.sceneOverviewImage) {
                     entry["image"] = image
                 }
@@ -122,6 +125,7 @@ public enum ProjectOverviewBuilder {
                     field("status", shot.status)
                     field("description", shot.description)
                     field("lighting", shot.lightingStyle)
+                    field("notes", shot.notes)
                     if let override = shot.styleOverride {
                         field("style", styleNameByID[override] ?? override)
                     }

@@ -13,6 +13,9 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var shotId: Int  // Display number shown to users
     public var itemChronology: Int  // Links to dialogue/action/narration chronology
     public var description: String
+    /// The user's own free-text notes on the shot (DC-0074) — separate from
+    /// the description the drawings are made from.
+    public var notes: String
     public var status: String  // "Planning", "Ready", "Shooting", "Review", "Approved"
     public var cameraAngle: String
     public var lensMm: Int?
@@ -48,6 +51,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         shotId: Int,
         itemChronology: Int = 0,
         description: String = "",
+        notes: String = "",
         status: String = "Planning",
         cameraAngle: String = "Medium",
         lensMm: Int? = 50,
@@ -78,6 +82,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.shotId = shotId
         self.itemChronology = itemChronology
         self.description = description
+        self.notes = notes
         self.status = status
         self.cameraAngle = cameraAngle
         self.lensMm = lensMm
@@ -110,6 +115,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case shotId = "shot_id"
         case itemChronology = "item_chronology"
         case description
+        case notes
         case status
         case cameraAngle = "camera_angle"
         case lensMm = "lens_mm"
@@ -165,13 +171,19 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
 
         itemChronology = try container.decodeIfPresent(Int.self, forKey: .itemChronology) ?? 0
 
-        // description: use 'description' or 'notes' field
+        // description: use 'description' or, in Python-era files, a 'notes'
+        // field that held the description. A file with BOTH carries real
+        // notes (DC-0074) beside the description.
+        let rawNotes = (try? container.decodeIfPresent(String.self, forKey: .notes)) ?? nil
         if let desc = try? container.decode(String.self, forKey: .description), !desc.isEmpty {
             description = desc
-        } else if let notes = try? altContainer?.decode(String.self, forKey: .notes) {
-            description = notes
+            notes = rawNotes ?? ""
+        } else if let legacy = rawNotes, !legacy.isEmpty {
+            description = legacy
+            notes = ""
         } else {
             description = ""
+            notes = rawNotes ?? ""
         }
 
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Planning"
