@@ -47,19 +47,21 @@ extension SceneDetailView {
                     return
                 }
 
-                let ref = CharacterReferenceHelper.referenceImage(
+                // The scene's full likeness — its place, its people and the
+                // props it lists — the way shot previews already travel
+                // (DC-0082); a scene with none sends exactly the old request.
+                let references = CharacterReferenceHelper.collectReferenceImages(
                     forScene: scene,
                     characters: characters,
+                    locations: projectViewModel.project.locations,
+                    props: projectViewModel.project.props,
                     projectDirectory: basePath
                 )
 
-                let request = ImageGenerationRequest(
+                let request = SceneCardHelpers.overviewRequest(
                     prompt: prompt,
+                    references: references,
                     provider: AIProviderSelection.shared.provider(for: .image),
-                    aspectRatio: "16:9",
-                    numberOfImages: 1,
-                    referenceImageBase64: ref?.base64,
-                    referenceMimeType: ref?.mimeType,
                     brief: VisualBrief(
                         purpose: .scene,
                         subject: customPrompt.map(StoryboardSubjects.plainSubject)
@@ -144,10 +146,13 @@ extension SceneDetailView {
             return
         }
         let basePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
-        // The scene's character likeness rides behind the picture for the cloud model.
-        let likeness = CharacterReferenceHelper.referenceImage(
-            forScene: scene, characters: characters, projectDirectory: basePath
-        ).map { [ReferenceImage(base64: $0.base64, mimeType: $0.mimeType, label: "character")] } ?? []
+        // The scene's likeness — place, people, props — rides behind the
+        // picture for the cloud model (DC-0082); on-device repaints the
+        // picture alone.
+        let likeness = CharacterReferenceHelper.collectReferenceImages(
+            forScene: scene, characters: characters,
+            locations: projectViewModel.project.locations, props: projectViewModel.project.props,
+            projectDirectory: basePath)
         let edit = AnnotationEdit(source: source, annotations: annotations, context: "scene preview",
                                   originalPrompt: basePrompt, contextPictures: likeness, aspectRatio: "16:9")
         let prompt = AnnotationEditComposer.prompt(for: edit)
