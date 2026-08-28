@@ -14,6 +14,9 @@ struct PlaybackTransportBar: View {
     @ObservedObject var viewModel: PlaybackViewModel
     var storytellerActive: Bool = false
     var onStoryteller: (() -> Void)? = nil
+    /// "Voice all dialogue" (DC-0081) — nil hides the control.
+    var voiceAll: VoiceAllDialogueControl? = nil
+    @State private var showVoiceAll = false
 
     @State private var isDraggingScrubber = false
     @State private var scrubTime: CGFloat = 0
@@ -76,6 +79,24 @@ struct PlaybackTransportBar: View {
 
                 // Right: Storyteller + Speed + Track Mixer + Volume
                 HStack(spacing: 12) {
+                    // Voice every line in the timeline (DC-0081). Creator
+                    // entry like Dialogue TTS generation (§3.6).
+                    if let voiceAll {
+                        Button(action: { showVoiceAll.toggle() }) {
+                            Image(systemName: voiceAll.batch.isRunning ? "waveform.badge.exclamationmark" : "waveform.badge.plus")
+                                .font(.system(size: 12))
+                                .foregroundStyle(voiceAll.batch.isRunning ? Color.accentColor : .secondary)
+                                .frame(width: 20, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Voice all dialogue — every line in the timeline, in each character's cast voice")
+                        .requiresTier(.creator, feature: "Voice all dialogue")
+                        .popover(isPresented: $showVoiceAll, arrowEdge: .top) {
+                            VoiceAllDialoguePopover(control: voiceAll)
+                        }
+                    }
+
                     // Storyteller mode toggle. Creator entry (§3.6):
                     // below tier the button wears the lock and taps open
                     // the "coming soon" sheet instead of the mode.

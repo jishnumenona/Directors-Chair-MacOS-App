@@ -31,12 +31,13 @@ private func objectSchema(_ properties: [String: JSONValue],
 // MARK: - generate_dialogue_audio
 
 final class GenerateDialogueAudioAction: ProjectAssistantAction, AssistantAction {
-    /// Gateway parity (services/cost.py): $0.30 per 1k characters.
+    /// Gateway parity (services/cost.py): $0.30 per 1k characters — the
+    /// one estimate every voicing surface shows (DialogueVoicer).
     static func estimate(characters: Int) -> Double {
-        0.30 * Double(max(1, characters)) / 1000.0
+        DialogueVoicer.estimate(characters: characters)
     }
 
-    typealias Generate = @Sendable (SpeechGenerationRequest) async throws -> Data
+    typealias Generate = DialogueVoicer.Generate
 
     let name = "generate_dialogue_audio"
     let summary = """
@@ -90,17 +91,8 @@ final class GenerateDialogueAudioAction: ProjectAssistantAction, AssistantAction
         return (seq, sc, lines)
     }
 
-    // Mirrors ContentView+Timeline's HTML stripping.
     private static func plainText(_ text: String) -> String {
-        var result = text
-        if result.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<"),
-           let regex = try? NSRegularExpression(pattern: "<[^>]+>",
-                                                options: .caseInsensitive) {
-            let range = NSRange(location: 0, length: result.utf16.count)
-            result = regex.stringByReplacingMatches(in: result, options: [],
-                                                    range: range, withTemplate: "")
-        }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        DialogueVoicer.plainText(text)
     }
 
     @MainActor func validate(argumentsData: Data) throws -> ActionPlan {
@@ -132,46 +124,23 @@ final class GenerateDialogueAudioAction: ProjectAssistantAction, AssistantAction
             throw ActionError("the project has not been saved yet")
         }
         let (seq, sc, lines) = try selectedIndices(args, in: pvm)
-        let directory = projectFile.deletingLastPathComponent()
-            .appendingPathComponent("assets/audio/dialogues", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory,
-                                                withIntermediateDirectories: true)
+        let directory = try DialogueVoicer.directory(besides: projectFile)
         let generate = makeGenerate()
 
         var voiced = 0
         for i in lines {
             let line = pvm.project.sequences[seq].scenes[sc].dialogues[i]
-            // Voice casting — identical to the Timeline seam.
-            let character = pvm.project.characters.first {
-                $0.name.lowercased() == line.character.lowercased()
-            }
-            let voiceName = character?.voice
-                ?? (character?.gender.lowercased() == "female" ? "Kore" : "Charon")
-            var emotionParts: [String] = []
-            if let style = character?.voiceStyle, !style.isEmpty {
-                emotionParts.append(style)
-            }
-            emotionParts.append(contentsOf: line.tags)
-            let emotion = emotionParts.isEmpty
-                ? nil : "Say \(emotionParts.joined(separator: ", "))"
-
-            let request = SpeechGenerationRequest(
-                text: Self.plainText(line.text),
-                provider: AIProviderSelection.shared.provider(for: .speech),
-                voiceName: voiceName,
-                emotion: emotion,
-                characterName: line.character,
-                voiceTone: character?.voiceTone,
-                voicePersonality: character?.voicePersonality,
-                voicePace: character?.voicePace,
-                voiceAccent: character?.voiceAccent,
-                voiceAge: character?.voiceAge)
+            // Voice casting through the one voicer (DC-0081) — identical to
+            // the Timeline seam and the Playback batch.
+            let request = DialogueVoicer.request(
+                text: Self.plainText(line.text), characterName: line.character, tags: line.tags,
+                character: DialogueVoicer.character(named: line.character, in: pvm.project),
+                provider: AIProviderSelection.shared.provider(for: .speech))
             let audioData = try await generate(request)
 
-            let fileName = "\(line.uuid).wav"
-            try audioData.write(to: directory.appendingPathComponent(fileName))
+            try audioData.write(to: directory.appendingPathComponent("\(line.uuid).wav"))
             pvm.project.sequences[seq].scenes[sc].dialogues[i].audioFilePath =
-                "assets/audio/dialogues/\(fileName)"
+                DialogueVoicer.relativePath(for: line.uuid)
             voiced += 1
         }
         didMutate(.script)
