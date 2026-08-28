@@ -90,6 +90,7 @@ struct PlaybackTransportBar: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("playback-voice-all")
                         .help("Voice all dialogue — every line in the timeline, in each character's cast voice")
                         .requiresTier(.creator, feature: "Voice all dialogue")
                         .popover(isPresented: $showVoiceAll, arrowEdge: .top) {

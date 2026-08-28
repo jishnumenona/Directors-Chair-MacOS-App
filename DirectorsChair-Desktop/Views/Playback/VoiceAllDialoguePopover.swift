@@ -48,6 +48,7 @@ struct VoiceAllDialoguePopover: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Voice all dialogue")
                 .font(.headline)
+                .accessibilityIdentifier("voice-all-title")
             Text("Every line in the timeline, in order, in each character's cast voice.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -72,6 +73,7 @@ struct VoiceAllDialoguePopover: View {
             Toggle("Only lines without a voice", isOn: $onlyUnvoiced)
                 .toggleStyle(.checkbox)
                 .font(.caption)
+                .accessibilityIdentifier("voice-all-only-unvoiced")
             if plan.lines.isEmpty {
                 Text(onlyUnvoiced && plan.alreadyVoiced > 0
                      ? "Every line already has a voice."
@@ -83,6 +85,7 @@ struct VoiceAllDialoguePopover: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("voice-all-summary")
                 if onlyUnvoiced && plan.alreadyVoiced > 0 {
                     Text("\(plan.alreadyVoiced) line\(plan.alreadyVoiced == 1 ? "" : "s") already voiced — kept as is.")
                         .font(.caption2)
@@ -94,6 +97,7 @@ struct VoiceAllDialoguePopover: View {
                 Button("Voice \(plan.lines.count) line\(plan.lines.count == 1 ? "" : "s")") {
                     control.start(plan)
                 }
+                .accessibilityIdentifier("voice-all-start")
                 .keyboardShortcut(.defaultAction)
                 .disabled(plan.lines.isEmpty)
             }
@@ -118,6 +122,7 @@ struct VoiceAllDialoguePopover: View {
             HStack {
                 Spacer()
                 Button("Cancel") { batch.cancel() }
+                    .accessibilityIdentifier("voice-all-cancel")
                     .keyboardShortcut(.cancelAction)
             }
         }
