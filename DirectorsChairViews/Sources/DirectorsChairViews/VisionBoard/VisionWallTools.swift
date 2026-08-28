@@ -11,6 +11,7 @@
 import CoreGraphics
 import Foundation
 import DirectorsChairCore
+import DirectorsChairServices
 
 // MARK: - The tools
 
@@ -370,13 +371,16 @@ public enum VisionLink {
 /// picture to change. The board hands this to the app, which owns the
 /// generation client.
 public struct VisionImageEdit: Sendable {
-    public let prompt: String
-    /// PNG bytes of the picture being edited, sent as the reference.
-    public let baseImage: Data
+    /// The whole edit — the picture, the marks and the card's original
+    /// prompt (DC-0073) — composed into a request by the app's client.
+    public let edit: AnnotationEdit
+    /// The cloud prompt the edit composes to (the card keeps it as its description).
+    public var prompt: String { AnnotationEditComposer.prompt(for: edit) }
+    /// PNG bytes of the picture being edited.
+    public var baseImage: Data { edit.source }
 
-    public init(prompt: String, baseImage: Data) {
-        self.prompt = prompt
-        self.baseImage = baseImage
+    public init(edit: AnnotationEdit) {
+        self.edit = edit
     }
 }
 

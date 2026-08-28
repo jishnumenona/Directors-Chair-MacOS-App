@@ -5,6 +5,7 @@
 import SwiftUI
 import DirectorsChairCore
 import AppKit
+import DirectorsChairServices
 
 /// A generic image annotation editor that lets users place numbered pins on an image
 /// and describe edit instructions for each pin. Used for AI-assisted image editing
@@ -132,15 +133,8 @@ public struct ImageAnnotationEditor: View {
 
     /// Builds a textual edit prompt from annotations, suitable for sending to an AI image generator.
     public static func buildEditPrompt(from annotations: [KeyframeAnnotation], context: String = "image") -> String {
-        guard !annotations.isEmpty else { return "" }
-
-        var prompt = "Edit this \(context) with the following changes:\n"
-        for ann in annotations.sorted(by: { $0.number < $1.number }) {
-            let region = "(\(Int(ann.normalizedX * 100))%, \(Int(ann.normalizedY * 100))%)"
-            prompt += "\(ann.number). At \(region): \(ann.text)\n"
-        }
-        prompt += "Keep all other areas unchanged."
-        return prompt
+        // DC-0073: the one wording, composed in Services beside the request.
+        AnnotationEditComposer.instructions(pins: annotations.map(AnnotationPin.init), context: context)
     }
 
     // MARK: - Instruction Pill
@@ -202,6 +196,22 @@ public struct ImageAnnotationEditor: View {
                               normalizedY >= 0 && normalizedY <= 1 else { return }
                         addAnnotation(at: normalizedX, normalizedY)
                     }
+
+                // The reach of each pin: the circle the on-device engine may
+                // repaint (DC-0073) — the same numbers the mask is built from.
+                ForEach(annotations) { ann in
+                    let reach = (ann.radius ?? EditRegion.defaultRadius) * min(displaySize.width, displaySize.height)
+                    Circle()
+                        .fill(Color.accentColor.opacity(selectedAnnotationId == ann.id ? 0.14 : 0.07))
+                        .overlay(
+                            Circle().stroke(Color.accentColor.opacity(selectedAnnotationId == ann.id ? 0.9 : 0.45),
+                                            style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                        )
+                        .frame(width: reach * 2, height: reach * 2)
+                        .position(x: offsetX + ann.normalizedX * displaySize.width,
+                                  y: offsetY + ann.normalizedY * displaySize.height)
+                        .allowsHitTesting(false)
+                }
 
                 // Render pins
                 ForEach(annotations) { ann in
@@ -293,6 +303,29 @@ public struct ImageAnnotationEditor: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(editingText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            // How far the change may reach around the pin (DC-0073).
+            HStack(spacing: 6) {
+                Text("REACH")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1)
+                    .foregroundColor(.gray)
+                Button(action: { adjustReach(of: annotation.id, by: -0.04) }) {
+                    Image(systemName: "minus.circle").font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.white.opacity(0.8))
+                Text("\(Int((annotation.radius ?? EditRegion.defaultRadius) * 100))%")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                    .frame(width: 34)
+                Button(action: { adjustReach(of: annotation.id, by: 0.04) }) {
+                    Image(systemName: "plus.circle").font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.white.opacity(0.8))
+                Spacer()
             }
         }
         .padding(10)
@@ -446,6 +479,12 @@ public struct ImageAnnotationEditor: View {
         annotations.append(ann)
         selectedAnnotationId = ann.id
         editingText = ""
+    }
+
+    private func adjustReach(of id: String, by delta: Double) {
+        guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
+        let current = annotations[idx].radius ?? EditRegion.defaultRadius
+        annotations[idx].radius = min(0.5, max(0.08, current + delta))
     }
 
     private func selectAnnotation(_ annotation: KeyframeAnnotation) {

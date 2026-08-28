@@ -6,6 +6,7 @@
 import SwiftUI
 import DirectorsChairCore
 import Combine
+import DirectorsChairServices
 
 // MARK: - Vision Board ViewModel
 
@@ -1387,7 +1388,7 @@ public class VisionBoardViewModel: ObservableObject {
 
     /// Applies annotation instructions to an element's picture, replacing
     /// it in place and keeping the words that made it.
-    public func redraw(_ cardId: String, instructions: String,
+    public func redraw(_ cardId: String, marks: [KeyframeAnnotation],
                        baseImage: Data) async {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         guard let edit = onEditImage else {
@@ -1395,14 +1396,15 @@ public class VisionBoardViewModel: ObservableObject {
             lastWorkProblem = "Redrawing isn't available in this window."
             return
         }
+        // DC-0073: the marks travel with the edit — the on-device engine
+        // repaints only there; the card's own prompt rides along as context.
         let original = cards[index].description
-        let combined = original.isEmpty
-            ? instructions
-            : instructions + "\n\nOriginal prompt: " + original
-
+        let annotationEdit = AnnotationEdit(source: baseImage, annotations: marks, context: "image",
+                                            originalPrompt: original.isEmpty ? nil : original)
+        let combined = AnnotationEditComposer.prompt(for: annotationEdit)
         let url: URL? = await whileWorking(cardId) {
             await withCheckedContinuation { continuation in
-                edit(VisionImageEdit(prompt: combined, baseImage: baseImage)) {
+                edit(VisionImageEdit(edit: annotationEdit)) {
                     continuation.resume(returning: $0)
                 }
             }

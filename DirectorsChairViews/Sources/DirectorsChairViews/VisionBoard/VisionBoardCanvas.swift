@@ -572,9 +572,7 @@ public struct VisionBoardCanvas: View {
     private func applyMarks(_ marks: [KeyframeAnnotation],
                             to card: VisionCard, image: NSImage) {
         annotating = nil
-        let instructions = ImageAnnotationEditor.buildEditPrompt(
-            from: marks, context: "image")
-        guard !instructions.isEmpty else {
+        guard !marks.isEmpty else {
             viewModel.lastWorkProblem = "Add a mark and say what to change there."
             return
         }
@@ -584,9 +582,9 @@ public struct VisionBoardCanvas: View {
             viewModel.lastWorkProblem = "This picture couldn't be read for redrawing."
             return
         }
+        // DC-0073: the marks go with the picture — one edit path for every surface.
         Task { @MainActor in
-            await viewModel.redraw(card.id, instructions: instructions,
-                                   baseImage: png)
+            await viewModel.redraw(card.id, marks: marks, baseImage: png)
         }
     }
 

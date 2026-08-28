@@ -382,29 +382,9 @@ struct CentralViewStack: View {
     private func redrawVisionBoardImage(edit: VisionImageEdit,
                                         completion: @escaping (URL?) -> Void) {
         Task {
-            let client = AIServiceClient.shared
             do {
-                let request = ImageGenerationRequest(
-                    prompt: edit.prompt,
-                    provider: AIProviderSelection.shared.provider(for: .image),
-                    aspectRatio: "16:9",
-                    referenceImages: [
-                        ReferenceImage(
-                            base64: edit.baseImage.base64EncodedString(),
-                            mimeType: "image/png",
-                            label: "Current image to edit")
-                    ]
-                )
-                let response = try await client.generateImage(request)
-                guard let data = response.images.first else {
-                    await MainActor.run {
-                        projectViewModel.errorAlert = ErrorAlert(
-                            title: "Could not redraw the picture",
-                            message: "The AI service returned no image.")
-                        completion(nil)
-                    }
-                    return
-                }
+                // DC-0073: the one edit path — on-device, a repaint inside the marks.
+                let data = try await AIServiceClient.shared.editImage(edit.edit)
                 let fileURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(
                         "vision_edit_\(Int(Date().timeIntervalSince1970)).png")
