@@ -7,7 +7,9 @@
 // asset DIRECTORY (their sanitizers already name scene/shot folders);
 // this owns only file naming and IO — one writer, testable in SPM.
 
+import CoreGraphics
 import Foundation
+import ImageIO
 import DirectorsChairCore
 
 // MARK: - Subjects
@@ -47,14 +49,33 @@ public enum StoryboardSubjects {
                !record.description.isEmpty {
                 parts.append("The place: \(plainSubject(from: String(record.description.prefix(200))))")
             }
-            let present = charactersPresent(in: scene, from: characters).prefix(3)
-            if !present.isEmpty {
-                let described = present.map { describe($0, in: scene) }
+            // The shot's own cast: the people its description names. Only
+            // when it names nobody ("three figures in single file") does the
+            // scene's cast stand in (DC-0071: an insert of one hand listed
+            // all three characters as "in the frame" and drew them all).
+            let present = charactersPresent(in: scene, from: characters)
+            let named = present.filter { mentions(description, name: $0.name) }
+            let cast = (named.isEmpty ? present : named).prefix(3)
+            if !cast.isEmpty {
+                let described = cast.map { describe($0, in: scene) }
                 parts.append("People in the frame: \(described.joined(separator: "; "))")
             }
         }
         if parts.isEmpty { parts.append("Untitled shot") }
         return sentences(parts)
+    }
+
+    /// Whether `text` names a character — the full name or its first word,
+    /// whole-word and case-insensitive ("Teo" is not in "meteor").
+    public static func mentions(_ text: String, name: String) -> Bool {
+        let haystack = text.lowercased()
+        let full = name.trimmingCharacters(in: .whitespaces).lowercased()
+        let candidates = [full] + (full.split(separator: " ").first.map { [String($0)] } ?? [])
+        for candidate in candidates where candidate.count > 1 {
+            let pattern = "\\b" + NSRegularExpression.escapedPattern(for: candidate) + "\\b"
+            if haystack.range(of: pattern, options: .regularExpression) != nil { return true }
+        }
+        return false
     }
 
     /// Camera facts as drawing direction, in words the model reads as
@@ -205,7 +226,53 @@ public enum StoryboardSubjects {
         case "three_quarter_right": view = "three-quarter view turned to their right"
         default: view = "front view"
         }
-        return "Full figure standing in a \(view) from head to feet, centered on the page, arms relaxed, plain white background, garments drawn clearly with fabric folds and seam detail."
+        return "Full figure standing in a \(view) from head to feet, centered on the page, arms relaxed, plain white background, garments drawn clearly with fabric folds and seam detail; one figure only, nothing else on the page."
+    }
+
+    // MARK: Reading a reference picture
+
+    /// Whether an encoded picture is (near-)monochrome — an ink sketch, a
+    /// pencil study — sampled on a coarse grid. Decides whether a
+    /// continuity edit keeps the ink lock.
+    public static func isNearMonochrome(_ data: Data, threshold: Double = 0.04) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return false }
+        let side = 64
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let ok: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                                          bytesPerRow: side * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+            context.interpolationQuality = .low
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard ok else { return false }
+        var divergence = 0.0
+        for i in 0 ..< (side * side) {
+            let r = Double(pixels[i * 4]) / 255, g = Double(pixels[i * 4 + 1]) / 255, b = Double(pixels[i * 4 + 2]) / 255
+            divergence += abs(r - g) + abs(g - b)
+        }
+        return divergence / Double(side * side) < threshold
+    }
+
+    // MARK: Inferring purpose from provider prompts
+
+    /// The surface a legacy (brief-less) provider prompt came from, read
+    /// off the fixed phrases its builder adds — so the assistant's scene,
+    /// location and character actions get the same purpose-led drawing
+    /// as the UI surfaces (framing, subject lead, reference clause).
+    public static func inferredPurpose(fromPrompt prompt: String) -> VisualPurpose {
+        let p = prompt.lowercased()
+        if p.hasPrefix("edit this ") { return .edit }
+        if p.contains("prop concept image") { return .prop }
+        if p.contains("costume design reference") || p.contains("costume design sheet") { return .costume }
+        if p.contains("studio reference portrait") || p.contains("character turnaround sheet")
+            || p.contains("same person as the reference image") { return .character }
+        if p.contains("professional film production design") { return .location }
+        if p.contains("establishing shot") && p.contains("cinematic film still") { return .scene }
+        if p.contains("cinematic film still") { return .shot }
+        return .moodboard
     }
 
     // MARK: Cleaning provider prompts
@@ -242,6 +309,10 @@ public enum StoryboardSubjects {
         "even lighting", "studio reference portrait",
         "costume design reference", "full body shot",
         "Match the character's face, body, and skin tone exactly from the \"character\" reference.",
+        // The Prop Shop's concept prompt (DC-0071): the marker names the
+        // purpose, the photography tail would fight the app's look.
+        "Professional film-production prop concept image:",
+        "Studio product photography on a neutral dark background, high detail, realistic materials, no people, no text.",
     ]
 
     /// Word swaps for terms the model draws literally.

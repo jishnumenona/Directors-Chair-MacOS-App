@@ -15,6 +15,7 @@ import MLXRandom
 @testable import DirectorsChair_Desktop
 @testable import DirectorsChairCore
 @testable import DirectorsChairServices
+@testable import DirectorsChairViews
 
 // MARK: - Scripted transport (the only fake in the stack)
 
@@ -1241,6 +1242,29 @@ final class KleinCoreParityEvals: XCTestCase {
         print("[KleinParity] scene with \(pictures.count) references in \(String(format: "%.1f", Date().timeIntervalSince(started)))s → \(out.path)")
     }
 
+    /// Ad-hoc location plates through the real engine, for tuning the
+    /// location framing: DC_KLEIN_ADHOC_LOCATIONS="<prompt>;<prompt>" (the
+    /// provider prompt, cleaned the way the engine cleans it) rendered in
+    /// both looks; writes dc-klein-adhoc-location-<n>-<look>.png to the
+    /// temporary directory. Skips without the env.
+    func testAdhocLocationPlatesFromEnvironment() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let promptsText = env["DC_KLEIN_ADHOC_LOCATIONS"] else { throw XCTSkip("no ad-hoc location requested") }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        for (n, prompt) in promptsText.split(separator: ";").map(String.init).enumerated() {
+            for style in [VisualStyle.sketch, .comic] {
+                let spec = StoryboardFrameSpec(subject: StoryboardSubjects.plainSubject(from: prompt),
+                                               width: 768, height: 432, seed: 42, purpose: .location, style: style)
+                let started = Date()
+                let png = try await LocalImageEngine.shared.generateFrame(spec)
+                let out = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("dc-klein-adhoc-location-\(n)-\(style.rawValue).png")
+                try png.write(to: out)
+                print("[KleinParity] location plate \(n) \(style.rawValue) in \(String(format: "%.1f", Date().timeIntervalSince(started)))s → \(out.path)")
+            }
+        }
+    }
+
     /// Ad-hoc local edit on any picture — for reproducing an owner report
     /// through the real core: DC_KLEIN_ADHOC_SOURCE=<png> DC_KLEIN_ADHOC_REGION="x,y,r"
     /// DC_KLEIN_ADHOC_PROMPT="1. …". Skips without the env; writes
@@ -1301,5 +1325,287 @@ final class KleinCoreParityEvals: XCTestCase {
         print("[KleinParity] inpaint outside-region diff \(outside) inside \(inside) in \(String(format: "%.1f", seconds))s → \(out.path)")
         XCTAssertLessThan(outside, 0.002, "everything outside the marked region must be untouched")
         XCTAssertGreaterThan(inside, 0.01, "the marked region must actually change")
+    }
+}
+
+
+// MARK: - End-to-end local build of a fresh project (DC-0071)
+
+/// Builds a brand-new project the way a user does — script, characters,
+/// locations, a prop and a costume, shots that use those images, shot
+/// previews, storyboard frames, scene previews — with EVERY image drawn
+/// by the local model in the requested look. Drives the app's own action
+/// layer (the same code the assistant and the UI share) and the same
+/// helpers the shot surfaces use, so the resulting project opens in the
+/// app exactly as if it had been made by hand.
+/// Run: TEST_RUNNER_DC_LOCAL_BUILD_LOOK=sketch|comic
+/// [TEST_RUNNER_DC_LOCAL_BUILD_MANIFEST=<jsonl path>]. Skips otherwise.
+@MainActor
+final class LocalProjectBuildEvals: XCTestCase {
+
+    private struct Made: Encodable {
+        let kind: String; let name: String; let path: String; let seconds: Double; let look: String
+    }
+    private var manifest: URL?
+    private var look = VisualStyle.sketch
+
+    private func record(_ kind: String, _ name: String, _ path: String, _ seconds: Double) {
+        print("[LocalBuild] \(kind) · \(name) · \(String(format: "%.1f", seconds))s → \(path)")
+        guard let manifest else { return }
+        let made = Made(kind: kind, name: name, path: path, seconds: seconds, look: look.rawValue)
+        if let data = try? JSONEncoder().encode(made), let line = String(data: data, encoding: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: manifest) {
+                handle.seekToEndOfFile(); handle.write((line + "\n").data(using: .utf8)!); try? handle.close()
+            } else {
+                try? (line + "\n").write(to: manifest, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    func testBuildAWholeProjectWithTheLocalModel() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let lookName = env["DC_LOCAL_BUILD_LOOK"], let requested = VisualStyle(rawValue: lookName) else {
+            throw XCTSkip("no local build requested")
+        }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        look = requested
+        manifest = env["DC_LOCAL_BUILD_MANIFEST"].map { URL(fileURLWithPath: $0) }
+
+        // Preferences the user would set: images on-device, the chosen look.
+        let defaults = UserDefaults.standard
+        let savedProvider = defaults.string(forKey: AIFunction.image.preferenceKey)
+        let savedStyle = AIProviderSelection.shared.visualStyle
+        defaults.set("device", forKey: AIFunction.image.preferenceKey)
+        AIProviderSelection.shared.visualStyle = look
+        defer {
+            if let savedProvider { defaults.set(savedProvider, forKey: AIFunction.image.preferenceKey) }
+            else { defaults.removeObject(forKey: AIFunction.image.preferenceKey) }
+            AIProviderSelection.shared.visualStyle = savedStyle
+        }
+
+        // ---- 1. New project (in the signed-in user's folder) -------------------
+        let savedUser = ProjectDirectoryManager.currentUsername
+        ProjectDirectoryManager.currentUsername = env["DC_LOCAL_BUILD_USER"] ?? savedUser
+        defer { ProjectDirectoryManager.currentUsername = savedUser }
+        let pvm = ProjectViewModel(project: Project.empty())
+        pvm.createNew(named: "Keeper's Light (\(look.displayName))")
+        // A new project ships with a placeholder scene; a writer deletes it.
+        for s in pvm.project.sequences.indices { pvm.project.sequences[s].scenes.removeAll() }
+        pvm.project.sequences.removeAll()
+        let projectFile = try XCTUnwrap(pvm.projectPath, "createNew must give the project a file")
+        let projectDir = projectFile.deletingLastPathComponent()
+        print("[LocalBuild] project at \(projectDir.path)")
+        let coordinator = AppCoordinator()
+        let registry = AssistantActionFactory.makeRegistry(projectViewModel: pvm, coordinator: coordinator)
+        func run(_ name: String, _ json: String) async throws {
+            let action = try XCTUnwrap(registry.action(named: name), "action \(name)")
+            let data = Data(json.utf8)
+            _ = try action.validate(argumentsData: data)
+            _ = try await action.execute(argumentsData: data)
+        }
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n")
+        }
+
+        // ---- 2. The script ---------------------------------------------------
+        pvm.project.genre = "Drama"
+        pvm.project.overviewLogline = "A lighthouse keeper on her last night of service and the nephew replacing her pull a stranger from the fog."
+        try await run("add_sequence", #"{"name": "Keeper's Light", "description": "One night at the Marrow Point light."}"#)
+        let scenes: [(name: String, location: String, time: String, weather: String, description: String)] = [
+            ("Last Light", "Lighthouse Gallery", "Dusk", "Fog rolling in",
+             "On the iron gallery of the Marrow Point lighthouse, Noor trims the lamp wick for the last time while fog swallows the sea below. Teo climbs the ladder with a dented thermos and a nervous grin."),
+            ("Kitchen Watch", "Lighthouse Kitchen", "Night", "Storm",
+             "In the cramped lighthouse kitchen a radio hisses. Noor writes in the logbook by lantern light; Teo presses his face to the rain-streaked window and spots a small boat's light dying in the swell."),
+            ("First Light", "Cliff Path", "Dawn", "Clearing",
+             "At dawn Noor and Teo walk Idris, the rescued boatman wrapped in a wool blanket, up the muddy cliff path toward the keeper's cottage as the fog lifts off the water."),
+        ]
+        for sc in scenes {
+            try await run("add_scene", #"{"name": "\#(esc(sc.name))", "sequence": "Keeper's Light", "description": "\#(esc(sc.description))", "location": "\#(esc(sc.location))", "time_of_day": "\#(sc.time)", "weather": "\#(esc(sc.weather))"}"#)
+        }
+        let lines: [(scene: String, who: String?, text: String)] = [
+            ("Last Light", nil, "Noor trims the wick with a pocketknife and does not look up when the ladder rattles."),
+            ("Last Light", "Teo", "They said you'd be gone by six."),
+            ("Last Light", "Noor", "The light doesn't know what they said."),
+            ("Last Light", nil, "Teo holds out the thermos. Noor takes it without a word and turns back to the lamp."),
+            ("Kitchen Watch", nil, "Rain hammers the window. The radio crackles a coastguard bulletin nobody answers."),
+            ("Kitchen Watch", "Teo", "There's a light out there. Low. It keeps going under."),
+            ("Kitchen Watch", "Noor", "Then it's a boat, and it's ours now."),
+            ("Kitchen Watch", nil, "Noor closes the logbook, lifts the brass storm lantern from its hook and pulls on her oilskin."),
+            ("First Light", nil, "The three of them climb the path in single file, Idris between them, the blanket dragging in the mud."),
+            ("First Light", "Idris", "I saw the light go round. I counted it."),
+            ("First Light", "Noor", "Then you're the last one who'll count it. Keep counting."),
+        ]
+        for line in lines {
+            if let who = line.who {
+                try await run("add_dialogue", #"{"scene": "\#(esc(line.scene))", "character": "\#(who)", "text": "\#(esc(line.text))"}"#)
+            } else {
+                try await run("add_scene_action", #"{"scene": "\#(esc(line.scene))", "text": "\#(esc(line.text))"}"#)
+            }
+        }
+
+        // ---- 3. Characters (the form fields a user fills in) --------------------
+        try await run("add_character", #"{"name": "Noor", "about": "Marrow Point's keeper for thirty-one years, retiring tonight; brisk, unsentimental, unable to leave a light untended.", "occupation": "Lighthouse keeper", "goal": "Hand the light over without admitting she is afraid of the silence after."}"#)
+        try await run("add_character", #"{"name": "Teo", "about": "Noor's nephew, sent by the authority to replace her; eager, seasick, determined to earn the post.", "occupation": "Assistant keeper", "goal": "Prove he can keep the light alone."}"#)
+        try await run("add_character", #"{"name": "Idris", "about": "A boatman who lost his engine in the fog and steered by the lighthouse beam until the swell took the boat.", "occupation": "Fisherman"}"#)
+        func setCharacter(_ name: String, _ body: (inout Character) -> Void) {
+            guard let i = pvm.project.characters.firstIndex(where: { $0.name == name }) else { return XCTFail("no character \(name)") }
+            body(&pvm.project.characters[i])
+        }
+        setCharacter("Noor") { c in
+            c.gender = "female"; c.age = 58; c.build = "Slim"; c.hairColor = "Black with grey streaks"; c.hairLength = "Long"; c.hairStyle = "Tied back"
+            c.eyeColorDescription = "Dark brown"; c.distinguishingFeatures = "weathered face, a thin scar across the left hand"
+            c.costume = "a thick cream wool sweater under a black oilskin coat"
+        }
+        setCharacter("Teo") { c in
+            c.gender = "male"; c.age = 24; c.build = "Athletic"; c.hairColor = "Dark brown"; c.hairLength = "Short"; c.hairStyle = "Curly"
+            c.eyeColorDescription = "Hazel"; c.distinguishingFeatures = "lanky, a knit cap pulled low"
+            c.costume = "a yellow rain jacket over a grey hoodie"
+        }
+        setCharacter("Idris") { c in
+            c.gender = "male"; c.age = 45; c.build = "Stocky"; c.hairColor = "Black"; c.hairLength = "Bald"; c.hairStyle = "Shaved"
+            c.eyeColorDescription = "Brown"; c.distinguishingFeatures = "full dark beard, soaked to the skin"
+            c.costume = "a sodden navy peacoat"
+        }
+
+        // ---- 4. Locations and a prop --------------------------------------------
+        try await run("add_location", #"{"name": "Lighthouse Gallery", "description": "The iron gallery ringing the lamp room of the Marrow Point lighthouse: riveted railings, salt-white paint, the great lens behind glass, fog below and a bruised sky."}"#)
+        try await run("add_location", #"{"name": "Lighthouse Kitchen", "description": "A cramped round kitchen at the lighthouse base: whitewashed stone, a coal range, an enamel table with a logbook and a brass storm lantern, a small rain-streaked window over the sea."}"#)
+        try await run("add_location", #"{"name": "Cliff Path", "description": "A muddy path zigzagging up a grassy sea cliff from a shingle cove to a stone cottage, gorse and wet rock, morning fog lifting off the water."}"#)
+        for name in ["Lighthouse Gallery", "Lighthouse Kitchen", "Cliff Path"] {
+            if let i = pvm.project.locations.firstIndex(where: { $0.name == name }) {
+                pvm.project.locations[i].locationType = name == "Lighthouse Kitchen" ? "indoor" : "outdoor"
+            }
+        }
+        try await run("add_prop", #"{"name": "Brass storm lantern", "description": "A dented brass storm lantern with a cracked glass chimney and a leather carrying strap.", "category": "Handheld"}"#)
+
+        // ---- 5. Images: characters first (base + one turnaround) ---------------------
+        for name in ["Noor", "Teo", "Idris"] {
+            var started = Date()
+            try await run("generate_character_images", #"{"character": "\#(name)", "angles": ["base"]}"#)
+            var c = pvm.project.characters.first { $0.name == name }!
+            record("character", name, c.baseImage ?? "?", Date().timeIntervalSince(started))
+            started = Date()
+            try await run("generate_character_images", #"{"character": "\#(name)", "angles": ["three_quarter_left"]}"#)
+            c = pvm.project.characters.first { $0.name == name }!
+            record("character-turnaround", name, c.imageThreeQuarterLeft ?? "?", Date().timeIntervalSince(started))
+        }
+
+        // ---- 6. Locations (primary; the gallery also gets a night variation) ---------
+        for name in ["Lighthouse Gallery", "Lighthouse Kitchen", "Cliff Path"] {
+            let started = Date()
+            try await run("generate_location_images", #"{"location": "\#(name)"}"#)
+            let l = pvm.project.locations.first { $0.name == name }!
+            record("location", name, l.primaryImage ?? "?", Date().timeIntervalSince(started))
+        }
+        do {
+            let started = Date()
+            try await run("generate_location_images", #"{"location": "Lighthouse Gallery", "variations": ["night"]}"#)
+            let l = pvm.project.locations.first { $0.name == "Lighthouse Gallery" }!
+            record("location-variation", "Lighthouse Gallery · night", l.images.first { $0.contains("night") } ?? "?", Date().timeIntervalSince(started))
+        }
+
+        // ---- 7. A costume sheet for Noor, from her base image ------------------------
+        do {
+            try await run("add_costume", #"{"name": "Watch Oilskins", "character": "Noor", "notes": "What she wears on the gallery: cream wool sweater, black oilskin coat, sea boots."}"#)
+            let noorIndex = try XCTUnwrap(pvm.project.characters.firstIndex { $0.name == "Noor" })
+            var noor = pvm.project.characters[noorIndex]
+            var costume = CharacterCostume(name: "Watch Oilskins", description: "Her working clothes for the gallery at night.",
+                                           era: "Present day", styleCategory: "Workwear", colorPalette: ["cream", "black", "brass"],
+                                           garmentTop: "thick cream wool fisherman's sweater", garmentBottom: "dark wool trousers",
+                                           footwear: "black rubber sea boots", outerwear: "long black oilskin coat", headwear: "none",
+                                           primaryFabric: "wool and waxed cotton")
+            if let existing = noor.costumes?.firstIndex(where: { $0.name == "Watch Oilskins" }) {
+                costume.costumeId = noor.costumes![existing].costumeId
+                noor.costumes![existing] = costume
+            } else {
+                noor.costumes = (noor.costumes ?? []) + [costume]
+            }
+            noor.activeCostumeIndex = noor.costumes!.firstIndex { $0.name == "Watch Oilskins" }
+            pvm.project.characters[noorIndex] = noor
+            let baseData = try Data(contentsOf: projectDir.appendingPathComponent(try XCTUnwrap(noor.baseImage)))
+            let prompt = StoryDesignPromptBuilder.costumePrompt(character: noor, costume: costume) + ", costume design reference, full body shot"
+            let started = Date()
+            let response = try await AIServiceClient.shared.generateImage(ImageGenerationRequest(
+                prompt: prompt, provider: .onDevice, aspectRatio: "1:1",
+                referenceImageBase64: baseData.base64EncodedString(), referenceMimeType: "image/png",
+                brief: VisualBrief(purpose: .costume, subject: StoryboardSubjects.subject(for: costume, wornBy: noor))))
+            let png = try XCTUnwrap(response.images.first)
+            let relative = "assets/characters/\(DiscoveredCharacterImages.sanitizedName(for: noor.name))/costumes/\(DiscoveredCostumeImages.sanitizedName(for: costume.name))/front.png"
+            let url = projectDir.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try png.write(to: url)
+            pvm.project.characters[noorIndex].costumes![pvm.project.characters[noorIndex].costumes!.firstIndex { $0.name == "Watch Oilskins" }!].imageFront = relative
+            record("costume", "Noor · Watch Oilskins", relative, Date().timeIntervalSince(started))
+        }
+
+        // ---- 8. Shots that use those images: previews + storyboard frames -----------
+        let shotPlan: [(scene: String, description: String, type: String, angle: String)] = [
+            ("Last Light", "Wide: Noor alone on the gallery trimming the wick, fog pouring over the railing below her", "Wide", "Low"),
+            ("Last Light", "Two-shot at the ladder: Teo's head and shoulders rising into frame with the thermos, Noor turning from the lamp", "Medium", "Eye Level"),
+            ("Kitchen Watch", "Teo at the rain-streaked window, his reflection over the black sea, a faint boat light in the glass", "Close-up", "Eye Level"),
+            ("Kitchen Watch", "Noor lifting the brass storm lantern from its hook, logbook open on the enamel table behind her", "Medium", "Low"),
+            ("First Light", "Three figures in single file on the cliff path at dawn, Idris in the blanket between Noor and Teo, fog lifting", "Wide", "High"),
+            ("First Light", "Idris looking back down at the sea, wrapped in the blanket, Noor's hand on his shoulder", "Close-up", "Eye Level"),
+        ]
+        for plan in shotPlan {
+            try await run("add_shot", #"{"scene": "\#(esc(plan.scene))", "description": "\#(esc(plan.description))", "shot_type": "\#(plan.type)", "camera_angle": "\#(plan.angle)"}"#)
+        }
+        let characters = pvm.project.characters
+        let locations = pvm.project.locations
+        for (seqIndex, sequence) in pvm.project.sequences.enumerated() {
+            for (sceneIndex, scene) in sequence.scenes.enumerated() {
+                for (shotIndex, shot) in scene.shots.enumerated() {
+                    // Shot preview: exactly what CinematographyView+ShotPreview sends.
+                    var started = Date()
+                    let prompt = ShotPromptBuilder.previewPrompt(shot: shot, scene: scene, locations: locations, characters: characters)
+                    let refs = CharacterReferenceHelper.collectReferenceImages(forScene: scene, characters: characters,
+                                                                               locations: locations, projectDirectory: projectDir)
+                    let request = ImageGenerationRequest(
+                        prompt: refs.isEmpty ? prompt : CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: refs) + prompt,
+                        provider: .onDevice, aspectRatio: "16:9", numberOfImages: 1,
+                        referenceImages: refs.isEmpty ? nil : refs,
+                        brief: VisualBrief(purpose: .shot,
+                                           subject: StoryboardSubjects.subject(for: shot, in: scene, locations: locations, characters: characters),
+                                           framing: StoryboardSubjects.notes(for: shot)))
+                    let previewResponse = try await AIServiceClient.shared.generateImage(request)
+                    let png = try XCTUnwrap(previewResponse.images.first)
+                    let shotDir = projectDir.appendingPathComponent("assets/shots/shot_\(shot.shotId)")
+                    try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+                    let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd_HHmmss"; formatter.locale = Locale(identifier: "en_US_POSIX")
+                    let file = "preview_\(formatter.string(from: Date())).png"
+                    try png.write(to: shotDir.appendingPathComponent(file))
+                    try? prompt.write(to: shotDir.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
+                    let previewRelative = "assets/shots/shot_\(shot.shotId)/\(file)"
+                    pvm.project.sequences[seqIndex].scenes[sceneIndex].shots[shotIndex].previewImage = previewRelative
+                    record("shot-preview", "\(scene.name) · shot \(shot.shotId) (\(refs.count) refs)", previewRelative, Date().timeIntervalSince(started))
+
+                    // Storyboard frame: the pencil on the storyboard card.
+                    started = Date()
+                    let frame = try await LocalImageEngine.shared.generateFrame(StoryboardFrameSpec(
+                        subject: StoryboardSubjects.subject(for: shot, in: scene, locations: locations, characters: characters),
+                        notes: StoryboardSubjects.notes(for: shot), purpose: .shot))
+                    let saved = try StoryboardFrameStore.save(png: frame, projectBasePath: projectDir, relativeDirectory: "assets/shots/shot_\(shot.shotId)")
+                    pvm.project.sequences[seqIndex].scenes[sceneIndex].shots[shotIndex].storyboardImage = saved.relativePath
+                    record("storyboard", "\(scene.name) · shot \(shot.shotId)", saved.relativePath, Date().timeIntervalSince(started))
+                }
+            }
+        }
+
+        // ---- 9. Scene previews (the assistant's generate_scene_image) --------------------
+        for sc in scenes {
+            let started = Date()
+            try await run("generate_scene_image", #"{"scene": "\#(esc(sc.name))"}"#)
+            let scene = pvm.project.sequences.flatMap(\.scenes).first { $0.name == sc.name }!
+            record("scene-preview", sc.name, scene.sceneOverviewImage ?? "?", Date().timeIntervalSince(started))
+        }
+
+        await pvm.save()
+        print("[LocalBuild] saved \(projectFile.path)")
+        XCTAssertEqual(pvm.project.characters.filter { $0.baseImage != nil }.count, 3)
+        XCTAssertEqual(pvm.project.locations.filter { $0.primaryImage != nil }.count, 3)
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).count, 3, "exactly the three written scenes")
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).flatMap(\.shots).filter { $0.previewImage != nil }.count, 6)
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).flatMap(\.shots).filter { $0.storyboardImage != nil }.count, 6)
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).filter { $0.sceneOverviewImage != nil }.count, 3)
     }
 }

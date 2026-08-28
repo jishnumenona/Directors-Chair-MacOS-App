@@ -66,7 +66,14 @@ public enum StoryboardPromptStyler {
         switch purpose {
         case .character: return "Character design study of "
         case .costume: return "Costume design sheet for "
-        case .shot, .scene, .location, .moodboard: return "The drawing shows: "
+        // A location plate is the place itself. "Nobody in it" at the end
+        // of the prompt was ignored (DC-0071 run 2: every plate gained a
+        // figure — a chef in the kitchen, a walker on the cliff path); the
+        // encoder reads the front best, and "empty, unoccupied" is a thing
+        // the model has seen captioned, where a negation is not.
+        case .location: return "An architectural study of an empty, unoccupied place with no people anywhere — the drawing shows only the setting itself: "
+        case .prop: return "A product study of one object on its own, nothing and nobody else in the picture — the drawing shows only "
+        case .shot, .scene, .moodboard: return "The drawing shows: "
         case .edit: return ""
         }
     }
@@ -87,6 +94,8 @@ public enum StoryboardPromptStyler {
                 : "The same person as in the reference picture, in the same style as the reference."
         case .location:
             return "The same place as in the reference picture — same architecture, layout and details."
+        case .prop:
+            return "The same object as in the reference picture — same shape, materials and wear."
         case .shot, .scene, .moodboard:
             return "The people and places match the reference pictures."
         case .edit:
@@ -157,7 +166,9 @@ public enum StoryboardPromptStyler {
         case .scene:
             return "Wide establishing view at eye level, the whole setting visible."
         case .location:
-            return "Wide establishing view of the place at eye level, its layout and character readable."
+            return "Architectural establishing view of the deserted place at eye level, its layout and character readable, empty of people and figures, no lettering or captions."
+        case .prop:
+            return "The object alone, centred and filling the page against a plain white background, seen from a slightly raised three-quarter angle, its materials and wear drawn clearly, no lettering."
         case .character:
             return "Front view, head-and-shoulders portrait centered on the page, neutral expression, plain white background."
         case .costume:
@@ -176,11 +187,22 @@ public enum StoryboardPromptStyler {
 
     /// The one composition point: medium lead + purpose-led subject +
     /// framing (caller's notes or the purpose default) + medium tail.
+    /// The line that keeps an ink drawing ink when the reference is one
+    /// (DC-0071 finding: a turnaround of a monochrome sketch came back in
+    /// colour under "same style as the reference").
+    static let monochromeLock = "The picture stays monochrome: black ink and pencil on white paper, every surface left as clean line and hatching, exactly like the reference."
+    /// The colour-look counterpart (DC-0071): a Comic location plate's
+    /// "golden hour" variation came back as a photograph — the reference
+    /// clause fixes the place, not the medium, and photographic light
+    /// words pull the medium along.
+    static let mediumLock = "The new picture is made in exactly the same medium, line work and colouring as the reference picture — the same kind of drawing, finished the same way."
+
     public static func prompt(subject: String, notes: String? = nil,
                               purpose: VisualPurpose = .shot,
                               style: VisualStyle = .sketch,
                               referenceCount: Int = 0,
-                              referenceLabels: [String] = []) -> String {
+                              referenceLabels: [String] = [],
+                              referenceIsMonochrome: Bool = false) -> String {
         var body = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.count > subjectCharacterBudget {
             body = String(body.prefix(subjectCharacterBudget)) + "…"
@@ -205,14 +227,17 @@ public enum StoryboardPromptStyler {
         }
         lines.append(framing)
         if !referenceLed { lines.append(tail(for: style)) }
+        else { lines.append(referenceIsMonochrome ? monochromeLock : mediumLock) }
         return lines.joined(separator: "\n")
     }
 
-    public static func prompt(_ spec: StoryboardFrameSpec, style: VisualStyle) -> String {
+    public static func prompt(_ spec: StoryboardFrameSpec, style: VisualStyle,
+                              referenceIsMonochrome: Bool = false) -> String {
         prompt(subject: spec.subject, notes: spec.notes,
                purpose: spec.purpose, style: style,
                referenceCount: spec.references.count,
-               referenceLabels: spec.referenceLabels)
+               referenceLabels: spec.referenceLabels,
+               referenceIsMonochrome: referenceIsMonochrome)
     }
 
     /// Caller notes become a "Framing:" sentence — the model treats a

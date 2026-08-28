@@ -71,6 +71,10 @@ public enum VisualPurpose: String, Sendable {
     case costume
     case location
     case moodboard
+    /// A prop concept: one object on its own, a product study (DC-0071 —
+    /// drawn as a mood-board picture, the Prop Shop's lantern became a man
+    /// holding a lantern).
+    case prop
     /// Change an existing picture by instruction; the picture rides along
     /// as the first reference and defines the look.
     case edit

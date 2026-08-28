@@ -270,8 +270,16 @@ extension AIServiceClient {
         // reproduce a sheet of panels (owner-reported collage); wardrobe
         // reaches it through the face picture and the subject text instead.
         let composing = [.shot, .scene, .moodboard].contains(request.brief?.purpose ?? .moodboard)
+        // A shot draws the people the shot names (DC-0071: an insert of
+        // Noor's hand drew all three of the scene's characters because every
+        // scene reference rode along). When the shot's subject names at
+        // least one character, only those characters' pictures go in.
+        let named = Self.charactersNamed(in: request.brief?.subject ?? "",
+                                         among: (request.referenceImages ?? []).map(\.label))
+        let shotScoped = request.brief?.purpose == .shot && !named.isEmpty
         let ordered = (request.referenceImages ?? []).enumerated()
             .filter { !(composing && kindOf($0.element.label) == "costume") }
+            .filter { !(shotScoped && kindOf($0.element.label) == "character" && !named.contains($0.element.label)) }
             .sorted { (rank($0.element.label), $0.offset) < (rank($1.element.label), $1.offset) }
         for (_, reference) in ordered {
             if let data = Data(base64Encoded: reference.base64) {
@@ -279,6 +287,21 @@ extension AIServiceClient {
             }
         }
         return (Array(pictures.prefix(4)), Array(labels.prefix(4)))
+    }
+
+    /// The "character:<name>" labels whose name (or its first word) appears
+    /// in the subject text, whole-word and case-insensitive.
+    static func charactersNamed(in subject: String, among labels: [String]) -> Set<String> {
+        // Only the shot's own description counts — the subject goes on to
+        // list "People in the frame", which would name everyone it lists.
+        let description = subject.components(separatedBy: "People in the frame:").first ?? subject
+        var found: Set<String> = []
+        for label in labels {
+            let parts = label.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, parts[0].lowercased() == "character" else { continue }
+            if StoryboardSubjects.mentions(description, name: parts[1]) { found.insert(label) }
+        }
+        return found
     }
 }
 
@@ -831,7 +854,7 @@ public actor AIServiceClient {
                 brief = VisualBrief(purpose: .edit,
                                     subject: StoryboardSubjects.editInstruction(from: request.prompt))
             } else {
-                brief = VisualBrief(purpose: .moodboard,
+                brief = VisualBrief(purpose: StoryboardSubjects.inferredPurpose(fromPrompt: request.prompt),
                                     subject: StoryboardSubjects.plainSubject(from: request.prompt))
             }
             let frame = try await Self.onDeviceImageEngine.generateFrame(

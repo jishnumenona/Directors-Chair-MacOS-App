@@ -49,6 +49,12 @@ final class StoryboardPromptStylerTests: XCTestCase {
         let scene = StoryboardPromptStyler.prompt(subject: "The parlor", purpose: .scene)
         XCTAssertTrue(scene.contains("The drawing shows: The parlor"))
         XCTAssertTrue(scene.contains("Wide establishing view"))
+        // A location plate says "empty, unoccupied" up front, where the
+        // encoder reads best — "nobody in it" at the end drew a chef (DC-0071).
+        let location = StoryboardPromptStyler.prompt(subject: "The lighthouse kitchen", purpose: .location)
+        XCTAssertTrue(location.contains("An architectural study of an empty, unoccupied place with no people anywhere — the drawing shows only the setting itself: The lighthouse kitchen"), location)
+        XCTAssertTrue(location.contains("deserted place at eye level"))
+        XCTAssertTrue(location.contains("empty of people and figures"))
     }
 
     func testPromptIncludesFramingNotesOnlyWhenPresent() {
@@ -202,6 +208,130 @@ final class LocalImageEngineTests: XCTestCase {
         _ = try await engine.generateFrame(.init(subject: "preference"))
         XCTAssertTrue(try XCTUnwrap(core.calls.last).prompt.contains("ink sketch"))
         #endif
+    }
+
+    /// A core that draws a figure first and an empty picture second, so
+    /// the redraw-on-person rule (DC-0071) can be watched seed by seed.
+    private final class FigureThenEmptyCore: OnDeviceImageGenerating, @unchecked Sendable {
+        static let figure = Data("figure".utf8), empty = Data("empty".utf8)
+        private let lock = NSLock()
+        private(set) var seeds: [UInt64?] = []
+        func render(_ request: OnDeviceRenderRequest, weightsDirectory: URL) async throws -> Data {
+            lock.withLock {
+                seeds.append(request.seed)
+                return seeds.count == 1 ? Self.figure : Self.empty
+            }
+        }
+    }
+
+    func testAPlaceOrPropThatGainedAFigureIsRedrawnOnTheNextSeed() async throws {
+        #if arch(arm64)
+        let (engine, root) = makeEngine()
+        try writeMarker(in: root)
+        let core = FigureThenEmptyCore()
+        let previousCore = LocalImageEngine.core, previousDetector = LocalImageEngine.peopleDetector
+        LocalImageEngine.core = core
+        LocalImageEngine.peopleDetector = { $0 == FigureThenEmptyCore.figure }
+        defer { LocalImageEngine.core = previousCore; LocalImageEngine.peopleDetector = previousDetector }
+
+        let plate = try await engine.generateFrame(.init(subject: "The kitchen", seed: 40, purpose: .location))
+        XCTAssertEqual(plate, FigureThenEmptyCore.empty, "the figure drawing is not what comes back")
+        XCTAssertEqual(core.seeds, [40, 41], "the redraw moves to the next seed")
+
+        // A shot keeps its people: one render, the figure stays.
+        let shotCore = FigureThenEmptyCore()
+        LocalImageEngine.core = shotCore
+        let shot = try await engine.generateFrame(.init(subject: "Two-shot", seed: 40, purpose: .shot))
+        XCTAssertEqual(shot, FigureThenEmptyCore.figure)
+        XCTAssertEqual(shotCore.seeds, [40])
+        XCTAssertTrue(LocalImageEngine.redrawsOnPeople(.prop))
+        XCTAssertFalse(LocalImageEngine.redrawsOnPeople(.character))
+        #endif
+    }
+
+    func testPropPurposeIsAProductStudyOfOneObject() {
+        let prop = StoryboardPromptStyler.prompt(subject: "a dented brass storm lantern", purpose: .prop)
+        XCTAssertTrue(prop.contains("A product study of one object on its own, nothing and nobody else in the picture — the drawing shows only a dented brass storm lantern"), prop)
+        XCTAssertTrue(prop.contains("The object alone, centred and filling the page"))
+        let propShop = "Professional film-production prop concept image: Brass storm lantern. A dented brass storm lantern with a cracked glass chimney. Prop category: Handheld. Studio product photography on a neutral dark background, high detail, realistic materials, no people, no text."
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: propShop), .prop)
+        XCTAssertEqual(StoryboardSubjects.plainSubject(from: propShop),
+                       "Brass storm lantern. A dented brass storm lantern with a cracked glass chimney. Prop category: Handheld.")
+        let withReference = StoryboardPromptStyler.prompt(subject: "the lantern", purpose: .prop, referenceCount: 1)
+        XCTAssertTrue(withReference.contains("The same object as in the reference picture"))
+        XCTAssertTrue(withReference.contains("ink"), "a prop study keeps the app's look even with a reference photo")
+    }
+
+    /// A reference-led render keeps the reference's medium: ink stays ink,
+    /// and a colour drawing stays a drawing (DC-0071: a Comic plate's
+    /// golden-hour variation came back as a photograph).
+    func testReferenceLedRendersLockTheMediumOfTheReference() {
+        let colour = StoryboardPromptStyler.prompt(subject: "The kitchen at golden hour", purpose: .location,
+                                                   style: .comic, referenceCount: 1, referenceIsMonochrome: false)
+        XCTAssertTrue(colour.contains(StoryboardPromptStyler.mediumLock), colour)
+        XCTAssertFalse(colour.contains(StoryboardPromptStyler.monochromeLock))
+        let ink = StoryboardPromptStyler.prompt(subject: "The kitchen at night", purpose: .location,
+                                                style: .sketch, referenceCount: 1, referenceIsMonochrome: true)
+        XCTAssertTrue(ink.contains(StoryboardPromptStyler.monochromeLock))
+        XCTAssertFalse(ink.contains(StoryboardPromptStyler.mediumLock))
+        // A fresh text-to-image render carries the look's own tail, no lock.
+        let fresh = StoryboardPromptStyler.prompt(subject: "The kitchen", purpose: .location, style: .comic)
+        XCTAssertFalse(fresh.contains(StoryboardPromptStyler.mediumLock))
+    }
+
+    /// A shot that names people draws only those people (DC-0071: an insert
+    /// of Noor's hand came back with the whole cast).
+    func testAShotThatNamesCharactersOnlyTakesThoseReferences() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString()
+        let refs = [ReferenceImage(base64: png, label: "character:Teo"),
+                    ReferenceImage(base64: png, label: "location:Lighthouse Gallery"),
+                    ReferenceImage(base64: png, label: "character:Noor Haddad"),
+                    ReferenceImage(base64: png, label: "prop:Brass storm lantern"),
+                    ReferenceImage(base64: png, label: "character:Idris")]
+        let insert = ImageGenerationRequest(
+            prompt: "x", provider: .onDevice, referenceImages: refs,
+            brief: VisualBrief(purpose: .shot, subject: "Insert: Noor's scarred hand trimming the wick with the pocketknife"))
+        XCTAssertEqual(AIServiceClient.onDeviceReferences(for: insert).labels,
+                       ["location:Lighthouse Gallery", "character:Noor Haddad", "prop:Brass storm lantern"])
+        // Nobody named → every character stays (a "three figures" wide).
+        let wide = ImageGenerationRequest(
+            prompt: "x", provider: .onDevice, referenceImages: refs,
+            brief: VisualBrief(purpose: .shot, subject: "Three figures in single file on the cliff path at dawn"))
+        XCTAssertEqual(AIServiceClient.onDeviceReferences(for: wide).labels.filter { $0.hasPrefix("character") }.count, 3)
+        // A scene keeps its cast regardless of who the summary names.
+        let scene = ImageGenerationRequest(
+            prompt: "x", provider: .onDevice, referenceImages: refs,
+            brief: VisualBrief(purpose: .scene, subject: "Noor trims the lamp"))
+        XCTAssertEqual(AIServiceClient.onDeviceReferences(for: scene).labels.filter { $0.hasPrefix("character") }.count, 3)
+        // Whole words only: "Teo" must not match "meteor".
+        XCTAssertEqual(AIServiceClient.charactersNamed(in: "a meteor over the sea", among: ["character:Teo"]), [])
+        // The subject's own cast list must not count as naming.
+        XCTAssertEqual(AIServiceClient.charactersNamed(in: "Insert: Noor's hand. People in the frame: Noor; Teo; Idris",
+                                                       among: ["character:Teo", "character:Noor", "character:Idris"]), ["character:Noor"])
+    }
+
+    /// A shot's subject lists the people the shot names, not the scene's
+    /// whole cast (DC-0071: every shot said all three were in the frame).
+    func testAShotSubjectListsOnlyTheCharactersItNames() {
+        var scene = Scene(name: "Last Light")
+        scene.location = "Lighthouse Gallery"
+        scene.dialogues = [Dialogue(character: "Noor", text: "The light doesn't know."),
+                           Dialogue(character: "Teo", text: "They said six."),
+                           Dialogue(character: "Idris", text: "I counted it.")]
+        let cast = [Character(name: "Noor"), Character(name: "Teo"), Character(name: "Idris")]
+        var insert = Shot(shotId: 7, description: "Insert: Noor's scarred hand trimming the wick")
+        let one = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
+        XCTAssertTrue(one.contains("People in the frame: Noor"), one)
+        XCTAssertFalse(one.contains("Teo"), one)
+        XCTAssertFalse(one.contains("Idris"), one)
+        insert.description = "Two-shot at the ladder: Teo rising into frame, Noor turning from the lamp"
+        let two = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
+        XCTAssertTrue(two.contains("Noor") && two.contains("Teo") && !two.contains("Idris"), two)
+        insert.description = "Three figures in single file on the cliff path at dawn"
+        let wide = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
+        XCTAssertTrue(wide.contains("Noor") && wide.contains("Teo") && wide.contains("Idris"), wide)
+        XCTAssertTrue(StoryboardSubjects.mentions("Noor's hand", name: "Noor Haddad"))
+        XCTAssertFalse(StoryboardSubjects.mentions("a meteor", name: "Teo"))
     }
 
     func testGenerateWithoutCoreFailsHonestlyWhenReady() async throws {
@@ -723,6 +853,28 @@ final class VisualBriefAndCleaningTests: XCTestCase {
             referenceImages: [ref("character:Mara Voss", 2), ref("costume:Mara Voss:Estate Grays", 3)],
             brief: VisualBrief(purpose: .costume, subject: "Mara in Estate Grays")))
         XCTAssertEqual(try XCTUnwrap(scripted.requests.first).referenceLabels, ["character:Mara Voss", "costume:Mara Voss:Estate Grays"])
+    }
+
+    func testContinuityEditsOfInkDrawingsKeepTheInkLock() {
+        let inked = StoryboardPromptStyler.prompt(subject: "Noor", purpose: .character, style: .sketch,
+                                                  referenceCount: 1, referenceIsMonochrome: true)
+        XCTAssertTrue(inked.contains("stays monochrome"), inked)
+        XCTAssertFalse(inked.contains("ink sketch on white paper, one frame"), "the look lead still yields to the reference")
+        let photo = StoryboardPromptStyler.prompt(subject: "Noor", purpose: .character, style: .sketch,
+                                                  referenceCount: 1, referenceIsMonochrome: false)
+        XCTAssertFalse(photo.contains("stays monochrome"), "a photo reference must stay a photo")
+        let fresh = StoryboardPromptStyler.prompt(subject: "Noor", purpose: .character, style: .sketch, referenceIsMonochrome: true)
+        XCTAssertFalse(fresh.contains("stays monochrome"), "no reference, no continuity lock — the look tail already says it")
+    }
+
+    func testBriefLessPromptsGetTheirSurfacePurpose() {
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: "Cinematic film still, professional cinematography, establishing shot, set in the kitchen"), .scene)
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: "Cinematic film still, professional cinematography. Close-up shot. Low angle"), .shot)
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: "Lighthouse kitchen, warm lamplight, professional film production design, photorealistic"), .location)
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: "photorealistic, female character, age 58\n\nFront-facing neutral studio reference portrait, head and shoulders, even lighting."), .character)
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: "female character, wearing Watch Oilskins, costume design reference, full body shot"), .costume)
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: "Edit this scene preview with the following changes:\n1. x"), .edit)
+        XCTAssertEqual(StoryboardSubjects.inferredPurpose(fromPrompt: "Cinematic mood-board reference image: rain on glass"), .moodboard)
     }
 
     func testSlugLinesAndNarrativeCapsBecomePlainDescription() {

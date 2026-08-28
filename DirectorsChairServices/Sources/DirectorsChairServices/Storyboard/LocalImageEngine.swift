@@ -43,6 +43,17 @@ public final class LocalImageEngine: StoryboardEngine, @unchecked Sendable {
     /// broken Mac (dev machine at 8GB free, 2026-08-24).
     public static let downloadHeadroomBytes: Int64 = 2_000_000_000
 
+    /// Purposes whose drawing must hold no people; a figure in one is
+    /// redrawn on the next seed, up to `peopleRedrawAttempts` renders.
+    public static func redrawsOnPeople(_ purpose: VisualPurpose) -> Bool {
+        purpose == .location || purpose == .prop
+    }
+    public static let peopleRedrawAttempts = 3
+    /// The figure detector (Apple Vision); a seam so tests can script it.
+    nonisolated(unsafe) public static var peopleDetector: @Sendable (Data) -> Bool = {
+        HumanPresence.detected(in: $0)
+    }
+
     private let lock = NSLock()
     private var progress: Double?
     private let storageRoot: URL
@@ -205,16 +216,37 @@ public final class LocalImageEngine: StoryboardEngine, @unchecked Sendable {
         if [.shot, .scene, .moodboard].contains(spec.purpose) {
             drawn.subject = await VisualBriefWriter.visualDescription(of: spec.subject)
         }
-        let prompt = StoryboardPromptStyler.prompt(drawn, style: style)
+        // A continuity edit of an ink drawing must stay ink (DC-0071).
+        let monochromeReference = spec.references.first.map { StoryboardSubjects.isNearMonochrome($0) } ?? false
+        let prompt = StoryboardPromptStyler.prompt(drawn, style: style, referenceIsMonochrome: monochromeReference)
         if ProcessInfo.processInfo.environment["DC_KLEIN_PROMPTTRACE"] == "1" {
             print("[KleinPrompt] rewritten=\(drawn.subject != spec.subject)\n\(prompt)")
         }
         do {
-            return try await core.render(
-                OnDeviceRenderRequest(prompt: prompt, width: spec.width, height: spec.height,
-                                      seed: spec.seed, references: spec.references,
-                                      editRegions: spec.editRegions),
-                weightsDirectory: weightsDirectory)
+            // A place or an object that gained a figure is redrawn on the
+            // next seed (DC-0071): the model puts people where it expects
+            // them — a chef in a kitchen, a walker on a path — and the
+            // prompt alone does not stop it every time.
+            let redrawOnPeople = Self.redrawsOnPeople(spec.purpose)
+            let attempts = redrawOnPeople ? Self.peopleRedrawAttempts : 1
+            let baseSeed = spec.seed ?? (redrawOnPeople ? UInt64.random(in: 0..<1_000_000) : nil)
+            var frame = Data()
+            for attempt in 0..<attempts {
+                let seed = baseSeed.map { $0 &+ UInt64(attempt) }
+                // A declared activity keeps App Nap off the render (DC-0071).
+                frame = try await LocalModelActivity.perform("Drawing on the local image model") {
+                    try await core.render(
+                        OnDeviceRenderRequest(prompt: prompt, width: spec.width, height: spec.height,
+                                              seed: seed, references: spec.references,
+                                              editRegions: spec.editRegions),
+                        weightsDirectory: weightsDirectory)
+                }
+                guard redrawOnPeople, attempt + 1 < attempts, Self.peopleDetector(frame) else { break }
+                if ProcessInfo.processInfo.environment["DC_KLEIN_PROMPTTRACE"] == "1" {
+                    print("[KleinPrompt] a figure in the \(spec.purpose.rawValue) drawing — redrawing on the next seed")
+                }
+            }
+            return frame
         } catch let error as StoryboardEngineError {
             throw error
         } catch {
