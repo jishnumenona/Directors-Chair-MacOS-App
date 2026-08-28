@@ -7,6 +7,7 @@
 import SwiftUI
 import DirectorsChairCore
 import AppKit
+import DirectorsChairServices
 
 extension LocationDetailView {
 
@@ -148,11 +149,40 @@ extension LocationDetailView {
     }
 
     func generateVariationWithAnnotations(variation: String, annotations: [KeyframeAnnotation]) {
-        let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "location \(variation) image")
-        let override = variationDefaultOverride(variation)
-        let basePrompt = buildVariationPrompt(override: override)
-        let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
-        generateVariationImage(variation: variation, prompt: combinedPrompt)
+        // DC-0073: the marked picture itself is edited through the one edit
+        // path (the primary plate used to be sent, with a fresh-render brief).
+        guard generatingProgress[variation] == nil,
+              let imagePath = effectiveImagePath(for: variation), let basePath = projectBasePath,
+              let source = try? Data(contentsOf: basePath.appendingPathComponent(imagePath)) else { return }
+        let fullPath = basePath.appendingPathComponent(imagePath)
+        let basePrompt = buildVariationPrompt(override: variationDefaultOverride(variation))
+        let edit = AnnotationEdit(source: source, annotations: annotations,
+                                  context: "location \(variation) image", originalPrompt: basePrompt)
+        generatingProgress[variation] = 0.0
+        Task {
+            do {
+                let newImageData = try await AIServiceClient.shared.editImage(edit)
+                _ = basePath.startAccessingSecurityScopedResource()
+                defer { basePath.stopAccessingSecurityScopedResource() }
+                try newImageData.write(to: fullPath)
+                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: fullPath)
+                await MainActor.run {
+                    imageRefreshIds[variation] = UUID()
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        generatingProgress.removeValue(forKey: variation)
+                    }
+                    discoveredImages = DiscoveredLocationImages.discover(
+                        for: location.name,
+                        basePath: projectBasePath
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    generatingProgress.removeValue(forKey: variation)
+                }
+                debugLog("Location annotation edit failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func variationDefaultOverride(_ variation: String) -> String {

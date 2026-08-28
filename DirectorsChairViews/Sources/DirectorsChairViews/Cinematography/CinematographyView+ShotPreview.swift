@@ -734,95 +734,60 @@ struct ShotPreviewSection: View {
     // MARK: - Generate Preview With Annotations
 
     private func generatePreviewWithAnnotations(_ annotations: [KeyframeAnnotation]) {
-        guard let currentImage = previewImage else { return }
-
-        let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "shot preview")
+        guard let currentImage = previewImage,
+              let tiffData = currentImage.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let source = bitmap.representation(using: .png, properties: [:]) else { return }
         let basePrompt = lastUsedPrompt.isEmpty ? buildPrompt() : lastUsedPrompt
-        let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
+        // The scene's pictures ride behind the preview for likeness (cloud);
+        // the on-device repaint takes the preview alone.
+        var context: [ReferenceImage] = []
+        if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
+            context = CharacterReferenceHelper.collectReferenceImages(
+                forScene: scene,
+                characters: characters,
+                locations: locations,
+                projectDirectory: projDir
+            )
+        }
+        // DC-0073: one description of the edit; the client composes the request.
+        let edit = AnnotationEdit(source: source, annotations: annotations, context: "shot preview",
+                                  originalPrompt: basePrompt, contextPictures: context, aspectRatio: "16:9")
+        let combinedPrompt = AnnotationEditComposer.prompt(for: edit)
 
         isGenerating = true
         errorMessage = nil
 
         Task {
             do {
-                let aiClient = AIServiceClient.shared
-
-                // Encode current image as reference
-                var refs: [ReferenceImage] = []
-                if let tiffData = currentImage.tiffRepresentation,
-                   let bitmap = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmap.representation(using: .png, properties: [:]) {
-                    refs.append(ReferenceImage(
-                        base64: pngData.base64EncodedString(),
-                        mimeType: "image/png",
-                        label: "Current shot preview to edit"
-                    ))
-                }
-
-                // Also collect scene reference images
-                if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
-                    let sceneRefs = CharacterReferenceHelper.collectReferenceImages(
-                        forScene: scene,
-                        characters: characters,
-                        locations: locations,
-                        projectDirectory: projDir
-                    )
-                    refs.append(contentsOf: sceneRefs)
-                }
-
-                // DC-0069: on-device this is a local repaint of the current
-                // preview (refs[0]) inside the pinned regions.
-                let request = ImageGenerationRequest(
-                    prompt: combinedPrompt,
-                    provider: AIProviderSelection.shared.provider(for: .image),
-                    aspectRatio: "16:9",
-                    numberOfImages: 1,
-                    referenceImages: refs.isEmpty ? nil : refs,
-                    brief: VisualBrief(purpose: .edit,
-                                       subject: StoryboardSubjects.editInstruction(from: editPrompt)),
-                    editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) }
-                )
-
-                let response = try await aiClient.generateImage(request)
-
-                guard let imageData = response.images.first else {
-                    throw AIClientError.invalidResponse("No image generated")
-                }
-
+                let imageData = try await AIServiceClient.shared.editImage(edit)
                 guard let basePath = projectBasePath else {
                     throw AIClientError.invalidResponse("No project path")
                 }
-
                 let projectDir = basePath.deletingLastPathComponent()
                 let shotDir = projectDir
                     .appendingPathComponent("assets")
                     .appendingPathComponent("shots")
                     .appendingPathComponent("shot_\(shot.shotId)")
-
                 if !FileManager.default.fileExists(atPath: shotDir.path) {
                     try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
                 }
-
                 let dateFormatter = DateFormatter()
                 dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
                 let timestamp = dateFormatter.string(from: Date())
                 let imageFilename = "preview_\(timestamp).png"
-
                 let imagePath = shotDir.appendingPathComponent(imageFilename)
                 try imageData.write(to: imagePath)
-
+                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: imagePath)
                 // Save the edit prompt
                 let promptPath = shotDir.appendingPathComponent("prompt.txt")
                 try combinedPrompt.write(to: promptPath, atomically: true, encoding: .utf8)
-
                 let latestPath = shotDir.appendingPathComponent("latest.png")
                 if FileManager.default.fileExists(atPath: latestPath.path) {
                     try FileManager.default.removeItem(at: latestPath)
                 }
                 try imageData.write(to: latestPath)
-
                 let relativePath = "assets/shots/shot_\(shot.shotId)/latest.png"
-
                 await MainActor.run {
                     if let image = NSImage(data: imageData) {
                         previewImage = image
@@ -832,7 +797,6 @@ struct ShotPreviewSection: View {
                     isGenerating = false
                     discoverPreviewImages()
                 }
-
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription

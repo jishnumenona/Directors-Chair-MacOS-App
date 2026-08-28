@@ -53,49 +53,18 @@ extension PhysicalAppearanceTab {
     func generateAngleWithAnnotations(angle: String, annotations: [KeyframeAnnotation]) {
         guard let imagePath = effectiveImagePath(for: annotationEditorImageType),
               let basePath = projectBasePath else { return }
-
         let fullPath = basePath.appendingPathComponent(imagePath)
         guard let imageData = try? Data(contentsOf: fullPath) else { return }
-
-        // Build edit prompt (same pattern as shot annotation)
-        var promptParts: [String] = []
-        promptParts.append("Edit this image by making the following changes while keeping everything else identical:")
-        for ann in annotations.sorted(by: { $0.number < $1.number }) {
-            let xPercent = Int(ann.normalizedX * 100)
-            let yPercent = Int(ann.normalizedY * 100)
-            promptParts.append("\(ann.number). \(ann.text) at position (\(xPercent)%, \(yPercent)%)")
-        }
-        let editPrompt = promptParts.joined(separator: "\n")
-
-        let referenceBase64 = imageData.base64EncodedString()
-        let request = ImageGenerationRequest(
-            prompt: editPrompt,
-            provider: AIProviderSelection.shared.provider(for: .image),
-            aspectRatio: "1:1",
-            referenceImageBase64: referenceBase64,
-            referenceMimeType: "image/png",
-            editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) }
-        )
-
-        // Show progress
+        // DC-0073: one description of the edit; the client composes the request.
+        let edit = AnnotationEdit(source: imageData, annotations: annotations, context: "character image", aspectRatio: "1:1")
         generatingProgress[angle] = 0.0
-
         Task {
             do {
-                let response = try await AIServiceClient.shared.generateImage(request)
-
-                guard let newImageData = response.images.first else {
-                    await MainActor.run {
-                        generatingProgress.removeValue(forKey: angle)
-                    }
-                    return
-                }
-
-                // Save edited image back to the same path
+                let newImageData = try await AIServiceClient.shared.editImage(edit)
                 _ = basePath.startAccessingSecurityScopedResource()
                 defer { basePath.stopAccessingSecurityScopedResource() }
                 try newImageData.write(to: fullPath)
-
+                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: fullPath)
                 await MainActor.run {
                     imageRefreshIds[angle] = UUID()
                     if angle == "base" {
@@ -113,10 +82,7 @@ extension PhysicalAppearanceTab {
                 await MainActor.run {
                     generatingProgress.removeValue(forKey: angle)
                 }
-                debugLog("Annotation edit failed: \(error.localizedDescription)")
-                await MainActor.run {
-                    ErrorPresenter.shared.present(error, context: "Applying image edits")
-                }
+                debugLog("Character annotation edit failed: \(error.localizedDescription)")
             }
         }
     }

@@ -316,19 +316,24 @@ public struct KeyframeAnnotation: Codable, Identifiable, Hashable, Sendable {
     public var normalizedY: Double  // 0.0-1.0 (top to bottom)
     public var text: String
     public var number: Int          // Display number (1, 2, 3...)
+    /// How far the change may reach around the pin, as a fraction of the
+    /// picture's shorter side (DC-0073). nil = the engine's default reach.
+    public var radius: Double?
 
     public init(
         id: String = UUID().uuidString,
         normalizedX: Double = 0.5,
         normalizedY: Double = 0.5,
         text: String = "",
-        number: Int = 1
+        number: Int = 1,
+        radius: Double? = nil
     ) {
         self.id = id
         self.normalizedX = normalizedX
         self.normalizedY = normalizedY
         self.text = text
         self.number = number
+        self.radius = radius
     }
 }
 
