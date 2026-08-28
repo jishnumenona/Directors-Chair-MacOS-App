@@ -277,10 +277,15 @@ extension AIServiceClient {
         let named = Self.charactersNamed(in: request.brief?.subject ?? "",
                                          among: (request.referenceImages ?? []).map(\.label))
         let shotScoped = request.brief?.purpose == .shot && !named.isEmpty
+        // An edit repaints the FIRST picture the surface sent; re-ranking by
+        // kind moved a scene's location plate ahead of the preview being
+        // edited (annotation review, 2026-08-28) — edits keep their order.
+        let editing = request.brief?.purpose == .edit || request.isEditOfExistingImage
         let ordered = (request.referenceImages ?? []).enumerated()
             .filter { !(composing && kindOf($0.element.label) == "costume") }
             .filter { !(shotScoped && kindOf($0.element.label) == "character" && !named.contains($0.element.label)) }
-            .sorted { (rank($0.element.label), $0.offset) < (rank($1.element.label), $1.offset) }
+            .sorted { editing ? $0.offset < $1.offset
+                              : (rank($0.element.label), $0.offset) < (rank($1.element.label), $1.offset) }
         for (_, reference) in ordered {
             if let data = Data(base64Encoded: reference.base64) {
                 pictures.append(data); labels.append(reference.label)

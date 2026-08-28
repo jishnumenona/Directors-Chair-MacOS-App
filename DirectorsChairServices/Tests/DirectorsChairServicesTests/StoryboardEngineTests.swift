@@ -1129,3 +1129,27 @@ final class VisualBriefWriterTests: XCTestCase {
         #endif
     }
 }
+
+/// Annotation-edit plumbing on-device (DC-0071 architecture review): the
+/// picture being edited must be the FIRST reference the core sees — the
+/// core inpaints `sources[0]` — no matter how the surface labelled it or
+/// what else it sent along.
+final class AnnotationEditReferenceOrderTests: XCTestCase {
+    func testThePictureBeingEditedStaysFirstAheadOfSceneReferences() {
+        let edited = Data("edited-picture".utf8).base64EncodedString()
+        let plate = Data("plate".utf8).base64EncodedString()
+        let face = Data("face".utf8).base64EncodedString()
+        // The shot-preview surface: current picture first, then the scene set.
+        let request = ImageGenerationRequest(
+            prompt: "Edit this shot preview with the following changes:\n1. At (40%, 55%): remove the bubble\nKeep all other areas unchanged.",
+            provider: .onDevice,
+            referenceImages: [ReferenceImage(base64: edited, label: "Current shot preview to edit"),
+                              ReferenceImage(base64: plate, label: "location:Lighthouse Gallery"),
+                              ReferenceImage(base64: face, label: "character:Noor")],
+            brief: VisualBrief(purpose: .edit, subject: "1. remove the bubble"),
+            editRegions: [EditRegion(x: 0.4, y: 0.55)])
+        let (pictures, _) = AIServiceClient.onDeviceReferences(for: request)
+        XCTAssertEqual(pictures.first, Data("edited-picture".utf8),
+                       "an edit repaints the picture being edited, not the location plate")
+    }
+}
