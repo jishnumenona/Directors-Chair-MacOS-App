@@ -2,8 +2,8 @@
 //  CharacterReferenceHelper.swift
 //  DirectorsChairViews
 //
-//  Collects all visual reference images (location, characters, costumes) for
-//  a scene and returns them as labeled ReferenceImage objects. Each image is
+//  Collects all visual reference images (location, characters, costumes,
+//  props) for a scene or a shot and returns them as labeled ReferenceImage objects. Each image is
 //  sent as a separate inline_data part to Gemini so the AI can see the exact
 //  location, character faces, and costumes when generating shot previews.
 //
@@ -16,18 +16,27 @@ public enum CharacterReferenceHelper {
 
     // MARK: - Multi-Image Reference Collection
 
+    /// At most this many prop pictures ride along (DC-0079): a crowded
+    /// scene's slots still go to the place and the people — the on-device
+    /// model takes four pictures, ranked location, characters, props.
+    public static let maxPropReferences = 2
+
     /// Collect all relevant reference images for a scene: location, characters,
-    /// and their active costumes. Each image is labeled so the prompt can
-    /// reference it (e.g. "Image 1 is the location", "Image 2 is character X").
+    /// their active costumes, and the props the scene lists (DC-0079 — the
+    /// Prop Shop's picture, the same rule the video reference collage uses).
+    /// Each image is labeled so the prompt can reference it (e.g. "Image 1
+    /// is the location", "Image 2 is character X").
     /// Returns an empty array if no images are found.
     public static func collectReferenceImages(
         forScene scene: DirectorsChairCore.Scene,
         characters: [Character],
         locations: [Location],
+        props: [Prop] = [],
         projectDirectory: URL?
     ) -> [ReferenceImage] {
         referenceImages(for: scene,
                         people: prominentCharactersInScene(scene, allCharacters: characters, max: 3),
+                        props: PropShopView.propsNamed(scene.props, in: props),
                         locations: locations, projectDirectory: projectDirectory)
     }
 
@@ -35,21 +44,27 @@ public enum CharacterReferenceHelper {
     /// the shot puts in the frame — the characters its description names,
     /// whether or not they speak in the scene (DC-0072: "Teo at the
     /// cottage wall" travelled with the scene's speakers and no Teo).
+    /// Props: the ones the shot's own description names (DC-0079 — "the
+    /// brass storm lantern" had no likeness on any provider), not every
+    /// prop the scene lists.
     public static func collectReferenceImages(
         forShot shot: Shot,
         in scene: DirectorsChairCore.Scene,
         characters: [Character],
         locations: [Location],
+        props: [Prop] = [],
         projectDirectory: URL?
     ) -> [ReferenceImage] {
         referenceImages(for: scene,
                         people: StoryboardSubjects.cast(for: shot, in: scene, characters: characters),
+                        props: props.filter { StoryboardSubjects.mentionsProp(shot.description, name: $0.name) },
                         locations: locations, projectDirectory: projectDirectory)
     }
 
     private static func referenceImages(
         for scene: DirectorsChairCore.Scene,
         people: [Character],
+        props: [Prop],
         locations: [Location],
         projectDirectory: URL?
     ) -> [ReferenceImage] {
@@ -98,6 +113,20 @@ public enum CharacterReferenceHelper {
             }
         }
 
+        // 3. Props the scene or shot names — only props with a picture
+        //    take one of the capped slots.
+        var propPictures = 0
+        for prop in props where propPictures < maxPropReferences {
+            guard let propImage = loadPropImage(prop, projectDirectory: projectDir),
+                  let base64 = resizeAndEncodeImage(propImage, maxDimension: 512) else { continue }
+            refs.append(ReferenceImage(
+                base64: base64,
+                mimeType: "image/png",
+                label: "prop:\(prop.name)"
+            ))
+            propPictures += 1
+        }
+
         return refs
     }
 
@@ -124,6 +153,8 @@ public enum CharacterReferenceHelper {
                 let charName = costumeParts.first.map(String.init) ?? ""
                 let costName = costumeParts.count > 1 ? String(costumeParts[1]) : "costume"
                 lines.append("- Image \(i + 1) is the costume \"\(costName)\" worn by \(charName). Match the clothing, colors, textures, and style exactly.")
+            case "prop":
+                lines.append("- Image \(i + 1) is the prop \"\(name)\". Match its exact design, shape, colors, and materials.")
             default:
                 lines.append("- Image \(i + 1) is a reference for \(name). Match it faithfully.")
             }
@@ -234,6 +265,18 @@ public enum CharacterReferenceHelper {
     /// Load a character's face/base image.
     static func loadCharacterImage(_ character: Character, projectDirectory: URL) -> NSImage? {
         let candidates = [character.baseImage, character.imageFront]
+        for imagePath in candidates {
+            guard let path = imagePath, !path.isEmpty else { continue }
+            let url = projectDirectory.appendingPathComponent(path)
+            if let image = NSImage(contentsOf: url) { return image }
+        }
+        return nil
+    }
+
+    /// Load a prop's picture: the Prop Shop thumbnail, else its first
+    /// reference photo (DC-0079). Paths are relative to the project.
+    static func loadPropImage(_ prop: Prop, projectDirectory: URL) -> NSImage? {
+        let candidates = [prop.thumbnail] + prop.referencePhotos.map(Optional.some)
         for imagePath in candidates {
             guard let path = imagePath, !path.isEmpty else { continue }
             let url = projectDirectory.appendingPathComponent(path)

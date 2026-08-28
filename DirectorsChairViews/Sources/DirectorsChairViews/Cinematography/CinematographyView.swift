@@ -561,6 +561,7 @@ public struct CinematographyView: View {
                         scene: sceneForShot(shot),
                         characters: characters,
                         locations: locations,
+                        props: props,
                         projectBasePath: projectBasePath,
                         onPreviewGenerated: { imagePath in
                             updateShotField(shot) { $0.previewImage = imagePath }

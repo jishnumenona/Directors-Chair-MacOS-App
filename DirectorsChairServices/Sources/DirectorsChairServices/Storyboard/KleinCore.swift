@@ -55,9 +55,11 @@ public actor KleinCore: OnDeviceImageGenerating {
     }
 
     private var bundle: Bundle?
-    /// Bumped per render; the idle-release task only fires if no newer
-    /// render has started since it was scheduled.
-    private var generation = 0
+    /// The shared release-on-idle rule (DC-0079): begun per render, armed
+    /// after it; fires only if no newer render began since.
+    private lazy var idle = LocalModelIdleRelease { [weak self] token in
+        await self?.releaseIfIdle(token)
+    }
 
     /// Construction touches no MLX state (the metallib rule: SPM test
     /// runners abort on first MLX use) — the memory policy is applied on
@@ -107,7 +109,7 @@ public actor KleinCore: OnDeviceImageGenerating {
     }
 
     public func render(_ request: OnDeviceRenderRequest, weightsDirectory: URL) async throws -> Data {
-        generation += 1
+        idle.begin()
         defer { finishRender() }
         let bundle = try await loadedBundle(weightsDirectory: weightsDirectory)
         Self.trace("loaded")
@@ -226,15 +228,11 @@ public actor KleinCore: OnDeviceImageGenerating {
     private func finishRender() {
         MLXMemoryPolicy.releaseCache()
         Self.trace("cache released")
-        let mine = generation
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(MLXMemoryPolicy.idleReleaseInterval * 1_000_000_000))
-            await self?.releaseIfIdle(since: mine)
-        }
+        idle.end()
     }
 
-    private func releaseIfIdle(since scheduled: Int) {
-        guard scheduled == generation, bundle != nil else { return }
+    private func releaseIfIdle(_ token: LocalModelIdleRelease.Token) {
+        guard idle.isCurrent(token), bundle != nil else { return }
         releaseModel()
     }
 

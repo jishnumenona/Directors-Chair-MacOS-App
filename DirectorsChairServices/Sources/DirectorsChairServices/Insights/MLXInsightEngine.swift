@@ -54,6 +54,10 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
     private var container: ModelContainer?
     private var loadedModelId: String?
     #endif
+    /// DC-0079: the same release-on-idle as the image core — with both
+    /// models resident the app sat at ~8 GB between jobs. Set once in
+    /// init (a lazy property is not thread-safe on a shared engine).
+    private var idle: LocalModelIdleRelease!
 
     /// Weights live under Application Support so they survive cache
     /// purges — a 2GB re-download for a cleaned cache is user-hostile.
@@ -62,6 +66,41 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("DirectorsChair/InsightModels", isDirectory: true)
         self.modelDefaults = modelDefaults
+        self.idle = LocalModelIdleRelease { [weak self] token in
+            self?.releaseIfIdle(token)
+        }
+    }
+
+    /// Whether the weights are resident (tests and the Settings status).
+    public var isModelResident: Bool {
+        #if arch(arm64)
+        return withLock { container != nil }
+        #else
+        return false
+        #endif
+    }
+
+    /// Drop the loaded model and hand MLX's cache back to the system. The
+    /// next call reloads from the OS file cache (~1-2 s).
+    public func releaseModel() {
+        #if arch(arm64)
+        withLock { container = nil; loadedModelId = nil }
+        MLXMemoryPolicy.releaseCache()
+        #endif
+    }
+
+    private func releaseIfIdle(_ token: LocalModelIdleRelease.Token) {
+        guard idle.isCurrent(token), isModelResident else { return }
+        releaseModel()
+    }
+
+    /// After every answer: return the cache now (the working set is
+    /// rebuilt in milliseconds) and arm the idle release.
+    private func finishResponse() {
+        #if arch(arm64)
+        MLXMemoryPolicy.releaseCache()
+        #endif
+        idle.end()
     }
 
     private func withLock<T>(_ body: () -> T) -> T {
@@ -117,6 +156,9 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
             try FileManager.default.createDirectory(
                 at: storageRoot, withIntermediateDirectories: true)
             try Data().write(to: readyMarker)
+            // A consent download leaves the model loaded; it must not sit
+            // there until the first question.
+            finishResponse()
         } catch {
             throw InsightEngineError.downloadFailed(String(describing: error))
         }
@@ -144,7 +186,9 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
         let state = await availability()
         guard case .ready = state else { throw InsightEngineError.notReady(state) }
         do {
+            idle.begin()
             let container = try await loadedContainer()
+            defer { finishResponse() }
             // A REAL system role, not concatenated text: small instruct
             // models largely obey only their chat template's system slot —
             // as plain text the conversation-only rule was ignored and the
