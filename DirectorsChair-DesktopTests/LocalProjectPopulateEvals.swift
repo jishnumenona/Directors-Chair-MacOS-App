@@ -665,7 +665,7 @@ final class LocalProjectPopulateEvals: XCTestCase {
                         // Shot preview: exactly what CinematographyView+ShotPreview sends.
                         let started = Date()
                         let prompt = ShotPromptBuilder.previewPrompt(shot: shot, scene: sc, locations: locations, characters: characters)
-                        let refs = CharacterReferenceHelper.collectReferenceImages(forScene: sc, characters: characters, locations: locations, projectDirectory: projectDir)
+                        let refs = CharacterReferenceHelper.collectReferenceImages(forShot: shot, in: sc, characters: characters, locations: locations, projectDirectory: projectDir)
                         let png = try await draw(ImageGenerationRequest(
                             prompt: refs.isEmpty ? prompt : CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: refs) + prompt,
                             provider: .onDevice, aspectRatio: "16:9", numberOfImages: 1,
