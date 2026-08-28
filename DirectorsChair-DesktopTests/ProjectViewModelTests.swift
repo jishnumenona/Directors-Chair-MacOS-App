@@ -487,9 +487,31 @@ final class NoLostWorkTests: XCTestCase {
 @MainActor
 final class AppWideUndoTests: XCTestCase {
 
+    /// Ticks the main run loop for the whole interval. A single
+    /// `run(mode:before:)` returns as soon as it handles ANY one source, so
+    /// under full-suite load a leftover timer from another test could end a
+    /// "0.3 s pump" before the view model's main-actor hop was serviced
+    /// (DC-0080: the dirty-flag test failed once that way, passed 3/3 alone).
     private func pump(_ seconds: TimeInterval = 0.05) {
-        RunLoop.main.run(mode: .default,
-                         before: Date().addingTimeInterval(seconds))
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.main.run(mode: .default, before: deadline)
+        }
+    }
+
+    /// Waits for the document to report itself dirty — the signal itself,
+    /// not a guess at how long the main-actor hop takes under load.
+    private func waitUntilDirty(_ viewModel: ProjectViewModel,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        let dirty = expectation(description: "isDirty becomes true")
+        let subscription = viewModel.$isDirty
+            .filter { $0 }
+            .first()
+            .sink { _ in dirty.fulfill() }
+        wait(for: [dirty], timeout: 5)
+        subscription.cancel()
+        XCTAssertTrue(viewModel.isDirty, "the dirty flag must be set once the signal lands",
+                      file: file, line: line)
     }
 
     /// Closes the per-event undo group the way the live app's event loop
@@ -565,11 +587,14 @@ final class AppWideUndoTests: XCTestCase {
         let viewModel = makeViewModel(manager)
         viewModel.project.name = "edited"
         endEvent(manager)
-        pump(0.3)
+        waitUntilDirty(viewModel)
         viewModel.isDirty = false     // pretend everything was saved
 
         manager.undo()
-        pump(0.3)
+        XCTAssertEqual(viewModel.project.name, "origin")
+        // The restore commits through the same property as any edit; its
+        // dirty mark lands on the next main-actor turn — wait for it.
+        waitUntilDirty(viewModel)
         XCTAssertTrue(viewModel.isDirty,
             "a restore changes the document — it saves like any edit")
     }
