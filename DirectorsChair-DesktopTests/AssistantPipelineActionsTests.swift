@@ -140,7 +140,9 @@ final class AssistantPipelineActionsTests: XCTestCase {
             projectViewModel: projectVM, coordinator: nil,
             analyze: { _, _ in
                 CharacterAnalysisResult(
-                    traitScores: ["Grit": 88, "Empathy": 61],
+                    // "Grit" is not a facet of the vocabulary (DC-0078): it
+                    // must not become a 26th key on the character.
+                    traitScores: ["Ambition": 88, "Empathy": 61, "Grit": 77],
                     reasoning: "Determined under pressure.",
                     confidenceScore: 82,
                     physicalAttributes: ["build": "wiry", "hair_color": "black"])
@@ -153,7 +155,10 @@ final class AssistantPipelineActionsTests: XCTestCase {
         let outcome = try await action.execute(argumentsData:
             args(#"{"character": "Mara"}"#))
         let mara = projectVM.project.characters[0]
-        XCTAssertEqual(mara.traits["Grit"], 88)
+        XCTAssertEqual(mara.traits["Ambition"], 88)
+        XCTAssertEqual(mara.traits["Empathy"], 61)
+        XCTAssertNil(mara.traits["Grit"], "scores land on the vocabulary's facets only")
+        XCTAssertEqual(mara.traits.count, 25)
         XCTAssertEqual(mara.traitsConfidenceScore, 82)
         XCTAssertEqual(mara.traitsAiReasoning, "Determined under pressure.")
         XCTAssertNotNil(mara.traitsLastCalibrated)

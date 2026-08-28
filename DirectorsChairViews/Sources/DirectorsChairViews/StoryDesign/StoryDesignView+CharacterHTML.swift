@@ -123,14 +123,11 @@ extension StoryDesignView {
             return "\(Int(w)) kg (\(lbs) lbs)"
         }()
 
-        // Trait categories (OCEAN model matching PersonalityTraitsTab)
-        let traitCategories: [(String, String, [String])] = [
-            ("Openness", "#9B59B6", ["Creativity", "Curiosity", "Imagination", "Open-mindedness", "Artistic Interest"]),
-            ("Conscientiousness", "#3498DB", ["Organization", "Diligence", "Reliability", "Self-discipline", "Ambition"]),
-            ("Extraversion", "#E67E22", ["Sociability", "Energy", "Assertiveness", "Enthusiasm", "Talkativeness"]),
-            ("Agreeableness", "#27AE60", ["Empathy", "Cooperation", "Trust", "Kindness", "Politeness"]),
-            ("Neuroticism", "#E74C3C", ["Anxiety", "Moodiness", "Sensitivity", "Irritability", "Self-consciousness"]),
-        ]
+        // Trait categories (OCEAN model) from the one vocabulary (DC-0078);
+        // the colours are the sheet's own.
+        let categoryColors = ["#9B59B6", "#3498DB", "#E67E22", "#27AE60", "#E74C3C"]
+        let traitCategories: [(String, String, [String])] = zip(TraitVocabulary.categories, categoryColors)
+            .map { ($0.name, $1, $0.facets) }
 
         // Case-insensitive trait lookup (handles both "Creativity" and "creativity" keys)
         func traitScore(_ key: String) -> Double {

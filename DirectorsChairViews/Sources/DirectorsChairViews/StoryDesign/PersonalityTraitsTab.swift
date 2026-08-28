@@ -266,19 +266,9 @@ enum TraitCategory: String, CaseIterable {
         }
     }
 
+    /// The category's facets, from the one vocabulary (DC-0078).
     var traits: [String] {
-        switch self {
-        case .openness:
-            return ["Creativity", "Curiosity", "Imagination", "Open-mindedness", "Artistic Interest"]
-        case .conscientiousness:
-            return ["Organization", "Diligence", "Reliability", "Self-discipline", "Ambition"]
-        case .extraversion:
-            return ["Sociability", "Energy", "Assertiveness", "Enthusiasm", "Talkativeness"]
-        case .agreeableness:
-            return ["Empathy", "Cooperation", "Trust", "Kindness", "Politeness"]
-        case .neuroticism:
-            return ["Anxiety", "Moodiness", "Sensitivity", "Irritability", "Self-consciousness"]
-        }
+        TraitVocabulary.facets(in: displayName)
     }
 
     var color: Color {

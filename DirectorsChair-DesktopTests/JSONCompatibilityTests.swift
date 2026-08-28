@@ -103,8 +103,12 @@ final class JSONCompatibilityTests: XCTestCase {
         XCTAssertEqual(sarah.age, 35)
         XCTAssertEqual(sarah.heightCm, 170.0)
         XCTAssertEqual(sarah.build, "Athletic")
-        XCTAssertEqual(sarah.traits["courage"], 90)
-        XCTAssertEqual(sarah.traits["intelligence"], 85)
+        // Python-era trait keys are brought onto the one vocabulary on
+        // decode (DC-0078): non-facet keys keep their user-set scores in
+        // the legacy bucket, the record itself holds the 25 facets.
+        XCTAssertEqual(sarah.legacyTraits?["courage"], 90)
+        XCTAssertEqual(sarah.legacyTraits?["intelligence"], 85)
+        XCTAssertEqual(Set(sarah.traits.keys), Set(TraitVocabulary.facets))
 
         // Validate dialogues
         let scene = project.sequences[0].scenes[0]
@@ -151,17 +155,25 @@ final class JSONCompatibilityTests: XCTestCase {
         XCTAssertEqual(sarah.ethnicity, "Asian")
         XCTAssertEqual(sarah.facialStructure, "Oval")
 
-        // Validate 25 personality traits (stored in traits dictionary)
-        XCTAssertEqual(sarah.traits["openness"], 75)
-        XCTAssertEqual(sarah.traits["conscientiousness"], 85)
-        XCTAssertEqual(sarah.traits["extraversion"], 60)
-        XCTAssertEqual(sarah.traits["agreeableness"], 70)
-        XCTAssertEqual(sarah.traits["neuroticism"], 30)
-        XCTAssertEqual(sarah.traits["courage"], 90)
-        XCTAssertEqual(sarah.traits["intelligence"], 85)
-        XCTAssertEqual(sarah.traits["empathy"], 75)
-        XCTAssertEqual(sarah.traits["loyalty"], 95)
-        XCTAssertEqual(sarah.traits["honesty"], 90)
+        // Validate the 25 personality traits: the Python record's keys are
+        // migrated onto the one vocabulary (DC-0078) — an alias of a facet
+        // folds onto it ("empathy" → Empathy), the rest keep their scores
+        // in the legacy bucket and never masquerade as facets.
+        XCTAssertEqual(sarah.traits["Empathy"], 75)
+        XCTAssertEqual(sarah.legacyTraits?["openness"], 75)
+        XCTAssertEqual(sarah.legacyTraits?["conscientiousness"], 85)
+        XCTAssertEqual(sarah.legacyTraits?["extraversion"], 60)
+        XCTAssertEqual(sarah.legacyTraits?["agreeableness"], 70)
+        XCTAssertEqual(sarah.legacyTraits?["neuroticism"], 30)
+        // Python-era trait keys are brought onto the one vocabulary on
+        // decode (DC-0078): non-facet keys keep their user-set scores in
+        // the legacy bucket, the record itself holds the 25 facets.
+        XCTAssertEqual(sarah.legacyTraits?["courage"], 90)
+        XCTAssertEqual(sarah.legacyTraits?["intelligence"], 85)
+        XCTAssertEqual(Set(sarah.traits.keys), Set(TraitVocabulary.facets))
+        XCTAssertNil(sarah.traits["empathy"], "the alias folded onto its facet")
+        XCTAssertEqual(sarah.legacyTraits?["loyalty"], 95)
+        XCTAssertEqual(sarah.legacyTraits?["honesty"], 90)
 
         // Validate biography fields
         XCTAssertNotNil(sarah.backgroundStory)

@@ -111,6 +111,10 @@ public struct Character: Codable, Identifiable, Hashable, Sendable {
 
     // MARK: - Personality Traits (25 traits organized by 5 categories)
     public var traits: [String: Double]  // Each trait 0.0-100.0, default 50.0
+    /// Trait keys from before the one vocabulary (DC-0078) that carried a
+    /// user-set score — kept so nothing is lost, never shown as a facet.
+    /// nil (omitted on disk) for records with none.
+    public var legacyTraits: [String: Double]?
 
     // MARK: - AI Calibration Metadata
     public var traitsLastCalibrated: Date?  // When AI last calibrated traits
@@ -222,6 +226,7 @@ public struct Character: Codable, Identifiable, Hashable, Sendable {
         overviewPortrait: String? = nil,
         overviewHtml: String? = nil,
         traits: [String: Double] = Self.defaultTraits(),
+        legacyTraits: [String: Double]? = nil,
         traitsLastCalibrated: Date? = nil,
         traitsConfidenceScore: Double? = nil,
         traitsDataSources: [String] = [],
@@ -314,7 +319,11 @@ public struct Character: Codable, Identifiable, Hashable, Sendable {
         self.imageAnnotations = imageAnnotations
         self.overviewPortrait = overviewPortrait
         self.overviewHtml = overviewHtml
-        self.traits = traits
+        // Any construction lands on the vocabulary (DC-0078).
+        let normalised = TraitVocabulary.normalise(traits)
+        self.traits = normalised.traits
+        let legacy = (legacyTraits ?? [:]).merging(normalised.legacy) { _, found in found }
+        self.legacyTraits = legacy.isEmpty ? nil : legacy
         self.traitsLastCalibrated = traitsLastCalibrated
         self.traitsConfidenceScore = traitsConfidenceScore
         self.traitsDataSources = traitsDataSources
@@ -344,39 +353,11 @@ public struct Character: Codable, Identifiable, Hashable, Sendable {
     }
 
     // MARK: - Default Traits
+    /// Every facet of the one trait vocabulary at the neutral score
+    /// (DC-0078). Stored records are normalised onto the same keys on
+    /// decode; see `TraitVocabulary.normalise`.
     public static func defaultTraits() -> [String: Double] {
-        return [
-            // EMOTIONAL (5 traits)
-            "confidence": 50.0,
-            "empathy": 50.0,
-            "aggression": 50.0,
-            "optimism": 50.0,
-            "anxiety": 50.0,
-            // INTELLECTUAL (5 traits)
-            "intelligence": 50.0,
-            "creativity": 50.0,
-            "wisdom": 50.0,
-            "curiosity": 50.0,
-            "logic": 50.0,
-            // SOCIAL (5 traits)
-            "charisma": 50.0,
-            "humor": 50.0,
-            "manipulation": 50.0,
-            "leadership": 50.0,
-            "loyalty": 50.0,
-            // MORAL (5 traits)
-            "honesty": 50.0,
-            "courage": 50.0,
-            "compassion": 50.0,
-            "justice": 50.0,
-            "selflessness": 50.0,
-            // PHYSICAL (5 traits)
-            "strength": 50.0,
-            "agility": 50.0,
-            "stamina": 50.0,
-            "coordination": 50.0,
-            "reflexes": 50.0,
-        ]
+        TraitVocabulary.defaults()
     }
 
     // MARK: - CodingKeys (CRITICAL: snake_case ↔ camelCase mapping)
@@ -441,6 +422,7 @@ public struct Character: Codable, Identifiable, Hashable, Sendable {
         case overviewPortrait = "overview_portrait"
         case overviewHtml = "overview_html"
         case traits
+        case legacyTraits = "legacy_traits"
         case traitsLastCalibrated = "traits_last_calibrated"
         case traitsConfidenceScore = "traits_confidence_score"
         case traitsDataSources = "traits_data_sources"
@@ -567,22 +549,30 @@ public struct Character: Codable, Identifiable, Hashable, Sendable {
         self.overviewPortrait = try container.decodeIfPresent(String.self, forKey: .overviewPortrait)
         self.overviewHtml = try container.decodeIfPresent(String.self, forKey: .overviewHtml)
 
-        // Traits - handle both dictionary format and array of strings
+        // Traits - handle both dictionary format and array of strings, then
+        // bring the record onto the one vocabulary (DC-0078): legacy keys
+        // fold onto their facet or move to `legacyTraits`.
+        let storedTraits: [String: Double]
         if let traitsDict = try? container.decode([String: Double].self, forKey: .traits) {
-            self.traits = traitsDict
+            storedTraits = traitsDict
         } else if let traitsArray = try? container.decode([String].self, forKey: .traits) {
             // Convert array of trait names to dictionary with default values
             var traitsDict = Self.defaultTraits()
             // If traits are mentioned in array, give them higher values
             for traitName in traitsArray {
-                if traitsDict.keys.contains(traitName) {
-                    traitsDict[traitName] = 75.0
+                if let facet = TraitVocabulary.canonicalName(traitName) {
+                    traitsDict[facet] = 75.0
                 }
             }
-            self.traits = traitsDict
+            storedTraits = traitsDict
         } else {
-            self.traits = Self.defaultTraits()
+            storedTraits = Self.defaultTraits()
         }
+        let normalised = TraitVocabulary.normalise(storedTraits)
+        self.traits = normalised.traits
+        let storedLegacy = try container.decodeIfPresent([String: Double].self, forKey: .legacyTraits) ?? [:]
+        let legacy = storedLegacy.merging(normalised.legacy) { _, found in found }
+        self.legacyTraits = legacy.isEmpty ? nil : legacy
         self.traitsLastCalibrated = try container.decodeIfPresent(Date.self, forKey: .traitsLastCalibrated)
         self.traitsConfidenceScore = try container.decodeIfPresent(Double.self, forKey: .traitsConfidenceScore)
         self.traitsDataSources = try container.decodeIfPresent([String].self, forKey: .traitsDataSources) ?? []

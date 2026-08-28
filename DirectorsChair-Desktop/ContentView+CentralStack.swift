@@ -978,9 +978,10 @@ struct CentralViewStack: View {
                 await MainActor.run {
                     tracker.traitAnalysis[charId] = 95
 
-                    // Update traits
+                    // Update traits — on the vocabulary's facets only (DC-0078)
                     for (trait, score) in result.traitScores {
-                        projectViewModel.project.characters[charIndex].traits[trait] = score
+                        guard let facet = TraitVocabulary.canonicalName(trait) else { continue }
+                        projectViewModel.project.characters[charIndex].traits[facet] = score
                     }
 
                     // Store AI analysis metadata
