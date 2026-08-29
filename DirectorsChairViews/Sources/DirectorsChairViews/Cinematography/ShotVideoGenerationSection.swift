@@ -581,6 +581,7 @@ struct ShotVideoGenerationSection: View {
             forScene: currentScene,
             characters: characters,
             locations: locations,
+            props: props,
             projectDirectory: projDir
         )
     }
@@ -834,9 +835,7 @@ struct ShotVideoGenerationSection: View {
             }
             var propNamesInCollage: [String] = []
             for prop in PropShopView.propsNamed(currentScene.props, in: props) {
-                guard let path = prop.thumbnail,
-                      let image = NSImage(contentsOf: basePath.appendingPathComponent(path))
-                else { continue }
+                guard let image = CharacterReferenceHelper.loadPropImage(prop, projectDirectory: basePath) else { continue }
                 locationImages.append(image)
                 propNamesInCollage.append(prop.name)
             }

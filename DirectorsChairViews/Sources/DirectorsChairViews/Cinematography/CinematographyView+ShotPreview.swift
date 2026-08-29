@@ -18,6 +18,8 @@ struct ShotPreviewSection: View {
     let scene: DCScene?
     let characters: [Character]
     let locations: [Location]
+    /// Prop-shop registry — the props a shot names ride along as references (DC-0079).
+    var props: [Prop] = []
     let projectBasePath: URL?
     let onPreviewGenerated: (String) -> Void
 
@@ -630,6 +632,7 @@ struct ShotPreviewSection: View {
                         forShot: shot, in: scene,
                         characters: characters,
                         locations: locations,
+                        props: props,
                         projectDirectory: projDir
                     )
                 }
@@ -747,6 +750,7 @@ struct ShotPreviewSection: View {
                 forShot: shot, in: scene,
                 characters: characters,
                 locations: locations,
+                props: props,
                 projectDirectory: projDir
             )
         }

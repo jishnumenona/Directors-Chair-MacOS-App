@@ -109,6 +109,25 @@ public enum StoryboardSubjects {
         return false
     }
 
+    /// Whether the text names a PROP (DC-0079): its full name, or the head
+    /// noun of a multi-word name ("Storm Lantern" is "the brass storm
+    /// lantern" in a shot line), singular or plural, whole-word and
+    /// case-insensitive. Unlike `mentions`, the first word never counts —
+    /// "The Letter" must not match every "the".
+    public static func mentionsProp(_ text: String, name: String) -> Bool {
+        let haystack = text.lowercased()
+        let full = name.trimmingCharacters(in: .whitespaces).lowercased()
+        guard full.count > 1 else { return false }
+        var candidates = [full]
+        let words = full.split(separator: " ").map(String.init)
+        if words.count > 1, let head = words.last, head.count >= 4 { candidates.append(head) }
+        for candidate in candidates {
+            let pattern = "\\b" + NSRegularExpression.escapedPattern(for: candidate) + "s?\\b"
+            if haystack.range(of: pattern, options: .regularExpression) != nil { return true }
+        }
+        return false
+    }
+
     /// Camera facts as drawing direction, in words the model reads as
     /// viewpoint rather than as objects: no "camera", no "lens" (both get
     /// drawn as things — a shot once rendered an actual camera).

@@ -757,6 +757,38 @@ final class LocalModelEvals: XCTestCase {
                             label: "on-device \(engine.modelId)")
     }
 
+    /// DC-0079 guardrail: the text model hands MLX's cache back after every
+    /// answer and drops its weights after the idle interval — the two
+    /// local engines together must not sit at ~8 GB between jobs.
+    func testTextModelReturnsMemoryAfterIdling() async throws {
+        if ProcessInfo.processInfo.environment["DC_SKIP_LOCAL_EVALS"] == "1" {
+            throw XCTSkip("DC_SKIP_LOCAL_EVALS=1")
+        }
+        let engine = MLXInsightEngine.shared
+        guard case .ready = await engine.availability() else {
+            throw XCTSkip("local model not on disk — evals need real weights")
+        }
+        let saved = MLXMemoryPolicy.idleReleaseInterval
+        MLXMemoryPolicy.idleReleaseInterval = 0.3
+        defer { MLXMemoryPolicy.idleReleaseInterval = saved }
+        engine.releaseModel()
+        let mb = { (bytes: Int) in bytes / 1_048_576 }
+        let baseline = GPU.snapshot().activeMemory
+        let answer = try await engine.respond(prompt: "Reply with the single word: ready",
+                                              systemPrompt: nil, maxTokens: 8, temperature: 0)
+        XCTAssertFalse(answer.isEmpty)
+        XCTAssertTrue(engine.isModelResident, "weights stay resident right after an answer")
+        XCTAssertEqual(GPU.snapshot().cacheMemory, 0, "MLX cache must be handed back after every answer")
+        let loaded = GPU.snapshot().activeMemory
+        XCTAssertGreaterThan(loaded, baseline + 500 * 1_048_576, "a loaded 3B-class model is over 1 GB of live buffers")
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertFalse(engine.isModelResident, "idle release must fire")
+        let released = GPU.snapshot()
+        XCTAssertLessThan(released.activeMemory, baseline + 100 * 1_048_576, "released weights must give the memory back")
+        XCTAssertEqual(released.cacheMemory, 0, "nothing kept in MLX's cache after the release")
+        print("[QwenMem] active before \(mb(baseline)) MB · loaded \(mb(loaded)) MB · released \(mb(released.activeMemory)) MB")
+    }
+
     /// Opt-in: the SAME rubric against the gateway (paid, needs the app's
     /// signed-in session) — DC_RUN_ONLINE_EVALS=1. Scores are logged; a
     /// missing session skips rather than fails.
