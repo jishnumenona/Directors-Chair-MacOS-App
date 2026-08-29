@@ -854,9 +854,27 @@ public actor AIServiceClient {
         if chosen != .onDevice, !(await imageServiceReachable()) {
             throw AIClientError.serverUnavailable("Could not reach the image service — check the connection and try again.")
         }
-        let response = try await generateImage(AnnotationEditComposer.request(for: edit, provider: chosen))
-        guard let picture = response.images.first else {
-            throw AIClientError.invalidResponse("The image service returned no picture.")
+        // DC-0075: on-device, several pins are several passes — each pin's
+        // circle with that pin's instruction alone, the previous pass's
+        // picture as the source — so every change lands where it was marked.
+        // (One list of instructions over N free circles left the pairing to
+        // the model.) The cloud model reads the positions from the prompt,
+        // so it keeps the single request.
+        let passes: [AnnotationEdit] = chosen == .onDevice && edit.pins.count > 1
+            ? edit.pins.sorted { $0.number < $1.number }.map { pin in
+                var single = edit
+                single.pins = [pin]
+                return single
+            }
+            : [edit]
+        var picture = edit.source
+        for var pass in passes {
+            pass.source = picture
+            let response = try await generateImage(AnnotationEditComposer.request(for: pass, provider: chosen))
+            guard let drawn = response.images.first else {
+                throw AIClientError.invalidResponse("The image service returned no picture.")
+            }
+            picture = drawn
         }
         return picture
     }

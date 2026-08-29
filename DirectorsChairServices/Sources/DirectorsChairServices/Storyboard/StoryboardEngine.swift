@@ -270,6 +270,9 @@ public final class ScriptedStoryboardEngine: StoryboardEngine, @unchecked Sendab
     private let lock = NSLock()
     private var _availability: InsightAvailability
     private var result: Result<Data, StoryboardEngineError>
+    /// Pictures handed back one per call, in order (DC-0075: lets a test
+    /// watch a chain of passes); `result` answers once these run out.
+    private var queued: [Data] = []
     public private(set) var preparations = 0
     public private(set) var requests: [StoryboardFrameSpec] = []
 
@@ -292,6 +295,10 @@ public final class ScriptedStoryboardEngine: StoryboardEngine, @unchecked Sendab
         withLock { requests = [] }
     }
 
+    public func queueResults(_ pictures: [Data]) {
+        withLock { queued = pictures }
+    }
+
     public func availability() async -> InsightAvailability {
         withLock { _availability }
     }
@@ -306,6 +313,7 @@ public final class ScriptedStoryboardEngine: StoryboardEngine, @unchecked Sendab
     public func generateFrame(_ spec: StoryboardFrameSpec) async throws -> Data {
         let (state, scripted) = withLock { () -> (InsightAvailability, Result<Data, StoryboardEngineError>) in
             requests.append(spec)
+            if !queued.isEmpty { return (_availability, .success(queued.removeFirst())) }
             return (_availability, result)
         }
         guard state == .ready else { throw StoryboardEngineError.notReady(state) }
