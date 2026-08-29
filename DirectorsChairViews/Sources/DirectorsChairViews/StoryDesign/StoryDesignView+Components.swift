@@ -306,7 +306,7 @@ struct AddLocationSheet: View {
                                 .padding(.vertical, 10)
                                 .allowsHitTesting(false)
                         }
-                        TextEditor(text: $description)
+                        CharacterMentionTextEditor(text: $description, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 13), foregroundColor: .primary)
                             .font(.system(size: 13))
                             .scrollContentBackground(.hidden)
                             .padding(.horizontal, 8)

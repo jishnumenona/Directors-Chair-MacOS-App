@@ -11,6 +11,9 @@ public struct NoteBubbleCard: View {
     let isSelected: Bool
     let projectBasePath: URL?
     let characters: [Character]
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
     let globalIndex: Int?
 
     var onTap: (() -> Void)?
@@ -38,6 +41,9 @@ public struct NoteBubbleCard: View {
         startInEditMode: Bool = false,
         projectBasePath: URL? = nil,
         characters: [Character] = [],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
         globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -51,6 +57,9 @@ public struct NoteBubbleCard: View {
         self.startInEditMode = startInEditMode
         self.projectBasePath = projectBasePath
         self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
         self.globalIndex = globalIndex
         self.onTap = onTap
         self.onEdit = onEdit
@@ -107,6 +116,9 @@ public struct NoteBubbleCard: View {
                     text: $editedText,
                     placeholder: "Note content...",
                     characters: characters,
+                    locations: locations,
+                    props: props,
+                    shots: shots,
                     font: .system(size: 12),
                     foregroundColor: accentColor.opacity(0.9),
                     onSubmit: { commitEdit() }

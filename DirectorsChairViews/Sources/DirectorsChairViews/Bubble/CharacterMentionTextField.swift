@@ -1,25 +1,27 @@
-// DirectorsChairViews/Sources/DirectorsChairViews/Bubble/CharacterMentionTextField.swift
+// DirectorsChairViews/Bubble/CharacterMentionTextField.swift
 //
-// Text field with @ mention support for character names
+// Single-line text field with mention support — "@" characters, "#"
+// locations, "$" props, "&" shots — anywhere in the line (owner 2026-08-29:
+// every place text is typed gets the same shortcuts as the shot description).
 
 import SwiftUI
 import DirectorsChairCore
 
-/// A text field that supports @ mentions for character names
 public struct CharacterMentionTextField: View {
     @Binding var text: String
     let placeholder: String
     let characters: [Character]
+    let locations: [Location]
+    let props: [Prop]
+    let shots: [Shot]
     let font: Font
     let foregroundColor: Color
     var onSubmit: (() -> Void)?
 
     @State private var showMentionPopup = false
+    @State private var mentionKind: MentionKind = .character
     @State private var mentionQuery = ""
-    /// Character offset of the "@" in `text`; the query is what was typed
-    /// right after it, so a mention works anywhere in the line.
     @State private var mentionStartOffset: Int?
-    @State private var cursorPosition: Int = 0
     @State private var selectedMentionIndex: Int = 0
     @FocusState private var isFocused: Bool
 
@@ -27,6 +29,9 @@ public struct CharacterMentionTextField: View {
         text: Binding<String>,
         placeholder: String = "",
         characters: [Character],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
         font: Font = .body,
         foregroundColor: Color = .primary,
         onSubmit: (() -> Void)? = nil
@@ -34,17 +39,45 @@ public struct CharacterMentionTextField: View {
         self._text = text
         self.placeholder = placeholder
         self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
         self.font = font
         self.foregroundColor = foregroundColor
         self.onSubmit = onSubmit
     }
 
-    private var filteredCharacters: [Character] {
-        if mentionQuery.isEmpty {
-            return characters
+    private var candidates: [MentionCandidate] {
+        switch mentionKind {
+        case .character:
+            return characters.map {
+                MentionCandidate(id: $0.id, name: $0.name, detail: $0.role,
+                                 color: Color(hex: $0.color.isEmpty ? "#666666" : $0.color), symbol: nil)
+            }
+        case .location:
+            return locations.map {
+                MentionCandidate(id: $0.id, name: $0.name, detail: $0.locationType.capitalized,
+                                 color: .green, symbol: "mappin.and.ellipse")
+            }
+        case .prop:
+            return props.map {
+                MentionCandidate(id: $0.id, name: $0.name, detail: $0.category,
+                                 color: .orange, symbol: "shippingbox.fill")
+            }
+        case .shot:
+            return shots.map {
+                MentionCandidate(id: $0.id, name: MentionNames.shot($0), detail: String($0.description.prefix(40)),
+                                 color: .purple, symbol: "film.stack")
+            }
         }
-        return characters.filter { $0.name.localizedCaseInsensitiveContains(mentionQuery) }
     }
+
+    private var filteredCandidates: [MentionCandidate] {
+        if mentionQuery.isEmpty { return candidates }
+        return candidates.filter { $0.name.localizedCaseInsensitiveContains(mentionQuery) }
+    }
+
+    private var visibleCandidates: [MentionCandidate] { Array(filteredCandidates.prefix(5)) }
 
     public var body: some View {
         TextField(placeholder, text: $text)
@@ -56,16 +89,16 @@ public struct CharacterMentionTextField: View {
                 handleTextChange(oldValue: oldValue, newValue: newValue)
             }
             .onSubmit {
-                let visible = Array(filteredCharacters.prefix(5))
+                let visible = visibleCandidates
                 if showMentionPopup, selectedMentionIndex < visible.count {
-                    insertMention(character: visible[selectedMentionIndex])
+                    insertMention(visible[selectedMentionIndex])
                 } else {
                     onSubmit?()
                 }
             }
             .onKeyPress(.downArrow) {
                 if showMentionPopup {
-                    selectedMentionIndex = min(selectedMentionIndex + 1, filteredCharacters.prefix(5).count - 1)
+                    selectedMentionIndex = min(selectedMentionIndex + 1, max(visibleCandidates.count - 1, 0))
                     return .handled
                 }
                 return .ignored
@@ -85,35 +118,53 @@ public struct CharacterMentionTextField: View {
                 return .ignored
             }
             .overlay(alignment: .topLeading) {
-                if showMentionPopup && !filteredCharacters.isEmpty {
+                if showMentionPopup && !filteredCandidates.isEmpty {
                     mentionPopup
                         .offset(y: 24)
                 }
             }
+            .zIndex(showMentionPopup ? 100 : 0)
     }
 
     private var mentionPopup: some View {
-        let visible = Array(filteredCharacters.prefix(5))
+        let visible = visibleCandidates
         return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(visible.enumerated()), id: \.element.id) { index, character in
+            HStack(spacing: 4) {
+                Text(mentionKind.title)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .textCase(.uppercase)
+                Spacer()
+                Text("↑↓ · return")
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            Divider()
+            ForEach(Array(visible.enumerated()), id: \.element.id) { index, candidate in
                 Button {
-                    insertMention(character: character)
+                    insertMention(candidate)
                 } label: {
                     HStack(spacing: 8) {
-                        Circle()
-                            .fill(Color(hex: character.color.isEmpty ? "#666666" : character.color))
-                            .frame(width: 12, height: 12)
-
-                        Text(character.name)
+                        if let symbol = candidate.symbol {
+                            Image(systemName: symbol)
+                                .font(.system(size: 10))
+                                .foregroundColor(candidate.color)
+                                .frame(width: 12)
+                        } else {
+                            Circle()
+                                .fill(candidate.color)
+                                .frame(width: 12, height: 12)
+                        }
+                        Text(candidate.name)
                             .font(.system(size: 12))
                             .foregroundColor(.primary)
-
-                        if !character.role.isEmpty {
-                            Text("(\(character.role))")
+                        if !candidate.detail.isEmpty {
+                            Text("(\(candidate.detail))")
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary)
                         }
-
                         Spacer()
                     }
                     .padding(.horizontal, 10)
@@ -125,13 +176,12 @@ public struct CharacterMentionTextField: View {
                 .onHover { hovering in
                     if hovering { selectedMentionIndex = index }
                 }
-
                 if index < visible.count - 1 {
                     Divider()
                 }
             }
         }
-        .frame(minWidth: 150, maxWidth: 250)
+        .frame(minWidth: 180, maxWidth: 280)
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
         .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
@@ -141,7 +191,6 @@ public struct CharacterMentionTextField: View {
         )
     }
 
-    /// Where a one-character edit landed: the length of the common prefix.
     private func editOffset(_ oldValue: String, _ newValue: String) -> Int {
         zip(oldValue, newValue).prefix { $0 == $1 }.count
     }
@@ -149,13 +198,11 @@ public struct CharacterMentionTextField: View {
     private func handleTextChange(oldValue: String, newValue: String) {
         let oldCount = oldValue.count
         let newCount = newValue.count
-
-        // One character typed — anywhere in the line (owner report
-        // 2026-08-29: "@" only worked at the end).
         if newCount == oldCount + 1 {
             let at = editOffset(oldValue, newValue)
             let inserted = newValue[newValue.index(newValue.startIndex, offsetBy: at)]
-            if inserted == "@" {
+            if let kind = MentionKind.kind(for: inserted) {
+                mentionKind = kind
                 mentionQuery = ""
                 mentionStartOffset = at
                 selectedMentionIndex = 0
@@ -165,7 +212,7 @@ public struct CharacterMentionTextField: View {
             guard showMentionPopup, let start = mentionStartOffset else { return }
             if at == start + 1 + mentionQuery.count {
                 let extended = mentionQuery + String(inserted)
-                let stillMatches = characters.contains { $0.name.localizedCaseInsensitiveContains(extended) }
+                let stillMatches = candidates.contains { $0.name.localizedCaseInsensitiveContains(extended) }
                 if inserted == " " && !stillMatches {
                     closeMentionPopup()
                 } else {
@@ -178,8 +225,6 @@ public struct CharacterMentionTextField: View {
             closeMentionPopup()
             return
         }
-
-        // One character deleted.
         if newCount == oldCount - 1, showMentionPopup, let start = mentionStartOffset {
             let at = editOffset(oldValue, newValue)
             if !mentionQuery.isEmpty, at == start + mentionQuery.count {
@@ -190,19 +235,18 @@ public struct CharacterMentionTextField: View {
             }
             return
         }
-
         if showMentionPopup, newCount != oldCount {
             closeMentionPopup()
         }
     }
 
-    private func insertMention(character: Character) {
+    private func insertMention(_ candidate: MentionCandidate) {
         guard let start = mentionStartOffset,
               let startIndex = text.index(text.startIndex, offsetBy: start, limitedBy: text.endIndex),
               startIndex < text.endIndex
         else { closeMentionPopup(); return }
         let endIndex = text.index(startIndex, offsetBy: 1 + mentionQuery.count, limitedBy: text.endIndex) ?? text.endIndex
-        text.replaceSubrange(startIndex..<endIndex, with: "@\(character.name) ")
+        text.replaceSubrange(startIndex..<endIndex, with: "\(mentionKind.trigger)\(candidate.name) ")
         closeMentionPopup()
     }
 
@@ -211,24 +255,4 @@ public struct CharacterMentionTextField: View {
         mentionQuery = ""
         mentionStartOffset = nil
     }
-}
-
-#Preview {
-    VStack(spacing: 20) {
-        CharacterMentionTextField(
-            text: .constant("Hello @"),
-            placeholder: "Type something...",
-            characters: [
-                Character(name: "John", role: "Protagonist", color: "#4A90D9"),
-                Character(name: "Jane", role: "Supporting", color: "#D94A90"),
-                Character(name: "Bob", role: "Antagonist", color: "#90D94A")
-            ],
-            font: .system(size: 14),
-            foregroundColor: .white
-        )
-        .padding()
-        .background(Color.gray.opacity(0.3))
-    }
-    .padding()
-    .frame(width: 400, height: 200)
 }

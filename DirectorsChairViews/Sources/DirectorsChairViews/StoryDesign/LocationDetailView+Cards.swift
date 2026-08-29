@@ -106,7 +106,7 @@ extension LocationDetailView {
 
     var descriptionCard: some View {
         LocationAttributeCard(title: "DESCRIPTION", icon: "text.alignleft") {
-            TextEditor(text: $location.description)
+            CharacterMentionTextEditor(text: $location.description, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 12), foregroundColor: .primary)
                 .font(.system(size: 12))
                 .frame(minHeight: 80)
                 .scrollContentBackground(.hidden)
@@ -393,7 +393,7 @@ extension LocationDetailView {
 
     var directorsNotesCard: some View {
         LocationAttributeCard(title: "NOTES", icon: "note.text") {
-            TextEditor(text: $location.notes)
+            CharacterMentionTextEditor(text: $location.notes, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 12), foregroundColor: .primary)
                 .font(.system(size: 12))
                 .frame(minHeight: 72)
                 .scrollContentBackground(.hidden)

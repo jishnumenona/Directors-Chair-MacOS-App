@@ -553,7 +553,7 @@ struct PropShopView: View {
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("DESCRIPTION (drives the AI concept)").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
-                        TextEditor(text: prop.description)
+                        CharacterMentionTextEditor(text: prop.description, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 11), foregroundColor: .primary)
                             .font(.system(size: 11))
                             .frame(height: 70)
                             .scrollContentBackground(.hidden)
@@ -561,7 +561,7 @@ struct PropShopView: View {
                             .background(Color(hex: "#1A1A1A"))
                             .cornerRadius(6)
                         Text("MAKER SPECS / SOURCING NOTES").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
-                        TextEditor(text: prop.detailedSpecs)
+                        CharacterMentionTextEditor(text: prop.detailedSpecs, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 11), foregroundColor: .primary)
                             .font(.system(size: 11))
                             .frame(height: 50)
                             .scrollContentBackground(.hidden)
@@ -668,7 +668,7 @@ struct PropShopView: View {
                 // Notes + delete
                 VStack(alignment: .leading, spacing: 6) {
                     Text("HANDLING / CONTINUITY NOTES").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
-                    TextEditor(text: prop.notes)
+                    CharacterMentionTextEditor(text: prop.notes, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 11), foregroundColor: .primary)
                         .font(.system(size: 11))
                         .frame(height: 46)
                         .scrollContentBackground(.hidden)

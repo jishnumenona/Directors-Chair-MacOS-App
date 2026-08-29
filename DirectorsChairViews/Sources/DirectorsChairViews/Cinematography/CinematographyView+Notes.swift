@@ -8,6 +8,11 @@ import DirectorsChairCore
 
 struct ShotNotesEditor: View {
     let notes: String
+    /// Mentions (@ # $ &) in notes too — owner 2026-08-29.
+    var characters: [Character] = []
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
     let onNotesChange: (String) -> Void
 
     @State private var editText = ""
@@ -24,9 +29,7 @@ struct ShotNotesEditor: View {
                     .padding(.leading, 5)
                     .allowsHitTesting(false)
             }
-            TextEditor(text: $editText)
-                .font(.system(size: 12))
-                .scrollContentBackground(.hidden)
+            CharacterMentionTextEditor(text: $editText, characters: characters, locations: locations, props: props, continuityShots: shots, placeholder: "", font: .system(size: 12), foregroundColor: .primary)
                 .frame(minHeight: 64)
                 .accessibilityLabel("Shot notes")
         }

@@ -604,7 +604,8 @@ public struct CinematographyView: View {
                                     title: "Notes",
                                     summary: shot.notes.isEmpty ? "Add a note" : String(shot.notes.prefix(60)),
                                     storageKey: "shotNotes") {
-                        ShotNotesEditor(notes: shot.notes) { newNotes in
+                        ShotNotesEditor(notes: shot.notes, characters: characters, locations: locations,
+                                        props: props, shots: viewModel.shots) { newNotes in
                             updateShotField(shot) { $0.notes = newNotes }
                         }
                     }

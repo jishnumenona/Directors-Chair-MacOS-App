@@ -10,6 +10,9 @@ public struct SoundNoteBubbleCard: View {
     let soundNote: SoundNote
     let isSelected: Bool
     let characters: [Character]
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
     let globalIndex: Int?
 
     var onTap: (() -> Void)?
@@ -37,6 +40,9 @@ public struct SoundNoteBubbleCard: View {
         isSelected: Bool = false,
         startInEditMode: Bool = false,
         characters: [Character] = [],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
         globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -50,6 +56,9 @@ public struct SoundNoteBubbleCard: View {
         self.isSelected = isSelected
         self.startInEditMode = startInEditMode
         self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
         self.globalIndex = globalIndex
         self.onTap = onTap
         self.onEdit = onEdit
@@ -107,6 +116,9 @@ public struct SoundNoteBubbleCard: View {
                     text: $editedText,
                     placeholder: "Sound description...",
                     characters: characters,
+                    locations: locations,
+                    props: props,
+                    shots: shots,
                     font: .system(size: 12),
                     foregroundColor: accentColor.opacity(0.9),
                     onSubmit: { commitEdit() }
