@@ -27,6 +27,8 @@ struct ShotContextCard: View {
     var onNavigateToLocation: ((Location) -> Void)?
     var onNavigateToStoryDesign: (() -> Void)?
     var onSceneUpdated: ((DCScene) -> Void)?
+    /// The shot's own edits (its explicit cast) — the picker adds to THIS shot.
+    var onShotUpdated: ((Shot) -> Void)?
     /// Deep-link into Scene Connections, optionally targeting a script item
     /// (nil = just open the canvas for this shot's scene).
     var onOpenConnections: ((String?) -> Void)?
@@ -108,11 +110,23 @@ struct ShotContextCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Characters
                 if let currentScene = scene {
-                    let charNames = resolveAllCharacterNames(scene: currentScene)
+                    // The shot's explicit cast first, then everyone the scene's
+                    // script puts on set.
+                    let charNames = shot.characters + resolveAllCharacterNames(scene: currentScene)
+                        .filter { name in !shot.characters.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
                     contextSection(icon: "person.2.fill", iconColor: .blue, title: "CHARACTERS") {
                         VideoContextFlowLayout(spacing: 8) {
                             ForEach(charNames, id: \.self) { name in
                                 characterChip(name: name)
+                                    .contextMenu {
+                                        if shot.characters.contains(name) {
+                                            Button("Remove from this shot") {
+                                                var updated = shot
+                                                updated.characters.removeAll { $0 == name }
+                                                onShotUpdated?(updated)
+                                            }
+                                        }
+                                    }
                             }
                             addButton { showingCharacterPicker = true }
                         }
@@ -1313,17 +1327,20 @@ struct ShotContextCard: View {
 
     private var characterPickerPopover: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Add Character")
+            Text("Add to this shot")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
                 .padding(.bottom, 4)
 
-            let existingNames = scene.map { resolveAllCharacterNames(scene: $0) } ?? []
-            let availableChars = characters.filter { !existingNames.contains($0.name) }
+            // Anyone in the project who is not already cast in THIS shot. Picking
+            // one adds them here — it used to open their Story Design page.
+            let availableChars = characters.filter { candidate in
+                !shot.characters.contains { $0.caseInsensitiveCompare(candidate.name) == .orderedSame }
+            }
 
             if availableChars.isEmpty {
                 VStack(spacing: 8) {
-                    Text("All characters are in this scene")
+                    Text(characters.isEmpty ? "No characters in the project yet" : "Every character is already in this shot")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
 
@@ -1347,7 +1364,9 @@ struct ShotContextCard: View {
                         ForEach(availableChars) { char in
                             Button(action: {
                                 showingCharacterPicker = false
-                                onNavigateToCharacter?(char)
+                                var updated = shot
+                                updated.characters.append(char.name)
+                                onShotUpdated?(updated)
                             }) {
                                 HStack(spacing: 8) {
                                     if let basePath = projectBasePath,

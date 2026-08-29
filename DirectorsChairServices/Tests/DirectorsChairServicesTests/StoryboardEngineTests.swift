@@ -351,6 +351,14 @@ final class LocalImageEngineTests: XCTestCase {
         let unnamed = Shot(shotId: 11, description: "Three figures in single file on the cliff path")
         XCTAssertEqual(StoryboardSubjects.cast(for: unnamed, in: dawn, characters: cast).map(\.name), ["Noor", "Idris"],
                        "a shot that names nobody shows the scene's cast, in project order")
+
+        // The director's explicit cast comes first, in the order added; names
+        // in the description follow; the scene's speakers no longer fill in.
+        let castShot = Shot(shotId: 13, description: "Noor turns from the window", characters: ["idris", "Teo"])
+        XCTAssertEqual(StoryboardSubjects.cast(for: castShot, in: dawn, characters: cast).map(\.name),
+                       ["Idris", "Teo", "Noor"], "explicit cast (case-insensitive) first, then the description's names")
+        let onlyCast = Shot(shotId: 14, description: "A figure in the doorway", characters: ["Teo"])
+        XCTAssertEqual(StoryboardSubjects.cast(for: onlyCast, in: dawn, characters: cast).map(\.name), ["Teo"])
     }
 
     func testGenerateWithoutCoreFailsHonestlyWhenReady() async throws {

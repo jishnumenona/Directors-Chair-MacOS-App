@@ -71,9 +71,18 @@ public enum StoryboardSubjects {
     /// scene's speakers, because Teo has no line in that scene). A shot
     /// that names nobody shows the scene's cast. At most three.
     public static func cast(for shot: Shot, in scene: Scene, characters: [Character]) -> [Character] {
+        // The director's explicit cast first, in the order they were added
+        // (usability batch 2026-08-28: "Add" in the shot's Characters section).
+        let explicit = shot.characters.compactMap { name in
+            characters.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        }
         let description = plainSubject(from: shot.description)
-        let named = characters.filter { mentions(description, name: $0.name) }
-        let chosen = named.isEmpty ? charactersPresent(in: scene, from: characters) : named
+        let named = characters.filter { candidate in
+            mentions(description, name: candidate.name)
+                && !explicit.contains { $0.name.caseInsensitiveCompare(candidate.name) == .orderedSame }
+        }
+        var chosen = explicit + named
+        if chosen.isEmpty { chosen = charactersPresent(in: scene, from: characters) }
         return Array(chosen.prefix(3))
     }
 

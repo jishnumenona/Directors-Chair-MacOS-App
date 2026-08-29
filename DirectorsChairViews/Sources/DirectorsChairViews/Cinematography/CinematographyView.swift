@@ -607,6 +607,9 @@ public struct CinematographyView: View {
                             onNavigateToLocation: onNavigateToLocation,
                             onNavigateToStoryDesign: onNavigateToStoryDesign,
                             onSceneUpdated: onSceneUpdated,
+                            onShotUpdated: { updatedShot in
+                                viewModel.updateShot(updatedShot)
+                            },
                             onOpenConnections: onOpenConnections.map { open in
                                 { itemId in open(shot, itemId) }
                             }

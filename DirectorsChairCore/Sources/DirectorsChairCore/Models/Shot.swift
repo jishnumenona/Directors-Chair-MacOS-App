@@ -16,6 +16,11 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     /// The user's own free-text notes on the shot (DC-0074) — separate from
     /// the description the drawings are made from.
     public var notes: String
+    /// The people the director puts in this shot, by character name — the
+    /// explicit cast (usability batch 2026-08-29). Chips and storyboard
+    /// prompts show these first; the description and the scene's speakers
+    /// still fill in when this is empty.
+    public var characters: [String]
     public var status: String  // "Planning", "Ready", "Shooting", "Review", "Approved"
     public var cameraAngle: String
     public var lensMm: Int?
@@ -52,6 +57,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         itemChronology: Int = 0,
         description: String = "",
         notes: String = "",
+        characters: [String] = [],
         status: String = "Planning",
         cameraAngle: String = "Medium",
         lensMm: Int? = 50,
@@ -83,6 +89,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.itemChronology = itemChronology
         self.description = description
         self.notes = notes
+        self.characters = characters
         self.status = status
         self.cameraAngle = cameraAngle
         self.lensMm = lensMm
@@ -116,6 +123,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case itemChronology = "item_chronology"
         case description
         case notes
+        case characters
         case status
         case cameraAngle = "camera_angle"
         case lensMm = "lens_mm"
@@ -187,6 +195,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         }
 
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Planning"
+        characters = (try? container.decodeIfPresent([String].self, forKey: .characters)) ?? []
         cameraAngle = try container.decodeIfPresent(String.self, forKey: .cameraAngle) ?? "Medium"
 
         // lensMm: handle both lens_mm (Int) and lens (String like "50mm")
