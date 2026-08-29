@@ -31,13 +31,24 @@ enum MentionParser {
     static func mentions(in text: String, characters: [Character], locations: [Location],
                          props: [Prop], shots: [Shot]) -> [ResolvedMention] {
         var found: [(Int, ResolvedMention)] = []
+        var taken: [Range<String.Index>] = []
         func scan(trigger: String, names: [(String, ResolvedMention)]) {
             for (name, mention) in names.sorted(by: { $0.0.count > $1.0.count }) {
                 guard !name.isEmpty,
-                      let range = text.range(of: trigger + name, options: .caseInsensitive),
                       !found.contains(where: { $0.1.id == mention.id && $0.1.kind == mention.kind })
                 else { continue }
-                found.append((text.distance(from: text.startIndex, to: range.lowerBound), mention))
+                // First occurrence that no longer name already claimed ("Susan"
+                // inside "Susan Lee" is not a second mention).
+                var searchStart = text.startIndex
+                while searchStart < text.endIndex,
+                      let range = text.range(of: trigger + name, options: .caseInsensitive, range: searchStart..<text.endIndex) {
+                    if !taken.contains(where: { $0.overlaps(range) }) {
+                        taken.append(range)
+                        found.append((text.distance(from: text.startIndex, to: range.lowerBound), mention))
+                        break
+                    }
+                    searchStart = range.upperBound
+                }
             }
         }
         scan(trigger: "@", names: characters.map { ($0.name, ResolvedMention(

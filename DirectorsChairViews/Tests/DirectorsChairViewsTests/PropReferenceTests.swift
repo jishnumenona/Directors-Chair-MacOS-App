@@ -49,17 +49,20 @@ final class PropReferenceTests: XCTestCase {
         XCTAssertFalse(refs[0].base64.isEmpty)
     }
 
-    func testShotBundleCarriesOnlyThePropsTheShotNames() throws {
-        let scene = DirectorsChairCore.Scene(name: "Cottage wall", props: ["Storm Lantern", "Logbook"])
-        let props = [try prop("Storm Lantern"), try prop("Logbook")]
-        let lantern = Shot(shotId: 1, description: "Teo lifts the brass storm lantern")
+    // Owner 2026-08-29: the props chosen for the scene (Prop Shop picker on the
+    // shot page) ride along with every shot of it, then any prop the shot names.
+    func testShotBundleCarriesTheScenesChosenPropsThenThePropsTheShotNames() throws {
+        let scene = DirectorsChairCore.Scene(name: "Cottage wall", props: ["Storm Lantern"])
+        let props = [try prop("Storm Lantern"), try prop("Logbook"), try prop("Compass")]
+        let compass = Shot(shotId: 1, description: "Teo checks the compass")
         let wall = Shot(shotId: 2, description: "Teo at the cottage wall")
         XCTAssertEqual(CharacterReferenceHelper.collectReferenceImages(
-            forShot: lantern, in: scene, characters: [], locations: [], props: props,
-            projectDirectory: projectDir).map(\.label), ["prop:Storm Lantern"])
+            forShot: compass, in: scene, characters: [], locations: [], props: props,
+            projectDirectory: projectDir).map(\.label), ["prop:Storm Lantern", "prop:Compass"])
         XCTAssertEqual(CharacterReferenceHelper.collectReferenceImages(
             forShot: wall, in: scene, characters: [], locations: [], props: props,
-            projectDirectory: projectDir).map(\.label), [], "a shot that names no prop gets no prop picture")
+            projectDirectory: projectDir).map(\.label), ["prop:Storm Lantern"],
+            "a shot that names no prop still carries the scene's chosen props")
     }
 
     func testPropPicturesAreCappedAndOnlyPicturedPropsTakeASlot() throws {
