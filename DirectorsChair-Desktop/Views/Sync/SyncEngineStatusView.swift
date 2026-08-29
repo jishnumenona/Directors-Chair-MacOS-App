@@ -131,7 +131,10 @@ struct SyncEngineStatusView: View {
         let pushed = await engine.push(projectDir: dir, projectID: project.uuid,
                                        name: project.name)
         guard pushed else { return }   // conflict/error surfaced via state
-        if await engine.pull(projectDir: dir) {
+        // A merge may have taken the other device's document; the pull that
+        // follows finds nothing newer, so reload on either signal.
+        let pulled = await engine.pull(projectDir: dir)
+        if pulled || engine.projectChangedOnDisk {
             try? await projectViewModel.load(from: dir.appendingPathComponent("project.json"))
         }
     }

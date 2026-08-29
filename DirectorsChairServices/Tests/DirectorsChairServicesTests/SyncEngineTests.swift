@@ -312,13 +312,118 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertNil(engine.progress, "terminal state clears the percent")
     }
 
+    /// Plants a revision 2 by "other-mac" on top of our revision 1.
+    private func plantHead2(projectBlob: (sha256: String, size: Int)? = nil,
+                            assets: [(path: String, data: Data)] = [],
+                            deleted: [String] = []) {
+        let checkpoint = SyncCheckpoint.load(projectDir: projectDir)!
+        let blob = projectBlob ?? (checkpoint.lastManifest!.projectBlob.sha256,
+                                   checkpoint.lastManifest!.projectBlob.size)
+        var assetList: [[String: Any]] = []
+        for (path, data) in assets {
+            let sha = SyncHashing.sha256Hex(data)
+            server.blobs[sha] = data
+            server.committedBlobs.insert(sha)
+            assetList.append(["path": path, "sha256": sha, "size": data.count])
+        }
+        server.headRevision = 2
+        server.revisions[2] = [
+            "revision": 2, "parent_revision": 1, "merged_from": NSNull(),
+            "manifest": ["schema": 1,
+                         "project_blob": ["sha256": blob.sha256, "size": blob.size],
+                         "assets": assetList, "deleted": deleted],
+            "device_name": "other-mac", "created_at": "2026-07-19T00:00:00Z",
+        ]
+    }
+
+    private func exists(_ relative: String) -> Bool {
+        FileManager.default.fileExists(atPath: projectDir.appendingPathComponent(relative).path)
+    }
+
+    /// The merge brings the other device's asset onto this disk; the
+    /// checkpoint describes what is really here, so the next push has nothing
+    /// to tombstone (the 2026-08-28 audit's P0: their files were recorded
+    /// without being downloaded and deleted on the following push).
+    func testAssetOnlyDivergenceMaterialisesTheirAssetBeforeMerging() async throws {
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        plantHead2(assets: [("assets/theirs.png", Data("theirs".utf8))])
+        try write("assets/ours.png", "ooo")
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        XCTAssertTrue(pushed)
+        XCTAssertEqual(server.headRevision, 3)
+        XCTAssertTrue(exists("assets/theirs.png"), "their asset is on this disk now")
+        XCTAssertEqual(try String(contentsOf: projectDir.appendingPathComponent("assets/theirs.png")), "theirs")
+        let merged = server.revisions[3]!["manifest"] as! [String: Any]
+        XCTAssertEqual(Set((merged["assets"] as! [[String: Any]]).map { $0["path"] as! String }),
+                       ["assets/theirs.png", "assets/ours.png"])
+        XCTAssertEqual(merged["deleted"] as! [String], [])
+        XCTAssertFalse(engine.projectChangedOnDisk)
+        // Checkpoint == disk: an unchanged push short-circuits, nothing is tombstoned.
+        let again = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        XCTAssertTrue(again)
+        XCTAssertEqual(server.headRevision, 3, "nothing to commit")
+        guard case .synced = engine.state else { return XCTFail("state \(engine.state)") }
+    }
+
+    func testTheirProjectJSONLandsOnDiskWhenOnlyTheyChangedIt() async throws {
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        let theirs = Data(#"{"uuid":"p-1","name":"Film","edited":"theirs"}"#.utf8)
+        let theirsSHA = SyncHashing.sha256Hex(theirs)
+        server.blobs[theirsSHA] = theirs
+        server.committedBlobs.insert(theirsSHA)
+        plantHead2(projectBlob: (theirsSHA, theirs.count))
+        try write("assets/ours.png", "ooo")   // we only added an asset
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        XCTAssertTrue(pushed)
+        XCTAssertEqual(try String(contentsOf: projectDir.appendingPathComponent("project.json")),
+                       String(data: theirs, encoding: .utf8), "their document replaced our base-equal copy")
+        XCTAssertTrue(engine.projectChangedOnDisk, "the app must reload the editor")
+        let merged = server.revisions[3]!["manifest"] as! [String: Any]
+        XCTAssertEqual((merged["project_blob"] as! [String: Any])["sha256"] as? String, theirsSHA,
+                       "the merged revision carries THEIR document, not our stale one")
+        XCTAssertEqual(SyncCheckpoint.load(projectDir: projectDir)?.lastManifest?.projectBlob.sha256, theirsSHA)
+    }
+
+    func testOurDeletionSurvivesTheMergeAndTheirsAppliesToUntouchedFiles() async throws {
+        try write("assets/gone-here.png", "x")
+        try write("assets/gone-there.png", "y")
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        // They delete gone-there.png (and keep gone-here.png); we delete gone-here.png.
+        plantHead2(assets: [("assets/gone-here.png", Data("x".utf8))], deleted: ["assets/gone-there.png"])
+        try FileManager.default.removeItem(at: projectDir.appendingPathComponent("assets/gone-here.png"))
+        try write("assets/ours.png", "ooo")
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        XCTAssertTrue(pushed)
+        XCTAssertFalse(exists("assets/gone-here.png"), "a file deleted here is not resurrected from the head")
+        XCTAssertFalse(exists("assets/gone-there.png"), "their deletion of a file we never touched is applied")
+        let merged = server.revisions[3]!["manifest"] as! [String: Any]
+        XCTAssertEqual(merged["deleted"] as! [String], ["assets/gone-here.png"])
+        XCTAssertEqual(Set((merged["assets"] as! [[String: Any]]).map { $0["path"] as! String }), ["assets/ours.png"])
+    }
+
+    func testIdenticalProjectJSONOnBothSidesIsNotAConflict() async throws {
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        let same = #"{"uuid":"p-1","name":"Film","edited":"same"}"#
+        let sameData = Data(same.utf8)
+        let sameSHA = SyncHashing.sha256Hex(sameData)
+        server.blobs[sameSHA] = sameData
+        server.committedBlobs.insert(sameSHA)
+        plantHead2(projectBlob: (sameSHA, sameData.count))
+        try write("project.json", same)      // we made the identical edit
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        XCTAssertTrue(pushed, "byte-identical documents are no conflict")
+        guard case .synced = engine.state else { return XCTFail("state \(engine.state)") }
+    }
+
     func testAssetOnlyDivergenceAutoMerges() async throws {
         _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
         // Another device adds an asset on top (head moves to 2, project.json same).
         let checkpoint = SyncCheckpoint.load(projectDir: projectDir)!
+        let theirData = Data("bbb".utf8)
         let theirAsset = SyncManifestAsset(path: "assets/theirs.png",
-                                           sha256: String(repeating: "b", count: 64),
-                                           size: 3)
+                                           sha256: SyncHashing.sha256Hex(theirData),
+                                           size: theirData.count)
+        server.blobs[theirAsset.sha256] = theirData
         server.committedBlobs.insert(theirAsset.sha256)
         server.headRevision = 2
         server.revisions[2] = [
@@ -404,6 +509,35 @@ final class SyncEngineTests: XCTestCase {
             atPath: projectDir.appendingPathComponent("assets/old.png").path),
             "tombstoned file must not survive the pull")
         XCTAssertEqual(SyncCheckpoint.load(projectDir: projectDir)?.lastRevision, 2)
+    }
+
+    /// A path deleted in one revision and re-added in a later one is kept:
+    /// the tombstone must not erase what the target revision carries.
+    func testPullKeepsAPathDeletedThenReadded() async throws {
+        try write("assets/x.png", "v1")
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        let checkpoint = SyncCheckpoint.load(projectDir: projectDir)!
+        let blob = ["sha256": checkpoint.lastManifest!.projectBlob.sha256,
+                    "size": checkpoint.lastManifest!.projectBlob.size] as [String: Any]
+        let v2 = Data("v2".utf8)
+        let v2SHA = SyncHashing.sha256Hex(v2)
+        server.blobs[v2SHA] = v2
+        server.committedBlobs.insert(v2SHA)
+        server.revisions[2] = ["revision": 2, "parent_revision": 1, "merged_from": NSNull(),
+                               "manifest": ["schema": 1, "project_blob": blob, "assets": [],
+                                            "deleted": ["assets/x.png"]],
+                               "device_name": "other-mac", "created_at": "2026-07-19T00:00:00Z"]
+        server.revisions[3] = ["revision": 3, "parent_revision": 2, "merged_from": NSNull(),
+                               "manifest": ["schema": 1, "project_blob": blob,
+                                            "assets": [["path": "assets/x.png", "sha256": v2SHA, "size": v2.count]],
+                                            "deleted": []],
+                               "device_name": "other-mac", "created_at": "2026-07-19T00:00:00Z"]
+        server.headRevision = 3
+        let applied = await engine.pull(projectDir: projectDir)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(try String(contentsOf: projectDir.appendingPathComponent("assets/x.png")), "v2",
+                       "the re-added file survives the earlier tombstone")
+        XCTAssertEqual(SyncCheckpoint.load(projectDir: projectDir)?.lastRevision, 3)
     }
 
     func testPullRefusesPathTraversal() async throws {
