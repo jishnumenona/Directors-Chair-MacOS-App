@@ -381,13 +381,19 @@ struct OverviewHeroBanner: View {
                     return
                 }
 
-                let finalPrompt = prompt ?? buildPosterPrompt()
+                let basePrompt = prompt ?? buildPosterPrompt()
+                // Owner 2026-08-29: the poster is drawn from the film's own frames —
+                // every shot picture rides along as a reference (4 on-device, 8 cloud).
+                let provider = AIProviderSelection.shared.provider(for: .image)
+                let frames = posterReferenceFrames(limit: provider == .onDevice ? 4 : 8)
+                let finalPrompt = frames.isEmpty ? basePrompt : posterReferencePrefix(count: frames.count) + basePrompt
 
                 let request = ImageGenerationRequest(
                     prompt: finalPrompt,
-                    provider: AIProviderSelection.shared.provider(for: .image),
+                    provider: provider,
                     aspectRatio: "3:4",
-                    numberOfImages: 1
+                    numberOfImages: 1,
+                    referenceImages: frames.isEmpty ? nil : frames
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -472,6 +478,26 @@ struct OverviewHeroBanner: View {
                 }
             }
         }
+    }
+
+    /// The shot pictures this project has, in story order, as reference pictures.
+    private func posterReferenceFrames(limit: Int) -> [ReferenceImage] {
+        guard let projectDir = projectDir else { return [] }
+        var frames: [ReferenceImage] = []
+        for scene in project.sequences.flatMap(\.scenes) {
+            for shot in scene.shots {
+                guard frames.count < limit,
+                      let path = shot.previewImage, !path.isEmpty,
+                      let data = try? Data(contentsOf: projectDir.appendingPathComponent(path)) else { continue }
+                frames.append(ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png",
+                                             label: "shot:Shot #\(shot.shotId)"))
+            }
+        }
+        return frames
+    }
+
+    private func posterReferencePrefix(count: Int) -> String {
+        "The \(count) reference image(s) are frames from this film. Draw the poster from them: the same people, faces, wardrobe, places, light and colour — composed as an original one-sheet movie poster, not a collage of the frames.\n\n"
     }
 
     private func buildPosterPrompt() -> String {

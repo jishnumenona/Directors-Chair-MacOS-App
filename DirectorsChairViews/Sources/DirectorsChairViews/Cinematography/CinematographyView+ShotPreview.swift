@@ -38,6 +38,8 @@ struct ShotPreviewSection: View {
     @State private var editablePrompt: String = ""
     @State private var lastUsedPrompt: String = ""
     @State private var allPreviewImages: [URL] = []
+    /// Which history picture is the shot's picture (latest.png) right now.
+    @State private var defaultPreviewIndex: Int?
     @State private var currentImageIndex: Int = -1
 
     var body: some View {
@@ -294,6 +296,30 @@ struct ShotPreviewSection: View {
                                     .padding(.vertical, 2)
                                     .background(isFromTake ? Color.green.opacity(0.7) : Color.accentColor.opacity(0.7))
                                     .cornerRadius(4)
+                            }
+
+                            // Owner 2026-08-29: any generated picture can be the shot's picture.
+                            if allPreviewImages.count > 1 {
+                                if currentImageIndex == defaultPreviewIndex {
+                                    Text("Shot picture")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.white.opacity(0.25))
+                                        .cornerRadius(4)
+                                } else {
+                                    Button("Use as shot picture") { useCurrentAsShotPicture() }
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.accentColor.opacity(0.7))
+                                        .cornerRadius(4)
+                                        .help("Make this the picture the shot shows and sends as its reference")
+                                        .accessibilityIdentifier("preview-use-as-shot-picture")
+                                }
                             }
                         }
                         .padding(.horizontal, 12)
@@ -603,8 +629,33 @@ struct ShotPreviewSection: View {
             if !images.isEmpty {
                 currentImageIndex = images.count - 1
             }
+            // The shot's picture is latest.png — find which history file it is.
+            let latest = shotDir.appendingPathComponent("latest.png")
+            if let latestData = try? Data(contentsOf: latest) {
+                defaultPreviewIndex = images.firstIndex { (try? Data(contentsOf: $0)) == latestData }
+            } else {
+                defaultPreviewIndex = nil
+            }
         } catch {
             // Directory doesn't exist or can't be read
+        }
+    }
+
+    /// Copy the browsed history picture over latest.png so every consumer
+    /// (thumbnails, references, exports) uses it.
+    private func useCurrentAsShotPicture() {
+        guard let basePath = projectBasePath, currentImageIndex < allPreviewImages.count else { return }
+        let source = allPreviewImages[currentImageIndex]
+        let relativePath = "assets/shots/shot_\(shot.shotId)/latest.png"
+        let latest = basePath.deletingLastPathComponent().appendingPathComponent(relativePath)
+        do {
+            let data = try Data(contentsOf: source)
+            try data.write(to: latest, options: .atomic)
+            defaultPreviewIndex = currentImageIndex
+            onPreviewGenerated(relativePath)
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
         }
     }
 

@@ -25,6 +25,11 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     /// reference pictures when this shot is generated, so a scene keeps
     /// its place, light, cast and wardrobe from frame to frame.
     public var referenceShotIds: [String]
+    /// The user has edited this shot's cast by hand: `characters` is the
+    /// whole cast (even when empty) and the scene/description no longer
+    /// add anyone (owner 2026-08-29: could not remove characters the
+    /// scene put on the shot).
+    public var castIsExplicit: Bool
     public var status: String  // "Planning", "Ready", "Shooting", "Review", "Approved"
     public var cameraAngle: String
     public var lensMm: Int?
@@ -63,6 +68,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         notes: String = "",
         characters: [String] = [],
         referenceShotIds: [String] = [],
+        castIsExplicit: Bool = false,
         status: String = "Planning",
         cameraAngle: String = "Medium",
         lensMm: Int? = 50,
@@ -96,6 +102,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.notes = notes
         self.characters = characters
         self.referenceShotIds = referenceShotIds
+        self.castIsExplicit = castIsExplicit
         self.status = status
         self.cameraAngle = cameraAngle
         self.lensMm = lensMm
@@ -131,6 +138,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case notes
         case characters
         case referenceShotIds = "reference_shot_ids"
+        case castIsExplicit = "cast_is_explicit"
         case status
         case cameraAngle = "camera_angle"
         case lensMm = "lens_mm"
@@ -204,6 +212,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Planning"
         characters = (try? container.decodeIfPresent([String].self, forKey: .characters)) ?? []
         referenceShotIds = (try? container.decodeIfPresent([String].self, forKey: .referenceShotIds)) ?? []
+        castIsExplicit = (try? container.decodeIfPresent(Bool.self, forKey: .castIsExplicit)) ?? false
         cameraAngle = try container.decodeIfPresent(String.self, forKey: .cameraAngle) ?? "Medium"
 
         // lensMm: handle both lens_mm (Int) and lens (String like "50mm")

@@ -583,6 +583,19 @@ class ProjectViewModel: ObservableObject {
         isDirty = true
     }
 
+    /// Move a shot one place up (-1) or down (+1) inside its scene. Shot
+    /// numbers stay with their shots (preview folders are keyed by them).
+    func moveShot(_ shot: Shot, by offset: Int, inSceneId sceneId: String, inSequenceId sequenceId: String) {
+        guard let seqIndex = project.sequences.firstIndex(where: { $0.id == sequenceId }),
+              let scnIndex = project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == sceneId }),
+              let from = project.sequences[seqIndex].scenes[scnIndex].shots.firstIndex(where: { $0.id == shot.id })
+        else { return }
+        let to = from + offset
+        guard to >= 0, to < project.sequences[seqIndex].scenes[scnIndex].shots.count else { return }
+        project.sequences[seqIndex].scenes[scnIndex].shots.swapAt(from, to)
+        isDirty = true
+    }
+
     /// Rename a scene within a sequence
     func renameScene(_ sceneId: String, inSequenceId sequenceId: String, newName: String) {
         guard let seqIndex = project.sequences.firstIndex(where: { $0.id == sequenceId }),

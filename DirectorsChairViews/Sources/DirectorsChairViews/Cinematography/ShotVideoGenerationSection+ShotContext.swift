@@ -112,21 +112,21 @@ struct ShotContextCard: View {
                 if let currentScene = scene {
                     // The shot's explicit cast first, then everyone the scene's
                     // script puts on set.
-                    let charNames = shot.characters + resolveAllCharacterNames(scene: currentScene)
-                        .filter { name in !shot.characters.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+                    // A hand-edited cast is the whole cast (even empty); otherwise the
+                    // explicit picks come first, then everyone the scene puts on set.
+                    let charNames = shot.castIsExplicit
+                        ? shot.characters
+                        : shot.characters + resolveAllCharacterNames(scene: currentScene)
+                            .filter { name in !shot.characters.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
                     contextSection(icon: "person.2.fill", iconColor: .blue, title: "CHARACTERS") {
                         VideoContextFlowLayout(spacing: 8) {
                             ForEach(charNames, id: \.self) { name in
-                                characterChip(name: name)
-                                    .contextMenu {
-                                        if shot.characters.contains(name) {
-                                            Button("Remove from this shot") {
-                                                var updated = shot
-                                                updated.characters.removeAll { $0 == name }
-                                                onShotUpdated?(updated)
-                                            }
-                                        }
-                                    }
+                                characterChip(name: name) {
+                                    // Owner 2026-08-29: any character can be taken off a shot.
+                                    var updated = explicitCast(shot, visible: charNames)
+                                    updated.characters.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+                                    onShotUpdated?(updated)
+                                }
                             }
                             addButton { showingCharacterPicker = true }
                                 // Anchored to the button so the list opens next to the cast,
@@ -574,12 +574,29 @@ struct ShotContextCard: View {
     // MARK: - Character Chip
 
     @ViewBuilder
-    private func characterChip(name: String) -> some View {
-        let char = characters.first(where: { $0.name == name })
-        // Character is removable only if they come from action character lists, not dialogue speakers
-        let speaksDialogue = scene?.dialogues.contains(where: { $0.character == name }) ?? false
+    private var visibleCastNames: [String] {
+        guard let currentScene = scene else { return shot.characters }
+        return shot.castIsExplicit
+            ? shot.characters
+            : shot.characters + resolveAllCharacterNames(scene: currentScene)
+                .filter { name in !shot.characters.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+    }
 
-        HStack(spacing: 0) {
+    /// The shot's cast, made explicit from what is on screen right now so an
+    /// add or remove edits exactly the list the user sees.
+    private func explicitCast(_ shot: Shot, visible: [String]) -> Shot {
+        var updated = shot
+        if !updated.castIsExplicit {
+            updated.characters = visible
+            updated.castIsExplicit = true
+        }
+        return updated
+    }
+
+    private func characterChip(name: String, onRemove: (() -> Void)? = nil) -> some View {
+        let char = characters.first(where: { $0.name == name })
+
+        return HStack(spacing: 0) {
             Button(action: {
                 if let char = char { onNavigateToCharacter?(char) }
             }) {
@@ -618,14 +635,16 @@ struct ShotContextCard: View {
             }
             .buttonStyle(.plain)
 
-            if !speaksDialogue {
-                Button(action: { removeCharacterFromScene(name) }) {
+            if let onRemove {
+                Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundColor(.gray.opacity(0.5))
                         .padding(.leading, 6)
                 }
                 .buttonStyle(.plain)
+                .help("Remove \(name) from this shot")
+                .accessibilityIdentifier("shot-cast-remove-\(name)")
             }
         }
         .padding(.horizontal, 10)
@@ -1366,7 +1385,7 @@ struct ShotContextCard: View {
                         ForEach(availableChars) { char in
                             Button(action: {
                                 showingCharacterPicker = false
-                                var updated = shot
+                                var updated = explicitCast(shot, visible: visibleCastNames)
                                 updated.characters.append(char.name)
                                 onShotUpdated?(updated)
                             }) {

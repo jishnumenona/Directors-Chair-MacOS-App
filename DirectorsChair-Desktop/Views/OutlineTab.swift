@@ -851,6 +851,23 @@ struct ShotRow: View {
 
             Divider()
 
+            // Owner 2026-08-29: reorder shots from the navigator (drag also
+            // works in the Shots view's list).
+            Button {
+                projectViewModel.moveShot(shot, by: -1, inSceneId: sceneId, inSequenceId: sequenceId)
+                coordinator.notifyProjectChanged()
+            } label: {
+                Label("Move Up", systemImage: "arrow.up")
+            }
+            Button {
+                projectViewModel.moveShot(shot, by: 1, inSceneId: sceneId, inSequenceId: sequenceId)
+                coordinator.notifyProjectChanged()
+            } label: {
+                Label("Move Down", systemImage: "arrow.down")
+            }
+
+            Divider()
+
             Button(role: .destructive) {
                 showDeleteConfirmation = true
             } label: {

@@ -383,6 +383,22 @@ final class LocalImageEngineTests: XCTestCase {
 
 final class ScriptedStoryboardEngineTests: XCTestCase {
 
+    // Owner 2026-08-29: characters the scene puts on a shot can be taken off —
+    // once the cast is hand-edited it is the whole cast, even when empty.
+    func testExplicitCastIsTheWholeCastEvenWhenEmpty() {
+        let alex = Character(name: "Alex")
+        let susan = Character(name: "Susan")
+        var scene = Scene(name: "Van")
+        scene.dialogues = [Dialogue(character: "Alex", text: "Hi")]
+        var shot = Shot(shotId: 1, description: "@Alex talks to @Susan")
+        XCTAssertEqual(StoryboardFrames.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Alex", "Susan"])
+        shot.castIsExplicit = true
+        shot.characters = ["Susan"]
+        XCTAssertEqual(StoryboardFrames.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Susan"])
+        shot.characters = []
+        XCTAssertEqual(StoryboardFrames.cast(for: shot, in: scene, characters: [alex, susan]), [])
+    }
+
     func testScriptedEngineRecordsSpecsAndHonorsAvailability() async throws {
         let engine = ScriptedStoryboardEngine(
             availability: .needsDownload(expectedBytes: 42))

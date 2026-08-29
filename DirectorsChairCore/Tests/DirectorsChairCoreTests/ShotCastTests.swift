@@ -36,4 +36,19 @@ final class ShotCastTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Shot.self, from: try JSONSerialization.data(withJSONObject: legacy))
         XCTAssertEqual(decoded.referenceShotIds, [])
     }
+
+    // An edited cast persists as explicit; older files decode as not explicit.
+    func testCastIsExplicitRoundTripsAndDefaultsFalse() throws {
+        var shot = Shot(shotId: 5, description: "Empty room")
+        XCTAssertFalse(shot.castIsExplicit)
+        shot.castIsExplicit = true
+        shot.characters = []
+        let data = try JSONEncoder().encode(shot)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["cast_is_explicit"] as? Bool, true)
+        XCTAssertTrue(try JSONDecoder().decode(Shot.self, from: data).castIsExplicit)
+        var legacy = json
+        legacy.removeValue(forKey: "cast_is_explicit")
+        XCTAssertFalse(try JSONDecoder().decode(Shot.self, from: try JSONSerialization.data(withJSONObject: legacy)).castIsExplicit)
+    }
 }

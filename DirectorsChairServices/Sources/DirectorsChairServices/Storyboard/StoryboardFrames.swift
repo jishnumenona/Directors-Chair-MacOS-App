@@ -81,6 +81,8 @@ public enum StoryboardSubjects {
             mentions(description, name: candidate.name)
                 && !explicit.contains { $0.name.caseInsensitiveCompare(candidate.name) == .orderedSame }
         }
+        // A hand-edited cast is the whole cast — even an empty one.
+        if shot.castIsExplicit { return Array(explicit.prefix(3)) }
         var chosen = explicit + named
         if chosen.isEmpty { chosen = charactersPresent(in: scene, from: characters) }
         return Array(chosen.prefix(3))
