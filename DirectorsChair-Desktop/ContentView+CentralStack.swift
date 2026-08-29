@@ -251,10 +251,12 @@ struct CentralViewStack: View {
                 },
                 // DC-0092: come back to the same tab, character and location.
                 remembered: StoryDesignSelection(mode: coordinator.surfaceMemory.storyDesignMode,
-                                                 tab: coordinator.surfaceMemory.designTab),
+                                                 tab: coordinator.surfaceMemory.designTab,
+                                                 propId: coordinator.surfaceMemory.propId),
                 onSelectionChanged: { selection in
                     coordinator.surfaceMemory.storyDesignMode = selection.mode
                     coordinator.surfaceMemory.designTab = selection.tab
+                    if let propId = selection.propId { coordinator.surfaceMemory.propId = propId }
                     if let id = selection.characterId, coordinator.selectedCharacter?.id != id {
                         coordinator.selectedCharacter = projectViewModel.project.characters.first { $0.id == id }
                     }
@@ -1293,6 +1295,7 @@ struct CinematographyViewAdapter: View {
                     onNavigateToLocation: { location in
                         coordinator.selectLocation(location)
                     },
+                    onNavigateToProp: { prop in coordinator.selectProp(prop) },
                     onNavigateToStoryDesign: {
                         coordinator.navigateTo(.storyDesign)
                     },

@@ -57,6 +57,8 @@ public struct CinematographyView: View {
     /// Navigation callbacks for shot context
     public var onNavigateToCharacter: ((Character) -> Void)?
     public var onNavigateToLocation: ((Location) -> Void)?
+    /// DC-0095: open a prop's page (double-click on an inline $ mention).
+    public var onNavigateToProp: ((Prop) -> Void)?
     public var onNavigateToStoryDesign: (() -> Void)?
     public var onNavigateToCuration: ((Shot) -> Void)?
 
@@ -106,6 +108,7 @@ public struct CinematographyView: View {
         onOptionClickShot: ((Shot) -> Void)? = nil,
         onNavigateToCharacter: ((Character) -> Void)? = nil,
         onNavigateToLocation: ((Location) -> Void)? = nil,
+        onNavigateToProp: ((Prop) -> Void)? = nil,
         onNavigateToStoryDesign: (() -> Void)? = nil,
         onNavigateToCuration: ((Shot) -> Void)? = nil,
         onOpenConnections: ((Shot, String?) -> Void)? = nil,
@@ -129,6 +132,7 @@ public struct CinematographyView: View {
         self.onOptionClickShot = onOptionClickShot
         self.onNavigateToCharacter = onNavigateToCharacter
         self.onNavigateToLocation = onNavigateToLocation
+        self.onNavigateToProp = onNavigateToProp
         self.onNavigateToStoryDesign = onNavigateToStoryDesign
         self.onNavigateToCuration = onNavigateToCuration
         self.onSceneUpdated = onSceneUpdated
@@ -588,6 +592,7 @@ public struct CinematographyView: View {
                         continuityShots: shot.referenceShotIds.compactMap { id in viewModel.shots.first { $0.id == id } },
                         projectDirectory: projectBasePath?.deletingLastPathComponent(),
                         onJumpToCamera: { scrollToShotSection = "camera" },
+                        onOpenMention: { mention in openMention(mention) },
                         onDescriptionChange: { newDescription in
                             updateShotField(shot) { $0.description = newDescription }
                         }
@@ -821,6 +826,21 @@ public struct CinematographyView: View {
                 .background(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.4)))
                 .contentShape(Rectangle())
             }
+        }
+    }
+
+    /// DC-0095: a double-clicked mention goes to its page (a shot stays here).
+    private func openMention(_ mention: ResolvedMention) {
+        switch mention.kind {
+        case .character:
+            if let character = characters.first(where: { $0.id == mention.id }) { onNavigateToCharacter?(character) }
+        case .location:
+            if let location = locations.first(where: { $0.id == mention.id }) { onNavigateToLocation?(location) }
+        case .prop:
+            if let prop = props.first(where: { $0.id == mention.id }) { onNavigateToProp?(prop) }
+        case .shot:
+            viewModel.selectedShotId = mention.id
+            viewModel.revealSection(containing: mention.id, scenes: scenes)
         }
     }
 

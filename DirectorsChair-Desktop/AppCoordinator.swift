@@ -494,6 +494,15 @@ class AppCoordinator: ObservableObject {
         }
     }
 
+    /// Open a prop's page in Story Design (DC-0095).
+    func selectProp(_ prop: Prop) {
+        surfaceMemory.storyDesignMode = "props"
+        surfaceMemory.propId = prop.id
+        if selectedView != .storyDesign {
+            navigateTo(.storyDesign)
+        }
+    }
+
     /// Select a location and navigate to story design if needed
     func selectLocation(_ location: Location) {
         surfaceMemory.storyDesignMode = "locations"

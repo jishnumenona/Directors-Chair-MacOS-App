@@ -24,6 +24,8 @@ struct InlineDescriptionEditor: View {
     var projectDirectory: URL? = nil
     /// Owner 2026-08-29: quick jump to the Camera section.
     var onJumpToCamera: (() -> Void)? = nil
+    /// DC-0095: a double-click on an inline mention opens that thing's page.
+    var onOpenMention: ((ResolvedMention) -> Void)? = nil
     let onDescriptionChange: (String) -> Void
 
     @State private var editText = ""
@@ -56,21 +58,19 @@ struct InlineDescriptionEditor: View {
                 }
             }
 
-            // Always-editable inline text with @ # $ & mention support
-            CharacterMentionTextEditor(
+            // DC-0095: mentions drawn inline — @ character, # location, $ prop,
+            // & continuity shot — one click selects a pill, a double-click opens it.
+            MentionTextView(
                 text: $editText,
                 characters: characters,
                 locations: locations,
                 props: props,
                 continuityShots: continuityShots,
-                placeholder: "Write a description... (@ character, # location, $ prop, & continuity shot)"
+                projectDirectory: projectDirectory,
+                placeholder: "Write a description… (@ character, # location, $ prop, & continuity shot)",
+                onOpenMention: onOpenMention
             )
-
-            // What the text mentions, as pictures.
-            MentionThumbnailStrip(
-                mentions: MentionParser.mentions(in: editText, characters: characters, locations: locations,
-                                                 props: props, shots: continuityShots),
-                projectDirectory: projectDirectory)
+            .frame(minHeight: 76, maxHeight: 220)
         }
         // The mention list is an overlay — keep this section above the cards
         // stacked after it (owner report 2026-08-29: hidden behind Notes).

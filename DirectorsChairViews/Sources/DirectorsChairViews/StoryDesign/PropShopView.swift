@@ -21,8 +21,11 @@ struct PropShopView: View {
     @Binding var project: Project
     let projectBasePath: URL?
     /// Owner 2026-08-29: "Where it's used" rows jump to the scene / shot.
+    /// DC-0095/0092: the prop to open (a mention's double-click, or last time's).
+    var initialPropId: String? = nil
     var onOpenScene: ((DCScene) -> Void)? = nil
     var onOpenShot: ((Shot, DCScene) -> Void)? = nil
+    var onPropSelected: ((String) -> Void)? = nil
 
     @State private var selectedPropId: String?
     @State private var statusFilter: String = "All"
@@ -111,7 +114,18 @@ struct PropShopView: View {
             detailPane
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear { if selectedPropId == nil { selectedPropId = project.props.first?.id } }
+        .onAppear {
+            if let initialPropId, project.props.contains(where: { $0.id == initialPropId }) {
+                selectedPropId = initialPropId
+            }
+            if selectedPropId == nil { selectedPropId = project.props.first?.id }
+        }
+        .onChange(of: initialPropId) { _, newValue in
+            if let newValue, project.props.contains(where: { $0.id == newValue }) { selectedPropId = newValue }
+        }
+        .onChange(of: selectedPropId) { _, newValue in
+            if let newValue { onPropSelected?(newValue) }
+        }
         .sheet(isPresented: $showingNewPropSheet) { newPropSheet }
     }
 

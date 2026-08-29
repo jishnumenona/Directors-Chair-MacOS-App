@@ -122,7 +122,8 @@ public struct ImageAnnotationEditor: View {
             .padding(.vertical, 10)
             .background(Color(hex: "#1E1E1E"))
         }
-        .frame(width: 900, height: 600)
+        // Owner 2026-08-29: the picture is the point — take most of the window.
+        .frame(width: editorSize.width, height: editorSize.height)
         .background(Color(hex: "#252525"))
         .onAppear {
             annotations = initialAnnotations
@@ -274,6 +275,14 @@ public struct ImageAnnotationEditor: View {
         .help(annotation.text.isEmpty ? "Click to add description" : annotation.text)
     }
 
+    /// Most of the window the editor sits in (the picture is the point).
+    private var editorSize: CGSize {
+        let host = NSApp.keyWindow?.frame.size
+            ?? NSScreen.main?.visibleFrame.size
+            ?? CGSize(width: 1400, height: 900)
+        return CGSize(width: max(900, host.width * 0.92), height: max(600, host.height * 0.9))
+    }
+
     // MARK: - Annotation Text Card
 
     @ViewBuilder
@@ -289,12 +298,16 @@ public struct ImageAnnotationEditor: View {
                             .foregroundColor(.white)
                     )
 
-                TextField("Describe the change...", text: $editingText, onCommit: {
+                TextField("What changes here?", text: $editingText, onCommit: {
                     confirmEdit()
                 })
                 .font(.system(size: 11))
                 .textFieldStyle(.plain)
-                .frame(width: 150)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.06))
+                .cornerRadius(4)
+                .frame(width: 190)
 
                 Button(action: confirmEdit) {
                     Image(systemName: "checkmark.circle.fill")
@@ -305,30 +318,30 @@ public struct ImageAnnotationEditor: View {
                 .disabled(editingText.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
-            // How far the change may reach around the pin (DC-0073).
-            HStack(spacing: 6) {
-                Text("REACH")
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(1)
+            // How far the change may reach around the pin (DC-0073) — a
+            // slider the dashed circle follows live (owner 2026-08-29: the
+            // +/- buttons were not intuitive).
+            HStack(spacing: 8) {
+                Image(systemName: "circle.dashed")
+                    .font(.system(size: 10))
                     .foregroundColor(.gray)
-                Button(action: { adjustReach(of: annotation.id, by: -0.04) }) {
-                    Image(systemName: "minus.circle").font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.white.opacity(0.8))
+                Text("Area")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.gray)
+                Slider(value: Binding(
+                    get: { annotation.radius ?? EditRegion.defaultRadius },
+                    set: { setReach(of: annotation.id, to: $0) }
+                ), in: 0.08...0.5)
+                .controlSize(.mini)
+                .frame(width: 150)
+                .accessibilityIdentifier("annotation-area-slider")
                 Text("\(Int((annotation.radius ?? EditRegion.defaultRadius) * 100))%")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.85))
-                    .frame(width: 34)
-                Button(action: { adjustReach(of: annotation.id, by: 0.04) }) {
-                    Image(systemName: "plus.circle").font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.white.opacity(0.8))
-                Spacer()
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(width: 30, alignment: .trailing)
             }
         }
-        .padding(10)
+        .padding(8)
         .background(Color(hex: "#1A1A1A").opacity(0.95))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -481,10 +494,9 @@ public struct ImageAnnotationEditor: View {
         editingText = ""
     }
 
-    private func adjustReach(of id: String, by delta: Double) {
+    private func setReach(of id: String, to value: Double) {
         guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
-        let current = annotations[idx].radius ?? EditRegion.defaultRadius
-        annotations[idx].radius = min(0.5, max(0.08, current + delta))
+        annotations[idx].radius = min(0.5, max(0.08, value))
     }
 
     private func selectAnnotation(_ annotation: KeyframeAnnotation) {

@@ -16,12 +16,15 @@ public struct StoryDesignSelection: Equatable, Sendable {
     public var characterId: String?
     public var locationId: String?
     public var tab: String?
+    public var propId: String?
 
-    public init(mode: String? = nil, characterId: String? = nil, locationId: String? = nil, tab: String? = nil) {
+    public init(mode: String? = nil, characterId: String? = nil, locationId: String? = nil, tab: String? = nil,
+                propId: String? = nil) {
         self.mode = mode
         self.characterId = characterId
         self.locationId = locationId
         self.tab = tab
+        self.propId = propId
     }
 }
 
@@ -174,8 +177,15 @@ public struct StoryDesignView: View {
                 PropShopView(
                     project: $project,
                     projectBasePath: projectBasePath,
+                    initialPropId: remembered?.propId,
                     onOpenScene: onOpenScene,
-                    onOpenShot: onOpenShot
+                    onOpenShot: onOpenShot,
+                    onPropSelected: { id in
+                        var selection = StoryDesignSelection(mode: selectedMode.rawValue, characterId: selectedCharacter?.id,
+                                                             locationId: selectedLocation?.id, tab: selectedTab.rawValue)
+                        selection.propId = id
+                        onSelectionChanged?(selection)
+                    }
                 )
             }
         }
