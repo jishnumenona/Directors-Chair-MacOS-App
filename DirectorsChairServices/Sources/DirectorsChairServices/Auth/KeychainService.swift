@@ -15,10 +15,21 @@ import os
 
 private let keychainLog = Logger(subsystem: "com.directorschair", category: "keychain")
 
+// MARK: - Token store seam
+
+/// What AuthManager needs from session storage — a seam so a refusing store
+/// can be tested without a real keychain (2026-08-29 sign-in loop).
+public protocol TokenStoring: Sendable {
+    func save(_ value: String, forKey key: KeychainService.Key) async throws
+    func load(key: KeychainService.Key) async throws -> String?
+    func delete(key: KeychainService.Key) async throws
+    func deleteAll() async throws
+}
+
 // MARK: - Keychain Service
 
 /// Thread-safe token storage for authentication credentials.
-public actor KeychainService {
+public actor KeychainService: TokenStoring {
 
     /// Default production service/suite. The app's real credentials live here.
     public static let defaultSuiteName = "com.directorschair.auth"
@@ -110,32 +121,65 @@ public actor KeychainService {
         ]
     }
 
+    /// The per-user local store the keychain falls back to. Ad-hoc-signed
+    /// builds (no Developer ID yet) each look like a different app to the
+    /// legacy keychain: an item written by one build cannot be replaced or
+    /// read by the next, and on 2026-08-29 that turned every sign-in into
+    /// a loop — the session was thrown away right after the token exchange.
+    /// A sign-in must never be lost to persistence; when the keychain refuses,
+    /// the session lives here (same store dev builds use) until the app is
+    /// signed with a stable identity.
+    private var localStore: UserDefaults? { UserDefaults(suiteName: service) }
+
+    private static func describe(_ status: OSStatus) -> String {
+        (SecCopyErrorMessageString(status, nil) as String?) ?? "OSStatus \(status)"
+    }
+
     private func write(_ data: Data, account: String) throws {
         migrateIfNeeded()
-        try removeItem(account: account)  // upsert
-        var query = baseQuery(account: account)
-        query[kSecValueData as String] = data
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError.saveFailed(status) }
+        let deleteStatus = SecItemDelete(baseQuery(account: account) as CFDictionary)
+        if deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound {
+            var query = baseQuery(account: account)
+            query[kSecValueData as String] = data
+            query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let status = SecItemAdd(query as CFDictionary, nil)
+            if status == errSecSuccess {
+                localStore?.removeObject(forKey: account)
+                return
+            }
+            keychainLog.error("Keychain add refused for \(account, privacy: .public): \(status) \(Self.describe(status), privacy: .public) — using the local session store")
+        } else {
+            keychainLog.error("Keychain item \(account, privacy: .public) belongs to another build of the app (delete: \(deleteStatus) \(Self.describe(deleteStatus), privacy: .public)) — using the local session store")
+        }
+        guard let localStore else { throw KeychainError.saveFailed(deleteStatus) }
+        localStore.set(data, forKey: account)
     }
 
     private func read(account: String) throws -> Data? {
         migrateIfNeeded()
+        // A local copy exists only when the keychain refused a write — it is
+        // the newer value.
+        if let local = localStore?.data(forKey: account) { return local }
         var query = baseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else { throw KeychainError.loadFailed(status) }
+        guard status == errSecSuccess else {
+            keychainLog.error("Keychain read refused for \(account, privacy: .public): \(status) \(Self.describe(status), privacy: .public)")
+            return nil
+        }
         return result as? Data
     }
 
     private func removeItem(account: String) throws {
+        localStore?.removeObject(forKey: account)
         let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError.deleteFailed(status)
+            // Another build's item: nothing of ours is left to remove.
+            keychainLog.error("Keychain delete refused for \(account, privacy: .public): \(status) \(Self.describe(status), privacy: .public)")
+            return
         }
     }
 
