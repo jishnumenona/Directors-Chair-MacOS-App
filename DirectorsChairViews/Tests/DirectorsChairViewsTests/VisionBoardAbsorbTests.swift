@@ -1244,12 +1244,11 @@ final class VisionAnnotateTests: XCTestCase {
             completion(replacement)
         }
 
-        let instructions = ImageAnnotationEditor.buildEditPrompt(
-            from: [KeyframeAnnotation(id: "1", normalizedX: 0.3,
-                                      normalizedY: 0.6, text: "brighter window",
-                                      number: 1)],
-            context: "image")
-        await viewModel.redraw(id, instructions: instructions, baseImage: bytes)
+        // DC-0073: the marks themselves travel with the edit.
+        await viewModel.redraw(id, marks: [KeyframeAnnotation(id: "1", normalizedX: 0.3,
+                                                              normalizedY: 0.6, text: "brighter window",
+                                                              number: 1)],
+                               baseImage: bytes)
 
         let prompt = try XCTUnwrap(sentPrompt)
         XCTAssertTrue(prompt.contains("At (30%, 60%): brighter window"),
@@ -1271,8 +1270,7 @@ final class VisionAnnotateTests: XCTestCase {
         var card = VisionCard()
         card.imagePath = "assets/visionboard/a.png"
         viewModel.addCard(card)
-        await viewModel.redraw(viewModel.cards[0].id,
-                               instructions: "make it warmer",
+        await viewModel.redraw(viewModel.cards[0].id, marks: [KeyframeAnnotation(text: "make it warmer", number: 1)],
                                baseImage: try png())
         XCTAssertEqual(viewModel.cards[0].imagePath, "assets/visionboard/a.png")
         XCTAssertFalse(viewModel.isGenerating)
@@ -1392,7 +1390,7 @@ final class VisionNonBlockingImagineTests: XCTestCase {
             completion(generated)
         }
 
-        await viewModel.redraw(id, instructions: "brighter", baseImage: bytes)
+        await viewModel.redraw(id, marks: [KeyframeAnnotation(text: "brighter", number: 1)], baseImage: bytes)
 
         XCTAssertEqual(markedWhileWorking, [id],
                        "only that element says it is working")
@@ -1483,7 +1481,7 @@ final class VisionWorkFeedbackTests: XCTestCase {
         card.imagePath = "assets/visionboard/a.png"
         viewModel.addCard(card)
 
-        await viewModel.redraw(viewModel.cards[0].id, instructions: "warmer",
+        await viewModel.redraw(viewModel.cards[0].id, marks: [KeyframeAnnotation(text: "warmer", number: 1)],
                                baseImage: Data([0x1]))
 
         XCTAssertNotNil(viewModel.lastWorkProblem,
@@ -1500,7 +1498,7 @@ final class VisionWorkFeedbackTests: XCTestCase {
                 .appendingPathComponent("nope.png"))
         }
 
-        await viewModel.redraw(viewModel.cards[0].id, instructions: "warmer",
+        await viewModel.redraw(viewModel.cards[0].id, marks: [KeyframeAnnotation(text: "warmer", number: 1)],
                                baseImage: Data([0x1]))
 
         let problem = viewModel.lastWorkProblem ?? ""

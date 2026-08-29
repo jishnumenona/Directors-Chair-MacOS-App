@@ -158,7 +158,7 @@ public struct TokenUsage: Sendable {
 // MARK: - Image Generation Request
 
 /// A labeled reference image sent alongside the generation prompt.
-public struct ReferenceImage: Sendable {
+public struct ReferenceImage: Sendable, Equatable {
     public var base64: String
     public var mimeType: String
     public var label: String
@@ -190,6 +190,10 @@ public struct ImageGenerationRequest: Sendable {
     /// engine repaints only these; cloud providers read the positions
     /// from the prompt text as before.
     public var editRegions: [EditRegion]
+    /// DC-0073: the request says it is an edit of an existing picture
+    /// (set by `AnnotationEditComposer`) — no more reading the prompt's
+    /// first words to find out. Not part of the cloud body.
+    public var isEdit: Bool
 
     public init(
         prompt: String,
@@ -201,7 +205,8 @@ public struct ImageGenerationRequest: Sendable {
         referenceMimeType: String? = nil,
         referenceImages: [ReferenceImage]? = nil,
         brief: VisualBrief? = nil,
-        editRegions: [EditRegion] = []
+        editRegions: [EditRegion] = [],
+        isEdit: Bool = false
     ) {
         self.prompt = prompt
         self.provider = provider
@@ -213,6 +218,7 @@ public struct ImageGenerationRequest: Sendable {
         self.referenceImages = referenceImages
         self.brief = brief
         self.editRegions = editRegions
+        self.isEdit = isEdit
     }
 
     /// True for "change this existing picture" asks (annotation edits,
@@ -220,7 +226,7 @@ public struct ImageGenerationRequest: Sendable {
     /// takes the picture as input.
     public var isEditOfExistingImage: Bool {
         // "Edit this image…", "Edit this scene preview…", "Edit this shot preview…"
-        prompt.lowercased().hasPrefix("edit this ")
+        isEdit || prompt.lowercased().hasPrefix("edit this ")
     }
 }
 
@@ -833,6 +839,28 @@ public actor AIServiceClient {
         return await testConnection()
     }
 
+    /// DC-0073: the one entry point for an annotation edit. Every surface
+    /// hands over an `AnnotationEdit`; the composer builds the one request
+    /// shape for the selected provider; what cannot be done is said, never
+    /// quietly replaced by a fresh generation.
+    public func editImage(_ edit: AnnotationEdit, provider: AIProvider? = nil) async throws -> Data {
+        guard !edit.pins.isEmpty else {
+            throw AIClientError.invalidConfiguration("Add a mark and say what to change there.")
+        }
+        guard !edit.source.isEmpty else {
+            throw AIClientError.invalidConfiguration("There is no picture to edit — generate one first, then mark it up.")
+        }
+        let chosen = provider ?? AIProviderSelection.shared.provider(for: .image)
+        if chosen != .onDevice, !(await imageServiceReachable()) {
+            throw AIClientError.serverUnavailable("Could not reach the image service — check the connection and try again.")
+        }
+        let response = try await generateImage(AnnotationEditComposer.request(for: edit, provider: chosen))
+        guard let picture = response.images.first else {
+            throw AIClientError.invalidResponse("The image service returned no picture.")
+        }
+        return picture
+    }
+
     // MARK: - Image Generation
     
     /// Generate images using AI
@@ -849,15 +877,20 @@ public actor AIServiceClient {
             let (references, labels) = Self.onDeviceReferences(for: request)
             let size = Self.onDeviceImageSize(for: request.aspectRatio)
             let brief: VisualBrief
-            if let requested = request.brief {
-                brief = requested
-            } else if request.isEditOfExistingImage {
+            if request.isEditOfExistingImage {
+                // DC-0073: an edit is an edit whatever brief a surface
+                // attached (a location surface once sent `.location` and
+                // got a fresh plate instead of its repaint).
                 guard !references.isEmpty else {
                     throw StoryboardEngineError.generationFailed(
                         "There is no picture to edit — generate one first, then mark it up.")
                 }
-                brief = VisualBrief(purpose: .edit,
-                                    subject: StoryboardSubjects.editInstruction(from: request.prompt))
+                brief = request.brief?.purpose == .edit
+                    ? request.brief!
+                    : VisualBrief(purpose: .edit,
+                                  subject: StoryboardSubjects.editInstruction(from: request.prompt))
+            } else if let requested = request.brief {
+                brief = requested
             } else {
                 brief = VisualBrief(purpose: StoryboardSubjects.inferredPurpose(fromPrompt: request.prompt),
                                     subject: StoryboardSubjects.plainSubject(from: request.prompt))

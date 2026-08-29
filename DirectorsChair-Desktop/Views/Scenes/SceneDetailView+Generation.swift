@@ -32,23 +32,12 @@ extension SceneDetailView {
         }
     }
 
-    func generateOverviewImage(with customPrompt: String? = nil,
-                               editRegions: [EditRegion] = []) {
+    func generateOverviewImage(with customPrompt: String? = nil) {
         guard let basePath = projectBasePath else { return }
         isGeneratingImage = true
 
         let prompt = customPrompt ?? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene)
         lastUsedPrompt = prompt
-
-        // DC-0069: an annotation edit on-device is a LOCAL repaint of the
-        // picture on screen — that picture rides as the reference, the pins
-        // as regions. Cloud providers keep their proven request unchanged.
-        let localEdit: (png: Data, regions: [EditRegion])? = {
-            guard !editRegions.isEmpty,
-                  AIProviderSelection.shared.provider(for: .image) == .onDevice,
-                  let png = currentHeroPNG(basePath: basePath) else { return nil }
-            return (png, editRegions)
-        }()
 
         Task {
             do {
@@ -69,16 +58,12 @@ extension SceneDetailView {
                     provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
-                    referenceImageBase64: localEdit?.png.base64EncodedString() ?? ref?.base64,
-                    referenceMimeType: localEdit != nil ? "image/png" : ref?.mimeType,
-                    brief: localEdit != nil
-                        ? VisualBrief(purpose: .edit,
-                                      subject: StoryboardSubjects.editInstruction(from: prompt))
-                        : VisualBrief(
-                            purpose: .scene,
-                            subject: customPrompt.map(StoryboardSubjects.plainSubject)
-                                ?? StoryboardSubjects.subject(for: scene)),
-                    editRegions: localEdit?.regions ?? []
+                    referenceImageBase64: ref?.base64,
+                    referenceMimeType: ref?.mimeType,
+                    brief: VisualBrief(
+                        purpose: .scene,
+                        subject: customPrompt.map(StoryboardSubjects.plainSubject)
+                            ?? StoryboardSubjects.subject(for: scene))
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -86,63 +71,99 @@ extension SceneDetailView {
                     await MainActor.run { isGeneratingImage = false }
                     return
                 }
-
-                let sanitizedName = SceneCardHelpers.sanitizeFilename(scene.name)
-                let sceneDir = basePath
-                    .appendingPathComponent("assets")
-                    .appendingPathComponent("scenes")
-                    .appendingPathComponent(sanitizedName)
-
-                if !FileManager.default.fileExists(atPath: sceneDir.path) {
-                    try FileManager.default.createDirectory(at: sceneDir, withIntermediateDirectories: true)
-                }
-
-                // Save timestamped version
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
-                let timestamp = dateFormatter.string(from: Date())
-                let timestampedPath = sceneDir.appendingPathComponent("overview_\(timestamp).png")
-                try imageData.write(to: timestampedPath)
-
-                // Save as latest
-                let latestPath = sceneDir.appendingPathComponent("overview_latest.png")
-                if FileManager.default.fileExists(atPath: latestPath.path) {
-                    try FileManager.default.removeItem(at: latestPath)
-                }
-                try imageData.write(to: latestPath)
-
-                // Save prompt
-                let promptPath = sceneDir.appendingPathComponent("prompt.txt")
-                try prompt.write(to: promptPath, atomically: true, encoding: .utf8)
-                let promptHistoryPath = sceneDir.appendingPathComponent("prompt_\(timestamp).txt")
-                try prompt.write(to: promptHistoryPath, atomically: true, encoding: .utf8)
-
-                let relativePath = "assets/scenes/\(sanitizedName)/overview_latest.png"
-
-                await MainActor.run {
-                    if let image = NSImage(data: imageData) {
-                        heroImage = image
-                        SceneImageCache.shared.setImage(image, forKey: latestPath.path)
-                    }
-                    onImageGenerated?(relativePath)
-                    onPromptUsed?(prompt)
-                    isGeneratingImage = false
-                    discoverOverviewImages()
-                }
+                try await saveOverview(imageData, prompt: prompt, basePath: basePath)
             } catch {
                 await MainActor.run { isGeneratingImage = false }
             }
         }
     }
 
+    /// Writes a new overview picture the way every overview is written —
+    /// timestamped copy, latest, the prompt and its history — and, for an
+    /// annotation edit, the record of what it was made from.
+    private func saveOverview(_ imageData: Data, prompt: String, basePath: URL,
+                              edit: AnnotationEdit? = nil) async throws {
+        let sanitizedName = SceneCardHelpers.sanitizeFilename(scene.name)
+        let sceneDir = basePath
+            .appendingPathComponent("assets")
+            .appendingPathComponent("scenes")
+            .appendingPathComponent(sanitizedName)
+
+        if !FileManager.default.fileExists(atPath: sceneDir.path) {
+            try FileManager.default.createDirectory(at: sceneDir, withIntermediateDirectories: true)
+        }
+
+        // Save timestamped version
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+        let timestamp = dateFormatter.string(from: Date())
+        let timestampedPath = sceneDir.appendingPathComponent("overview_\(timestamp).png")
+        try imageData.write(to: timestampedPath)
+        if let edit {
+            AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image))
+                .write(besides: timestampedPath)
+        }
+
+        // Save as latest
+        let latestPath = sceneDir.appendingPathComponent("overview_latest.png")
+        if FileManager.default.fileExists(atPath: latestPath.path) {
+            try FileManager.default.removeItem(at: latestPath)
+        }
+        try imageData.write(to: latestPath)
+
+        // Save prompt
+        let promptPath = sceneDir.appendingPathComponent("prompt.txt")
+        try prompt.write(to: promptPath, atomically: true, encoding: .utf8)
+        let promptHistoryPath = sceneDir.appendingPathComponent("prompt_\(timestamp).txt")
+        try prompt.write(to: promptHistoryPath, atomically: true, encoding: .utf8)
+
+        let relativePath = "assets/scenes/\(sanitizedName)/overview_latest.png"
+
+        await MainActor.run {
+            if let image = NSImage(data: imageData) {
+                heroImage = image
+                SceneImageCache.shared.setImage(image, forKey: latestPath.path)
+            }
+            onImageGenerated?(relativePath)
+            onPromptUsed?(prompt)
+            isGeneratingImage = false
+            discoverOverviewImages()
+        }
+    }
+
     // MARK: - Generate With Annotations
 
     func generateOverviewWithAnnotations(_ annotations: [KeyframeAnnotation]) {
-        let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "scene preview")
+        guard let basePath = projectBasePath else { return }
+        // DC-0073: the picture on screen is edited through the one edit path —
+        // never quietly replaced by a fresh scene when a precondition fails.
+        guard let source = currentHeroPNG(basePath: basePath) else {
+            projectViewModel.errorAlert = ErrorAlert(
+                title: "Nothing to edit yet",
+                message: "Generate a scene preview first, then mark it up.")
+            return
+        }
         let basePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
-        let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
-        generateOverviewImage(with: combinedPrompt,
-                              editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) })
+        // The scene's character likeness rides behind the picture for the cloud model.
+        let likeness = CharacterReferenceHelper.referenceImage(
+            forScene: scene, characters: characters, projectDirectory: basePath
+        ).map { [ReferenceImage(base64: $0.base64, mimeType: $0.mimeType, label: "character")] } ?? []
+        let edit = AnnotationEdit(source: source, annotations: annotations, context: "scene preview",
+                                  originalPrompt: basePrompt, contextPictures: likeness, aspectRatio: "16:9")
+        let prompt = AnnotationEditComposer.prompt(for: edit)
+        lastUsedPrompt = prompt
+        isGeneratingImage = true
+        Task {
+            do {
+                let imageData = try await AIServiceClient.shared.editImage(edit)
+                try await saveOverview(imageData, prompt: prompt, basePath: basePath, edit: edit)
+            } catch {
+                await MainActor.run {
+                    isGeneratingImage = false
+                    projectViewModel.errorAlert = ErrorAlert(error: error, title: "Could not edit the scene preview")
+                }
+            }
+        }
     }
 
     /// The picture currently on screen as PNG bytes — the hero image if

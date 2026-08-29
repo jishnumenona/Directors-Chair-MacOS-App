@@ -657,66 +657,35 @@ struct ShotVideoGenerationSection: View {
     private func generateKeyframeWithAnnotations(keyframeId: String, annotations: [KeyframeAnnotation]) {
         guard let kfIndex = keyframes.firstIndex(where: { $0.id == keyframeId }) else { return }
         let kf = keyframes[kfIndex]
-
+        guard let imagePath = kf.imagePath, let basePath = projectBasePath,
+              let source = try? Data(contentsOf: basePath.appendingPathComponent(imagePath)) else {
+            errorMessage = "There is no keyframe picture to edit — generate one first, then mark it up."
+            return
+        }
         isGeneratingKeyframe = true
-
-        // Build annotation edit prompt
-        var promptParts: [String] = []
-        promptParts.append("Edit this image by making the following changes while keeping everything else identical:")
-        for ann in annotations.sorted(by: { $0.number < $1.number }) {
-            let xPercent = Int(ann.normalizedX * 100)
-            let yPercent = Int(ann.normalizedY * 100)
-            promptParts.append("\(ann.number). \(ann.text) at position (\(xPercent)%, \(yPercent)%)")
-        }
-        let editPrompt = promptParts.joined(separator: "\n")
-
-        // Load reference image as base64
-        var referenceBase64: String? = nil
-        if let imagePath = kf.imagePath, let basePath = projectBasePath {
-            let fullPath = basePath.appendingPathComponent(imagePath)
-            if let data = try? Data(contentsOf: fullPath) {
-                referenceBase64 = data.base64EncodedString()
-            }
-        }
-
-        let request = ImageGenerationRequest(
-            prompt: editPrompt,
-            provider: AIProviderSelection.shared.provider(for: .image),
-            aspectRatio: aspectRatio,
-            referenceImageBase64: referenceBase64,
-            referenceMimeType: "image/png",
-            editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) }
-        )
-
+        // DC-0073: one description of the edit; the client composes the request.
+        let edit = AnnotationEdit(source: source, annotations: annotations, context: "keyframe",
+                                  aspectRatio: aspectRatio)
         Task {
             do {
-                let response = try await AIServiceClient.shared.generateImage(request)
-
-                if let imageData = response.images.first, let basePath = projectBasePath {
-                    let dir = basePath.appendingPathComponent("assets/shots/shot_\(shot.shotId)/keyframes")
-                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                    let filename = "keyframe_\(keyframeId.prefix(8))_edited_\(Int(Date().timeIntervalSince1970)).png"
-                    let filePath = dir.appendingPathComponent(filename)
-                    try imageData.write(to: filePath)
-                    let relativePath = "assets/shots/shot_\(shot.shotId)/keyframes/\(filename)"
-
-                    await MainActor.run {
-                        if let idx = keyframes.firstIndex(where: { $0.id == keyframeId }) {
-                            keyframes[idx].imagePath = relativePath
-                            keyframes[idx].annotations = nil  // Clear annotations after apply
-                        }
-                        isGeneratingKeyframe = false
-                        activeKeyframeId = nil
-
-                        var updated = shot
-                        updated.videoKeyframes = keyframes
-                        onShotUpdated(updated)
+                let imageData = try await AIServiceClient.shared.editImage(edit)
+                let dir = basePath.appendingPathComponent("assets/shots/shot_\(shot.shotId)/keyframes")
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let filename = "keyframe_\(keyframeId.prefix(8))_edited_\(Int(Date().timeIntervalSince1970)).png"
+                let filePath = dir.appendingPathComponent(filename)
+                try imageData.write(to: filePath)
+                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: filePath)
+                let relativePath = "assets/shots/shot_\(shot.shotId)/keyframes/\(filename)"
+                await MainActor.run {
+                    if let idx = keyframes.firstIndex(where: { $0.id == keyframeId }) {
+                        keyframes[idx].imagePath = relativePath
+                        keyframes[idx].annotations = nil  // Clear annotations after apply
                     }
-                } else {
-                    await MainActor.run {
-                        isGeneratingKeyframe = false
-                        errorMessage = "No image returned from annotation edit"
-                    }
+                    isGeneratingKeyframe = false
+                    activeKeyframeId = nil
+                    var updated = shot
+                    updated.videoKeyframes = keyframes
+                    onShotUpdated(updated)
                 }
             } catch {
                 await MainActor.run {
