@@ -16,7 +16,9 @@ public struct CharacterMentionTextField: View {
 
     @State private var showMentionPopup = false
     @State private var mentionQuery = ""
-    @State private var mentionStartIndex: String.Index?
+    /// Character offset of the "@" in `text`; the query is what was typed
+    /// right after it, so a mention works anywhere in the line.
+    @State private var mentionStartOffset: Int?
     @State private var cursorPosition: Int = 0
     @State private var selectedMentionIndex: Int = 0
     @FocusState private var isFocused: Bool
@@ -139,72 +141,75 @@ public struct CharacterMentionTextField: View {
         )
     }
 
+    /// Where a one-character edit landed: the length of the common prefix.
+    private func editOffset(_ oldValue: String, _ newValue: String) -> Int {
+        zip(oldValue, newValue).prefix { $0 == $1 }.count
+    }
+
     private func handleTextChange(oldValue: String, newValue: String) {
-        // Check if user just typed @
-        if newValue.count > oldValue.count {
-            let addedChar = newValue.last
-            if addedChar == "@" {
-                // Start mention mode
+        let oldCount = oldValue.count
+        let newCount = newValue.count
+
+        // One character typed — anywhere in the line (owner report
+        // 2026-08-29: "@" only worked at the end).
+        if newCount == oldCount + 1 {
+            let at = editOffset(oldValue, newValue)
+            let inserted = newValue[newValue.index(newValue.startIndex, offsetBy: at)]
+            if inserted == "@" {
                 mentionQuery = ""
-                mentionStartIndex = newValue.index(before: newValue.endIndex)
+                mentionStartOffset = at
                 selectedMentionIndex = 0
                 showMentionPopup = true
                 return
             }
+            guard showMentionPopup, let start = mentionStartOffset else { return }
+            if at == start + 1 + mentionQuery.count {
+                let extended = mentionQuery + String(inserted)
+                let stillMatches = characters.contains { $0.name.localizedCaseInsensitiveContains(extended) }
+                if inserted == " " && !stillMatches {
+                    closeMentionPopup()
+                } else {
+                    mentionQuery = extended
+                    if !stillMatches { closeMentionPopup() }
+                    selectedMentionIndex = 0
+                }
+                return
+            }
+            closeMentionPopup()
+            return
         }
 
-        // If we're in mention mode, update the query
-        if showMentionPopup, let startIndex = mentionStartIndex {
-            // Check if the @ is still there
-            if startIndex < newValue.endIndex {
-                let afterAt = newValue[newValue.index(after: startIndex)...]
-
-                // Find the end of the mention (space or end of string)
-                if let spaceIndex = afterAt.firstIndex(of: " ") {
-                    mentionQuery = String(afterAt[..<spaceIndex])
-                } else {
-                    mentionQuery = String(afterAt)
-                }
-
-                // Close if user deleted the @
-                if newValue[startIndex] != "@" {
-                    closeMentionPopup()
-                }
+        // One character deleted.
+        if newCount == oldCount - 1, showMentionPopup, let start = mentionStartOffset {
+            let at = editOffset(oldValue, newValue)
+            if !mentionQuery.isEmpty, at == start + mentionQuery.count {
+                mentionQuery.removeLast()
+                selectedMentionIndex = 0
             } else {
-                // @ was deleted
                 closeMentionPopup()
             }
+            return
         }
 
-        // Close popup if text is empty or @ was removed
-        if showMentionPopup && !newValue.contains("@") {
+        if showMentionPopup, newCount != oldCount {
             closeMentionPopup()
         }
     }
 
     private func insertMention(character: Character) {
-        guard let startIndex = mentionStartIndex else { return }
-
-        // Find the range to replace (from @ to current position or space)
-        let afterAt = text[text.index(after: startIndex)...]
-        let endIndex: String.Index
-        if let spaceIndex = afterAt.firstIndex(of: " ") {
-            endIndex = spaceIndex
-        } else {
-            endIndex = text.endIndex
-        }
-
-        // Replace @query with @CharacterName
-        let range = startIndex..<endIndex
-        text.replaceSubrange(range, with: "@\(character.name) ")
-
+        guard let start = mentionStartOffset,
+              let startIndex = text.index(text.startIndex, offsetBy: start, limitedBy: text.endIndex),
+              startIndex < text.endIndex
+        else { closeMentionPopup(); return }
+        let endIndex = text.index(startIndex, offsetBy: 1 + mentionQuery.count, limitedBy: text.endIndex) ?? text.endIndex
+        text.replaceSubrange(startIndex..<endIndex, with: "@\(character.name) ")
         closeMentionPopup()
     }
 
     private func closeMentionPopup() {
         showMentionPopup = false
         mentionQuery = ""
-        mentionStartIndex = nil
+        mentionStartOffset = nil
     }
 }
 
