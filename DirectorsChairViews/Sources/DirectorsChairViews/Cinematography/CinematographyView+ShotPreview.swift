@@ -1079,18 +1079,12 @@ struct ShotPreviewSection: View {
         let basePrompt = PromptSections.baseForEdit(lastUsed: lastUsedPrompt, built: buildPrompt())
         // The scene's pictures ride behind the preview for likeness (cloud);
         // the on-device repaint takes the preview alone.
+        // Owner 2026-08-29: an edit carries the picture and the pictures of what
+        // the instructions mention — not the scene's whole reference bundle,
+        // which made the model start the picture over.
         var context: [ReferenceImage] = []
-        if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
-            context = CharacterReferenceHelper.collectReferenceImages(
-                forShot: shot, in: scene,
-                characters: characters,
-                locations: locations,
-                props: props,
-                projectDirectory: projDir
-            )
-        }
         // DC-0102: the pictures of everything the instructions mention ride
-        // along too (cloud edits; on-device repaints take the source alone).
+        // along (cloud edits; on-device repaints take the source alone).
         if let projDir = projectBasePath?.deletingLastPathComponent() {
             let mentioned = MentionParser.mentions(in: annotations.map(\.text).joined(separator: "\n"),
                                                    characters: characters, locations: locations, props: props,

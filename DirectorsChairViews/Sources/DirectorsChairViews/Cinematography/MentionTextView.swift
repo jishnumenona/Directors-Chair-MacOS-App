@@ -88,6 +88,11 @@ struct MentionTextView: NSViewRepresentable {
         textView.onDoubleClickToken = { [weak coordinator = context.coordinator] token in
             coordinator?.open(token: token)
         }
+        // ⌘↩ confirms wherever the editor has a submit action (owner 2026-08-29:
+        // "command + return should click the green button").
+        textView.onCommandReturn = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onSubmit?()
+        }
         let scroll = NSScrollView()
         scroll.documentView = textView
         scroll.hasVerticalScroller = true
@@ -413,6 +418,16 @@ struct MentionTextView: NSViewRepresentable {
 final class MentionNSTextView: NSTextView {
     var placeholderText: String = "" { didSet { needsDisplay = true } }
     var onDoubleClickToken: ((String) -> Void)?
+    var onCommandReturn: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // Return (36) or keypad Enter (76) with ⌘ = submit.
+        if event.modifierFlags.contains(.command), event.keyCode == 36 || event.keyCode == 76, let onCommandReturn {
+            onCommandReturn()
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)

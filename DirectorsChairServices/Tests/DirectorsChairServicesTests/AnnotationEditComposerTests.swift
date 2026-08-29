@@ -28,15 +28,24 @@ final class AnnotationEditComposerTests: XCTestCase {
         XCTAssertEqual(AnnotationEditComposer.instructions(pins: [], context: "image"), "")
     }
 
-    func testPromptAppendsTheOriginalPromptOnlyWhenThereIsOne() {
-        let bare = AnnotationEdit(source: png, pins: pins, context: "shot preview")
-        XCTAssertFalse(AnnotationEditComposer.prompt(for: bare).contains("Original prompt"))
+    // Owner 2026-08-29: an edit is the change plus the edit guard — the original
+    // generation prompt is never appended (it made the model start over).
+    func testPromptIsTheChangeAndTheEditGuardNeverTheOriginalPrompt() {
         let withOriginal = AnnotationEdit(source: png, pins: pins, context: "shot preview",
                                           originalPrompt: "Cinematic film still, porch at dusk")
-        XCTAssertTrue(AnnotationEditComposer.prompt(for: withOriginal)
-            .hasSuffix("Keep all other areas unchanged.\n\nOriginal prompt: Cinematic film still, porch at dusk"))
-        let blank = AnnotationEdit(source: png, pins: pins, context: "shot preview", originalPrompt: "   ")
-        XCTAssertFalse(AnnotationEditComposer.prompt(for: blank).contains("Original prompt"))
+        let prompt = AnnotationEditComposer.prompt(for: withOriginal)
+        XCTAssertFalse(prompt.contains("Original prompt"))
+        XCTAssertFalse(prompt.contains("porch at dusk"))
+        XCTAssertTrue(prompt.hasPrefix("Edit this shot preview with the following changes:"))
+        XCTAssertTrue(prompt.contains("Keep all other areas unchanged.\n\nThis is an edit of the attached picture. Change only what is listed above"), prompt)
+        let face = ReferenceImage(base64: "RkFDRQ==", mimeType: "image/png", label: "character:Alex")
+        let withFace = AnnotationEdit(source: png, pins: pins, context: "shot preview", contextPictures: [face])
+        XCTAssertTrue(AnnotationEditComposer.prompt(for: withFace)
+            .hasSuffix("The reference labelled \"character:Alex\" shows Alex; use it only for the change that mentions it."))
+        let whole = AnnotationPin(x: 0.5, y: 0.5, text: "make it dusk", number: 1, radius: KeyframeAnnotation.wholePictureRadius)
+        let wholeEdit = AnnotationEdit(source: png, pins: [whole], context: "shot preview")
+        XCTAssertTrue(AnnotationEditComposer.prompt(for: wholeEdit).contains("re-imagine it as instructed"))
+        XCTAssertEqual(AnnotationEditComposer.prompt(for: AnnotationEdit(source: png, pins: [], context: "shot preview")), "")
     }
 
     // MARK: Regions and pins
@@ -98,7 +107,8 @@ final class AnnotationEditComposerTests: XCTestCase {
             handPrompt += "\(ann.number). At (\(Int(ann.normalizedX * 100))%, \(Int(ann.normalizedY * 100))%): \(ann.text)\n"
         }
         handPrompt += "Keep all other areas unchanged."
-        let combined = handPrompt + "\n\nOriginal prompt: " + "Cinematic film still, porch at dusk"
+        let combined = handPrompt + "\n\n" + AnnotationEditComposer.editGuard(for: AnnotationEdit(
+            source: png, annotations: annotations, context: "shot preview", contextPictures: [plate, face]))
         let hand = ImageGenerationRequest(
             prompt: combined, provider: .google, aspectRatio: "16:9", numberOfImages: 1,
             referenceImages: [ReferenceImage(base64: png.base64EncodedString(), mimeType: "image/png", label: "Current shot preview to edit"), plate, face],

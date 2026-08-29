@@ -115,13 +115,29 @@ public enum AnnotationEditComposer {
         return prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The full cloud prompt: the instructions, then the original prompt
-    /// when the surface has one.
+    /// The full cloud prompt: the changes, then the edit guard. The original
+    /// generation prompt is NEVER appended any more — with it the model
+    /// re-generated the whole picture instead of editing it (owner report
+    /// 2026-08-29: one character's face asked for, a new picture returned).
     public static func prompt(for edit: AnnotationEdit) -> String {
         let instructions = instructions(pins: edit.pins, context: edit.context)
-        guard let original = edit.originalPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !original.isEmpty else { return instructions }
-        return instructions + "\n\nOriginal prompt: " + original
+        guard !instructions.isEmpty else { return "" }
+        return instructions + "\n\n" + editGuard(for: edit)
+    }
+
+    /// What an edit is allowed to touch, and what each attached reference
+    /// picture is for. Pure — pinned by tests.
+    public static func editGuard(for edit: AnnotationEdit) -> String {
+        let wholeOnly = !edit.pins.isEmpty && edit.pins.allSatisfy(\.coversWholePicture)
+        var lines: [String] = [wholeOnly
+            ? "This is an edit of the attached picture: re-imagine it as instructed, keeping its subject, place and framing unless the instruction says otherwise."
+            : "This is an edit of the attached picture. Change only what is listed above and keep everything else — the people, place, composition, framing, lighting and style — exactly as in the picture."]
+        for reference in edit.contextPictures {
+            let parts = reference.label.split(separator: ":", maxSplits: 1).map(String.init)
+            let name = parts.count > 1 ? parts[1] : reference.label
+            lines.append("The reference labelled \"\(reference.label)\" shows \(name); use it only for the change that mentions it.")
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// The pins as the regions the on-device engine repaints.
