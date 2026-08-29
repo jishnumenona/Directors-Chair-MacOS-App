@@ -55,9 +55,16 @@ public enum CharacterReferenceHelper {
         props: [Prop] = [],
         projectDirectory: URL?
     ) -> [ReferenceImage] {
-        referenceImages(for: scene,
+        // The scene's chosen props first (picked from the Prop Shop on the shot
+        // page, owner 2026-08-29), then any the description names.
+        let chosen = PropShopView.propsNamed(scene.props, in: props)
+        let mentioned = props.filter { prop in
+            StoryboardSubjects.mentionsProp(shot.description, name: prop.name)
+                && !chosen.contains { $0.id == prop.id }
+        }
+        return referenceImages(for: scene,
                         people: StoryboardSubjects.cast(for: shot, in: scene, characters: characters),
-                        props: props.filter { StoryboardSubjects.mentionsProp(shot.description, name: $0.name) },
+                        props: chosen + mentioned,
                         locations: locations, projectDirectory: projectDirectory)
     }
 

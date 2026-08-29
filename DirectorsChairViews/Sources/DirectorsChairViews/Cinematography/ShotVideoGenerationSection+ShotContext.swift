@@ -20,6 +20,8 @@ struct ShotContextCard: View {
     let scene: DCScene?
     let characters: [Character]
     let locations: [Location]
+    /// The Prop Shop — the props a scene can pick from (owner 2026-08-29).
+    var props: [Prop] = []
     let projectBasePath: URL?
     /// False when hosted inside a CollapsibleCard, which supplies the title.
     var showsHeader: Bool = true
@@ -35,6 +37,7 @@ struct ShotContextCard: View {
 
     @State private var showingCharacterPicker = false
     @State private var showingPropInput = false
+    @State private var showingPropPicker = false
     @State private var newPropName = ""
     @State private var showingSoundInput = false
     @State private var newSoundDescription = ""
@@ -202,7 +205,13 @@ struct ShotContextCard: View {
                             if showingPropInput {
                                 propInputField
                             } else {
-                                addButton { showingPropInput = true }
+                                addButton {
+                                    // Pick from the Prop Shop when it has anything; else type.
+                                    if props.isEmpty { showingPropInput = true } else { showingPropPicker = true }
+                                }
+                                .popover(isPresented: $showingPropPicker, arrowEdge: .bottom) {
+                                    propPickerPopover(scene: currentScene)
+                                }
                             }
                         }
                     }
@@ -299,6 +308,91 @@ struct ShotContextCard: View {
         guard var updated = scene else { return }
         updated.location = name
         onSceneUpdated?(updated)
+    }
+
+    /// The Prop Shop's props not yet in this scene, as a picker.
+    private func propPickerPopover(scene currentScene: DCScene) -> some View {
+        let available = props.filter { prop in
+            !currentScene.props.contains { $0.caseInsensitiveCompare(prop.name) == .orderedSame }
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Add a prop to this scene")
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if available.isEmpty {
+                        Text("Every Prop Shop prop is already in this scene.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .padding(10)
+                    }
+                    ForEach(available, id: \.id) { prop in
+                        Button {
+                            addProp(prop.name)
+                            showingPropPicker = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                if let path = prop.thumbnail ?? prop.referencePhotos.first, !path.isEmpty,
+                                   let basePath = projectBasePath {
+                                    AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 28) {
+                                        Color.orange.opacity(0.2)
+                                    }
+                                    .frame(width: 28, height: 28)
+                                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                                } else {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 5).fill(Color.orange.opacity(0.15))
+                                        Image(systemName: "shippingbox.fill")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.orange)
+                                    }
+                                    .frame(width: 28, height: 28)
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(prop.name)
+                                        .font(.system(size: 11, weight: .medium))
+                                    if !prop.category.isEmpty {
+                                        Text(prop.category)
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("prop-pick-\(prop.name)")
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 260)
+            Divider()
+            Button {
+                showingPropPicker = false
+                showingPropInput = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10))
+                    Text("Type a prop that isn't in the Prop Shop…")
+                        .font(.system(size: 10))
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("prop-pick-new")
+        }
+        .frame(width: 300)
     }
 
     private func removeProp(_ prop: String) {

@@ -616,6 +616,7 @@ public struct CinematographyView: View {
                             scene: sceneForShot(shot),
                             characters: characters,
                             locations: locations,
+                            props: props,
                             projectBasePath: projectBasePath?.deletingLastPathComponent(),
                             showsHeader: false,
                             onNavigateToCharacter: onNavigateToCharacter,
