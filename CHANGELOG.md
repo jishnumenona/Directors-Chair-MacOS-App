@@ -9,6 +9,105 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.10.0] — 2026-08-28
+
+### Added
+- **Drawing on your Mac, no cloud needed.** Storyboard frames, shot and scene
+  previews, character looks, costume sheets, location plates and prop studies
+  can now be drawn by an open image model that runs on this Mac (a one-time
+  download from Settings → AI Services). Pick the look once — **Sketch**
+  (pencil and ink on paper) or **Comic** (bold inks and flat colour) — and
+  every drawing in the project speaks the same line. Drawings follow your
+  references: a character keeps their face, a location keeps its architecture,
+  a prop keeps its design.
+- **Edit a picture by marking it up.** Drop numbered pins on any preview,
+  write what should change at each pin, and the picture is repainted only
+  where you marked — the rest stays pixel-identical. On the Mac the pins are
+  handled one at a time so every change lands where you put it; each pin's
+  reach can be widened or narrowed.
+- **Notes on scenes and shots.** A Notes card on the scene detail and in the
+  shot editor, edited in place and saved with the project; notes travel into
+  the EDL/FCPXML export and the web portal.
+- **Voice all dialogue from Playback.** One control on the transport voices
+  every line in the timeline that has no voice yet, in order, in each
+  character's cast voice — with the cost shown before it starts, progress and
+  cancel while it runs, and a tally when it's done (Creator plan).
+- **On-device AI insights and chat.** A bundled text model (downloaded on
+  request) powers the Overview insights and can be chosen as the text service
+  and for assistant chat — replies wear an "On-device" badge so you always
+  know what answered.
+- **Choose your AI services per job.** Settings → AI Services now lets you
+  pick the provider (and, where it applies, the model) separately for text,
+  images, video and speech, with live availability shown for each.
+- **The Vision Board wall.** A board that feels like a real wall: paper
+  scraps on pins, twine between them, a ring of tools around the cursor,
+  sticky notes and annotations, zoom-to-fit and marquee selection, a
+  lookbook export that is the wall itself, and an Imagine panel for
+  generating straight onto it.
+- **Free plan, Creator plan.** The creative core is free forever; generation
+  and studio features are marked with a small lock and explain what plan
+  they belong to. Cloud sync on the Free plan holds up to three projects and
+  says so clearly.
+- **Your whole project in the web portal.** Syncing now carries full
+  character sheets, the screenplay, location detail, scene bubbles, shot
+  pages with their lines, props, the vision board and the production suite —
+  plus one-click sign-in to the portal from the account menu and a live
+  sync-progress ring on the toolbar.
+
+### Changed
+- **One personality-trait vocabulary.** Characters, the Personality tab, the
+  character sheet, script analysis and the portal all use the same 25
+  Big-Five facets. Projects from earlier versions are brought across on
+  open; a score you set by hand under an older name is kept, never dropped.
+- Shot previews travel with the shot's own cast and the props it names;
+  scene previews now carry the scene's place, people and props too — on
+  every provider.
+- Location and prop drawings are people-free by design (the app checks and
+  redraws if a figure sneaks in).
+- Reference pictures, annotation edits and the assistant's image actions all
+  go through one shared path, so every surface behaves the same way.
+- The on-device models give memory back when you stop using them: the image
+  model and the text model both release their weights after a few idle
+  minutes and hand the cache back after every job.
+
+### Fixed
+- **Two people on one cloud project no longer lose work in a merge.** When
+  one of you had only regenerated pictures and the other had edited the
+  script, the automatic merge recorded the other person's files without
+  fetching them and could overwrite their document on the next Sync.
+  Merges now bring the latest version onto your Mac first, keep your own
+  deletions, and reload the editor when the document changed.
+- **A drag on the timeline or an edit in the shot list can no longer revert
+  something you changed elsewhere** (a schedule, a budget line, typed
+  script text): those surfaces now write back only what they own.
+- Opening a project no longer marks it as changed and rewrites the file half
+  a second later; the backup ring keeps your five most recent saves instead
+  of arbitrary old ones; restoring a snapshot keeps cloud sync working;
+  quitting is immediate and no longer produces a false "quit unexpectedly"
+  report on the next launch.
+- Regenerated pictures show up immediately everywhere (the thumbnail cache
+  notices when a file changes); the shot detail, scene connections, keyframe
+  cards, costume and prop racks and the Playback viewfinder no longer decode
+  full-resolution images on every redraw, which removes stutter while
+  recording, dragging connections, or scrolling those lists; a leaked video
+  player observer per viewed take is fixed.
+- Interrupted proxy transcodes no longer leave an unplayable proxy behind;
+  importing dailies no longer freezes the app while a large clip copies.
+- The legacy "Sync" control on the Projects screen is hidden: one Sync, one
+  set of rules.
+- Shot images now appear in the web dashboard's Overview deck, Scenes tab and
+  Shot list; selecting a location in the portal no longer jumps back to the
+  first one; sync no longer uploads identical files twice.
+- The in-app updater can no longer offer a downgrade to an older version.
+- The assistant can no longer invent a personality trait outside the
+  vocabulary; unknown character names are answered with the known ones.
+- The "coming soon" sheet's OK button is reachable to assistive technology,
+  and lock badges say which feature they lock.
+- A scene-preview edit that can't run says why instead of quietly generating
+  a fresh scene; on-device edits never receive a cloud-only prompt.
+- The Physical Appearance gallery no longer crashes when many tier gates are
+  present; a flaky autosave test no longer fails the release gate under load.
+
 ## [3.9.0] — 2026-08-01
 
 ### Added
