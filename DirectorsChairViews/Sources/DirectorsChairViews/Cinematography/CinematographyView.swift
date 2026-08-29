@@ -585,10 +585,14 @@ public struct CinematographyView: View {
                         characters: characters,
                         locations: locations,
                         props: props,
+                        continuityShots: shot.referenceShotIds.compactMap { id in viewModel.shots.first { $0.id == id } },
+                        projectDirectory: projectBasePath?.deletingLastPathComponent(),
+                        onJumpToCamera: { scrollToShotSection = "camera" },
                         onDescriptionChange: { newDescription in
                             updateShotField(shot) { $0.description = newDescription }
                         }
                     )
+                    .id("description-section")
 
                     // Notes — the user's own free text on this shot (DC-0074).
                     CollapsibleCard(icon: "note.text",
@@ -671,6 +675,7 @@ public struct CinematographyView: View {
                         shotCameraSettings(shot)
                             .padding(.top, 4)
                     }
+                    .id("camera-section")
 
                     // Reference Media — collapsed; summary shows the count
                     CollapsibleCard(icon: "photo.on.rectangle.angled",
@@ -821,6 +826,13 @@ public struct CinematographyView: View {
     @ViewBuilder
     private func shotCameraSettings(_ shot: Shot) -> some View {
         VStack(alignment: .leading, spacing: 20) {
+            // Owner 2026-08-29: the camera in plain English, in the prompt too.
+            CameraDescriptionEditor(
+                text: shot.cameraDescription,
+                onJumpToDescription: { scrollToShotSection = "description" },
+                onChange: { words in updateShotField(shot) { $0.cameraDescription = words } }
+            )
+
             // Camera Angle
             ChipSelector(
                 icon: "camera.viewfinder",

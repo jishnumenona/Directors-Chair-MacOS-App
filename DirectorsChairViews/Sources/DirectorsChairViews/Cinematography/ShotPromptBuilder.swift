@@ -20,6 +20,11 @@ public enum ShotPromptBuilder {
 
         // Camera angle
         parts.append("\(shot.cameraAngle) angle")
+        // The director's own words about the camera (owner 2026-08-29)
+        let cameraWords = shot.cameraDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cameraWords.isEmpty {
+            parts.append("camera: \(cameraWords)")
+        }
 
         // Lens characteristics
         if let lens = shot.lensMm {

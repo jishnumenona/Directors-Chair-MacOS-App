@@ -19,13 +19,14 @@ struct MentionCandidate: Identifiable, Equatable {
 
 /// The three mention kinds and their trigger characters.
 enum MentionKind: CaseIterable {
-    case character, location, prop
+    case character, location, prop, shot
 
     var trigger: Swift.Character {
         switch self {
         case .character: return "@"
         case .location: return "#"
         case .prop: return "$"
+        case .shot: return "&"
         }
     }
 
@@ -40,6 +41,8 @@ public struct CharacterMentionTextEditor: View {
     let characters: [Character]
     let locations: [Location]
     let props: [Prop]
+    /// The shots this shot keeps continuity with — "&" lists them.
+    let continuityShots: [Shot]
     let placeholder: String
     let font: Font
     let foregroundColor: Color
@@ -57,6 +60,7 @@ public struct CharacterMentionTextEditor: View {
         characters: [Character],
         locations: [Location] = [],
         props: [Prop] = [],
+        continuityShots: [Shot] = [],
         placeholder: String = "Write a description...",
         font: Font = .system(size: 14),
         foregroundColor: Color = .white.opacity(0.9)
@@ -65,6 +69,7 @@ public struct CharacterMentionTextEditor: View {
         self.characters = characters
         self.locations = locations
         self.props = props
+        self.continuityShots = continuityShots
         self.placeholder = placeholder
         self.font = font
         self.foregroundColor = foregroundColor
@@ -86,6 +91,12 @@ public struct CharacterMentionTextEditor: View {
             return props.map {
                 MentionCandidate(id: $0.id, name: $0.name, detail: $0.category,
                                  color: .orange, symbol: "shippingbox.fill")
+            }
+        case .shot:
+            return continuityShots.map {
+                MentionCandidate(id: $0.id, name: MentionNames.shot($0),
+                                 detail: String($0.description.prefix(40)),
+                                 color: .purple, symbol: "film.stack")
             }
         }
     }
@@ -233,6 +244,7 @@ public struct CharacterMentionTextEditor: View {
         case .character: return "Characters"
         case .location: return "Locations"
         case .prop: return "Props"
+        case .shot: return "Continuity shots"
         }
     }
 

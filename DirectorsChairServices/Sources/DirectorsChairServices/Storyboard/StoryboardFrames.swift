@@ -161,6 +161,10 @@ public enum StoryboardSubjects {
         if shot.movement != "Static" && !shot.movement.isEmpty {
             terms.append("a sense of \(shot.movement.lowercased()) movement")
         }
+        let cameraWords = shot.cameraDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cameraWords.isEmpty {
+            terms.append(cameraWords)
+        }
         return terms.isEmpty ? nil : terms.joined(separator: ", ")
     }
 

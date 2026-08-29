@@ -368,4 +368,13 @@ final class ShotPromptBuilderTests: XCTestCase {
         XCTAssertTrue(StoryDesignPromptBuilder.locationVariationPrompt(location: location, override: "at night", hasPrimaryImage: true)
                         .contains("EXACT SAME location"))
     }
+
+    // Owner 2026-08-29: the director's own camera words join the prompt.
+    func testCameraDescriptionJoinsThePreviewPrompt() {
+        var shot = Shot(shotId: 1, description: "Van on the road")
+        shot.cameraDescription = "low on the road surface, looking up past the front wheel"
+        let prompt = ShotPromptBuilder.previewPrompt(shot: shot, scene: nil, locations: [], characters: [])
+        XCTAssertTrue(prompt.contains("camera: low on the road surface"), prompt)
+        XCTAssertTrue((StoryboardSubjects.notes(for: shot) ?? "").contains("looking up past the front wheel"))
+    }
 }
