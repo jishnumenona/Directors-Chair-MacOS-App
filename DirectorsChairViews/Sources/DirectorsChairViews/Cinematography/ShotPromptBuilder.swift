@@ -6,6 +6,7 @@
 
 import Foundation
 import DirectorsChairCore
+import DirectorsChairServices
 
 public enum ShotPromptBuilder {
 
@@ -74,9 +75,11 @@ public enum ShotPromptBuilder {
                 add("scene", "Scene", "Scene: \(scene.name)", [scene.description.prefix(200).description])
             }
 
-            let sceneCharacters = charactersInScene(scene, from: characters)
-            if !sceneCharacters.isEmpty {
-                let charDescriptions = sceneCharacters.prefix(3).map { char -> String in
+            // Owner rule 2026-08-29: only the shot's own people (its cast list and
+            // its description's mentions) — never the scene's speakers.
+            let shotCast = StoryboardSubjects.cast(for: shot, in: scene, characters: characters)
+            if !shotCast.isEmpty {
+                let charDescriptions = shotCast.prefix(4).map { char -> String in
                     var desc = char.name
                     let physicalDesc = characterDescription(char)
                     if !physicalDesc.isEmpty {
@@ -87,11 +90,7 @@ public enum ShotPromptBuilder {
                     }
                     return desc
                 }
-                add("characters", "Characters & wardrobe", "Story Design", ["Characters: \(charDescriptions.joined(separator: "; "))"])
-            }
-
-            if let firstDialogue = scene.dialogues.first, !firstDialogue.text.isEmpty {
-                add("mood", "Mood", "First dialogue line", ["mood: \"\(firstDialogue.text.prefix(80))...\""])
+                add("characters", "Characters & wardrobe", "Shot cast", ["Characters: \(charDescriptions.joined(separator: "; "))"])
             }
         }
 

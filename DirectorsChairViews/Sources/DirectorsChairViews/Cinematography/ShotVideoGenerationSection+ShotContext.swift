@@ -134,10 +134,9 @@ struct ShotContextCard: View {
                     // script puts on set.
                     // A hand-edited cast is the whole cast (even empty); otherwise the
                     // explicit picks come first, then everyone the scene puts on set.
-                    let charNames = shot.castIsExplicit
-                        ? shot.characters
-                        : shot.characters + resolveAllCharacterNames(scene: currentScene)
-                            .filter { name in !shot.characters.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+                    // Owner rule 2026-08-29: the shot's own cast — its list plus the
+                    // names in its description; the scene's speakers never fill in.
+                    let charNames = visibleCastNames
                     contextSection(icon: "person.2.fill", iconColor: .blue, title: "CHARACTERS") {
                         VideoContextFlowLayout(spacing: 8) {
                             ForEach(charNames, id: \.self) { name in
@@ -719,10 +718,7 @@ struct ShotContextCard: View {
 
     private var visibleCastNames: [String] {
         guard let currentScene = scene else { return shot.characters }
-        return shot.castIsExplicit
-            ? shot.characters
-            : shot.characters + resolveAllCharacterNames(scene: currentScene)
-                .filter { name in !shot.characters.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+        return StoryboardSubjects.cast(for: shot, in: currentScene, characters: characters).map(\.name)
     }
 
     /// The shot's cast, made explicit from what is on screen right now so an

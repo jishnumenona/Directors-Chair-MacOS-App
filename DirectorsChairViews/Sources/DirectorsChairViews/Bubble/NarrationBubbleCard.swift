@@ -169,6 +169,9 @@ public struct NarrationBubbleCard: View {
                 onEditModeStarted?()
             }
         }
+        // The mention list is an overlay: keep an editing card above its
+        // neighbours (owner report 2026-08-29: the list looked transparent).
+        .zIndex(isEditing ? 10 : 0)
     }
 
     private func startEditing() {

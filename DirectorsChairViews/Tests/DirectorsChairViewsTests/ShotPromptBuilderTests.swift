@@ -55,8 +55,13 @@ final class ShotPromptBuilderTests: XCTestCase {
                                                      locations: [location], characters: [alex])
         XCTAssertTrue(prompt.contains("Location: Warehouse (indoor)"))
         XCTAssertTrue(prompt.contains("Abandoned dockside warehouse"))
-        XCTAssertTrue(prompt.contains("Alex (Weathered detective"), "character described from about field")
-        XCTAssertTrue(prompt.contains("We're too late."), "first dialogue sets mood")
+        // Owner rule 2026-08-29: the scene's speakers and lines stay out of a
+        // shot's prompt unless the shot itself names them.
+        XCTAssertFalse(prompt.contains("Alex (Weathered detective"), "a character the shot never names is left out")
+        XCTAssertFalse(prompt.contains("We're too late."), "no mood line from the dialogue")
+        var castShot = makeShot(); castShot.characters = ["Alex"]
+        let castPrompt = ShotPromptBuilder.previewPrompt(shot: castShot, scene: scene, locations: [location], characters: [alex])
+        XCTAssertTrue(castPrompt.contains("Alex (Weathered detective"), "the shot's own cast is described")
     }
 
     func testUnknownLocationFallsBack() {

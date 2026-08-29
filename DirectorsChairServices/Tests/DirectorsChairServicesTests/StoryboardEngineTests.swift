@@ -349,8 +349,8 @@ final class LocalImageEngineTests: XCTestCase {
         XCTAssertTrue(wallSubject.contains("One person in the frame: Teo"), wallSubject)
         XCTAssertFalse(wallSubject.contains("Noor") || wallSubject.contains("Idris"), wallSubject)
         let unnamed = Shot(shotId: 11, description: "Three figures in single file on the cliff path")
-        XCTAssertEqual(StoryboardSubjects.cast(for: unnamed, in: dawn, characters: cast).map(\.name), ["Noor", "Idris"],
-                       "a shot that names nobody shows the scene's cast, in project order")
+        XCTAssertTrue(StoryboardSubjects.cast(for: unnamed, in: dawn, characters: cast).isEmpty,
+                      "a shot that names nobody shows nobody — the scene's speakers never fill in (owner rule 2026-08-29)")
 
         // The director's explicit cast comes first, in the order added; names
         // in the description follow; the scene's speakers no longer fill in.

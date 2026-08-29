@@ -82,10 +82,10 @@ public enum StoryboardSubjects {
                 && !explicit.contains { $0.name.caseInsensitiveCompare(candidate.name) == .orderedSame }
         }
         // A hand-edited cast is the whole cast — even an empty one.
-        if shot.castIsExplicit { return Array(explicit.prefix(3)) }
-        var chosen = explicit + named
-        if chosen.isEmpty { chosen = charactersPresent(in: scene, from: characters) }
-        return Array(chosen.prefix(3))
+        if shot.castIsExplicit { return Array(explicit.prefix(4)) }
+        // Owner rule 2026-08-29: only the shot's own people — its cast list and
+        // the names in its description. The scene's speakers never fill in.
+        return Array((explicit + named).prefix(4))
     }
 
     /// The cast line's opening for a given head count.
