@@ -171,7 +171,8 @@ final class AnnotationEditComposerTests: XCTestCase {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let back = try decoder.decode(AnnotationEditRecord.self, from: Data(contentsOf: sidecar))
         XCTAssertEqual(back.pins.count, 2); XCTAssertEqual(back.provider, AIProvider.onDevice.rawValue)
-        XCTAssertTrue(back.prompt.hasSuffix("Original prompt: Wide"))
+        XCTAssertTrue(back.prompt.contains("This is an edit of the attached picture"), back.prompt)
+        XCTAssertFalse(back.prompt.contains("Original prompt"), "the record keeps what was sent — the change and the guard, never the old prompt")
     }
 
     /// An older project's pins (no radius) still decode.
