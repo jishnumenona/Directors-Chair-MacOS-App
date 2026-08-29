@@ -26,6 +26,8 @@ struct ShotPreviewSection: View {
     let onPreviewGenerated: (String) -> Void
     /// DC-0091: the shot's chosen continuity references changed.
     var onShotUpdated: ((Shot) -> Void)?
+    /// DC-0102: open a mentioned element's page from the annotation editor.
+    var onOpenMention: ((ResolvedMention) -> Void)?
     @State private var showingContinuityPicker = false
 
     @State private var isGenerating = false
@@ -140,6 +142,25 @@ struct ShotPreviewSection: View {
                             }
                             .buttonStyle(.plain)
                             .requiresTier(.creator, feature: "AI shot images")
+
+                            if locationPicturePath != nil {
+                                Button(action: { useLocationPictureAsPreview() }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "mappin.and.ellipse")
+                                            .font(.system(size: 12))
+                                        Text("Use location picture")
+                                            .font(.system(size: 12, weight: .medium))
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(Color.green.opacity(0.18))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Start from the scene location's picture and annotate it into this shot's preview")
+                                .accessibilityIdentifier("preview-use-location")
+                            }
 
                             Button(action: { uploadPreviewImage() }) {
                                 HStack(spacing: 6) {
@@ -427,6 +448,12 @@ struct ShotPreviewSection: View {
                     image: image,
                     title: "EDIT SHOT PREVIEW",
                     subtitle: "Shot \(shot.shotId) — \(shot.shotType) \(shot.cameraAngle)",
+                    characters: characters,
+                    locations: locations,
+                    props: props,
+                    shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } },
+                    projectDirectory: projectBasePath?.deletingLastPathComponent(),
+                    onOpenMention: onOpenMention,
                     isPresented: $showingAnnotationEditor,
                     onApplyEdits: { annotations in
                         generatePreviewWithAnnotations(annotations)
@@ -650,6 +677,35 @@ struct ShotPreviewSection: View {
     }
 
     // MARK: - Image History
+
+    /// The scene location's picture, if the scene has a location with one.
+    private var locationPicturePath: String? {
+        guard let name = scene?.location, !name.isEmpty,
+              let location = locations.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return nil }
+        let path = location.primaryImage ?? location.images.first
+        return (path?.isEmpty == false) ? path : nil
+    }
+
+    /// DC-0102: the location's picture becomes this shot's preview (history +
+    /// latest, like an upload), ready to be annotated into the shot.
+    private func useLocationPictureAsPreview() {
+        guard let basePath = projectBasePath, let path = locationPicturePath,
+              let data = try? Data(contentsOf: basePath.deletingLastPathComponent().appendingPathComponent(path)),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+        do {
+            let shotDir = "assets/shots/shot_\(shot.shotId)"
+            try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                       filename: "preview_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                                          filename: "latest.png")
+            if let image = NSImage(data: png) { previewImage = image }
+            onPreviewGenerated(relativePath)
+            discoverPreviewImages()
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
+    }
 
     private func uploadPreviewImage() {
         guard let basePath = projectBasePath,
@@ -1032,6 +1088,28 @@ struct ShotPreviewSection: View {
                 props: props,
                 projectDirectory: projDir
             )
+        }
+        // DC-0102: the pictures of everything the instructions mention ride
+        // along too (cloud edits; on-device repaints take the source alone).
+        if let projDir = projectBasePath?.deletingLastPathComponent() {
+            let mentioned = MentionParser.mentions(in: annotations.map(\.text).joined(separator: "\n"),
+                                                   characters: characters, locations: locations, props: props,
+                                                   shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } })
+            for mention in mentioned {
+                guard let path = mention.imagePath, !path.isEmpty,
+                      let data = try? Data(contentsOf: projDir.appendingPathComponent(path)) else { continue }
+                let kind: String
+                switch mention.kind {
+                case .character: kind = "character"
+                case .location: kind = "location"
+                case .prop: kind = "prop"
+                case .shot: kind = "shot"
+                }
+                let label = "\(kind):\(mention.name)"
+                if !context.contains(where: { $0.label == label }) {
+                    context.append(ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png", label: label))
+                }
+            }
         }
         // DC-0073: one description of the edit; the client composes the request.
         let edit = AnnotationEdit(source: source, annotations: annotations, context: "shot preview",

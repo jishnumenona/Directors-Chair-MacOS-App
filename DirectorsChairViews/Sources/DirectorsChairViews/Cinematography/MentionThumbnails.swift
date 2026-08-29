@@ -13,13 +13,13 @@ enum MentionNames {
 }
 
 /// One thing a description mentions, resolved against the project.
-struct ResolvedMention: Identifiable, Equatable {
-    enum Kind: Equatable { case character, location, prop, shot }
-    let kind: Kind
-    let id: String
-    let name: String
+public struct ResolvedMention: Identifiable, Equatable {
+    public enum Kind: Equatable { case character, location, prop, shot }
+    public let kind: Kind
+    public let id: String
+    public let name: String
     /// Project-relative picture path, if the thing has one.
-    let imagePath: String?
+    public let imagePath: String?
     let symbol: String
     let color: Color
 }

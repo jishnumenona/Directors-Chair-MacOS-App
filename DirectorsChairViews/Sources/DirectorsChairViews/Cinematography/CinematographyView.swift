@@ -585,7 +585,8 @@ public struct CinematographyView: View {
                         onPreviewGenerated: { imagePath in
                             updateShotField(shot) { $0.previewImage = imagePath }
                         },
-                        onShotUpdated: { updated in viewModel.updateShot(updated) }
+                        onShotUpdated: { updated in viewModel.updateShot(updated) },
+                        onOpenMention: { mention in openMention(mention) }
                     )
 
                     // Description (Click to edit)

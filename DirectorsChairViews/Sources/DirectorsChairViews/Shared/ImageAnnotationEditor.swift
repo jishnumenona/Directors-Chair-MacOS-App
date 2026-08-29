@@ -15,6 +15,14 @@ public struct ImageAnnotationEditor: View {
     let title: String
     let subtitle: String?
     let initialAnnotations: [KeyframeAnnotation]
+    /// DC-0102: the story elements the instructions may mention (@ # $ &).
+    var characters: [Character] = []
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
+    var projectDirectory: URL? = nil
+    /// Double-click on a mentioned element opens its page.
+    var onOpenMention: ((ResolvedMention) -> Void)? = nil
     @Binding var isPresented: Bool
     let onApplyEdits: ([KeyframeAnnotation]) -> Void
 
@@ -31,6 +39,12 @@ public struct ImageAnnotationEditor: View {
         title: String,
         subtitle: String? = nil,
         initialAnnotations: [KeyframeAnnotation] = [],
+        characters: [Character] = [],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
+        projectDirectory: URL? = nil,
+        onOpenMention: ((ResolvedMention) -> Void)? = nil,
         isPresented: Binding<Bool>,
         onApplyEdits: @escaping ([KeyframeAnnotation]) -> Void
     ) {
@@ -38,6 +52,12 @@ public struct ImageAnnotationEditor: View {
         self.title = title
         self.subtitle = subtitle
         self.initialAnnotations = initialAnnotations
+        self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
+        self.projectDirectory = projectDirectory
+        self.onOpenMention = onOpenMention
         self._isPresented = isPresented
         self.onApplyEdits = onApplyEdits
     }
@@ -104,9 +124,11 @@ public struct ImageAnnotationEditor: View {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 12))
                         .foregroundColor(.accentColor)
-                    TextField("Describe how the whole picture should change — e.g. make it dusk, remove the car, turn the road to gravel", text: $wholeInstruction)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                    CharacterMentionTextField(text: $wholeInstruction,
+                                              placeholder: "Describe how the whole picture should change — e.g. make it dusk, put @Susan by the door, remove the $Mini van",
+                                              characters: characters, locations: locations, props: props, shots: shots,
+                                              font: .system(size: 12), foregroundColor: .primary,
+                                              onSubmit: { if canApply { applyEdits() } })
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                         .background(Color.white.opacity(0.06))
@@ -340,11 +362,10 @@ public struct ImageAnnotationEditor: View {
                             .foregroundColor(.white)
                     )
 
-                TextField("What changes here?", text: $editingText, onCommit: {
-                    confirmEdit()
-                })
-                .font(.system(size: 11))
-                .textFieldStyle(.plain)
+                CharacterMentionTextField(text: $editingText, placeholder: "What changes here? (@ # $ &)",
+                                          characters: characters, locations: locations, props: props, shots: shots,
+                                          font: .system(size: 11), foregroundColor: .primary,
+                                          onSubmit: { confirmEdit() })
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(Color.white.opacity(0.06))
@@ -438,6 +459,10 @@ public struct ImageAnnotationEditor: View {
                 Spacer()
             }
 
+            // DC-0102: what the instructions mention, by kind — their pictures
+            // travel with the edit as references.
+            mentionedPanel
+
             // Add button
             Button(action: {
                 addAnnotation(at: 0.5, 0.5)
@@ -463,6 +488,115 @@ public struct ImageAnnotationEditor: View {
             .padding(.bottom, 14)
         }
         .background(Color(hex: "#1E1E1E"))
+    }
+
+    // MARK: - Mentioned elements (DC-0102)
+
+    /// Every story element the instructions mention, in order of first use.
+    private var mentionedElements: [ResolvedMention] {
+        let texts = annotations.map(\.text) + [wholeInstruction] + [editingText]
+        return MentionParser.mentions(in: texts.joined(separator: "\n"), characters: characters,
+                                      locations: locations, props: props, shots: shots)
+    }
+
+    @ViewBuilder
+    private var mentionedPanel: some View {
+        let mentioned = mentionedElements
+        if !mentioned.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "link.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(ReferenceStyle.tint)
+                    Text("MENTIONED")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.0)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("pictures go with the edit")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray.opacity(0.7))
+                }
+                ForEach([ResolvedMention.Kind.character, .location, .prop, .shot], id: \.self) { kind in
+                    let items = mentioned.filter { $0.kind == kind }
+                    if !items.isEmpty {
+                        Text(mentionKindTitle(kind))
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.gray.opacity(0.8))
+                        ForEach(items) { mention in
+                            mentionRow(mention)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+        }
+    }
+
+    private func mentionKindTitle(_ kind: ResolvedMention.Kind) -> String {
+        switch kind {
+        case .character: return "Characters"
+        case .location: return "Locations"
+        case .prop: return "Props"
+        case .shot: return "Shots"
+        }
+    }
+
+    private func mentionRow(_ mention: ResolvedMention) -> some View {
+        HStack(spacing: 8) {
+            if let path = mention.imagePath, !path.isEmpty, let base = projectDirectory {
+                AsyncThumbnail(url: base.appendingPathComponent(path), displaySize: 28) {
+                    mention.color.opacity(0.25)
+                }
+                .frame(width: mention.kind == .character ? 24 : 36, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: mention.kind == .character ? 12 : 4))
+            } else {
+                Image(systemName: mention.symbol)
+                    .font(.system(size: 10))
+                    .foregroundColor(mention.color)
+                    .frame(width: 24, height: 24)
+            }
+            Text(mention.name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(1)
+            Spacer()
+            Button(action: { removeMention(mention) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.gray.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Remove \(mention.name) from the instructions")
+            .accessibilityIdentifier("annotation-mention-remove-\(mention.name)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(mention.color.opacity(0.08))
+        .cornerRadius(6)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { onOpenMention?(mention) }
+        .help(onOpenMention == nil ? mention.name : "Double-click to open \(mention.name)")
+    }
+
+    /// Strip every "<trigger>Name" token of this element from the instructions.
+    private func removeMention(_ mention: ResolvedMention) {
+        let trigger: String
+        switch mention.kind {
+        case .character: trigger = "@"
+        case .location: trigger = "#"
+        case .prop: trigger = "$"
+        case .shot: trigger = "&"
+        }
+        let token = trigger + mention.name
+        func strip(_ text: String) -> String {
+            text.replacingOccurrences(of: token + " ", with: "", options: .caseInsensitive)
+                .replacingOccurrences(of: token, with: "", options: .caseInsensitive)
+        }
+        for index in annotations.indices { annotations[index].text = strip(annotations[index].text) }
+        wholeInstruction = strip(wholeInstruction)
+        editingText = strip(editingText)
     }
 
     // MARK: - Annotation List Row
