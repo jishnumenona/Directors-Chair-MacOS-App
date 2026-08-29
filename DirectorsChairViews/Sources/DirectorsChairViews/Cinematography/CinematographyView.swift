@@ -830,6 +830,10 @@ public struct CinematographyView: View {
             // Owner 2026-08-29: the camera in plain English, in the prompt too.
             CameraDescriptionEditor(
                 text: shot.cameraDescription,
+                shot: shot,
+                scene: sceneForShot(shot),
+                locations: locations,
+                characters: characters,
                 onJumpToDescription: { scrollToShotSection = "description" },
                 onChange: { words in updateShotField(shot) { $0.cameraDescription = words } }
             )

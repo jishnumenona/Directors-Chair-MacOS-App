@@ -4,6 +4,7 @@
 // an untested private view method).
 
 import XCTest
+import DirectorsChairServices
 @testable import DirectorsChairViews
 @testable import DirectorsChairCore
 

@@ -873,10 +873,23 @@ struct ShotContextCard: View {
 
     @ViewBuilder
     private func deletablePropChip(prop: String) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: "cube")
-                .font(.system(size: 9))
-                .foregroundColor(.orange.opacity(0.7))
+        // The Prop Shop's picture for this prop, when it has one (owner 2026-08-29).
+        let shopProp = props.first { $0.name.caseInsensitiveCompare(prop) == .orderedSame }
+        let picture = shopProp.flatMap { $0.thumbnail ?? $0.referencePhotos.first }.flatMap { $0.isEmpty ? nil : $0 }
+        return HStack(spacing: 5) {
+            if let picture, let basePath = projectBasePath {
+                AsyncThumbnail(url: basePath.appendingPathComponent(picture), displaySize: 22) {
+                    Image(systemName: "cube")
+                        .font(.system(size: 9))
+                        .foregroundColor(.orange.opacity(0.7))
+                }
+                .frame(width: 22, height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Image(systemName: "cube")
+                    .font(.system(size: 9))
+                    .foregroundColor(.orange.opacity(0.7))
+            }
             Text(prop)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.white.opacity(0.85))

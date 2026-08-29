@@ -120,12 +120,20 @@ struct InlineDescriptionEditor: View {
 /// commit, like the description editor, so typing never lags.
 struct CameraDescriptionEditor: View {
     let text: String
+    /// DC-0094: the facts the suggestion is drawn from.
+    var shot: Shot? = nil
+    var scene: DCScene? = nil
+    var locations: [Location] = []
+    var characters: [Character] = []
     var onJumpToDescription: (() -> Void)? = nil
     let onChange: (String) -> Void
 
     @State private var draft = ""
     @State private var hasInitialized = false
     @State private var commitTask: Task<Void, Never>?
+    @State private var suggestion: String?
+    @State private var isSuggesting = false
+    @State private var suggestionFailed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -137,6 +145,27 @@ struct CameraDescriptionEditor: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                 Spacer()
+                if shot != nil {
+                    Button {
+                        if let shot { CameraSuggestion.forget(shot: shot) }
+                        fetchSuggestion()
+                    } label: {
+                        HStack(spacing: 3) {
+                            if isSuggesting {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "sparkles")
+                            }
+                            Text(suggestion == nil ? "Suggest" : "Suggest again")
+                        }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.accentColor.opacity(0.9))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSuggesting)
+                    .help("Ask the AI for a one-line camera direction that fits this shot")
+                    .accessibilityIdentifier("camera-suggest")
+                }
                 if let onJumpToDescription {
                     Button(action: onJumpToDescription) {
                         HStack(spacing: 3) {
@@ -153,9 +182,7 @@ struct CameraDescriptionEditor: View {
             }
             ZStack(alignment: .topLeading) {
                 if draft.isEmpty {
-                    Text("e.g. low on the road surface, looking up past the front wheel as the van passes — this goes into the preview prompt")
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray.opacity(0.4))
+                    hintText
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
                         .allowsHitTesting(false)
@@ -167,13 +194,35 @@ struct CameraDescriptionEditor: View {
                     .padding(.vertical, 4)
                     .frame(minHeight: 48, maxHeight: 96)
                     .accessibilityIdentifier("camera-description")
+                    .onKeyPress(.tab) {
+                        // Tab takes the suggestion (owner 2026-08-29); otherwise
+                        // Tab moves focus as usual.
+                        if draft.isEmpty, let suggestion, !suggestion.isEmpty {
+                            draft = suggestion
+                            return .handled
+                        }
+                        return .ignored
+                    }
             }
             .background(Color(hex: "#1E1E1E"))
             .cornerRadius(6)
+            if draft.isEmpty, let suggestion, !suggestion.isEmpty {
+                HStack(spacing: 6) {
+                    Text("Press Tab to use the suggestion")
+                        .font(.system(size: 9))
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                    Button("Use it") { draft = suggestion }
+                        .font(.system(size: 9, weight: .medium))
+                        .buttonStyle(.plain)
+                        .foregroundColor(.accentColor.opacity(0.9))
+                        .accessibilityIdentifier("camera-suggestion-use")
+                }
+            }
         }
         .onAppear {
             draft = text
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { hasInitialized = true }
+            if text.isEmpty { fetchSuggestion() }
         }
         .onChange(of: text) { _, newValue in
             if newValue != draft, commitTask == nil { draft = newValue }
@@ -187,6 +236,57 @@ struct CameraDescriptionEditor: View {
                 guard !Task.isCancelled else { return }
                 onChange(value)
                 commitTask = nil
+            }
+        }
+    }
+
+    /// The hint: the AI's suggestion when there is one, else what the box is for.
+    @ViewBuilder
+    private var hintText: some View {
+        if let suggestion, !suggestion.isEmpty {
+            HStack(alignment: .top, spacing: 5) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10))
+                    .foregroundColor(.accentColor.opacity(0.7))
+                    .padding(.top, 1)
+                Text(suggestion)
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray.opacity(0.75))
+            }
+        } else if isSuggesting {
+            Text("Thinking about the camera for this shot…")
+                .font(.system(size: 12))
+                .foregroundColor(.gray.opacity(0.4))
+        } else {
+            Text(suggestionFailed
+                 ? "Describe the camera in plain English — this goes into the preview prompt. (No suggestion this time — try Suggest again.)"
+                 : "Describe the camera in plain English — this goes into the preview prompt.")
+                .font(.system(size: 12))
+                .foregroundColor(.gray.opacity(0.4))
+        }
+    }
+
+    private func fetchSuggestion() {
+        guard let shot, !isSuggesting else { return }
+        isSuggesting = true
+        suggestionFailed = false
+        let location = scene?.location.flatMap { name in
+            locations.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        }
+        let cast = scene.map { StoryboardSubjects.cast(for: shot, in: $0, characters: characters) } ?? []
+        Task {
+            do {
+                let line = try await CameraSuggestion.suggest(shot: shot, scene: scene, location: location, characters: cast)
+                await MainActor.run {
+                    suggestion = line.isEmpty ? nil : line
+                    suggestionFailed = line.isEmpty
+                    isSuggesting = false
+                }
+            } catch {
+                await MainActor.run {
+                    suggestionFailed = true
+                    isSuggesting = false
+                }
             }
         }
     }

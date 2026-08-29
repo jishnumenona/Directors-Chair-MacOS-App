@@ -391,12 +391,12 @@ final class ScriptedStoryboardEngineTests: XCTestCase {
         var scene = Scene(name: "Van")
         scene.dialogues = [Dialogue(character: "Alex", text: "Hi")]
         var shot = Shot(shotId: 1, description: "@Alex talks to @Susan")
-        XCTAssertEqual(StoryboardFrames.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Alex", "Susan"])
+        XCTAssertEqual(StoryboardSubjects.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Alex", "Susan"])
         shot.castIsExplicit = true
         shot.characters = ["Susan"]
-        XCTAssertEqual(StoryboardFrames.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Susan"])
+        XCTAssertEqual(StoryboardSubjects.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Susan"])
         shot.characters = []
-        XCTAssertEqual(StoryboardFrames.cast(for: shot, in: scene, characters: [alex, susan]), [])
+        XCTAssertTrue(StoryboardSubjects.cast(for: shot, in: scene, characters: [alex, susan]).isEmpty)
     }
 
     func testScriptedEngineRecordsSpecsAndHonorsAvailability() async throws {
