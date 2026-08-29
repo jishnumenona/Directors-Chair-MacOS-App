@@ -192,6 +192,132 @@ extension TimelineViewModel {
         recomputeAllSubLanes()
     }
 
+    // MARK: - Trimming (edge drags)
+
+    /// Trim a block by one of its edges. The segment takes the new start and
+    /// duration on the canvas immediately, and the dragged size is persisted
+    /// the way durations are stored today: a manual duration on the source row
+    /// (`Dialogue.manualDuration`, and the additive `Action` / `Narration` /
+    /// `SoundNote.manualDuration`), plus `manualStartTime` when the leading
+    /// edge moved — so every rebuild keeps the block at the dragged size.
+    public func trimSegment(id: UUID, newStart: CGFloat, newDuration: CGFloat) {
+        guard let index = segments.firstIndex(where: { $0.id == id }) else { return }
+        let clampedStart = max(0, newStart)
+        let clampedDuration = max(TimelineTrim.minimumDuration, newDuration)
+        let startChanged = abs(segments[index].start - clampedStart) > 0.0005
+        segments[index].start = clampedStart
+        segments[index].duration = clampedDuration
+        let segment = segments[index]
+
+        if let sourceId = segment.sourceItemId {
+            let duration = Double(clampedDuration)
+            let start: Double? = startChanged ? Double(clampedStart) : nil
+            updateSourceItem(
+                id: sourceId,
+                contentType: segment.contentType,
+                dialogue: { row in
+                    row.manualDuration = duration
+                    if let start { row.manualStartTime = start }
+                },
+                action: { row in
+                    row.manualDuration = duration
+                    if let start { row.manualStartTime = start }
+                },
+                narration: { row in
+                    row.manualDuration = duration
+                    if let start { row.manualStartTime = start }
+                },
+                soundNote: { row in
+                    row.manualDuration = duration
+                    if let start { row.manualStartTime = start }
+                }
+            )
+        }
+
+        // A block trimmed past the end of the scope extends the timeline
+        let maxEnd = segments.map(\.end).max() ?? 0
+        if maxEnd > totalDuration {
+            totalDuration = maxEnd
+            currentSceneDuration = maxEnd
+        }
+        recomputeAllSubLanes()
+    }
+
+    /// Trim a shot card by either edge: new start and duration in one edit,
+    /// persisted as `Shot.timelinePosition` + `Shot.duration` (the same fields
+    /// a move / right-edge resize write).
+    public func trimShotLabel(shotId: Int, sceneName: String, newTime: CGFloat, newDuration: CGFloat) {
+        let clampedTime = max(0, newTime)
+        let clampedDuration = max(TimelineTrim.minimumDuration, newDuration)
+
+        if let index = shotLabels.firstIndex(where: { $0.shotId == shotId && $0.sceneName == sceneName }) {
+            shotLabels[index].time = clampedTime
+            shotLabels[index].duration = clampedDuration
+            shotLabels.sort {
+                if $0.time != $1.time { return $0.time < $1.time }
+                return $0.shotId < $1.shotId
+            }
+        }
+
+        if project != nil {
+            search: for seqIdx in project!.sequences.indices {
+                for scnIdx in project!.sequences[seqIdx].scenes.indices {
+                    let scene = project!.sequences[seqIdx].scenes[scnIdx]
+                    if scene.name == sceneName,
+                       let shotIdx = scene.shots.firstIndex(where: { $0.shotId == shotId }) {
+                        project!.sequences[seqIdx].scenes[scnIdx].shots[shotIdx].timelinePosition = Double(clampedTime)
+                        project!.sequences[seqIdx].scenes[scnIdx].shots[shotIdx].duration = Double(clampedDuration)
+                        break search
+                    }
+                }
+            }
+        }
+
+        computeShotSubLanes()
+        computeShotDialogueConnections()
+    }
+
+    /// Apply an edit to the model row behind a segment, matched by its source
+    /// id and content type. Returns true when a row was found.
+    @discardableResult
+    func updateSourceItem(id sourceId: String,
+                          contentType: TimelineSegment.ContentType,
+                          dialogue: (inout Dialogue) -> Void,
+                          action: (inout Action) -> Void,
+                          narration: (inout Narration) -> Void,
+                          soundNote: (inout SoundNote) -> Void) -> Bool {
+        guard project != nil else { return false }
+        for seqIdx in project!.sequences.indices {
+            for scnIdx in project!.sequences[seqIdx].scenes.indices {
+                switch contentType {
+                case .dialogue:
+                    if let i = project!.sequences[seqIdx].scenes[scnIdx].dialogues.firstIndex(where: { $0.id == sourceId }) {
+                        dialogue(&project!.sequences[seqIdx].scenes[scnIdx].dialogues[i])
+                        return true
+                    }
+                case .action:
+                    if let i = project!.sequences[seqIdx].scenes[scnIdx].actions.firstIndex(where: { $0.id == sourceId }) {
+                        action(&project!.sequences[seqIdx].scenes[scnIdx].actions[i])
+                        return true
+                    }
+                case .narration:
+                    if let i = project!.sequences[seqIdx].scenes[scnIdx].narrations.firstIndex(where: { $0.id == sourceId }) {
+                        narration(&project!.sequences[seqIdx].scenes[scnIdx].narrations[i])
+                        return true
+                    }
+                case .soundNote:
+                    if let i = project!.sequences[seqIdx].scenes[scnIdx].soundNotes.firstIndex(where: { $0.uuid == sourceId }) {
+                        soundNote(&project!.sequences[seqIdx].scenes[scnIdx].soundNotes[i])
+                        return true
+                    }
+                case .note:
+                    return false
+                }
+            }
+        }
+        return false
+    }
+
     /// Get the current project (for persistence by parent)
     public func getProject() -> Project? {
         return project

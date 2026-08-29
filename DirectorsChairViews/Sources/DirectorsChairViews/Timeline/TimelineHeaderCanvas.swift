@@ -177,6 +177,18 @@ public struct TimelineHeaderCanvas: View {
     /// Callback when a shot label is resized to a new duration (shotId, sceneName, newDuration)
     public var onShotLabelResized: ((Int, String, CGFloat) -> Void)?
 
+    /// Callback when a shot card is trimmed by its leading edge (shotId, sceneName, newTime, newDuration)
+    public var onShotLabelTrimmed: ((Int, String, CGFloat, CGFloat) -> Void)?
+
+    /// Height of one Shots sub-lane (user-resizable; defaults to the layout constant)
+    public var shotLaneHeight: CGFloat = TimelineLayoutConstants.shotLaneHeight
+
+    /// Callback while the user drags the Shots track's bottom edge (new lane height)
+    public var onShotLaneHeightChanged: ((CGFloat) -> Void)?
+
+    /// Currently selected shot label (its trim handles get accessibility elements)
+    public var selectedShotLabelId: UUID?
+
     /// Callback when a scene boundary marker is double-clicked (sceneName)
     public var onSceneMarkerDoubleClicked: ((String) -> Void)?
 
@@ -218,6 +230,9 @@ public struct TimelineHeaderCanvas: View {
 
     /// Original duration (seconds) when resize started
     @State var resizeStartDuration: CGFloat = 0
+
+    /// Which edge of the shot card is being dragged
+    @State var resizingShotEdge: TimelineTrim.Edge = .trailing
 
     /// Shot label targeted by the right-click context menu
     @State var contextMenuShot: TimelineShotLabel?
@@ -369,10 +384,18 @@ public struct TimelineHeaderCanvas: View {
     /// Height of the shot labels lane (dynamic based on sub-lane count)
     var shotLaneOffset: CGFloat {
         if showShotLabels {
-            return CGFloat(shotLaneSubLaneCount) * TimelineLayoutConstants.shotLaneHeight
+            return CGFloat(shotLaneSubLaneCount) * shotLaneHeight
         } else {
             return 24 // Collapsed strip
         }
+    }
+
+    /// Y of the bottom edge of the Shots lane (where its resize strip sits)
+    var shotLaneBottomY: CGFloat {
+        TimelineLayoutConstants.topMargin +
+        TimelineLayoutConstants.rulerHeight +
+        TimelineLayoutConstants.rulerGap +
+        shotLaneOffset
     }
 
     /// Height of the soundtrack waveform area
@@ -757,7 +780,9 @@ public struct TimelineHeaderCanvas: View {
                         // 0. Check playhead handle or any area not on a shot label/boundary (FCP-style scrub)
                         let startInClickableArea = value.startLocation.x >= originX
                         let startOnShotLabel = showShotLabels && findShotLabel(at: value.startLocation) != nil
-                        let startOnShotEdge = showShotLabels && findShotLabelRightEdge(at: value.startLocation) != nil
+                        let startOnShotEdge = showShotLabels &&
+                            (findShotLabelRightEdge(at: value.startLocation) != nil ||
+                             findShotLabelLeftEdge(at: value.startLocation) != nil)
                         let startOnBoundary = findBoundaryMarker(at: value.startLocation) != nil
                         let startOnSoundtrack = draggingSoundtrackId != nil
                         let startOnLightCue = draggingLightCueId != nil || resizingLightCueId != nil
@@ -775,11 +800,19 @@ public struct TimelineHeaderCanvas: View {
                             draggingBoundaryIsSequence = isSequence
                             dragBoundaryStartX = value.startLocation.x
                         }
-                        // 2. Check shot right-edge (resize)
+                        // 2. Check shot edges (trim) — the edge the user sees is the one
+                        //    they drag, so the on-screen width is the starting duration
                         else if showShotLabels, let shotLabel = findShotLabelRightEdge(at: value.startLocation) {
                             resizingShotId = shotLabel.id
+                            resizingShotEdge = .trailing
                             resizeStartX = value.startLocation.x
-                            resizeStartDuration = shotLabel.duration > 0 ? shotLabel.duration : shotLabel.displayWidth(pxPerSec: pxPerSec) / pxPerSec
+                            resizeStartDuration = shotLabel.displayWidth(pxPerSec: pxPerSec) / pxPerSec
+                        }
+                        else if showShotLabels, let shotLabel = findShotLabelLeftEdge(at: value.startLocation) {
+                            resizingShotId = shotLabel.id
+                            resizingShotEdge = .leading
+                            resizeStartX = value.startLocation.x
+                            resizeStartDuration = shotLabel.displayWidth(pxPerSec: pxPerSec) / pxPerSec
                         }
                         // 3. Check shot label body (move)
                         else if showShotLabels, let shotLabel = findShotLabel(at: value.startLocation) {
@@ -830,12 +863,25 @@ public struct TimelineHeaderCanvas: View {
                             }
                         }
                     }
-                    // Handle resize end
+                    // Handle trim end (either edge; snapped to 0.1 s, never below 0.5 s)
                     else if let resizeId = resizingShotId,
                        let shotLabel = shotLabels.first(where: { $0.id == resizeId }) {
-                        let deltaX = value.location.x - resizeStartX
-                        let newDuration = max(0.5, resizeStartDuration + deltaX / pxPerSec)
-                        onShotLabelResized?(shotLabel.shotId, shotLabel.sceneName, newDuration)
+                        let result = TimelineTrim.resolve(
+                            edge: resizingShotEdge,
+                            start: shotLabel.time,
+                            duration: resizeStartDuration,
+                            deltaSeconds: (value.location.x - resizeStartX) / pxPerSec
+                        )
+                        if resizingShotEdge == .leading {
+                            if let onShotLabelTrimmed {
+                                onShotLabelTrimmed(shotLabel.shotId, shotLabel.sceneName, result.start, result.duration)
+                            } else {
+                                onShotLabelMoved?(shotLabel.shotId, shotLabel.sceneName, result.start)
+                                onShotLabelResized?(shotLabel.shotId, shotLabel.sceneName, result.duration)
+                            }
+                        } else {
+                            onShotLabelResized?(shotLabel.shotId, shotLabel.sceneName, result.duration)
+                        }
                     }
                     // Handle shot move end
                     else if let dragId = draggingShotId,
@@ -924,13 +970,19 @@ public struct TimelineHeaderCanvas: View {
                     dragBoundaryStartX = 0
                     resizeStartX = 0
                     resizeStartDuration = 0
+                    resizingShotEdge = .trailing
                 }
         )
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
                 // Cursor changes for resize handles
-                if showShotLabels, findShotLabelRightEdge(at: location) != nil {
+                if isOverShotLaneResizeHandle(at: location) {
+                    NSCursor.resizeUpDown.set()
+                } else if showShotLabels,
+                          resizingShotId != nil ||
+                          findShotLabelRightEdge(at: location) != nil ||
+                          findShotLabelLeftEdge(at: location) != nil {
                     NSCursor.resizeLeftRight.set()
                 } else if showLightingLane, findLightCueRightEdge(at: location) != nil {
                     NSCursor.resizeLeftRight.set()
@@ -1363,6 +1415,22 @@ public struct TimelineHeaderCanvas: View {
             }
         }
         .overlay(CommandKeyMonitor(isCommandKeyDown: $isCommandKeyDown))
+        .overlay(alignment: .topLeading) {
+            // Trim handles of the selected shot card, exposed for UI automation
+            shotTrimHandleAccessibilityOverlay.allowsHitTesting(false)
+        }
+        .overlay(alignment: .topLeading) {
+            // Drag strip on the bottom edge of the Shots track (taller track = bigger previews)
+            if showShotLabels, let onShotLaneHeightChanged {
+                ShotLaneResizeHandle(
+                    height: shotLaneHeight,
+                    onChanged: onShotLaneHeightChanged,
+                    onReset: { onShotLaneHeightChanged(TimelineLayoutConstants.shotLaneHeight) }
+                )
+                .frame(width: totalWidth, height: TimelineLayoutConstants.shotLaneResizeHandleHeight)
+                .offset(y: shotLaneBottomY - TimelineLayoutConstants.shotLaneResizeHandleHeight / 2)
+            }
+        }
         .onAppear {
             recomputeCachedSubLanes()
             // Redraw when a background preview-image load completes (WS9.2).
@@ -1374,6 +1442,57 @@ public struct TimelineHeaderCanvas: View {
         .onChange(of: showLightingLane) { _ in recomputeCachedSubLanes() }
         .onChange(of: showSFXLane) { _ in recomputeCachedSubLanes() }
         .onChange(of: showSupportLane) { _ in recomputeCachedSubLanes() }
+    }
+}
+
+// MARK: - Shots Track Resize Handle
+
+/// Drag strip on the bottom edge of the Shots track: drag to change the
+/// track height live (previews scale with it), double-click to reset.
+struct ShotLaneResizeHandle: View {
+    let height: CGFloat
+    let onChanged: (CGFloat) -> Void
+    let onReset: () -> Void
+
+    @State private var dragStartHeight: CGFloat?
+    @State private var isHovering = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .overlay(alignment: .leading) {
+                // Grip pill, centred in the row-label column
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(Color.white.opacity(isHovering || dragStartHeight != nil ? 0.6 : 0.22))
+                    .frame(width: 36, height: 3)
+                    .padding(.leading, (TimelineLayoutConstants.rowLabelWidth - 36) / 2)
+            }
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovering = hovering
+                if hovering {
+                    NSCursor.resizeUpDown.set()
+                } else if dragStartHeight == nil {
+                    NSCursor.arrow.set()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        if dragStartHeight == nil { dragStartHeight = height }
+                        let base = dragStartHeight ?? height
+                        onChanged(TimelineLayoutConstants.clampedShotLaneHeight(base + value.translation.height))
+                    }
+                    .onEnded { _ in
+                        dragStartHeight = nil
+                    }
+            )
+            .onTapGesture(count: 2) { onReset() }
+            .help("Drag to resize the Shots track (double-click to reset)")
+            .accessibilityElement()
+            .accessibilityIdentifier("timeline-shots-track-resize")
+            .accessibilityLabel("Resize Shots track")
+            .accessibilityValue("\(Int(height)) points")
     }
 }
 
@@ -1682,6 +1801,8 @@ extension TimelineHeaderCanvas: Equatable {
         l.sfxCues == r.sfxCues &&
         l.showSFXLane == r.showSFXLane &&
         l.supportCues == r.supportCues &&
-        l.showSupportLane == r.showSupportLane
+        l.showSupportLane == r.showSupportLane &&
+        l.shotLaneHeight == r.shotLaneHeight &&
+        l.selectedShotLabelId == r.selectedShotLabelId
     }
 }

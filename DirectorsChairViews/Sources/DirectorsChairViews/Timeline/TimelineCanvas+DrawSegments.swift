@@ -31,12 +31,27 @@ extension TimelineCanvas {
                 let isGroupDrag = draggingSegmentId != nil && selectedSegmentIds.count > 1
                 let isDragging = segment.id == draggingSegmentId ||
                     (isGroupDrag && selectedSegmentIds.contains(segment.id))
+                let isTrimming = segment.id == trimmingSegmentId
 
                 if isDragging {
                     rx += (dragCurrentX - dragStartX)
                 }
 
-                let bubbleWidth = DurationEstimator.bubbleWidth(for: segment, pxPerSec: pxPerSec, showThumbs: showThumbs)
+                // Live trim preview: the block takes the snapped start/duration it gets on release
+                var previewSegment = segment
+                if isTrimming {
+                    let preview = TimelineTrim.resolve(
+                        edge: trimEdge,
+                        start: segment.start,
+                        duration: trimStartDuration,
+                        deltaSeconds: (dragCurrentX - dragStartX) / pxPerSec
+                    )
+                    previewSegment.start = preview.start
+                    previewSegment.duration = preview.duration
+                    rx = originX + preview.start * pxPerSec
+                }
+
+                let bubbleWidth = DurationEstimator.bubbleWidth(for: previewSegment, pxPerSec: pxPerSec, showThumbs: showThumbs)
 
                 let visibleStart = viewport.minX - TimelineLayoutConstants.viewportBuffer * pxPerSec
                 let visibleEnd = viewport.maxX + TimelineLayoutConstants.viewportBuffer * pxPerSec
@@ -60,10 +75,23 @@ extension TimelineCanvas {
                     rect: bubbleRect,
                     segment: segment,
                     isSelected: selectedSegmentIds.contains(segment.id),
-                    isDragging: isDragging
+                    isDragging: isDragging || isTrimming
                 )
 
                 drawBubbleTail(context: context, bubbleRect: bubbleRect, segment: segment)
+
+                // Trim handles: grips on a selected block, live duration at the dragged edge
+                if isTrimming || selectedSegmentIds.contains(segment.id) {
+                    TimelineTrim.drawEdgeGrips(in: bubbleRect, context: context)
+                }
+                if isTrimming {
+                    let edgeX = trimEdge == .leading ? bubbleRect.minX : bubbleRect.maxX
+                    TimelineTrim.drawDurationBadge(
+                        TimelineTrim.label(for: previewSegment.duration),
+                        at: CGPoint(x: edgeX, y: bubbleRect.midY),
+                        context: context
+                    )
+                }
             }
 
             yCursor += laneHeight + TimelineLayoutConstants.rowGap

@@ -130,7 +130,8 @@ final class ModelRoundTripTests: XCTestCase {
             globalChronologyNumber: 10,
             characters: ["JOHN", "MARY"],
             parentDialogueId: "dlg-parent-123",
-            manualStartTime: 15.0
+            manualStartTime: 15.0,
+            manualDuration: 2.5
         )
 
         let decoded = try roundTrip(original)
@@ -148,6 +149,7 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.characters, ["JOHN", "MARY"])
         XCTAssertEqual(decoded.parentDialogueId, "dlg-parent-123")
         XCTAssertEqual(decoded.manualStartTime, 15.0)
+        XCTAssertEqual(decoded.manualDuration, 2.5)
     }
 
     func testActionBackwardCompatibility() throws {
@@ -159,6 +161,32 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertFalse(decoded.uuid.isEmpty)
         XCTAssertEqual(decoded.chronologyNumber, 0)
         XCTAssertNil(decoded.parentDialogueId)
+        XCTAssertNil(decoded.manualDuration)
+    }
+
+    /// Timeline trim (2026-08-29): the manual duration is additive — snake_case
+    /// on the wire, and a missing or malformed value is simply no override.
+    func testManualDurationIsAdditiveSnakeCaseAndTolerant() throws {
+        let actionJSON = String(data: try encoder.encode(Action(description: "Beat.", manualDuration: 3.5)), encoding: .utf8)!
+        XCTAssertTrue(actionJSON.contains("\"manual_duration\":3.5"), actionJSON)
+        let narrationJSON = String(data: try encoder.encode(Narration(text: "Dawn.", manualDuration: 6)), encoding: .utf8)!
+        XCTAssertTrue(narrationJSON.contains("\"manual_duration\":6"), narrationJSON)
+        let soundJSON = String(data: try encoder.encode(SoundNote(description: "Wind", manualDuration: 1.5)), encoding: .utf8)!
+        XCTAssertTrue(soundJSON.contains("\"manual_duration\":1.5"), soundJSON)
+
+        let malformedAction: Action = try decodeJSON("""
+        {"description":"Beat.","manual_duration":"three seconds"}
+        """)
+        XCTAssertNil(malformedAction.manualDuration, "a malformed value is tolerated as no override")
+        XCTAssertEqual(malformedAction.description, "Beat.")
+        let malformedNarration: Narration = try decodeJSON("""
+        {"text":"Dawn.","manual_duration":null}
+        """)
+        XCTAssertNil(malformedNarration.manualDuration)
+        let malformedSound: SoundNote = try decodeJSON("""
+        {"description":"Wind","manual_duration":[1]}
+        """)
+        XCTAssertNil(malformedSound.manualDuration)
     }
 
     // =========================================================================
@@ -178,7 +206,8 @@ final class ModelRoundTripTests: XCTestCase {
             globalChronologyNumber: 7,
             characters: ["NARRATOR"],
             parentDialogueId: "dlg-xyz",
-            manualStartTime: 5.0
+            manualStartTime: 5.0,
+            manualDuration: 6.5
         )
 
         let decoded = try roundTrip(original)
@@ -191,6 +220,7 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.characters, ["NARRATOR"])
         XCTAssertEqual(decoded.parentDialogueId, "dlg-xyz")
         XCTAssertEqual(decoded.manualStartTime, 5.0)
+        XCTAssertEqual(decoded.manualDuration, 6.5)
     }
 
     func testNarrationBackwardCompatibility() throws {
@@ -201,6 +231,7 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.text, "Once upon a time.")
         XCTAssertFalse(decoded.uuid.isEmpty)
         XCTAssertNil(decoded.parentDialogueId)
+        XCTAssertNil(decoded.manualDuration)
     }
 
     // =========================================================================
@@ -264,7 +295,8 @@ final class ModelRoundTripTests: XCTestCase {
             timestampStart: "00:10",
             timestampEnd: "01:00",
             parentDialogueId: "dlg-789",
-            manualStartTime: 10.0
+            manualStartTime: 10.0,
+            manualDuration: 12.0
         )
 
         let decoded = try roundTrip(original)
@@ -286,6 +318,7 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.timestampEnd, "01:00")
         XCTAssertEqual(decoded.parentDialogueId, "dlg-789")
         XCTAssertEqual(decoded.manualStartTime, 10.0)
+        XCTAssertEqual(decoded.manualDuration, 12.0)
     }
 
     func testSoundNoteBackwardCompatibility() throws {

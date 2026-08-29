@@ -154,6 +154,16 @@ public struct DurationEstimator {
         return estimateDialogueDuration(text: text, wpm: wpm)
     }
 
+    /// Effective duration for blocks that have no WPM estimate of their own
+    /// (actions, narrations, sound notes, connected sub-bubbles): a manual
+    /// duration set by trimming on the timeline wins over the fallback.
+    public static func effectiveDuration(manualDuration: Double?, fallback: CGFloat) -> CGFloat {
+        if let manual = manualDuration, manual > 0 {
+            return CGFloat(manual)
+        }
+        return fallback
+    }
+
     /// Count words in text
     /// - Parameter text: The text to count words in
     /// - Returns: Word count

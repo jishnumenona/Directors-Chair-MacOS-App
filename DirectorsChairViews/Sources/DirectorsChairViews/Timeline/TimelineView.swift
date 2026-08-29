@@ -67,6 +67,17 @@ public struct TimelineView: View {
     /// Callback when TTS audio playback should stop
     public var onStopAudio: (() -> Void)?
 
+    /// Callback when a block is trimmed by one of its edges (segment, newStart, newDuration)
+    public var onSegmentTrimmed: ((TimelineSegment, CGFloat, CGFloat) -> Void)?
+
+    /// Height of the Shots track, remembered across sessions (drag its bottom edge; double-click resets)
+    @AppStorage("timeline.shotsTrackHeight") var shotsTrackHeight: Double = Double(TimelineLayoutConstants.shotLaneHeight)
+
+    /// The Shots track height in use (clamped to the supported range)
+    var shotLaneHeight: CGFloat {
+        TimelineLayoutConstants.clampedShotLaneHeight(CGFloat(shotsTrackHeight))
+    }
+
     // MARK: - Init
 
     public init(
@@ -85,6 +96,7 @@ public struct TimelineView: View {
         onShotLabelResized: ((Int, String, CGFloat) -> Void)? = nil,
         onSegmentMoved: ((TimelineSegment, CGFloat) -> Void)? = nil,
         onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)? = nil,
+        onSegmentTrimmed: ((TimelineSegment, CGFloat, CGFloat) -> Void)? = nil,
         onAnalyzeTimeline: (() -> Void)? = nil,
         onGenerateAudio: ((TimelineSegment) -> Void)? = nil,
         onPlayAudio: ((TimelineSegment) -> Void)? = nil,
@@ -105,6 +117,7 @@ public struct TimelineView: View {
         self.onShotLabelResized = onShotLabelResized
         self.onSegmentMoved = onSegmentMoved
         self.onSegmentsMoved = onSegmentsMoved
+        self.onSegmentTrimmed = onSegmentTrimmed
         self.onAnalyzeTimeline = onAnalyzeTimeline
         self.onGenerateAudio = onGenerateAudio
         self.onPlayAudio = onPlayAudio
@@ -210,7 +223,7 @@ public struct TimelineView: View {
     /// Height of the fixed header area (scope markers + ruler + ruler gap + shot lane + soundtrack lanes + lighting lane)
     var headerHeight: CGFloat {
         let shotLaneOffset = viewModel.showShotLabels
-            ? CGFloat(viewModel.shotLaneSubLaneCount) * TimelineLayoutConstants.shotLaneHeight
+            ? CGFloat(viewModel.shotLaneSubLaneCount) * shotLaneHeight
             : 0
         let soundtrackOffset: CGFloat = (viewModel.showSoundtracks && !viewModel.soundtrackTracks.isEmpty)
             ? CGFloat(viewModel.soundtrackTracks.count) * TimelineLayoutConstants.soundtrackLaneHeight

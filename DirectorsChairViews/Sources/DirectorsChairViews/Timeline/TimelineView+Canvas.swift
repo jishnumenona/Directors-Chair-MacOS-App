@@ -15,7 +15,7 @@ extension TimelineView {
 
     /// Extracted to reduce body expression complexity for the Swift type-checker
     func makeHeaderCanvas(geometry: GeometryProxy) -> TimelineHeaderCanvas {
-        TimelineHeaderCanvas(
+        var header = TimelineHeaderCanvas(
             segments: viewModel.visibleSegments,
             sceneBoundaries: viewModel.sceneBoundaries,
             sequenceBoundaries: viewModel.sequenceBoundaries,
@@ -208,6 +208,16 @@ extension TimelineView {
                 viewModel.addUserMarker(at: time, label: label, icon: icon, color: color)
             }
         )
+        header.shotLaneHeight = shotLaneHeight
+        header.selectedShotLabelId = viewModel.selectedShotLabelId
+        header.onShotLaneHeightChanged = { newHeight in
+            shotsTrackHeight = Double(TimelineLayoutConstants.clampedShotLaneHeight(newHeight))
+        }
+        header.onShotLabelTrimmed = { shotId, sceneName, newTime, newDuration in
+            viewModel.trimShotLabel(shotId: shotId, sceneName: sceneName, newTime: newTime, newDuration: newDuration)
+            onShotLabelResized?(shotId, sceneName, newDuration)
+        }
+        return header
     }
 
     /// Extracted to reduce body expression complexity for the Swift type-checker
@@ -267,6 +277,10 @@ extension TimelineView {
         canvas.playingAudioSourceId = viewModel.playingAudioSourceId
         canvas.onEmptySpaceClicked = { x in
             viewModel.seekPlayheadFromX(x)
+        }
+        canvas.onSegmentTrimmed = { segment, newStart, newDuration in
+            viewModel.trimSegment(id: segment.id, newStart: newStart, newDuration: newDuration)
+            onSegmentTrimmed?(segment, newStart, newDuration)
         }
         canvas.onSegmentRightClicked = { segment, point, nsView in
             let menu = NSMenu()

@@ -217,6 +217,16 @@ struct TimelineContainer: View {
                     Task { await projectViewModel.saveSilently() }
                 }
             },
+            onShotLabelResized: { _, _, _ in
+                // Sync updated project and save silently (no loading overlay)
+                if let updatedProject = timelineViewModel.getProject() {
+                    // Only the timeline's own fields come back — its copy may
+                    // predate edits made elsewhere (audit 2026-08-28 P0).
+                    projectViewModel.project = projectViewModel.project
+                        .adoptingTimelineEdits(from: updatedProject)
+                    Task { await projectViewModel.saveSilently() }
+                }
+            },
             onSegmentMoved: { _, _ in
                 // Sync updated project and save silently (no loading overlay)
                 if let updatedProject = timelineViewModel.getProject() {
@@ -228,6 +238,16 @@ struct TimelineContainer: View {
                 }
             },
             onSegmentsMoved: { _ in
+                // Sync updated project and save silently (no loading overlay)
+                if let updatedProject = timelineViewModel.getProject() {
+                    // Only the timeline's own fields come back — its copy may
+                    // predate edits made elsewhere (audit 2026-08-28 P0).
+                    projectViewModel.project = projectViewModel.project
+                        .adoptingTimelineEdits(from: updatedProject)
+                    Task { await projectViewModel.saveSilently() }
+                }
+            },
+            onSegmentTrimmed: { _, _, _ in
                 // Sync updated project and save silently (no loading overlay)
                 if let updatedProject = timelineViewModel.getProject() {
                     // Only the timeline's own fields come back — its copy may

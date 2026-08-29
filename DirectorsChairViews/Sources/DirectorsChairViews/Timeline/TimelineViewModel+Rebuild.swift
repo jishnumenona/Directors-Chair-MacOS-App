@@ -205,7 +205,11 @@ extension TimelineViewModel {
                 t += duration
 
             case .action(let action):
-                let actionDuration = TimelineWPMConstants.actionDuration
+                // A trimmed block keeps its dragged size (Action.manualDuration)
+                let actionDuration = DurationEstimator.effectiveDuration(
+                    manualDuration: action.manualDuration,
+                    fallback: TimelineWPMConstants.actionDuration
+                )
 
                 newSegments.append(TimelineSegment(
                     start: t,
@@ -224,9 +228,13 @@ extension TimelineViewModel {
                 t += actionDuration
 
             case .narration(let narration):
-                let estimatedDuration = max(
-                    TimelineWPMConstants.actionDuration,
-                    DurationEstimator.estimateDialogueDuration(text: narration.text, wpm: wpm)
+                // A trimmed block keeps its dragged size (Narration.manualDuration)
+                let estimatedDuration = DurationEstimator.effectiveDuration(
+                    manualDuration: narration.manualDuration,
+                    fallback: max(
+                        TimelineWPMConstants.actionDuration,
+                        DurationEstimator.estimateDialogueDuration(text: narration.text, wpm: wpm)
+                    )
                 )
 
                 newSegments.append(TimelineSegment(
@@ -252,7 +260,10 @@ extension TimelineViewModel {
                let parentTiming = dialogueTiming[parentId] {
                 newSegments.append(TimelineSegment(
                     start: parentTiming.start,
-                    duration: parentTiming.duration,
+                    duration: DurationEstimator.effectiveDuration(
+                        manualDuration: action.manualDuration,
+                        fallback: parentTiming.duration
+                    ),
                     character: "Action",
                     color: TimelineDefaultColors.actionBubble,
                     textColor: TimelineDefaultColors.defaultText,
@@ -274,7 +285,10 @@ extension TimelineViewModel {
                let parentTiming = dialogueTiming[parentId] {
                 newSegments.append(TimelineSegment(
                     start: parentTiming.start,
-                    duration: parentTiming.duration,
+                    duration: DurationEstimator.effectiveDuration(
+                        manualDuration: narration.manualDuration,
+                        fallback: parentTiming.duration
+                    ),
                     character: "Narration",
                     color: TimelineDefaultColors.narrationBubble,
                     textColor: TimelineDefaultColors.defaultText,
@@ -333,7 +347,10 @@ extension TimelineViewModel {
 
             newSegments.append(TimelineSegment(
                 start: soundStart,
-                duration: soundDuration,
+                duration: DurationEstimator.effectiveDuration(
+                    manualDuration: soundNote.manualDuration,
+                    fallback: soundDuration
+                ),
                 character: "Sound",
                 color: TimelineDefaultColors.soundNoteBubble,
                 textColor: TimelineDefaultColors.defaultText,

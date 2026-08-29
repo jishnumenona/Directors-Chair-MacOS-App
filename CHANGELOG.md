@@ -9,6 +9,18 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+### Added
+- **Trim any timeline block by its edges.** Drag the left or right edge of a
+  dialogue, action, narration, sound note or shot on the Timeline to change
+  its length (the cursor becomes a resize arrow over an edge, and the new
+  duration is shown while you drag). Durations snap to a tenth of a second
+  and never go below half a second; a trimmed block keeps its size across
+  reloads and in Playback.
+- **Resizable Shots track.** Drag the bottom edge of the Shots track to make
+  it taller and see shot previews bigger (double-click the handle to reset,
+  or pick a size from the new toolbar menu next to the Shots toggle). The
+  height is remembered.
+
 ## [3.10.1] — 2026-08-29
 
 ### Fixed
