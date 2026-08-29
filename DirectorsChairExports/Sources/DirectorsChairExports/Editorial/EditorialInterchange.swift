@@ -102,10 +102,18 @@ public enum EditorialInterchange {
             if !event.shot.description.isEmpty {
                 lines.append("* COMMENT: \(event.shot.description.uppercased())")
             }
+            if !event.shot.notes.isEmpty {
+                lines.append("* COMMENT: \(event.shot.notes.uppercased())")
+            }
             recordSeconds += event.seconds
         }
         lines.append("")
         return lines.joined(separator: "\n")
+    }
+
+    /// The description and, when present, the user's notes (DC-0074).
+    static func noteText(for shot: Shot) -> String {
+        [shot.description, shot.notes].filter { !$0.isEmpty }.joined(separator: " — ")
     }
 
     static func clipName(for event: CutEvent) -> String {
@@ -135,7 +143,7 @@ public enum EditorialInterchange {
                             <text>
                                 <text-style ref="ts1">\(xml(clipName(for: event)))</text-style>
                             </text>
-                            <note>\(xml(event.shot.description))</note>
+                            <note>\(xml(noteText(for: event.shot)))</note>
                         </title>
             """)
             offset += duration
