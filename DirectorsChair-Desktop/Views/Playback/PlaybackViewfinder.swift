@@ -49,30 +49,17 @@ struct PlaybackViewfinder: View {
                         }
                         // Preview image
                         else if let imgPath = item.previewImagePath,
-                                let imgURL = viewModel.resolvedImagePath(for: imgPath),
-                                let nsImage = NSImage(contentsOf: imgURL) {
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
+                                let imgURL = viewModel.resolvedImagePath(for: imgPath) {
+                            // Decoded once per item, downsampled, off the main
+                            // thread — this re-read the full PNG in body ~12x/s
+                            // during playback (audit 2026-08-28).
+                            AsyncThumbnail(url: imgURL, displaySize: 720, contentMode: .fit) {
+                                shotPlaceholder(item)
+                            }
                         }
                         // Placeholder
                         else {
-                            VStack(spacing: 12) {
-                                Image(systemName: "camera.fill")
-                                    .font(.system(size: 48))
-                                    .foregroundStyle(.secondary)
-                                Text("Shot \(item.shotId ?? 0)")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                if !item.description.isEmpty {
-                                    Text(item.description)
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.tertiary)
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(3)
-                                        .frame(maxWidth: 300)
-                                }
-                            }
+                            shotPlaceholder(item)
                         }
                     }
                     .id(item.id)
@@ -202,6 +189,25 @@ struct PlaybackViewfinder: View {
         avPlayer?.pause()
         avPlayer = nil
         currentVideoPath = nil
+    }
+
+    private func shotPlaceholder(_ item: PlaybackItem) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Shot \(item.shotId ?? 0)")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+            if !item.description.isEmpty {
+                Text(item.description)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .frame(maxWidth: 300)
+            }
+        }
     }
 }
 

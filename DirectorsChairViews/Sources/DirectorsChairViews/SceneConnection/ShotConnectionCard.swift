@@ -209,6 +209,22 @@ public struct ShotConnectionCard: View {
     // MARK: - Preview Image
 
     @ViewBuilder
+    private var previewMissing: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "photo.badge.exclamationmark")
+                .font(.system(size: 24))
+                .foregroundColor(.gray.opacity(0.5))
+            Text("Image not found")
+                .font(.caption2)
+                .foregroundColor(.gray.opacity(0.5))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 80)
+        .background(Color.white.opacity(0.03))
+        .cornerRadius(6)
+    }
+
+    @ViewBuilder
     private func previewImageView(path: String) -> some View {
         let imageURL: URL? = {
             if let base = projectBasePath {
@@ -217,27 +233,19 @@ public struct ShotConnectionCard: View {
             return URL(fileURLWithPath: path)
         }()
 
-        if let url = imageURL, let nsImage = NSImage(contentsOf: url) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+        if let url = imageURL {
+            // Decoded once, downsampled, off the main thread: this card used
+            // to re-read its full-resolution preview on every pointer move
+            // of a connection drag (audit 2026-08-28).
+            AsyncThumbnail(url: url, displaySize: 220) {
+                previewMissing
+            }
                 .frame(maxWidth: .infinity)
                 .frame(height: 100)
                 .clipped()
                 .cornerRadius(6)
         } else {
-            VStack(spacing: 6) {
-                Image(systemName: "photo.badge.exclamationmark")
-                    .font(.system(size: 24))
-                    .foregroundColor(.gray.opacity(0.5))
-                Text("Image not found")
-                    .font(.caption2)
-                    .foregroundColor(.gray.opacity(0.5))
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 80)
-            .background(Color.white.opacity(0.03))
-            .cornerRadius(6)
+            previewMissing
         }
     }
 

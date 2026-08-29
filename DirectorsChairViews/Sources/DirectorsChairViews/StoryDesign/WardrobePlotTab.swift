@@ -242,18 +242,19 @@ struct WardrobePlotTab: View {
     @ViewBuilder
     private func costumeThumbnail(_ costume: CharacterCostume?) -> some View {
         if let costume, let basePath = projectBasePath,
-           let path = costume.imageFront ?? costume.imageFullBody,
-           let image = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+           let path = costume.imageFront ?? costume.imageFullBody {
+            AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 30) { wardrobePlaceholder }
                 .frame(width: 30, height: 30)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
         } else {
-            RoundedRectangle(cornerRadius: 5)
-                .fill(Color.purple.opacity(0.1))
-                .frame(width: 30, height: 30)
-                .overlay(Image(systemName: "tshirt").font(.system(size: 11)).foregroundColor(.purple.opacity(0.6)))
+            wardrobePlaceholder
         }
+    }
+
+    private var wardrobePlaceholder: some View {
+        RoundedRectangle(cornerRadius: 5)
+            .fill(Color.purple.opacity(0.1))
+            .frame(width: 30, height: 30)
+            .overlay(Image(systemName: "tshirt").font(.system(size: 11)).foregroundColor(.purple.opacity(0.6)))
     }
 }

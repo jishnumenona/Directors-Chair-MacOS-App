@@ -14,7 +14,9 @@ public struct CinematographyView: View {
     // MARK: - Properties
 
     @StateObject private var viewModel: CinematographyViewModel
-    @EnvironmentObject var captureService: LiveCaptureService
+    // LiveCaptureService is observed ONLY by the Takes section (through
+    // TakesSectionBridge): at the screen root it re-ran this whole body
+    // 10x/s while recording and per frame with a LUT (audit 2026-08-28).
 
     /// The shots passed in from the project. The view model is seeded from this
     /// once; an .onChange keeps the model in sync when the project changes
@@ -631,13 +633,12 @@ public struct CinematographyView: View {
 
                     // Takes Section (visible when shooting or has takes)
                     if shot.status == ShotStatus.shooting.rawValue || shot.hasTakes {
-                        TakesSectionView(
+                        TakesSectionBridge(
                             shot: shot,
                             projectBasePath: projectBasePath,
                             onShotUpdated: { updatedShot in
                                 viewModel.updateShot(updatedShot)
                             },
-                            captureService: captureService,
                             onNavigateToCuration: onNavigateToCuration
                         )
                         .id("takes-section")
@@ -1154,3 +1155,26 @@ struct CinematographyView_Previews: PreviewProvider {
     }
 }
 #endif
+
+// MARK: - Takes section bridge
+
+/// The one view that observes LiveCaptureService: its publishes (recording
+/// clock, processed frames) re-render this small host and the Takes
+/// section, never the whole shot detail.
+private struct TakesSectionBridge: View {
+    let shot: Shot
+    let projectBasePath: URL?
+    let onShotUpdated: (Shot) -> Void
+    let onNavigateToCuration: ((Shot) -> Void)?
+    @EnvironmentObject var captureService: LiveCaptureService
+
+    var body: some View {
+        TakesSectionView(
+            shot: shot,
+            projectBasePath: projectBasePath,
+            onShotUpdated: onShotUpdated,
+            captureService: captureService,
+            onNavigateToCuration: onNavigateToCuration
+        )
+    }
+}

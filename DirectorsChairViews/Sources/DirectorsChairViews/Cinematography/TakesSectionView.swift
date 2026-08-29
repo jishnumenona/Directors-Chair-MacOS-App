@@ -228,6 +228,7 @@ struct ReviewPlayerView: View {
     @State var currentTime: Double = 0
     @State var duration: Double = 0
     @State var timeObserver: Any?
+    @State private var endObserver: NSObjectProtocol?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -377,7 +378,8 @@ struct ReviewPlayerView: View {
                 await MainActor.run { duration = dur.seconds.isFinite ? dur.seconds : 0 }
             }
         }
-        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem, queue: .main) { _ in
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem, queue: .main) { _ in
             isPlaying = false
             avPlayer.seek(to: .zero)
             currentTime = 0
@@ -387,6 +389,8 @@ struct ReviewPlayerView: View {
     private func cleanupPlayer() {
         player?.pause()
         if let observer = timeObserver { player?.removeTimeObserver(observer) }
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
         player = nil
     }
 

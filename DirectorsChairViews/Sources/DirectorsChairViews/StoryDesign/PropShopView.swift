@@ -803,11 +803,12 @@ struct PropShopView: View {
     @ViewBuilder
     private func referenceThumb(path: String, prop: Binding<Prop>) -> some View {
         ZStack(alignment: .topTrailing) {
-            if let basePath = projectBasePath,
-               let image = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+            if let basePath = projectBasePath {
+                AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 74) {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.orange.opacity(0.1))
+                        .frame(width: 74, height: 74)
+                }
                     .frame(width: 74, height: 74)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
@@ -828,21 +829,24 @@ struct PropShopView: View {
 
     @ViewBuilder
     private func propThumbnail(_ prop: Prop, size: CGFloat) -> some View {
-        if let basePath = projectBasePath, let path = prop.thumbnail,
-           let image = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+        if let basePath = projectBasePath, let path = prop.thumbnail {
+            AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: size) {
+                propPlaceholder(size: size)
+            }
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size > 100 ? 10 : 5))
         } else {
-            RoundedRectangle(cornerRadius: size > 100 ? 10 : 5)
-                .fill(Color.orange.opacity(0.1))
-                .frame(width: size, height: size)
-                .overlay(Image(systemName: "cube.box")
-                    .font(.system(size: size * 0.35))
-                    .foregroundColor(.orange.opacity(0.5)))
+            propPlaceholder(size: size)
         }
+    }
+
+    private func propPlaceholder(size: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: size > 100 ? 10 : 5)
+            .fill(Color.orange.opacity(0.1))
+            .frame(width: size, height: size)
+            .overlay(Image(systemName: "cube.box")
+                .font(.system(size: size * 0.35))
+                .foregroundColor(.orange.opacity(0.5)))
     }
 
     private func stageColor(_ stage: String) -> Color {
