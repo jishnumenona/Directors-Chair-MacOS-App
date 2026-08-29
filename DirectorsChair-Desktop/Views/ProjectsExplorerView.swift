@@ -129,7 +129,13 @@ struct ProjectsExplorerView: View {
                 HStack(spacing: 12) {
                     Spacer()
 
-                    SyncStatusView(syncManager: cloudSyncManager)
+                    // The pre-rewrite Gitea mirror sync: a second "Sync" with
+                    // different rules (per-file last-writer-wins, full media
+                    // re-upload per click) next to the real one. Hidden unless a
+                    // hidden default asks for it (audit 2026-08-28).
+                    if UserDefaults.standard.bool(forKey: "legacyGiteaSyncEnabled") {
+                        SyncStatusView(syncManager: cloudSyncManager)
+                    }
                     AccountMenuView()
                 }
                 .padding(.horizontal, 20)

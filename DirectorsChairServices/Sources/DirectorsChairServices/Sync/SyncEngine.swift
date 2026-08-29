@@ -154,17 +154,33 @@ public final class SyncEngine: ObservableObject {
     /// green — the projection is best-effort).
     public private(set) var lastOverviewPushProblem: String?
 
+    /// True when the last push replaced project.json on disk (a merge took
+    /// the other device's document) — the caller must reload the editor
+    /// even though a following pull finds nothing newer.
+    public private(set) var projectChangedOnDisk = false
+
+    /// Hashing every asset is CPU and disk work — never on the main actor
+    /// (audit 2026-08-28: a few hundred MB of storyboard PNGs froze the UI
+    /// for seconds per Sync click).
+    nonisolated private static func buildManifest(projectDir: URL,
+                                                  previous: SyncManifest?) async throws -> SyncManifest {
+        try await Task.detached(priority: .userInitiated) {
+            try SyncManifestBuilder.build(projectDir: projectDir, previous: previous)
+        }.value
+    }
+
     @discardableResult
     public func push(projectDir: URL, projectID: String, name: String) async -> Bool {
         state = .syncing("Preparing…")
+        projectChangedOnDisk = false
         do {
             var syncState = SyncCheckpoint.load(projectDir: projectDir)
                 ?? SyncCheckpoint(projectID: projectID)
             if syncState.lastRevision == 0 {
                 _ = try await client.createProject(id: projectID, name: name)
             }
-            let manifest = try SyncManifestBuilder.build(projectDir: projectDir,
-                                                         previous: syncState.lastManifest)
+            let manifest = try await Self.buildManifest(projectDir: projectDir,
+                                                        previous: syncState.lastManifest)
             if manifest == syncState.lastManifest, syncState.lastRevision > 0 {
                 await pushOverview(projectDir: projectDir, projectID: projectID)
                 state = .synced(Date())
@@ -206,9 +222,12 @@ public final class SyncEngine: ObservableObject {
             let data = try Data(contentsOf:
                 projectDir.appendingPathComponent("project.json"))
             let project = try Self.decodeProject(data)
-            let deck = ProjectOverviewBuilder.deck(project: project,
-                                                   projectDir: projectDir,
-                                                   projectID: projectID)
+            // Re-reads and hashes every referenced image — off the main actor.
+            let deck = await Task.detached(priority: .utility) {
+                ProjectOverviewBuilder.deck(project: project,
+                                            projectDir: projectDir,
+                                            projectID: projectID)
+            }.value
             try await client.putOverview(projectID: projectID, deck: deck)
             lastOverviewPushProblem = nil
         } catch {
@@ -276,11 +295,26 @@ public final class SyncEngine: ObservableObject {
         let baseProjectBlob = syncState.lastManifest?.projectBlob
         let theyChangedProject = head.manifest.projectBlob != baseProjectBlob
         let weChangedProject = ourManifest.projectBlob != baseProjectBlob
-        if !(theyChangedProject && weChangedProject) {
-            let merged = Self.unionMerge(ours: ourManifest, theirs: head.manifest,
-                                         projectFromThem: theyChangedProject)
-            var refreshed = syncState
+        // Byte-identical documents on both sides are no conflict — a partial
+        // pull or two quick Syncs can leave ours equal to the head.
+        let sameProject = ourManifest.projectBlob == head.manifest.projectBlob
+        if sameProject || !(theyChangedProject && weChangedProject) {
             state = .syncing("Merging…")
+            // Bring the head onto THIS disk before merging. The union manifest
+            // used to record the other device's files without downloading
+            // them, so our next push tombstoned their assets and — when they
+            // alone had changed project.json — committed our stale document
+            // over theirs with no conflict raised (audit 2026-08-28).
+            try await materialise(head: head.manifest, projectID: projectID,
+                                  projectDir: projectDir, ours: ourManifest,
+                                  base: syncState.lastManifest,
+                                  takeTheirProject: theyChangedProject && !weChangedProject,
+                                  sinceRevision: syncState.lastRevision)
+            // Rebuild from what is actually on disk, against the head: the only
+            // tombstones are deletions made here.
+            let merged = try await Self.buildManifest(projectDir: projectDir,
+                                                      previous: head.manifest)
+            var refreshed = syncState
             try await uploadMissing(projectDir: projectDir, projectID: projectID,
                                     manifest: merged)
             let result = try await client.commit(projectID: projectID,
@@ -307,6 +341,44 @@ public final class SyncEngine: ObservableObject {
     /// Merge for asset-only divergence: assets union (ours wins on path
     /// collisions), tombstones union, project blob from whichever side
     /// actually changed it.
+    /// Bring the head revision's content onto this disk without disturbing
+    /// what changed here: their assets we don't have (ours win per path),
+    /// their project.json only when they alone changed it, and their
+    /// deletions of files we never touched. Files deleted here stay deleted;
+    /// a path they deleted and later re-added is kept.
+    private func materialise(head: SyncManifest, projectID: String, projectDir: URL,
+                             ours: SyncManifest, base: SyncManifest?,
+                             takeTheirProject: Bool, sinceRevision: Int) async throws {
+        let onDisk = Dictionary(uniqueKeysWithValues: ours.assets.map { ($0.path, $0.sha256) })
+        let inBase = Dictionary(uniqueKeysWithValues: (base?.assets ?? []).map { ($0.path, $0.sha256) })
+        let deletedHere = Set(ours.deleted)
+        let wanted = head.assets.filter { onDisk[$0.path] == nil && !deletedHere.contains($0.path) }
+        var fetched = 0
+        for asset in wanted {
+            fetched += 1
+            state = .syncing("Merging — downloading (\(fetched)/\(wanted.count))…")
+            let data = try await client.downloadBlob(projectID: projectID, sha256: asset.sha256)
+            try write(data: data, relativePath: asset.path, projectDir: projectDir)
+        }
+        if takeTheirProject {
+            state = .syncing("Merging — downloading project…")
+            let data = try await client.downloadBlob(projectID: projectID,
+                                                     sha256: head.projectBlob.sha256)
+            try write(data: data, relativePath: "project.json", projectDir: projectDir)
+            projectChangedOnDisk = true
+        }
+        // Their deletions, from every revision since our base, apply to files
+        // we did not touch — never to a path the head still carries.
+        let inHead = Set(head.assets.map(\.path))
+        let feed = try await client.revisions(projectID: projectID, since: sinceRevision)
+        for revision in feed.revisions {
+            for path in revision.manifest.deleted
+            where !inHead.contains(path) && onDisk[path] != nil && onDisk[path] == inBase[path] {
+                removeLocal(relativePath: path, projectDir: projectDir)
+            }
+        }
+    }
+
     static func unionMerge(ours: SyncManifest, theirs: SyncManifest,
                            projectFromThem: Bool) -> SyncManifest {
         var byPath: [String: SyncManifestAsset] = [:]
@@ -402,9 +474,12 @@ public final class SyncEngine: ObservableObject {
                 gotBytes += asset.size
                 progress = Double(gotBytes) / Double(totalBytes)
             }
-            // Tombstones from every revision we skipped over (no resurrection).
+            // Tombstones from every revision we skipped over (no resurrection)
+            // — except a path a later revision re-added, which was just
+            // downloaded and must stay.
+            let carried = Set(target.manifest.assets.map(\.path))
             for revision in feed.revisions {
-                for path in revision.manifest.deleted {
+                for path in revision.manifest.deleted where !carried.contains(path) {
                     removeLocal(relativePath: path, projectDir: projectDir)
                 }
             }
