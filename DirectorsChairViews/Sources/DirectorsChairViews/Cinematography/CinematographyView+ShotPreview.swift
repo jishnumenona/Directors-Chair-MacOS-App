@@ -37,6 +37,8 @@ struct ShotPreviewSection: View {
     @State private var showingAnnotationEditor = false
     @State private var editablePrompt: String = ""
     @State private var lastUsedPrompt: String = ""
+    /// The prompt as parts with sources, for the sectioned editor.
+    @State private var promptSections: [PromptSection] = []
     @State private var allPreviewImages: [URL] = []
     /// Which history picture is the shot's picture (latest.png) right now.
     @State private var defaultPreviewIndex: Int?
@@ -391,7 +393,8 @@ struct ShotPreviewSection: View {
         }
         .sheet(isPresented: $showingPromptEditor) {
             PromptEditorSheet(
-                prompt: $editablePrompt,
+                sections: $promptSections,
+                onReset: { promptSections = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: locations, characters: characters) },
                 isPresented: $showingPromptEditor,
                 onGenerate: { customPrompt in
                     generatePreview(with: customPrompt)
@@ -424,8 +427,22 @@ struct ShotPreviewSection: View {
     // MARK: - Prompt Editor
 
     private func openPromptEditor() {
-        editablePrompt = lastUsedPrompt.isEmpty ? buildPrompt() : lastUsedPrompt
+        promptSections = promptSectionsForEditor()
         showingPromptEditor = true
+    }
+
+    /// What the sectioned editor opens with: the built parts; a previous
+    /// annotation edit shows its marked changes above the base parts; a
+    /// prompt the user wrote by hand shows as one part.
+    private func promptSectionsForEditor() -> [PromptSection] {
+        let built = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: locations, characters: characters)
+        guard !lastUsedPrompt.isEmpty, lastUsedPrompt != buildPrompt() else { return built }
+        if let edit = PromptSections.splitEditPrompt(lastUsedPrompt) {
+            let changes = PromptSection(id: "changes", title: "Changes you marked", source: "Annotation editor",
+                                        text: edit.changes.trimmingCharacters(in: .whitespacesAndNewlines))
+            return [changes] + built
+        }
+        return [PromptSection(id: "custom", title: "Your prompt", source: "Written by you", text: lastUsedPrompt)]
     }
 
     private func generateWithDefaultPrompt() {
@@ -947,7 +964,8 @@ struct ShotPreviewSection: View {
               let tiffData = currentImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let source = bitmap.representation(using: .png, properties: [:]) else { return }
-        let basePrompt = lastUsedPrompt.isEmpty ? buildPrompt() : lastUsedPrompt
+        // Never nest an edit inside an edit (owner report 2026-08-29).
+        let basePrompt = PromptSections.baseForEdit(lastUsed: lastUsedPrompt, built: buildPrompt())
         // The scene's pictures ride behind the preview for likeness (cloud);
         // the on-device repaint takes the preview alone.
         var context: [ReferenceImage] = []
@@ -1033,98 +1051,22 @@ struct ShotPreviewSection: View {
 // MARK: - Prompt Editor Sheet
 
 private struct PromptEditorSheet: View {
-    @Binding var prompt: String
+    @Binding var sections: [PromptSection]
+    var onReset: (() -> Void)? = nil
     @Binding var isPresented: Bool
     let onGenerate: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Shot Preview Prompt")
-                    .font(.headline)
-                    .foregroundColor(.white)
-
-                Spacer()
-
-                Button {
-                    isPresented = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(.plain)
+        StructuredPromptEditor(
+            title: "Shot preview prompt",
+            sections: $sections,
+            onReset: onReset,
+            onCancel: { isPresented = false },
+            onGenerate: { prompt in
+                isPresented = false
+                onGenerate(prompt)
             }
-            .padding()
-            .background(Color(hex: "#1E1E1E"))
-
-            Divider()
-
-            // Prompt editor
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Edit the prompt below to customize the generated image:")
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
-
-                TextEditor(text: $prompt)
-                    .font(.system(size: 13, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .padding(12)
-                    .background(Color(hex: "#1A1A1A"))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
-                    )
-                    .frame(minHeight: 200)
-
-                // Tips
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Tips:")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.gray)
-
-                    Group {
-                        Label("Be specific about camera angles, lighting, and mood", systemImage: "lightbulb")
-                        Label("Include character descriptions for better results", systemImage: "person")
-                        Label("Add style keywords like 'cinematic', 'film noir', '35mm'", systemImage: "film")
-                    }
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray.opacity(0.7))
-                }
-                .padding(.top, 8)
-            }
-            .padding()
-
-            Divider()
-
-            // Footer
-            HStack {
-                Button("Cancel") {
-                    isPresented = false
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Spacer()
-
-                Button {
-                    isPresented = false
-                    onGenerate(prompt)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "wand.and.stars")
-                        Text("Generate with Prompt")
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-            }
-            .padding()
-            .background(Color(hex: "#1E1E1E"))
-        }
-        .frame(width: 600, height: 480)
-        .background(Color(hex: "#252525"))
+        )
     }
 }
 

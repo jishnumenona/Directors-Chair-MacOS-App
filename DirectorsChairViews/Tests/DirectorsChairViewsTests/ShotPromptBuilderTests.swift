@@ -378,4 +378,33 @@ final class ShotPromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("camera: low on the road surface"), prompt)
         XCTAssertTrue((StoryboardSubjects.notes(for: shot) ?? "").contains("looking up past the front wheel"))
     }
+
+    // Owner 2026-08-29: the sectioned prompt editor — same text, now with sources.
+    func testSectionsAssembleToTheSamePromptAndCarrySources() {
+        var shot = Shot(shotId: 1, description: "Shot from outside the $Mini van")
+        shot.cameraDescription = "low on the road"
+        var scene = Scene(name: "Outside"); scene.location = "Desert road"
+        var location = Location(name: "Desert road"); location.description = "Wide open desert"
+        let sections = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: [location], characters: [])
+        XCTAssertEqual(PromptSections.assemble(sections),
+                       ShotPromptBuilder.previewPrompt(shot: shot, scene: scene, locations: [location], characters: []))
+        XCTAssertEqual(sections.map(\.id), ["style", "framing", "camera", "description", "location", "look", "format"])
+        XCTAssertEqual(sections.first { $0.id == "location" }?.source, "Location: Desert road")
+        XCTAssertTrue(sections.first { $0.id == "style" }?.isFixed ?? false)
+        var dropped = sections
+        dropped[dropped.firstIndex { $0.id == "look" }!].isIncluded = false
+        XCTAssertFalse(PromptSections.assemble(dropped).contains("film grain"))
+    }
+
+    func testEditPromptsNeverNest() {
+        let built = "Cinematic film still. A road"
+        let edit = "Edit this shot preview with the following changes:\n1. At (57%, 54%): faster\nKeep all other areas unchanged." + PromptSections.originalPromptMarker + built
+        XCTAssertEqual(PromptSections.baseForEdit(lastUsed: edit, built: built), built)
+        XCTAssertEqual(PromptSections.baseForEdit(lastUsed: "my own words", built: built), "my own words")
+        XCTAssertEqual(PromptSections.baseForEdit(lastUsed: "", built: built), built)
+        let split = PromptSections.splitEditPrompt(edit)
+        XCTAssertEqual(split?.original, built)
+        XCTAssertTrue(split?.changes.contains("faster") ?? false)
+        XCTAssertNil(PromptSections.splitEditPrompt(built))
+    }
 }
