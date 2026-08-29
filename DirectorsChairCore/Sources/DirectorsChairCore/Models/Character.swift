@@ -18,6 +18,19 @@ public struct Character: Codable, Identifiable, Hashable, Sendable {
     public var color: String  // Bubble color for dialogue
     public var textColor: String  // Text color for dialogue bubbles
     public var avatar: String?  // Legacy: single avatar image path
+
+    /// The one picture that stands for this character wherever a small
+    /// portrait is shown (avatars, cast chips, pickers): the chosen avatar,
+    /// else the master reference, else the front turnaround view. Every
+    /// surface uses this so a character looks the same on the shot page as
+    /// in Story Design (owner report 2026-08-29: cast chips preferred the
+    /// front pose sheet while the sidebar showed the portrait).
+    public var representativeImage: String? {
+        for path in [avatar, baseImage, imageFront] {
+            if let path, !path.isEmpty { return path }
+        }
+        return nil
+    }
     public var about: String  // Legacy: short description
     public var gender: String  // "male", "female", "neutral", "other"
     public var voice: String?  // TTS voice name (Gemini: Puck, Charon, Kore, etc.)

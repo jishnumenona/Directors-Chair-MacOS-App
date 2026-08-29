@@ -586,7 +586,7 @@ struct ShotContextCard: View {
                 HStack(spacing: 6) {
                     // Thumbnail
                     if let char = char, let basePath = projectBasePath {
-                        let imgPath = char.imageFront ?? char.baseImage ?? char.avatar
+                        let imgPath = char.representativeImage
                         if let path = imgPath {
                             AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 22) {
                                 defaultCircleIcon(icon: "person.fill", color: .blue)
@@ -1152,7 +1152,7 @@ struct ShotContextCard: View {
             HStack(alignment: .top, spacing: 8) {
                 // Mini avatar
                 if let char = char, let basePath = projectBasePath,
-                   let path = char.imageFront ?? char.baseImage ?? char.avatar {
+                   let path = char.representativeImage {
                     AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 18) {
                         speakerInitial(dialogue.character)
                     }
@@ -1372,7 +1372,7 @@ struct ShotContextCard: View {
                             }) {
                                 HStack(spacing: 8) {
                                     if let basePath = projectBasePath,
-                                       let path = char.imageFront ?? char.baseImage ?? char.avatar {
+                                       let path = char.representativeImage {
                                         AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 24) {
                                             defaultCircleIcon(icon: "person.fill", color: .blue)
                                         }
