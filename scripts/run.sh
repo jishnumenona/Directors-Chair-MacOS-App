@@ -14,9 +14,13 @@ if [[ "${1:-}" != "--no-build" ]]; then
     CODE_SIGNING_ALLOWED=NO -quiet
 fi
 
-# Locate the built app in DerivedData (path hash can change, so search for it)
-APP=$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 1 -name "DirectorsChair-Desktop-*" -type d 2>/dev/null \
-      | head -1)/Build/Products/Debug/DirectorsChair-Desktop.app
+# Launch exactly what this tree builds: ask xcodebuild for the products dir
+# (several DirectorsChair-Desktop-* DerivedData folders can coexist — one per
+# worktree/checkout — and picking the first by listing order launched a
+# day-old copy on 2026-08-29).
+PRODUCTS=$(xcodebuild -showBuildSettings -scheme DirectorsChair-Desktop -destination 'platform=macOS' 2>/dev/null \
+      | awk -F' = ' '/ BUILT_PRODUCTS_DIR = /{print $2; exit}')
+APP="$PRODUCTS/DirectorsChair-Desktop.app"
 
 if [[ ! -d "$APP" ]]; then
   echo "App not found — run without --no-build to build first." >&2

@@ -129,6 +129,11 @@ struct ShotContextCard: View {
                                     }
                             }
                             addButton { showingCharacterPicker = true }
+                                // Anchored to the button so the list opens next to the cast,
+                                // not in the middle of the window (owner report 2026-08-29).
+                                .popover(isPresented: $showingCharacterPicker, arrowEdge: .bottom) {
+                                    characterPickerPopover
+                                }
                         }
                     }
 
@@ -283,9 +288,6 @@ struct ShotContextCard: View {
                 }
             }
         )
-        .popover(isPresented: $showingCharacterPicker) {
-            characterPickerPopover
-        }
         .popover(isPresented: $showingLocationPicker) {
             locationPickerPopover
         }
