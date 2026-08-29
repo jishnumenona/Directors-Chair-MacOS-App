@@ -29,6 +29,8 @@ struct VideoPlayerCard: View {
     @State private var videoDuration: Double = 0
     @State private var videoAspect: CGFloat?
     @State private var timeObserver: Any?
+    /// Kept so it can be removed: a block observer per player leaked every AVPlayer viewed (audit 2026-08-28).
+    @State private var endObserver: NSObjectProtocol?
 
     /// Player surface height is derived from the clip's real aspect ratio but
     /// capped so portrait clips don't take over the shot detail column.
@@ -225,7 +227,8 @@ struct VideoPlayerCard: View {
         }
 
         // Observe end of playback to reset
-        NotificationCenter.default.addObserver(
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: avPlayer.currentItem,
             queue: .main
@@ -241,6 +244,8 @@ struct VideoPlayerCard: View {
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
         }
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
         player = nil
     }
 

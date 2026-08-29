@@ -34,8 +34,16 @@ public final class ThumbnailImageCache: @unchecked Sendable {
         cache.countLimit = 300
     }
 
+    /// The file's write time and size are part of the key: a regenerated
+    /// image (same path, new bytes — shot previews, character portraits)
+    /// must not keep showing its old picture, and a picture that appears
+    /// after a miss must be picked up (audit 2026-08-28). One stat per
+    /// lookup — microseconds, no decode.
     private func key(_ url: URL, _ maxPixel: Int) -> NSString {
-        "\(url.path)|\(maxPixel)" as NSString
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let stamp = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? -1
+        let size = (attributes?[.size] as? NSNumber)?.int64Value ?? -1
+        return "\(url.path)|\(maxPixel)|\(stamp)|\(size)" as NSString
     }
 
     /// Synchronous cache peek — returns an already-decoded thumbnail or nil.
@@ -61,8 +69,11 @@ public final class ThumbnailImageCache: @unchecked Sendable {
     /// Load + downsample off the main thread. Returns nil for a missing or
     /// undecodable file (and remembers the failure).
     public func thumbnail(_ url: URL, maxPixel: Int) async -> NSImage? {
-        if let hit = cache.object(forKey: key(url, maxPixel)) { return hit }
-        let failKey = "\(url.path)|\(maxPixel)"
+        let cacheKey = key(url, maxPixel)
+        if let hit = cache.object(forKey: cacheKey) { return hit }
+        // A failure is remembered for THIS version of the file only: once
+        // the file appears or changes, the key changes and it is retried.
+        let failKey = cacheKey as String
         if isFailed(failKey) { return nil }
 
         return await withCheckedContinuation { continuation in

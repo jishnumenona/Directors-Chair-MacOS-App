@@ -220,7 +220,7 @@ struct ShotContextCard: View {
                         contextSection(icon: "text.bubble.fill", iconColor: .cyan, title: "SCENE SCRIPT") {
                             VStack(alignment: .leading, spacing: 6) {
                                 ScrollView {
-                                    VStack(alignment: .leading, spacing: 6) {
+                                    LazyVStack(alignment: .leading, spacing: 6) {
                                         ForEach(scriptItems) { item in
                                             scriptRow(item)
                                         }
@@ -571,10 +571,10 @@ struct ShotContextCard: View {
                     // Thumbnail
                     if let char = char, let basePath = projectBasePath {
                         let imgPath = char.imageFront ?? char.baseImage ?? char.avatar
-                        if let path = imgPath, let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                            Image(nsImage: img)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
+                        if let path = imgPath {
+                            AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 22) {
+                                defaultCircleIcon(icon: "person.fill", color: .blue)
+                            }
                                 .frame(width: 22, height: 22)
                                 .clipShape(Circle())
                         } else {
@@ -646,11 +646,10 @@ struct ShotContextCard: View {
         Button(action: { toggleCostumeAssignment(costume, for: character) }) {
             HStack(spacing: 6) {
                 ZStack(alignment: .bottomTrailing) {
-                    if let basePath = projectBasePath, let path = costume.imageFront,
-                       let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                        Image(nsImage: img)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
+                    if let basePath = projectBasePath, let path = costume.imageFront {
+                        AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 22) {
+                            defaultSquareIcon(icon: "tshirt", color: .purple)
+                        }
                             .frame(width: 22, height: 22)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                     } else {
@@ -705,11 +704,10 @@ struct ShotContextCard: View {
             }) {
                 HStack(spacing: 6) {
                     if let loc = location, let basePath = projectBasePath,
-                       let path = loc.primaryImage ?? loc.images.first,
-                       let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                        Image(nsImage: img)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
+                       let path = loc.primaryImage ?? loc.images.first {
+                        AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 22) {
+                            defaultSquareIcon(icon: "mappin", color: .green)
+                        }
                             .frame(width: 22, height: 22)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                     } else {
@@ -875,11 +873,10 @@ struct ShotContextCard: View {
                         }) {
                             HStack(spacing: 8) {
                                 if let basePath = projectBasePath,
-                                   let path = loc.primaryImage ?? loc.images.first,
-                                   let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                                    Image(nsImage: img)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
+                                   let path = loc.primaryImage ?? loc.images.first {
+                                    AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 24) {
+                                        defaultSquareIcon(icon: "mappin", color: .green)
+                                    }
                                         .frame(width: 24, height: 24)
                                         .clipShape(RoundedRectangle(cornerRadius: 4))
                                 } else {
@@ -1139,22 +1136,14 @@ struct ShotContextCard: View {
             HStack(alignment: .top, spacing: 8) {
                 // Mini avatar
                 if let char = char, let basePath = projectBasePath,
-                   let path = char.imageFront ?? char.baseImage ?? char.avatar,
-                   let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                    Image(nsImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
+                   let path = char.imageFront ?? char.baseImage ?? char.avatar {
+                    AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 18) {
+                        speakerInitial(dialogue.character)
+                    }
                         .frame(width: 18, height: 18)
                         .clipShape(Circle())
                 } else {
-                    Circle()
-                        .fill(Color.cyan.opacity(0.15))
-                        .frame(width: 18, height: 18)
-                        .overlay(
-                            Text(String(dialogue.character.prefix(1)))
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.cyan)
-                        )
+                    speakerInitial(dialogue.character)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1283,6 +1272,19 @@ struct ShotContextCard: View {
 
     // MARK: - Icon Helpers
 
+
+    /// The speaker's initial — the script row's placeholder while (or if no) portrait loads.
+    private func speakerInitial(_ name: String) -> some View {
+        Circle()
+            .fill(Color.cyan.opacity(0.15))
+            .frame(width: 18, height: 18)
+            .overlay(
+                Text(String(name.prefix(1)))
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.cyan)
+            )
+    }
+
     @ViewBuilder
     private func defaultCircleIcon(icon: String, color: Color) -> some View {
         Circle()
@@ -1349,11 +1351,10 @@ struct ShotContextCard: View {
                             }) {
                                 HStack(spacing: 8) {
                                     if let basePath = projectBasePath,
-                                       let path = char.imageFront ?? char.baseImage ?? char.avatar,
-                                       let img = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-                                        Image(nsImage: img)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
+                                       let path = char.imageFront ?? char.baseImage ?? char.avatar {
+                                        AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 24) {
+                                            defaultCircleIcon(icon: "person.fill", color: .blue)
+                                        }
                                             .frame(width: 24, height: 24)
                                             .clipShape(Circle())
                                     } else {

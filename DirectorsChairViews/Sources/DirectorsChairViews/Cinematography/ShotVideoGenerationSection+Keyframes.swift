@@ -244,10 +244,24 @@ struct KeyframeCard: View {
     private let cardWidth: CGFloat = 380
     private let cardHeight: CGFloat = 240
 
-    private var loadedImage: NSImage? {
-        guard let imagePath = keyframe.imagePath,
-              let basePath = projectBasePath else { return nil }
-        return NSImage(contentsOf: basePath.appendingPathComponent(imagePath))
+    /// Decoded once per path through the shared cache — this was a computed
+    /// property re-reading the full frame on every hover and every job poll
+    /// (audit 2026-08-28).
+    @State private var loadedImage: NSImage?
+
+    private var imageURL: URL? {
+        guard let imagePath = keyframe.imagePath, let basePath = projectBasePath else { return nil }
+        return basePath.appendingPathComponent(imagePath)
+    }
+
+    private func loadImage() async {
+        guard let url = imageURL else { loadedImage = nil; return }
+        if let hit = ThumbnailImageCache.shared.cached(url, maxPixel: Int(cardWidth * 3)) {
+            loadedImage = hit
+            return
+        }
+        let image = await ThumbnailImageCache.shared.thumbnail(url, maxPixel: Int(cardWidth * 3))
+        if !Task.isCancelled { loadedImage = image }
     }
 
     var body: some View {
@@ -485,6 +499,7 @@ struct KeyframeCard: View {
                 }
             }
         }
+        .task(id: "\(imageURL?.path ?? "")|\(isGenerating)") { await loadImage() }
     }
 }
 

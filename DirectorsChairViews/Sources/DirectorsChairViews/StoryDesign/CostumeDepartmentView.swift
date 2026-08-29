@@ -255,36 +255,38 @@ struct CostumeDepartmentView: View {
     @ViewBuilder
     private func characterAvatar(_ character: Character) -> some View {
         if let basePath = projectBasePath,
-           let path = character.imageFront ?? character.baseImage ?? character.avatar,
-           let image = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+           let path = character.imageFront ?? character.baseImage ?? character.avatar {
+            AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 20) { avatarPlaceholder }
                 .frame(width: 20, height: 20)
                 .clipShape(Circle())
         } else {
-            Circle()
-                .fill(Color.blue.opacity(0.15))
-                .frame(width: 20, height: 20)
-                .overlay(Image(systemName: "person.fill").font(.system(size: 9)).foregroundColor(.blue))
+            avatarPlaceholder
         }
+    }
+
+    private var avatarPlaceholder: some View {
+        Circle()
+            .fill(Color.blue.opacity(0.15))
+            .frame(width: 20, height: 20)
+            .overlay(Image(systemName: "person.fill").font(.system(size: 9)).foregroundColor(.blue))
     }
 
     @ViewBuilder
     private func costumeThumbnail(_ costume: CharacterCostume) -> some View {
         if let basePath = projectBasePath,
-           let path = costume.imageFront ?? costume.imageFullBody,
-           let image = NSImage(contentsOf: basePath.appendingPathComponent(path)) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+           let path = costume.imageFront ?? costume.imageFullBody {
+            AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 26) { costumePlaceholder }
                 .frame(width: 26, height: 26)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         } else {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.purple.opacity(0.12))
-                .frame(width: 26, height: 26)
-                .overlay(Image(systemName: "tshirt").font(.system(size: 10)).foregroundColor(.purple.opacity(0.7)))
+            costumePlaceholder
         }
+    }
+
+    private var costumePlaceholder: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color.purple.opacity(0.12))
+            .frame(width: 26, height: 26)
+            .overlay(Image(systemName: "tshirt").font(.system(size: 10)).foregroundColor(.purple.opacity(0.7)))
     }
 }
