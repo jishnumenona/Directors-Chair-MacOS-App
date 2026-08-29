@@ -9,6 +9,17 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.10.1] — 2026-08-29
+
+### Fixed
+- **Sign-in no longer loops after installing a new version.** macOS treats each
+  unsigned build of the app as a different program, so a session saved by an
+  earlier build could block the new one from saving its own — the app then
+  dropped the sign-in it had just completed and showed the sign-in screen
+  again. Signing in now always succeeds; if the Mac refuses to store the
+  session, the app keeps it for this launch, stores it locally, and tells you
+  you'll be asked to sign in again after a relaunch.
+
 ## [3.10.0] — 2026-08-28
 
 ### Added
