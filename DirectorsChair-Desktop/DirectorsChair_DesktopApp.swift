@@ -243,12 +243,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // The .terminateNow fast path (nothing dirty) skips the async
         // reply above — the lock still has to come off.
         guard !TestMode.isTestHost else { return }
-        let semaphore = DispatchSemaphore(value: 0)
-        Task {
-            await CrashTelemetry.shared.endSessionCleanly()
-            semaphore.signal()
-        }
-        _ = semaphore.wait(timeout: .now() + 2)
+        // Synchronous on purpose: a main-actor Task cannot run while the
+        // main thread blocks here, so the old semaphore always timed out —
+        // a 2 s stall on every clean quit and a lock left behind that made
+        // the next launch report a crash that never happened.
+        CrashTelemetry.shared.endSessionCleanlyNow()
     }
 
     func applicationWillResignActive(_ notification: Notification) {

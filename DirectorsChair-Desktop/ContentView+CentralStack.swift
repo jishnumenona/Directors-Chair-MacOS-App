@@ -1303,7 +1303,10 @@ struct CinematographyViewAdapter: View {
                 shotsAdapter = ShotsAdapter(
                     project: projectViewModel.project,
                     onShotsChanged: { updatedProject in
-                        projectViewModel.project = updatedProject
+                        // Only the shots come back: the adapter's copy may
+                        // predate script or production edits (audit 2026-08-28 P0).
+                        projectViewModel.project = projectViewModel.project
+                            .adoptingShots(from: updatedProject)
                         projectViewModel.isDirty = true
                         // Notify timeline and other views that shots changed
                         coordinator.notifyProjectChanged()
@@ -1312,10 +1315,9 @@ struct CinematographyViewAdapter: View {
             }
         }
         // Refresh adapter when project changes externally (e.g. navigator adds/removes shots)
-        .onReceive(coordinator.projectEvents) { event in
-            // The adapter mirrors scenes+shots — pure script/production edits
-            // don't change the shot projection.
-            guard event != .script && event != .production else { return }
+        .onReceive(coordinator.projectEvents) { _ in
+            // Every event: the adapter's copy must never fall behind the live
+            // project it merges its shots into (a cheap flatten).
             shotsAdapter?.refresh(from: projectViewModel.project)
         }
     }

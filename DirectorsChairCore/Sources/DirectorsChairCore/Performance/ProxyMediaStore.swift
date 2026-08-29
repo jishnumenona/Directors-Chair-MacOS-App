@@ -54,16 +54,28 @@ public struct AVProxyTranscoder: ProxyTranscoding {
             asset: asset, presetName: AVAssetExportPreset1280x720) else {
             throw ProxyMediaError.exportUnavailable
         }
-        try? FileManager.default.removeItem(at: destination)
+        // Export beside the destination and move in only when complete: an
+        // interrupted export used to leave a truncated proxy whose fresh
+        // mtime made it look valid forever (audit 2026-08-28).
+        let partial = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).part")
+        try? FileManager.default.removeItem(at: partial)
         session.shouldOptimizeForNetworkUse = true
-        if #available(macOS 15, *) {
-            try await session.export(to: destination, as: .mp4)
-        } else {
-            session.outputURL = destination
-            session.outputFileType = .mp4
-            await session.export()
-            if let error = session.error { throw error }
+        do {
+            if #available(macOS 15, *) {
+                try await session.export(to: partial, as: .mp4)
+            } else {
+                session.outputURL = partial
+                session.outputFileType = .mp4
+                await session.export()
+                if let error = session.error { throw error }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: partial)
+            throw error
         }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: partial, to: destination)
     }
 }
 

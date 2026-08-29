@@ -69,8 +69,8 @@ public actor CrashTelemetry {
         self.processName = processName
     }
 
-    private var lockURL: URL { directory.appendingPathComponent("session.lock") }
-    private var stateURL: URL { directory.appendingPathComponent("state.json") }
+    private nonisolated var lockURL: URL { directory.appendingPathComponent("session.lock") }
+    private nonisolated var stateURL: URL { directory.appendingPathComponent("state.json") }
     public nonisolated var reportsDirectory: URL {
         directory.appendingPathComponent("reports", isDirectory: true)
     }
@@ -104,6 +104,15 @@ public actor CrashTelemetry {
     /// The clean goodbye. Anything that skips this — crash, kill -9,
     /// power loss — is what launchCheck detects next time.
     public func endSessionCleanly() {
+        endSessionCleanlyNow()
+    }
+
+    /// The same goodbye, callable synchronously from the main thread while
+    /// it is busy terminating: applicationWillTerminate used to spawn a
+    /// main-actor task and block on it, which cannot run there — every
+    /// clean quit stalled 2 s and left the lock behind, so the next launch
+    /// reported a crash that never happened (audit 2026-08-28).
+    public nonisolated func endSessionCleanlyNow() {
         try? FileManager.default.removeItem(at: lockURL)
         try? FileManager.default.removeItem(at: stateURL)
     }

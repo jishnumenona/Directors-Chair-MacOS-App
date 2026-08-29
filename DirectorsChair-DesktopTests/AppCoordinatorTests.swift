@@ -1150,7 +1150,7 @@ final class DailiesIngestControllerTests: XCTestCase {
         super.tearDown()
     }
 
-    func testFilingAClipCopiesItIntoTheFootageLayoutAndAppendsTheTake() throws {
+    func testFilingAClipCopiesItIntoTheFootageLayoutAndAppendsTheTake() async throws {
         // A project on disk (the footage layout is relative to it).
         let projectDir = temp.appendingPathComponent("My Film")
         try FileManager.default.createDirectory(
@@ -1170,7 +1170,8 @@ final class DailiesIngestControllerTests: XCTestCase {
 
         let controller = DailiesIngestController()
         controller.configure(projectViewModel: viewModel)
-        controller.file(clip, sequenceIndex: 0, sceneIndex: 0, shotIndex: 0)
+        // The copy runs off the main thread; the take lands when it completes.
+        await controller.file(clip, sequenceIndex: 0, sceneIndex: 0, shotIndex: 0)?.value
 
         let takes = viewModel.project.sequences[0].scenes[0].shots[0].takes
         XCTAssertEqual(takes.count, 1)

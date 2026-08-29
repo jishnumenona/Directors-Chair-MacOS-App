@@ -154,8 +154,13 @@ class ProjectViewModel: ObservableObject {
                     if needsOwnGroup { manager.endUndoGrouping() }
                 }
 
+                // A project being LOADED is not an edit: without this guard
+                // the just-opened file was marked dirty and rewritten — with a
+                // backup rotation — 500 ms after every open (audit 2026-08-28).
+                let loading = self.isLoading
                 // Defer property changes to avoid publishing during view updates
                 Task { @MainActor in
+                    guard !loading else { return }
                     self.isDirty = true
 
                     // Request auto-save if we have a project path and it's writable
@@ -220,8 +225,13 @@ class ProjectViewModel: ObservableObject {
     func restoreSnapshot(_ snapshot: DirectorsChairCore.ProjectSnapshot) async {
         guard let path = projectPath else { return }
         do {
-            let restored = try await ProjectSnapshotStore.shared
+            var restored = try await ProjectSnapshotStore.shared
                 .restore(snapshot)
+            // A decoded snapshot carries no basePath; without the folder,
+            // cloud sync refuses until the project is reopened.
+            if restored.basePath.isEmpty {
+                restored.basePath = path.deletingLastPathComponent().path
+            }
             _ = try? await ProjectSnapshotStore.shared.create(
                 project, forProjectAt: path, label: "Before restore")
             project = restored

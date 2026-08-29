@@ -176,7 +176,10 @@ public actor ProjectPersistence {
         // it also removes the temp file. moveItem covers the first-write case.
         do {
             if FileManager.default.fileExists(atPath: url.path) {
-                _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
+                // New metadata: the replaced file must carry THIS write's
+                // dates, or every backup copied from it ties on birth time.
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL,
+                                                          options: .usingNewMetadataOnly)
             } else {
                 try FileManager.default.moveItem(at: tempURL, to: url)
             }
@@ -222,18 +225,24 @@ public actor ProjectPersistence {
             // Get all backup files
             let contents = try FileManager.default.contentsOfDirectory(
                 at: backupsDir,
-                includingPropertiesForKeys: [.creationDateKey],
+                includingPropertiesForKeys: [.contentModificationDateKey],
                 options: .skipsHiddenFiles
             )
 
             // Filter to only project.json backups
             let backupFiles = contents.filter { $0.lastPathComponent.hasPrefix("project_") }
 
-            // Sort by creation date (newest first)
+            // Newest first by the write they preserve — the modification
+            // date a copy inherits — with the timestamped name as the
+            // tiebreaker. Birth time was used before, and every copy of a
+            // file replaced in place shares one birth time, so the ring
+            // dropped arbitrary (usually the newest) backups (audit
+            // 2026-08-28: July states survived, August ones did not).
             let sortedBackups = try backupFiles.sorted { url1, url2 in
-                let date1 = try url1.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date.distantPast
-                let date2 = try url2.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date.distantPast
-                return date1 > date2
+                let date1 = try url1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? Date.distantPast
+                let date2 = try url2.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? Date.distantPast
+                if date1 != date2 { return date1 > date2 }
+                return url1.lastPathComponent > url2.lastPathComponent
             }
 
             // Delete oldest backups beyond maxBackups
