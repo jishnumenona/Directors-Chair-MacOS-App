@@ -17,6 +17,8 @@ struct PlaybackView: View {
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @EnvironmentObject var timelineViewModel: TimelineViewModel
     @StateObject private var playbackVM = PlaybackViewModel()
+    /// The "voice all dialogue" run (DC-0081); one per Playback view.
+    @StateObject private var voicingBatch = DialogueVoicingBatch()
 
     @State private var sidebarWidth: CGFloat = 300
     @State private var keyMonitor: Any?
@@ -39,7 +41,8 @@ struct PlaybackView: View {
                 // storyteller is active every control drives the narration.
                 PlaybackTransportBar(viewModel: playbackVM,
                                      storytellerActive: playbackVM.storytellerActive,
-                                     onStoryteller: { toggleStoryteller() })
+                                     onStoryteller: { toggleStoryteller() },
+                                     voiceAll: voiceAllControl)
 
                 // Storyteller scene strip (visible while the mode is open)
                 if playbackVM.storytellerActive {
@@ -137,6 +140,27 @@ struct PlaybackView: View {
             timelineViewModel.mutedTracks.removeAll()
             removeKeyMonitor()
         }
+    }
+
+    /// Voice every line in the timeline through the shared voicer, saving
+    /// each take as it lands; the playlist rebuilds so the cues play.
+    private var voiceAllControl: VoiceAllDialogueControl {
+        let provider = AIProviderSelection.shared.provider(for: .speech)
+        return VoiceAllDialogueControl(
+            batch: voicingBatch,
+            provider: provider,
+            plan: { onlyUnvoiced in
+                DialogueVoicingPlan.timeline(in: projectViewModel.project, onlyUnvoiced: onlyUnvoiced)
+            },
+            start: { plan in
+                Task { @MainActor in
+                    await voicingBatch.run(plan: plan, projectViewModel: projectViewModel, provider: provider) { request in
+                        try await AIServiceClient.shared.generateSpeech(request).audioData
+                    }
+                    buildPlaylist()
+                }
+            },
+            finished: { buildPlaylist() })
     }
 
     private func buildPlaylist() {

@@ -246,55 +246,28 @@ struct TimelineContainer: View {
                     do {
                         let dialogue = timelineViewModel.findDialogue(sourceItemId: sourceId)
                         let character = timelineViewModel.findCharacter(name: segment.character)
-                        let voiceName = character?.voice ?? (character?.gender.lowercased() == "female" ? "Kore" : "Charon")
-
-                        var emotionParts: [String] = []
-                        if let style = character?.voiceStyle, !style.isEmpty {
-                            emotionParts.append(style)
-                        }
-                        if let tags = dialogue?.tags, !tags.isEmpty {
-                            emotionParts.append(contentsOf: tags)
-                        }
-                        let emotion = emotionParts.isEmpty ? nil : "Say \(emotionParts.joined(separator: ", "))"
-
-                        // Strip HTML from text
-                        var text = dialogue?.text ?? segment.text
-                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if trimmed.hasPrefix("<") {
-                            let tagPattern = "<[^>]+>"
-                            if let regex = try? NSRegularExpression(pattern: tagPattern, options: .caseInsensitive) {
-                                let range = NSRange(location: 0, length: text.utf16.count)
-                                text = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                            }
-                        }
-
-                        let request = SpeechGenerationRequest(
-                            text: text,
-                            provider: AIProviderSelection.shared.provider(for: .speech),
-                            voiceName: voiceName,
-                            emotion: emotion,
+                        // Casting, emotion and text through the one voicer
+                        // (DC-0081) — the assistant and Playback share it.
+                        let request = DialogueVoicer.request(
+                            text: DialogueVoicer.plainText(dialogue?.text ?? segment.text),
                             characterName: segment.character,
-                            voiceTone: character?.voiceTone,
-                            voicePersonality: character?.voicePersonality,
-                            voicePace: character?.voicePace,
-                            voiceAccent: character?.voiceAccent,
-                            voiceAge: character?.voiceAge
-                        )
+                            tags: dialogue?.tags ?? [],
+                            character: character,
+                            provider: AIProviderSelection.shared.provider(for: .speech))
 
                         let response = try await AIServiceClient.shared.generateSpeech(request)
 
                         // Save audio file
                         if let projectPath = projectViewModel.projectPath {
                             let projectDir = projectPath.deletingLastPathComponent()
-                            let audioDir = projectDir.appendingPathComponent("assets/audio/dialogues")
+                            let audioDir = projectDir.appendingPathComponent(DialogueVoicer.audioDirectory)
                             try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
 
                             let fileName = "\(sourceId).wav"
                             let filePath = audioDir.appendingPathComponent(fileName)
                             try response.audioData.write(to: filePath)
 
-                            let relativePath = "assets/audio/dialogues/\(fileName)"
+                            let relativePath = DialogueVoicer.relativePath(for: sourceId)
                             timelineViewModel.updateDialogueAudioPath(sourceItemId: sourceId, audioFilePath: relativePath)
 
                             // Sync project back
