@@ -31,6 +31,9 @@ public struct ActionBubbleCard: View {
     @FocusState private var textFieldFocused: Bool
     @FocusState private var indexFieldFocused: Bool
 
+    /// Width of the row this card sits in (BubbleView publishes it); the card caps itself at a share of it
+    @Environment(\.bubbleRowWidth) private var rowWidth
+
     public init(
         action: Action,
         isSelected: Bool = false,
@@ -152,8 +155,8 @@ public struct ActionBubbleCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected || isEditing ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .fixedSize(horizontal: !isEditing, vertical: false)
-        .frame(minWidth: isEditing ? 200 : nil)
+        // Hug the text, in display and edit mode alike; wrap past a share of the row (owner 2026-08-29)
+        .hugWidth(max: BubbleCardSizing.maxWidth(forRowWidth: rowWidth))
         .onHover { isHovered = $0 }
         .onTapGesture { onTap?() }
         .contextMenu {

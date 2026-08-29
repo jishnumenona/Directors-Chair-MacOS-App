@@ -33,6 +33,9 @@ public struct NoteBubbleCard: View {
     @FocusState private var textFieldFocused: Bool
     @FocusState private var indexFieldFocused: Bool
 
+    /// Width of the row this card sits in (BubbleView publishes it); the card caps itself at a share of it
+    @Environment(\.bubbleRowWidth) private var rowWidth
+
     private let accentColor = Color(red: 0.85, green: 0.65, blue: 0.2) // Amber/gold
 
     public init(
@@ -133,7 +136,6 @@ public struct NoteBubbleCard: View {
                 Text(displayText)
                     .font(.system(size: 12))
                     .foregroundColor(note.content.isEmpty && note.title.isEmpty ? .gray : accentColor.opacity(0.9))
-                    .lineLimit(1)
                     .onTapGesture(count: 2) {
                         startEditing()
                     }
@@ -165,8 +167,8 @@ public struct NoteBubbleCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .fixedSize(horizontal: !isEditing, vertical: false)
-        .frame(minWidth: isEditing ? 200 : nil)
+        // Hug the text, in display and edit mode alike; wrap past a share of the row (owner 2026-08-29)
+        .hugWidth(max: BubbleCardSizing.maxWidth(forRowWidth: rowWidth))
         .onHover { isHovered = $0 }
         .onTapGesture { onTap?() }
         .contextMenu {

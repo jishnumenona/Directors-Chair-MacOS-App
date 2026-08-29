@@ -80,50 +80,65 @@ public struct CharacterMentionTextField: View {
     private var visibleCandidates: [MentionCandidate] { Array(filteredCandidates.prefix(5)) }
 
     public var body: some View {
-        TextField(placeholder, text: $text)
-            .font(font)
-            .foregroundColor(foregroundColor)
-            .textFieldStyle(.plain)
-            .focused($isFocused)
-            .onChange(of: text) { oldValue, newValue in
-                handleTextChange(oldValue: oldValue, newValue: newValue)
-            }
-            .onSubmit {
-                let visible = visibleCandidates
-                if showMentionPopup, selectedMentionIndex < visible.count {
-                    insertMention(visible[selectedMentionIndex])
-                } else {
-                    onSubmit?()
+        // The field hugs what is typed (owner 2026-08-29): a text field takes
+        // whatever width it is offered, so an invisible mirror of the text
+        // sets the width — growing as you type, never past the card's cap —
+        // and the field is laid over it. An empty field keeps a usable minimum.
+        ZStack(alignment: .leading) {
+            Text(text.isEmpty ? placeholder : text)
+                .font(font)
+                .lineLimit(1)
+                .padding(.trailing, 8)   // room for the caret after the last character
+                .opacity(0)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+
+            TextField(placeholder, text: $text)
+                .font(font)
+                .foregroundColor(foregroundColor)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .onChange(of: text) { oldValue, newValue in
+                    handleTextChange(oldValue: oldValue, newValue: newValue)
                 }
-            }
-            .onKeyPress(.downArrow) {
-                if showMentionPopup {
-                    selectedMentionIndex = min(selectedMentionIndex + 1, max(visibleCandidates.count - 1, 0))
-                    return .handled
+                .onSubmit {
+                    let visible = visibleCandidates
+                    if showMentionPopup, selectedMentionIndex < visible.count {
+                        insertMention(visible[selectedMentionIndex])
+                    } else {
+                        onSubmit?()
+                    }
                 }
-                return .ignored
-            }
-            .onKeyPress(.upArrow) {
-                if showMentionPopup {
-                    selectedMentionIndex = max(selectedMentionIndex - 1, 0)
-                    return .handled
+                .onKeyPress(.downArrow) {
+                    if showMentionPopup {
+                        selectedMentionIndex = min(selectedMentionIndex + 1, max(visibleCandidates.count - 1, 0))
+                        return .handled
+                    }
+                    return .ignored
                 }
-                return .ignored
-            }
-            .onKeyPress(.escape) {
-                if showMentionPopup {
-                    closeMentionPopup()
-                    return .handled
+                .onKeyPress(.upArrow) {
+                    if showMentionPopup {
+                        selectedMentionIndex = max(selectedMentionIndex - 1, 0)
+                        return .handled
+                    }
+                    return .ignored
                 }
-                return .ignored
-            }
-            .overlay(alignment: .topLeading) {
-                if showMentionPopup && !filteredCandidates.isEmpty {
-                    mentionPopup
-                        .offset(y: 24)
+                .onKeyPress(.escape) {
+                    if showMentionPopup {
+                        closeMentionPopup()
+                        return .handled
+                    }
+                    return .ignored
                 }
-            }
-            .zIndex(showMentionPopup ? 100 : 0)
+                .overlay(alignment: .topLeading) {
+                    if showMentionPopup && !filteredCandidates.isEmpty {
+                        mentionPopup
+                            .offset(y: 24)
+                    }
+                }
+        }
+        .frame(minWidth: BubbleCardSizing.editFieldMinWidth, alignment: .leading)
+        .zIndex(showMentionPopup ? 100 : 0)
     }
 
     private var mentionPopup: some View {

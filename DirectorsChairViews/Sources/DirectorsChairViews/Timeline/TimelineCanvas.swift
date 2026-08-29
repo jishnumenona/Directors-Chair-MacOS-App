@@ -140,6 +140,9 @@ public struct TimelineCanvas: View {
     /// wider than its duration because of its text)
     @State var trimStartDuration: CGFloat = 0
 
+    /// The shortest this block may be trimmed to (seconds): 0.5 s, or a dialogue's label width at this zoom
+    @State var trimMinimumSeconds: CGFloat = TimelineTrim.minimumDuration
+
     // MARK: - Computed Properties
 
     /// Characters in order: first those with segments (by first appearance),
@@ -363,6 +366,9 @@ public struct TimelineCanvas: View {
                             trimStartDuration = DurationEstimator.bubbleWidth(
                                 for: hit.segment, pxPerSec: pxPerSec, showThumbs: showThumbs
                             ) / pxPerSec
+                            trimMinimumSeconds = TimelineTrim.minimumSeconds(
+                                for: hit.segment, pxPerSec: pxPerSec, showThumbs: showThumbs
+                            )
                             if !selectedSegmentIds.contains(hit.segment.id) {
                                 selectedSegmentIds = [hit.segment.id]
                             }
@@ -386,7 +392,8 @@ public struct TimelineCanvas: View {
                             edge: trimEdge,
                             start: segment.start,
                             duration: trimStartDuration,
-                            deltaSeconds: (value.location.x - dragStartX) / pxPerSec
+                            deltaSeconds: (value.location.x - dragStartX) / pxPerSec,
+                            minimumSeconds: trimMinimumSeconds
                         )
                         onSegmentTrimmed?(segment, result.start, result.duration)
                     } else if draggingSegmentId != nil {
@@ -411,6 +418,7 @@ public struct TimelineCanvas: View {
                     draggingSegmentId = nil
                     trimmingSegmentId = nil
                     trimStartDuration = 0
+                    trimMinimumSeconds = TimelineTrim.minimumDuration
                     dragCurrentX = 0
                     dragStartX = 0
                 }

@@ -203,7 +203,10 @@ extension TimelineViewModel {
     public func trimSegment(id: UUID, newStart: CGFloat, newDuration: CGFloat) {
         guard let index = segments.firstIndex(where: { $0.id == id }) else { return }
         let clampedStart = max(0, newStart)
-        let clampedDuration = max(TimelineTrim.minimumDuration, newDuration)
+        // Per-type floor (owner 2026-08-29): 0.5 s for action / narration / sound
+        // blocks, a dialogue's label width at the current zoom
+        let minimum = TimelineTrim.minimumSeconds(for: segments[index], pxPerSec: pxPerSec, showThumbs: showThumbs)
+        let clampedDuration = max(minimum, newDuration)
         let startChanged = abs(segments[index].start - clampedStart) > 0.0005
         segments[index].start = clampedStart
         segments[index].duration = clampedDuration
@@ -275,6 +278,52 @@ extension TimelineViewModel {
 
         computeShotSubLanes()
         computeShotDialogueConnections()
+    }
+
+    // MARK: - Spoken length (dialogue)
+
+    /// Words per minute for a segment's speaker: the character's voice pace
+    /// (Voice tab) scaled onto the timeline WPM; the timeline WPM itself when
+    /// the character carries no pace. See `SpokenLength.wordsPerMinute`.
+    public func spokenWordsPerMinute(for segment: TimelineSegment) -> Int {
+        let character = characterByName[segment.character] ?? findCharacter(name: segment.character)
+        return SpokenLength.wordsPerMinute(voicePace: character?.voicePace, timelineWPM: wpm)
+    }
+
+    /// How long a dialogue block's line takes to say, on the 0.1 s trim grid
+    /// (the figure shown in "Reset to spoken length (N.N s)").
+    public func spokenLength(for segment: TimelineSegment) -> CGFloat {
+        let seconds = SpokenLength.seconds(forText: segment.text, wordsPerMinute: spokenWordsPerMinute(for: segment))
+        return max(TimelineTrim.minimumDuration, TimelineTrim.snap(seconds))
+    }
+
+    /// Reset a dialogue block to its spoken length. The estimate is stored as
+    /// the row's `manualDuration` — the same field a trim writes — and any
+    /// manual start offset is cleared, then the timeline is rebuilt so the
+    /// block, and everything after it, flow back into chronology order.
+    /// Returns the block's new placement; nil when the segment is not a
+    /// dialogue with a source row.
+    @discardableResult
+    public func resetToSpokenLength(id: UUID) -> TimelineTrim.Result? {
+        guard let segment = segments.first(where: { $0.id == id }),
+              segment.contentType == .dialogue,
+              let sourceId = segment.sourceItemId else { return nil }
+        let estimate = Double(spokenLength(for: segment))
+        let found = updateSourceItem(
+            id: sourceId,
+            contentType: .dialogue,
+            dialogue: { row in
+                row.manualDuration = estimate
+                row.manualStartTime = nil
+            },
+            action: { _ in },
+            narration: { _ in },
+            soundNote: { _ in }
+        )
+        guard found else { return nil }
+        rebuild()
+        guard let placed = segments.first(where: { $0.sourceItemId == sourceId }) else { return nil }
+        return TimelineTrim.Result(start: placed.start, duration: placed.duration)
     }
 
     /// Apply an edit to the model row behind a segment, matched by its source

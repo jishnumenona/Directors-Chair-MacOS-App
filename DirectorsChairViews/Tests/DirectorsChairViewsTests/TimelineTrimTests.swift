@@ -81,6 +81,104 @@ final class TimelineTrimMathTests: XCTestCase {
         XCTAssertEqual(DurationEstimator.effectiveDuration(manualDuration: 0, fallback: 2), 2)
         XCTAssertEqual(DurationEstimator.effectiveDuration(manualDuration: -1, fallback: 2), 2)
     }
+
+    // MARK: Per-type minimums (owner 2026-08-29)
+
+    private func segment(_ type: TimelineSegment.ContentType, text: String) -> TimelineSegment {
+        TimelineSegment(start: 0, duration: 3, character: type == .dialogue ? "Alice" : "Action",
+                        color: "#FFFFFF", text: text, sceneName: "S", contentType: type)
+    }
+
+    func testActionNarrationAndSoundBlocksTrimDownToTheFloorWhateverTheirText() {
+        let essay = String(repeating: "A long description that would need a very wide block. ", count: 4)
+        for type in [TimelineSegment.ContentType.action, .narration, .soundNote] {
+            XCTAssertEqual(TimelineTrim.minimumSeconds(for: segment(type, text: essay), pxPerSec: 60, showThumbs: true),
+                           TimelineTrim.minimumDuration, "\(type)")
+        }
+    }
+
+    func testDialogueMinimumIsItsLabelWidthAtTheCurrentZoom() {
+        let seg = segment(.dialogue, text: "Hello there, how are you today?")
+        let labelWidth = DurationEstimator.dialogueLabelWidth(for: seg.text, showThumbs: false)
+        let minimum = TimelineTrim.minimumSeconds(for: seg, pxPerSec: 60, showThumbs: false)
+
+        XCTAssertGreaterThanOrEqual(minimum * 60, labelWidth - 1e-6, "the block at its minimum still shows the whole label")
+        XCTAssertLessThan(minimum * 60 - labelWidth, 6 + 1e-6, "…rounded up to the next 0.1 s, no further")
+        XCTAssertEqual(minimum, TimelineTrim.snap(minimum), accuracy: 1e-9, "on the trim grid")
+
+        // Zoomed in, the same label needs fewer seconds; with avatars it needs more; a longer line needs more
+        XCTAssertLessThan(TimelineTrim.minimumSeconds(for: seg, pxPerSec: 120, showThumbs: false), minimum)
+        XCTAssertGreaterThan(TimelineTrim.minimumSeconds(for: seg, pxPerSec: 60, showThumbs: true), minimum)
+        let longer = segment(.dialogue, text: seg.text + " I was hoping we could talk about the plan for tonight.")
+        XCTAssertGreaterThan(TimelineTrim.minimumSeconds(for: longer, pxPerSec: 60, showThumbs: false), minimum)
+    }
+
+    func testDialogueMinimumNeverDropsBelowTheFloorNorAboveTheWidestBubble() {
+        XCTAssertEqual(TimelineTrim.minimumSeconds(for: segment(.dialogue, text: ""), pxPerSec: 240, showThumbs: false),
+                       TimelineTrim.minimumDuration)
+        let novel = String(repeating: "word ", count: 300)
+        let capped = TimelineTrim.minimumSeconds(for: segment(.dialogue, text: novel), pxPerSec: 60, showThumbs: false)
+        XCTAssertEqual(capped, TimelineTrim.snapUp(TimelineLayoutConstants.maxTextBasedBubbleWidth / 60), accuracy: 1e-9,
+                       "a very long line is capped like the bubble itself")
+        XCTAssertEqual(TimelineTrim.minimumSeconds(for: segment(.dialogue, text: novel), pxPerSec: 0, showThumbs: false),
+                       TimelineTrim.minimumDuration, "no zoom, no label-based floor")
+    }
+
+    func testLabelWidthNeverUnderTheCanvasEstimateAndGrowsWithTheText() {
+        let short = "Hello there, how are you today?"
+        XCTAssertGreaterThanOrEqual(DurationEstimator.labelWidth(for: short),
+                                    CGFloat(short.count) * TimelineLayoutConstants.minWidthPerCharacter,
+                                    "the canvas truncates by this estimate, so the label is never narrower than it")
+        XCTAssertGreaterThan(DurationEstimator.labelWidth(for: "WWWWWWWWWW"), DurationEstimator.labelWidth(for: "iiiiiiiiii") - 1e-6,
+                             "wide glyphs measure at least as wide as narrow ones")
+        XCTAssertEqual(DurationEstimator.labelWidth(for: ""), 0)
+        XCTAssertEqual(DurationEstimator.labelWidth(for: "<p>Hi</p>"), DurationEstimator.labelWidth(for: "Hi"), "HTML is stripped")
+        XCTAssertEqual(DurationEstimator.displayLabel(for: "  Line one\nline two  "), "Line one line two")
+        XCTAssertEqual(DurationEstimator.displayLabel(for: String(repeating: "x", count: 250)).count,
+                       TimelineLayoutConstants.maxTextDisplayLength + 3)
+    }
+
+    func testClampAndResolveHonourAPerBlockMinimum() {
+        XCTAssertEqual(TimelineTrim.clampDuration(1.0, minimumSeconds: 2.3), 2.3, accuracy: 1e-9)
+        XCTAssertEqual(TimelineTrim.clampDuration(4.26, minimumSeconds: 2.3), 4.3, accuracy: 1e-9)
+        XCTAssertEqual(TimelineTrim.clampDuration(0.1, minimumSeconds: 0.2), 0.5, accuracy: 1e-9, "the 0.5 s floor always holds")
+        XCTAssertEqual(TimelineTrim.snapUp(4.4583), 4.5, accuracy: 1e-9)
+        XCTAssertEqual(TimelineTrim.snapUp(4.5), 4.5, accuracy: 1e-9, "an exact tenth stays put")
+
+        let trailing = TimelineTrim.resolve(edge: .trailing, start: 2, duration: 5, deltaSeconds: -4, minimumSeconds: 2.3)
+        XCTAssertEqual(trailing.start, 2, accuracy: 1e-9)
+        XCTAssertEqual(trailing.duration, 2.3, accuracy: 1e-9)
+
+        let leading = TimelineTrim.resolve(edge: .leading, start: 2, duration: 5, deltaSeconds: 4, minimumSeconds: 2.3)
+        XCTAssertEqual(leading.duration, 2.3, accuracy: 1e-9)
+        XCTAssertEqual(leading.end, 7, accuracy: 1e-9, "the end stays put")
+
+        let pinned = TimelineTrim.resolve(edge: .leading, start: 0.5, duration: 1, deltaSeconds: -3, minimumSeconds: 2.3)
+        XCTAssertEqual(pinned.start, 0, accuracy: 1e-9)
+        XCTAssertEqual(pinned.duration, 2.3, accuracy: 1e-9, "pinned at the origin, never under the block's floor")
+
+        // Without a per-block minimum nothing changes for shots and the like
+        let plain = TimelineTrim.resolve(edge: .trailing, start: 2, duration: 3, deltaSeconds: -5)
+        XCTAssertEqual(plain.duration, 0.5, accuracy: 1e-9)
+    }
+
+    func testClippedBlocksAreDrawnAtTheirDurationAndDialoguesAtTheirLabel() {
+        let essay = String(repeating: "Alice crosses the room slowly. ", count: 3)
+        let action = TimelineSegment(start: 0, duration: 0.5, character: "Action", color: "#FF9500",
+                                     text: essay, sceneName: "S", contentType: .action)
+        XCTAssertEqual(DurationEstimator.bubbleWidth(for: action, pxPerSec: 60, showThumbs: true), 30, accuracy: 1e-9,
+                       "0.5 s at 60 px/s — the text clips inside")
+        XCTAssertEqual(DurationEstimator.bubbleWidth(for: action, pxPerSec: 20, showThumbs: true),
+                       TimelineLayoutConstants.minClippedBubbleWidth, accuracy: 1e-9,
+                       "room for the tail and grips at any zoom")
+
+        let dialogue = TimelineSegment(start: 0, duration: 0.5, character: "Alice", color: "#FFF",
+                                       text: essay, sceneName: "S", contentType: .dialogue)
+        XCTAssertEqual(DurationEstimator.bubbleWidth(for: dialogue, pxPerSec: 60, showThumbs: false),
+                       min(DurationEstimator.dialogueLabelWidth(for: essay, showThumbs: false),
+                           TimelineLayoutConstants.maxTextBasedBubbleWidth),
+                       accuracy: 1e-9, "a dialogue never hides its line")
+    }
 }
 
 @MainActor
@@ -166,16 +264,16 @@ final class TimelineTrimPersistenceTests: XCTestCase {
         viewModel.showScene(project.sequences[0].scenes[0])
         let seg = segment("d-1")
 
-        viewModel.trimSegment(id: seg.id, newStart: seg.start, newDuration: 4.2)
+        viewModel.trimSegment(id: seg.id, newStart: seg.start, newDuration: 6.2)   // above this line's label floor (4.5 s at the default zoom with thumbnails)
 
-        XCTAssertEqual(scene().dialogues[0].manualDuration, 4.2)
+        XCTAssertEqual(scene().dialogues[0].manualDuration, 6.2)
         XCTAssertNil(scene().dialogues[0].manualStartTime, "the start did not move")
-        XCTAssertEqual(segment("d-1").duration, 4.2, accuracy: 1e-6)
+        XCTAssertEqual(segment("d-1").duration, 6.2, accuracy: 1e-6)
 
         // The block keeps the dragged size across a rebuild
         viewModel.setProject(viewModel.getProject()!)
         viewModel.refresh()
-        XCTAssertEqual(segment("d-1").duration, 4.2, accuracy: 1e-6)
+        XCTAssertEqual(segment("d-1").duration, 6.2, accuracy: 1e-6)
     }
 
     func testLeadingTrimOfAnActionPersistsStartAndDuration() {
@@ -220,12 +318,30 @@ final class TimelineTrimPersistenceTests: XCTestCase {
         let project = makeProject()
         viewModel.setProject(project)
         viewModel.showScene(project.sequences[0].scenes[0])
-        let seg = segment("d-1")
+        let seg = segment("a-1")   // an action goes right down to the floor, whatever its text
 
         viewModel.trimSegment(id: seg.id, newStart: seg.start, newDuration: 0.1)
 
-        XCTAssertEqual(scene().dialogues[0].manualDuration, Double(TimelineTrim.minimumDuration))
-        XCTAssertEqual(segment("d-1").duration, TimelineTrim.minimumDuration, accuracy: 1e-6)
+        XCTAssertEqual(scene().actions[0].manualDuration, Double(TimelineTrim.minimumDuration))
+        XCTAssertEqual(segment("a-1").duration, TimelineTrim.minimumDuration, accuracy: 1e-6)
+    }
+
+    func testADialogueTrimNeverPersistsLessThanItsLabelNeeds() {
+        let project = makeProject()
+        viewModel.setProject(project)
+        viewModel.showScene(project.sequences[0].scenes[0])
+        let seg = segment("d-1")
+        let floor = TimelineTrim.minimumSeconds(for: seg, pxPerSec: viewModel.pxPerSec, showThumbs: viewModel.showThumbs)
+        XCTAssertGreaterThan(floor, TimelineTrim.minimumDuration, "this line needs more than half a second of width")
+
+        viewModel.trimSegment(id: seg.id, newStart: seg.start, newDuration: 0.1)
+
+        XCTAssertEqual(scene().dialogues[0].manualDuration ?? -1, Double(floor), accuracy: 1e-9)
+        XCTAssertEqual(segment("d-1").duration, floor, accuracy: 1e-6)
+
+        // Zoomed in, the same label needs less time — the floor follows the zoom
+        viewModel.setZoom(viewModel.pxPerSec * 2)
+        XCTAssertLessThan(TimelineTrim.minimumSeconds(for: seg, pxPerSec: viewModel.pxPerSec, showThumbs: viewModel.showThumbs), floor)
     }
 
     func testTrimExtendsTheTimelineWhenDraggedPastItsEnd() {

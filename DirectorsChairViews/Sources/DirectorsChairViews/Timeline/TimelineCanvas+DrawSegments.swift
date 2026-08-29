@@ -44,7 +44,8 @@ extension TimelineCanvas {
                         edge: trimEdge,
                         start: segment.start,
                         duration: trimStartDuration,
-                        deltaSeconds: (dragCurrentX - dragStartX) / pxPerSec
+                        deltaSeconds: (dragCurrentX - dragStartX) / pxPerSec,
+                        minimumSeconds: trimMinimumSeconds
                     )
                     previewSegment.start = preview.start
                     previewSegment.duration = preview.duration
@@ -124,7 +125,10 @@ extension TimelineCanvas {
         var textLeft = contentLeft
 
         let avatarName = segment.parentCharacterName ?? segment.character
-        let showAvatar = showThumbs && (segment.contentType == .dialogue || segment.parentCharacterName != nil)
+        // A block trimmed narrower than its avatar clips its text, not the avatar's circle
+        let hasRoomForAvatar = rect.width >= TimelineLayoutConstants.avatarSize + TimelineLayoutConstants.contentPadding * 2
+        let showAvatar = showThumbs && hasRoomForAvatar
+            && (segment.contentType == .dialogue || segment.parentCharacterName != nil)
         if showAvatar {
             let avatarRect = CGRect(
                 x: contentLeft,

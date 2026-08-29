@@ -84,6 +84,11 @@ public struct TimelineLayoutConstants {
     /// Maximum bubble width based on text (to prevent overly wide bubbles)
     public static let maxTextBasedBubbleWidth: CGFloat = 800
 
+    /// Smallest a block that clips its text is drawn (room for the tail and both
+    /// grips). Action, narration and sound blocks are as wide as their duration,
+    /// never their text, so they can be trimmed right down to the 0.5 s floor.
+    public static let minClippedBubbleWidth: CGFloat = 24
+
     /// Corner radius for bubbles (0 = rectangular, like Python)
     public static let bubbleCornerRadius: CGFloat = 0
 

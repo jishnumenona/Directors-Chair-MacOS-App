@@ -89,6 +89,8 @@ extension BubbleView {
                         // cachedChronologicalItems — so reorders re-diff the
                         // rows in place instead of discarding the whole list.
                         .padding()
+                        // Cards cap themselves at a share of the row (BubbleCardSizing)
+                        .environment(\.bubbleRowWidth, bubbleRowWidth)
                     }
                     .background(backgroundView)
                     .onChange(of: scrollToItemId) { newItemId in
@@ -142,6 +144,12 @@ extension BubbleView {
                 )
             }
         }
+    }
+
+    /// Width a bubble row has to work with: the scroll area minus the list's
+    /// padding. Cards read it from the environment to cap themselves.
+    var bubbleRowWidth: CGFloat {
+        max(0, scrollAreaFrame.width - 32)
     }
 
     // MARK: - Background View

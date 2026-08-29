@@ -337,6 +337,30 @@ extension TimelineView {
                     menu.addItem(genItem)
                 }
 
+                // Reset to spoken length (owner 2026-08-29): the line at its
+                // speaker's pace — the character's voice pace scaled onto the
+                // timeline WPM, or the timeline WPM alone — stored the way a
+                // trim is, with the block flowing back into place.
+                menu.addItem(NSMenuItem.separator())
+                let spoken = viewModel.spokenLength(for: segment)
+                let resetItem = NSMenuItem(
+                    title: "Reset to spoken length (\(TimelineTrim.label(for: spoken)))",
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                resetItem.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
+                resetItem.toolTip = "Makes the block as long as the line takes to say at "
+                    + "\(viewModel.spokenWordsPerMinute(for: segment)) words per minute and lets it flow back into place"
+                let resetHandler = TrackMenuHandler {
+                    if let placement = viewModel.resetToSpokenLength(id: segment.id) {
+                        self.onSegmentTrimmed?(segment, placement.start, placement.duration)
+                    }
+                }
+                resetItem.target = resetHandler
+                resetItem.action = #selector(TrackMenuHandler.execute)
+                resetItem.representedObject = resetHandler
+                menu.addItem(resetItem)
+
                 menu.addItem(NSMenuItem.separator())
             }
 

@@ -3,6 +3,7 @@
 // WPM-based duration estimation for dialogue segments
 
 import Foundation
+import AppKit
 
 /// Utility for estimating dialogue duration based on text and WPM
 public struct DurationEstimator {
@@ -35,6 +36,7 @@ public struct DurationEstimator {
     /// Clear all internal caches (call on scene switch or rebuild)
     public static func clearCaches() {
         plainTextCache.removeAll()
+        labelWidthCache.removeAll()
     }
 
     // MARK: - Public Methods
@@ -179,20 +181,67 @@ public struct DurationEstimator {
 // MARK: - Bubble Width Calculation
 
 extension DurationEstimator {
+    /// Cache of label widths (display text → points at the canvas label font)
+    private static var labelWidthCache: [String: CGFloat] = [:]
+
+    /// The canvas label font (TimelineCanvas+DrawSegments draws labels at 11 pt)
+    private static let labelFont = NSFont.systemFont(ofSize: 11)
+
+    /// The text a bubble actually draws: plain, on one line, at most
+    /// `maxTextDisplayLength` characters plus an ellipsis.
+    public static func displayLabel(for text: String?) -> String {
+        var label = htmlToPlainText(text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        if label.count > TimelineLayoutConstants.maxTextDisplayLength {
+            label = String(label.prefix(TimelineLayoutConstants.maxTextDisplayLength)) + "..."
+        }
+        return label
+    }
+
+    /// Width of a bubble's label in points: the wider of the canvas's
+    /// per-character estimate (the rule it truncates by) and the measured
+    /// text (so wide glyphs aren't clipped either).
+    public static func labelWidth(for text: String?) -> CGFloat {
+        let label = displayLabel(for: text)
+        if let cached = labelWidthCache[label] { return cached }
+        let estimated = CGFloat(label.count) * TimelineLayoutConstants.minWidthPerCharacter
+        let measured: CGFloat = label.isEmpty
+            ? 0
+            : (label as NSString).size(withAttributes: [.font: labelFont]).width
+        let width = max(estimated, measured.rounded(.up))
+        if labelWidthCache.count >= cacheLimit { labelWidthCache.removeAll() }
+        labelWidthCache[label] = width
+        return width
+    }
+
+    /// Width a dialogue bubble needs for its whole label to stay visible:
+    /// the label plus avatar (when thumbnails are on), padding and tail.
+    public static func dialogueLabelWidth(for text: String?, showThumbs: Bool) -> CGFloat {
+        labelWidth(for: text)
+            + (showThumbs ? TimelineLayoutConstants.avatarSize + TimelineLayoutConstants.avatarGap : 0)
+            + TimelineLayoutConstants.contentPadding * 2
+            + TimelineLayoutConstants.tailWidth
+    }
+
     /// Compute the visual pixel width of a timeline bubble.
     /// Shared between TimelineCanvas (draw + hit-test) and TimelineViewModel (sub-lane layout).
+    ///
+    /// A dialogue bubble is never narrower than its label (capped), so the
+    /// line stays readable. Action, narration and sound blocks are as wide as
+    /// their duration and clip their text — they can be trimmed right down to
+    /// the 0.5 s floor whatever they say (owner 2026-08-29).
     public static func bubbleWidth(
         for segment: TimelineSegment,
         pxPerSec: CGFloat,
         showThumbs: Bool
     ) -> CGFloat {
         let durationBasedWidth = segment.duration * pxPerSec
-        let plainText = htmlToPlainText(segment.text)
+        guard segment.contentType == .dialogue else {
+            return max(TimelineLayoutConstants.minClippedBubbleWidth, durationBasedWidth)
+        }
         let textBasedMinWidth = min(
-            CGFloat(plainText.count) * TimelineLayoutConstants.minWidthPerCharacter +
-            (showThumbs ? TimelineLayoutConstants.avatarSize + TimelineLayoutConstants.avatarGap : 0) +
-            TimelineLayoutConstants.contentPadding * 2 +
-            TimelineLayoutConstants.tailWidth,
+            dialogueLabelWidth(for: segment.text, showThumbs: showThumbs),
             TimelineLayoutConstants.maxTextBasedBubbleWidth
         )
         return max(TimelineLayoutConstants.minBubbleWidth, max(durationBasedWidth, textBasedMinWidth))
