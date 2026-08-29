@@ -74,6 +74,9 @@ struct ScenesListView: View {
                         onImageGenerated: { relativePath in
                             updateSceneOverviewImage(scene, relativePath: relativePath)
                         },
+                        onStoryboardGenerated: { relativePath in
+                            updateSceneStoryboardImage(scene, relativePath: relativePath)
+                        },
                         onPromptUsed: { prompt in
                             updateSceneOverviewPrompt(scene, prompt: prompt)
                         },
@@ -287,6 +290,22 @@ struct ScenesListView: View {
                 coordinator.notifyProjectChanged()
 
                 // Force save to ensure persistence across navigation
+                Task { await projectViewModel.forceSave() }
+                return
+            }
+        }
+    }
+
+    private func updateSceneStoryboardImage(_ scene: DirectorsChairCore.Scene, relativePath: String) {
+        for seqIndex in projectViewModel.project.sequences.indices {
+            if let sceneIndex = projectViewModel.project.sequences[seqIndex].scenes.firstIndex(where: { $0.id == scene.id }) {
+                projectViewModel.project.sequences[seqIndex].scenes[sceneIndex].sceneStoryboardImage = relativePath
+                projectViewModel.isDirty = true
+
+                // Detail view reads the scene from the coordinator — keep it seeing the sketch
+                coordinator.selectedScene = projectViewModel.project.sequences[seqIndex].scenes[sceneIndex]
+                coordinator.notifyProjectChanged()
+
                 Task { await projectViewModel.forceSave() }
                 return
             }

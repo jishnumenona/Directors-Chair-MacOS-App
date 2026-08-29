@@ -14,7 +14,7 @@ final class AssistantImageActionsTests: XCTestCase {
 
     private var projectVM: ProjectViewModel!
     private var tempDir: URL!
-    private var calls: [(prompt: String, aspect: String, reference: String?)] = []
+    private var calls: [(prompt: String, aspect: String, reference: String?, brief: VisualBrief?)] = []
 
     override func setUp() {
         super.setUp()
@@ -41,9 +41,9 @@ final class AssistantImageActionsTests: XCTestCase {
 
     private func makeGenerate() -> @MainActor () -> AssistantImageGenerate {
         { [weak self] in
-            { prompt, aspect, reference in
+            { prompt, aspect, reference, brief in
                 await MainActor.run {
-                    self?.calls.append((prompt, aspect, reference))
+                    self?.calls.append((prompt, aspect, reference, brief))
                 }
                 return Data("fake-png".utf8)
             }
@@ -100,6 +100,12 @@ final class AssistantImageActionsTests: XCTestCase {
         XCTAssertTrue(calls[0].prompt.contains("establishing shot"))
         XCTAssertNotNil(calls[1].reference, "variation references the primary")
         XCTAssertTrue(calls[1].prompt.contains("night"))
+        // The on-device engine draws from the brief: a location purpose (empty
+        // place, Vision redraw) with the variation as a property of the place.
+        XCTAssertEqual(calls[0].brief?.purpose, .location)
+        XCTAssertTrue(calls[0].brief?.subject.hasPrefix("Rooftop") == true, calls[0].brief?.subject ?? "nil")
+        XCTAssertEqual(calls[1].brief?.purpose, .location)
+        XCTAssertTrue(calls[1].brief?.subject.contains("at night") == true, calls[1].brief?.subject ?? "nil")
 
         let location = projectVM.project.locations[0]
         XCTAssertEqual(location.primaryImage, "assets/locations/Rooftop/primary.png")

@@ -684,7 +684,8 @@ struct ShotVideoGenerationSection: View {
             provider: AIProviderSelection.shared.provider(for: .image),
             aspectRatio: aspectRatio,
             referenceImageBase64: referenceBase64,
-            referenceMimeType: "image/png"
+            referenceMimeType: "image/png",
+            editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) }
         )
 
         Task {

@@ -32,17 +32,28 @@ extension SceneDetailView {
         }
     }
 
-    func generateOverviewImage(with customPrompt: String? = nil) {
+    func generateOverviewImage(with customPrompt: String? = nil,
+                               editRegions: [EditRegion] = []) {
         guard let basePath = projectBasePath else { return }
         isGeneratingImage = true
 
         let prompt = customPrompt ?? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene)
         lastUsedPrompt = prompt
 
+        // DC-0069: an annotation edit on-device is a LOCAL repaint of the
+        // picture on screen — that picture rides as the reference, the pins
+        // as regions. Cloud providers keep their proven request unchanged.
+        let localEdit: (png: Data, regions: [EditRegion])? = {
+            guard !editRegions.isEmpty,
+                  AIProviderSelection.shared.provider(for: .image) == .onDevice,
+                  let png = currentHeroPNG(basePath: basePath) else { return nil }
+            return (png, editRegions)
+        }()
+
         Task {
             do {
                 let aiClient = AIServiceClient.shared
-                guard await aiClient.testConnection() else {
+                guard await aiClient.imageServiceReachable() else {
                     await MainActor.run { isGeneratingImage = false }
                     return
                 }
@@ -58,8 +69,16 @@ extension SceneDetailView {
                     provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: "16:9",
                     numberOfImages: 1,
-                    referenceImageBase64: ref?.base64,
-                    referenceMimeType: ref?.mimeType
+                    referenceImageBase64: localEdit?.png.base64EncodedString() ?? ref?.base64,
+                    referenceMimeType: localEdit != nil ? "image/png" : ref?.mimeType,
+                    brief: localEdit != nil
+                        ? VisualBrief(purpose: .edit,
+                                      subject: StoryboardSubjects.editInstruction(from: prompt))
+                        : VisualBrief(
+                            purpose: .scene,
+                            subject: customPrompt.map(StoryboardSubjects.plainSubject)
+                                ?? StoryboardSubjects.subject(for: scene)),
+                    editRegions: localEdit?.regions ?? []
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -122,7 +141,23 @@ extension SceneDetailView {
         let editPrompt = ImageAnnotationEditor.buildEditPrompt(from: annotations, context: "scene preview")
         let basePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
         let combinedPrompt = editPrompt + "\n\nOriginal prompt: " + basePrompt
-        generateOverviewImage(with: combinedPrompt)
+        generateOverviewImage(with: combinedPrompt,
+                              editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) })
+    }
+
+    /// The picture currently on screen as PNG bytes — the hero image if
+    /// loaded, else the scene's latest overview file.
+    private func currentHeroPNG(basePath: URL) -> Data? {
+        if let image = heroImage, let tiff = image.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiff),
+           let png = bitmap.representation(using: .png, properties: [:]) {
+            return png
+        }
+        let latest = basePath
+            .appendingPathComponent("assets/scenes")
+            .appendingPathComponent(SceneCardHelpers.sanitizeFilename(scene.name))
+            .appendingPathComponent("overview_latest.png")
+        return try? Data(contentsOf: latest)
     }
 
     // MARK: - Download
@@ -142,6 +177,117 @@ extension SceneDetailView {
                    let bitmap = NSBitmapImageRep(data: tiffData),
                    let pngData = bitmap.representation(using: .png, properties: [:]) {
                     try? pngData.write(to: url)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - On-device storyboard sketch (DC-0064)
+
+extension SceneDetailView {
+
+    /// A slim strip under the stats bar: the scene's ink-sketch frame,
+    /// drawn locally by the Storyboard model. States explain themselves —
+    /// undownloaded shows a pointer to Settings, never a dead button.
+    var storyboardSection: some View {
+        HStack(spacing: 12) {
+            Group {
+                if let sketch = storyboardSketch {
+                    Image(nsImage: sketch)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Rectangle().fill(Color(nsColor: .quaternarySystemFill))
+                        Image(systemName: "pencil.and.outline")
+                            .font(.system(size: 18))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .frame(width: 128, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Storyboard sketch")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(storyboardEngineReady
+                     ? "Ink-sketch frame drawn on this Mac — free, works offline"
+                     : "Download the local image model in Settings → AI Services (\(ByteCountFormatter.string(fromByteCount: LocalImageEngine.model.approxBytes, countStyle: .file)), free)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                if let error = storyboardErrorText {
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                        .accessibilityIdentifier("scene-storyboard-error")
+                }
+            }
+
+            Spacer()
+
+            if isSketchingStoryboard {
+                ProgressView().controlSize(.small)
+            }
+
+            Button(scene.sceneStoryboardImage == nil ? "Sketch" : "Redraw") {
+                sketchStoryboardFrame()
+            }
+            .disabled(!storyboardEngineReady || isSketchingStoryboard)
+            .help(storyboardEngineReady
+                  ? "Draw this scene as an ink-sketch storyboard frame on this Mac"
+                  : "The Storyboard model isn't downloaded yet — Settings → AI Services")
+            .accessibilityIdentifier("scene-storyboard-generate")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .task {
+            storyboardEngineReady =
+                await LocalImageEngine.shared.availability() == .ready
+            loadStoryboardSketch()
+        }
+    }
+
+    func loadStoryboardSketch() {
+        guard let relative = scene.sceneStoryboardImage,
+              let basePath = projectBasePath else { return }
+        storyboardSketch = NSImage(contentsOf:
+            basePath.appendingPathComponent(relative))
+    }
+
+    /// One frame through the on-device engine: subject from the scene's
+    /// own fields, saved beside its other assets, relative path persisted
+    /// through the same write-back the hero image uses.
+    func sketchStoryboardFrame() {
+        guard !isSketchingStoryboard, let basePath = projectBasePath else { return }
+        isSketchingStoryboard = true
+        storyboardErrorText = nil
+        Task {
+            do {
+                let spec = StoryboardFrameSpec(
+                    subject: StoryboardSubjects.subject(for: scene),
+                    purpose: .scene)
+                let png = try await LocalImageEngine.shared.generateFrame(spec)
+                let directory = "assets/scenes/\(SceneCardHelpers.sanitizeFilename(scene.name))"
+                let saved = try StoryboardFrameStore.save(
+                    png: png, projectBasePath: basePath,
+                    relativeDirectory: directory)
+                await MainActor.run {
+                    storyboardSketch = NSImage(data: png)
+                    onStoryboardGenerated?(saved.relativePath)
+                    isSketchingStoryboard = false
+                }
+            } catch let error as StoryboardEngineError {
+                await MainActor.run {
+                    storyboardErrorText = error.userMessage
+                    isSketchingStoryboard = false
+                }
+            } catch {
+                await MainActor.run {
+                    storyboardErrorText = error.localizedDescription
+                    isSketchingStoryboard = false
                 }
             }
         }

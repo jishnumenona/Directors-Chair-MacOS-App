@@ -49,7 +49,7 @@ final class AssistantBatchActionsTests: XCTestCase {
 
     private func makeBatchAction() -> GenerateMissingImagesAction {
         let stub: @MainActor () -> CharacterImagePipeline.Generate = { [weak self] in
-            { prompt, _ in
+            { prompt, _, _ in
                 let shouldFail = await MainActor.run { () -> Bool in
                     self?.generatedPrompts.append(prompt)
                     return self?.failFor.contains(where: { prompt.contains($0) }) ?? false
@@ -59,7 +59,7 @@ final class AssistantBatchActionsTests: XCTestCase {
             }
         }
         let imageStub: @MainActor () -> AssistantImageGenerate = { [weak self] in
-            { prompt, _, _ in
+            { prompt, _, _, _ in
                 let shouldFail = await MainActor.run { () -> Bool in
                     self?.generatedPrompts.append(prompt)
                     return self?.failFor.contains(where: { prompt.contains($0) }) ?? false

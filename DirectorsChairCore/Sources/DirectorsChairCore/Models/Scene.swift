@@ -46,6 +46,7 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
 
     // MARK: - Scene Overview
     public var sceneOverviewImage: String?  // AI-generated composite showing emotional essence
+    public var sceneStoryboardImage: String?  // On-device ink-sketch storyboard frame path (DC-0064)
     public var sceneEmotionalAnalysis: [String: Double]?  // Emotional analysis (emotions and weights)
     public var sceneOverviewPrompt: String?  // Prompt used to generate overview
     public var sceneOverviewSummary: String?  // AI-generated 2-3 sentence summary
@@ -79,6 +80,7 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         productionStatus: String = "Planning",
         styleOverride: String? = nil,
         sceneOverviewImage: String? = nil,
+        sceneStoryboardImage: String? = nil,
         sceneEmotionalAnalysis: [String: Double]? = nil,
         sceneOverviewPrompt: String? = nil,
         sceneOverviewSummary: String? = nil,
@@ -105,6 +107,7 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         self.productionStatus = productionStatus
         self.styleOverride = styleOverride
         self.sceneOverviewImage = sceneOverviewImage
+        self.sceneStoryboardImage = sceneStoryboardImage
         self.sceneEmotionalAnalysis = sceneEmotionalAnalysis
         self.sceneOverviewPrompt = sceneOverviewPrompt
         self.sceneOverviewSummary = sceneOverviewSummary
@@ -133,6 +136,7 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
         case productionStatus = "production_status"
         case styleOverride = "style_override"
         case sceneOverviewImage = "scene_overview_image"
+        case sceneStoryboardImage = "scene_storyboard_image"
         case sceneEmotionalAnalysis = "scene_emotional_analysis"
         case sceneOverviewPrompt = "scene_overview_prompt"
         case sceneOverviewSummary = "scene_overview_summary"
@@ -179,6 +183,7 @@ public struct Scene: Codable, Identifiable, Hashable, Sendable {
 
         // Scene Overview
         sceneOverviewImage = try container.decodeIfPresent(String.self, forKey: .sceneOverviewImage)
+        sceneStoryboardImage = try container.decodeIfPresent(String.self, forKey: .sceneStoryboardImage)
         sceneEmotionalAnalysis = try container.decodeIfPresent([String: Double].self, forKey: .sceneEmotionalAnalysis)
         sceneOverviewPrompt = try container.decodeIfPresent(String.self, forKey: .sceneOverviewPrompt)
         sceneOverviewSummary = try container.decodeIfPresent(String.self, forKey: .sceneOverviewSummary)

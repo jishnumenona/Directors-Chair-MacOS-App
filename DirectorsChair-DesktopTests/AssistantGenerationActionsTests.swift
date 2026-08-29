@@ -17,6 +17,7 @@ final class AssistantGenerationActionsTests: XCTestCase {
     private var tempDir: URL!
     private var promptsSeen: [String] = []
     private var referencesSeen: [String?] = []
+    private var briefsSeen: [VisualBrief?] = []
 
     override func setUp() {
         super.setUp()
@@ -30,6 +31,7 @@ final class AssistantGenerationActionsTests: XCTestCase {
         projectVM.projectPath = tempDir.appendingPathComponent("project.json")
         promptsSeen = []
         referencesSeen = []
+        briefsSeen = []
     }
 
     override func tearDown() {
@@ -44,10 +46,11 @@ final class AssistantGenerationActionsTests: XCTestCase {
         GenerateCharacterImagesAction(
             projectViewModel: projectVM, coordinator: nil,
             makeGenerate: { [weak self] in
-                { prompt, reference in
+                { prompt, reference, brief in
                     await MainActor.run {
                         self?.promptsSeen.append(prompt)
                         self?.referencesSeen.append(reference)
+                        self?.briefsSeen.append(brief)
                     }
                     return Data("fake-png".utf8)
                 }
@@ -55,6 +58,25 @@ final class AssistantGenerationActionsTests: XCTestCase {
     }
 
     private func args(_ json: String) -> Data { Data(json.utf8) }
+
+    /// The on-device engine draws the framing, not the prompt's prose: a
+    /// profile request must carry the profile as framing or it comes back
+    /// as the default front portrait (DC-0071 populate pass).
+    func testEveryAngleCarriesTheStoryDesignBriefWithItsFraming() async throws {
+        projectVM.project.characters[0].baseImage = "assets/characters/Alexander/face/front.png"
+        let base = tempDir.appendingPathComponent(projectVM.project.characters[0].baseImage!)
+        try FileManager.default.createDirectory(at: base.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("png".utf8).write(to: base)
+        let action = makeAction()
+        _ = try await action.execute(argumentsData: args(
+            #"{"character": "Alexander", "angles": ["profile_left", "back"]}"#))
+        XCTAssertEqual(briefsSeen.count, 2)
+        let profile = try XCTUnwrap(briefsSeen[0])
+        XCTAssertEqual(profile.purpose, .character)
+        XCTAssertEqual(profile.subject, StoryboardSubjects.subject(for: projectVM.project.characters[0]))
+        XCTAssertTrue(profile.framing?.contains("Exact left profile") == true, profile.framing ?? "nil")
+        XCTAssertTrue(briefsSeen[1]?.framing?.contains("Back view") == true)
+    }
 
     func testValidatePreviewsCostAndCountsOnlyMissingImages() throws {
         let action = makeAction()

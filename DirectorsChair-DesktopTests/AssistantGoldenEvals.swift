@@ -10,9 +10,12 @@
 // excluded — it needs the network; its validation path is covered.)
 
 import XCTest
+import MLX
+import MLXRandom
 @testable import DirectorsChair_Desktop
 @testable import DirectorsChairCore
 @testable import DirectorsChairServices
+@testable import DirectorsChairViews
 
 // MARK: - Scripted transport (the only fake in the stack)
 
@@ -831,5 +834,778 @@ final class LocalModelEvals: XCTestCase {
         print(report.joined(separator: "\n"))
         XCTAssertTrue(failures.isEmpty,
                       "rubric failures:\n" + failures.joined(separator: "\n"))
+    }
+}
+
+// MARK: - Local image core real-frame evals (DC-0065 → DC-0068 klein)
+
+/// REAL diffusion through the native FLUX.2 klein core — full MLX inside
+/// the app bundle (the metallib rule), gated exactly like the text evals:
+/// skips on CI Macs without the 4.3GB weights or with
+/// DC_SKIP_LOCAL_EVALS=1. The rubric is objective: the owner's Sketch look
+/// must produce a near-monochrome, non-blank frame of the exact requested
+/// size within a sane time; the rendered PNGs are left in the temporary
+/// directory for eyeball checks.
+final class StoryboardCoreRealEvals: XCTestCase {
+
+    private func requireWeights() throws {
+        if ProcessInfo.processInfo.environment["DC_SKIP_LOCAL_EVALS"] == "1" {
+            throw XCTSkip("DC_SKIP_LOCAL_EVALS=1")
+        }
+        guard LocalImageEngine.shared.isModelDownloaded() else {
+            throw XCTSkip("storyboard model not on disk — evals need real weights")
+        }
+    }
+
+    func testRendersTheReferenceFrameSubjectAsInkSketch() async throws {
+        try requireWeights()
+        let spec = StoryboardFrameSpec(
+            subject: "Maya slams the deed onto the farmhouse kitchen table. Setting: INT. FARMHOUSE KITCHEN, Night, Storm",
+            notes: "Close-up, Low angle, 85mm lens",
+            width: 768, height: 432, seed: 42)
+
+        let started = Date()
+        let png = try await LocalImageEngine.shared.generateFrame(spec)
+        let seconds = Date().timeIntervalSince(started)
+
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-storyboard-eval-seed42.png")
+        try png.write(to: out)
+        print("[StoryboardEval] frame written to \(out.path) in \(String(format: "%.1f", seconds))s")
+
+        XCTAssertLessThan(seconds, 300, "a single 768×432 frame must not take 5 minutes")
+
+        let image = try XCTUnwrap(NSImage(data: png), "output must decode as an image")
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: png))
+        XCTAssertEqual(rep.pixelsWide, 768)
+        XCTAssertEqual(rep.pixelsHigh, 432)
+        _ = image
+
+        // Objective look checks on a coarse sample grid.
+        var luminance: [Double] = []
+        var colorDivergence: [Double] = []
+        for y in stride(from: 8, to: 432, by: 24) {
+            for x in stride(from: 8, to: 768, by: 24) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let (r, g, b) = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
+                luminance.append((r + g + b) / 3)
+                colorDivergence.append(abs(r - g) + abs(g - b))
+            }
+        }
+        let mean = luminance.reduce(0, +) / Double(luminance.count)
+        let variance = luminance.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(luminance.count)
+        XCTAssertGreaterThan(variance.squareRoot(), 0.05,
+                             "frame must not be blank/flat (σ=\(variance.squareRoot()))")
+        let meanDivergence = colorDivergence.reduce(0, +) / Double(colorDivergence.count)
+        XCTAssertLessThan(meanDivergence, 0.25,
+                          "ink-sketch frames must be near-monochrome (divergence=\(meanDivergence))")
+    }
+
+    /// DC-0066: the Comic look is the COLOUR look (costume ideas need
+    /// colour) and a costume brief must come out as a design sheet —
+    /// objective checks: colour divergence well above the sketch bound,
+    /// ink present, and the page mostly white paper (a full figure on a
+    /// plain background, not a painted scene).
+    func testComicCostumeSheetDrawsInColourOnWhitePaper() async throws {
+        try requireWeights()
+        let spec = StoryboardFrameSpec(
+            subject: "Dana, 28-year-old female. wearing Estate-sale tweed — cream blouse, oxblood A-line wool skirt, fitted olive tweed jacket, low heels. 1950s period, colours olive, cream, oxblood, wool fabric",
+            width: 512, height: 512, seed: 42, purpose: .costume, style: .comic)
+        let png = try await LocalImageEngine.shared.generateFrame(spec)
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-storyboard-eval-comic-costume.png")
+        try png.write(to: out)
+        print("[StoryboardEval] comic costume sheet written to \(out.path)")
+
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: png))
+        var divergence: [Double] = []
+        var whitePaper = 0
+        var samples = 0
+        for y in stride(from: 8, to: 512, by: 16) {
+            for x in stride(from: 8, to: 512, by: 16) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let (r, g, b) = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
+                divergence.append(abs(r - g) + abs(g - b))
+                if r > 0.9 && g > 0.9 && b > 0.9 { whitePaper += 1 }
+                samples += 1
+            }
+        }
+        let meanDivergence = divergence.reduce(0, +) / Double(divergence.count)
+        XCTAssertGreaterThan(meanDivergence, 0.025,
+                             "the comic look must carry colour (divergence=\(meanDivergence))")
+        XCTAssertGreaterThan(Double(whitePaper) / Double(samples), 0.35,
+                             "a costume sheet stands on white paper (white=\(whitePaper)/\(samples))")
+    }
+
+    func testSeedsChangeTheFrameDeterministically() async throws {
+        try requireWeights()
+        // Small frames keep this pair affordable; determinism and seed
+        // sensitivity are resolution-independent properties.
+        let a = try await LocalImageEngine.shared.generateFrame(
+            .init(subject: "A lighthouse on a cliff", width: 384, height: 256, seed: 7))
+        let b = try await LocalImageEngine.shared.generateFrame(
+            .init(subject: "A lighthouse on a cliff", width: 384, height: 256, seed: 7))
+        let c = try await LocalImageEngine.shared.generateFrame(
+            .init(subject: "A lighthouse on a cliff", width: 384, height: 256, seed: 8))
+        XCTAssertEqual(a, b, "same seed must reproduce the identical PNG")
+        XCTAssertNotEqual(a, c, "a different seed must draw a different frame")
+    }
+}
+
+
+// MARK: - klein parity against mflux fixtures (DC-0068)
+
+/// Layer-level and frame-level parity of the Swift klein core against
+/// mflux 0.19 — the implementation whose frames the owner approved.
+/// Fixtures (text features, seed noise, first-step velocity, final
+/// frames) are produced by make_fixtures.py in the fixtures folder and
+/// live outside the repo (17MB); the class skips without them, so CI
+/// never depends on them. Thresholds are for bf16 pipelines: identical
+/// math, different accumulation order.
+final class KleinCoreParityEvals: XCTestCase {
+
+    private static var fixturesDirectory: URL {
+        if let custom = ProcessInfo.processInfo.environment["DC_KLEIN_FIXTURES"] {
+            return URL(fileURLWithPath: custom)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Workspaces/Technical/image_gen/klein-fixtures")
+    }
+
+    private struct Fixtures {
+        let arrays: [String: MLXArray]
+        let prompts: [String: String]
+        let directory: URL
+    }
+
+    private func loadFixtures() throws -> Fixtures {
+        if ProcessInfo.processInfo.environment["DC_SKIP_LOCAL_EVALS"] == "1" {
+            throw XCTSkip("DC_SKIP_LOCAL_EVALS=1")
+        }
+        guard LocalImageEngine.shared.isModelDownloaded() else {
+            throw XCTSkip("klein weights not on disk")
+        }
+        let dir = Self.fixturesDirectory
+        let file = dir.appendingPathComponent("klein_fixtures.safetensors")
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            throw XCTSkip("no mflux fixtures at \(dir.path)")
+        }
+        let arrays = try MLX.loadArrays(url: file)
+        let prompts = try JSONDecoder().decode([String: String].self,
+                                               from: Data(contentsOf: dir.appendingPathComponent("prompts.json")))
+        return Fixtures(arrays: arrays, prompts: prompts, directory: dir)
+    }
+
+    /// mean|a−b| / mean|b|
+    private func relativeError(_ a: MLXArray, _ b: MLXArray) -> Float {
+        let diff = abs(a.asType(.float32) - b.asType(.float32)).mean().item(Float.self)
+        let scale = abs(b.asType(.float32)).mean().item(Float.self)
+        return diff / max(scale, 1e-6)
+    }
+
+    private func frameDifference(_ png: Data, fixture: URL) throws -> (mean: Float, within8: Float) {
+        let a = try XCTUnwrap(NSBitmapImageRep(data: png))
+        let b = try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: fixture)))
+        XCTAssertEqual(a.pixelsWide, b.pixelsWide); XCTAssertEqual(a.pixelsHigh, b.pixelsHigh)
+        var total: Float = 0, close = 0, n = 0
+        for y in stride(from: 0, to: a.pixelsHigh, by: 4) {
+            for x in stride(from: 0, to: a.pixelsWide, by: 4) {
+                guard let ca = a.colorAt(x: x, y: y), let cb = b.colorAt(x: x, y: y) else { continue }
+                let d = (abs(Float(ca.redComponent - cb.redComponent))
+                         + abs(Float(ca.greenComponent - cb.greenComponent))
+                         + abs(Float(ca.blueComponent - cb.blueComponent))) / 3
+                total += d; n += 1; if d <= 8.0 / 255 { close += 1 }
+            }
+        }
+        return (total / Float(n), Float(close) / Float(n))
+    }
+
+    /// Pure MLX bookkeeping — lives here because SPM runners abort on MLX (metallib rule).
+    func testPositionIdsFollowTheReferenceLayout() {
+        let text = KleinCore.textIds(count: 3)
+        XCTAssertEqual(text.shape, [3, 4])
+        XCTAssertEqual(text[2].asArray(Int32.self), [0, 0, 0, 2])
+        let grid = KleinCore.gridIds(height: 2, width: 3, t: 10)
+        XCTAssertEqual(grid.shape, [6, 4])
+        XCTAssertEqual(grid[4].asArray(Int32.self), [10, 1, 1, 0], "row-major: token 4 is row 1, col 1")
+        XCTAssertEqual(KleinCore.templated("hi"),
+                       "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
+    }
+
+    /// Structural parity of one encoder layer at EVERY position (real and
+    /// pad): the causal+padding mask, RoPE, GQA and attention must match
+    /// mflux's layer-1 hidden state before bf16 accumulation has had a
+    /// chance to drift.
+    func testTextEncoderLayerOneMatchesMfluxAtEveryPosition() async throws {
+        let f = try loadFixtures()
+        guard let reference = f.arrays["layer1_hidden"] else { throw XCTSkip("fixture predates layer1_hidden") }
+        let ids = try XCTUnwrap(f.arrays["ids"]).asArray(Int32.self)
+        let real = Int(try XCTUnwrap(f.arrays["mask"]).asType(.int32).sum().item(Int32.self))
+        let weights = LocalImageEngine.shared.weightsDirectory
+        let encoder = try KleinTextEncoder(ZWeights(componentDirectory: weights.appendingPathComponent("text_encoder")))
+        let seqLen = KleinTextEncoder.maxTokens, D = KleinTextEncoder.headDim
+        let padded = Array(ids.prefix(real)) + Array(repeating: KleinTextEncoder.padToken, count: seqLen - real)
+        let h0 = encoder.embedding(MLXArray(padded)).asType(KleinCore.precision).reshaped([1, seqLen, 2560])
+        let invFreq = 1.0 / pow(KleinTextEncoder.ropeTheta, MLXArray(stride(from: 0, to: D, by: 2)).asType(.float32) / Float(D))
+        let emb = concatenated([outer(MLXArray(0 ..< seqLen).asType(.float32), invFreq)].flatMap { [$0, $0] }, axis: -1)
+        let cosT = cos(emb).reshaped([1, seqLen, 1, D]), sinT = sin(emb).reshaped([1, seqLen, 1, D])
+        let idx = MLXArray(0 ..< seqLen)
+        let causal = idx.reshaped([seqLen, 1]) .>= idx.reshaped([1, seqLen])
+        let realKey = (idx .< Int32(real)).reshaped([1, seqLen])
+        let mask = MLX.where(causal .&& realKey, MLXArray(Float(0)), MLXArray(-Float.infinity)).reshaped([1, 1, seqLen, seqLen])
+        let h1 = KleinTextEncoder.step(layer: encoder.layers[0], h: h0, mask: mask,
+                                       cosTable: cosT, sinTable: sinT, seqLen: seqLen)[0]
+        eval(h1)
+        let errorReal = relativeError(h1[..<real], reference[..<real])
+        let errorPad = relativeError(h1[real...], reference[real...])
+        print("[KleinParity] layer-1 relative error real=\(errorReal) pad=\(errorPad)")
+        XCTAssertLessThan(errorReal, 0.02)
+        XCTAssertLessThan(errorPad, 0.02, "pad queries must attend to the real prefix exactly like mflux")
+    }
+
+    func testTextEncoderMatchesMflux() async throws {
+        let f = try loadFixtures()
+        let ids = try XCTUnwrap(f.arrays["ids"]).asArray(Int32.self)
+        let real = Int(try XCTUnwrap(f.arrays["mask"]).asType(.int32).sum().item(Int32.self))
+        let weights = LocalImageEngine.shared.weightsDirectory
+        let encoder = try KleinTextEncoder(ZWeights(componentDirectory: weights.appendingPathComponent("text_encoder")))
+        let ours = encoder.encode(Array(ids.prefix(real)))                   // [512, 7680]
+        let theirs = try XCTUnwrap(f.arrays["prompt_embeds"])[0]
+        eval(ours)
+        let errorReal = relativeError(ours[..<real], theirs[..<real])
+        let errorAll = relativeError(ours, theirs)
+        print("[KleinParity] text encoder relative error real=\(errorReal) all=\(errorAll)")
+        // 27 layers of bf16 accumulation through Qwen's large-activation
+        // layers drift by ~9% on this measure while layer 1 matches to
+        // <1% and the rendered frames match mflux to 0.016–0.04 — the
+        // frame is the bar; this catches gross breakage (wrong taps,
+        // wrong template, wrong padding) which lands at 30%+.
+        XCTAssertLessThan(errorReal, 0.15, "real-token features must track mflux")
+    }
+
+    func testTransformerFirstStepMatchesMflux() async throws {
+        let f = try loadFixtures()
+        let weights = LocalImageEngine.shared.weightsDirectory
+        let transformer = try KleinTransformer(ZWeights(componentDirectory: weights.appendingPathComponent("transformer")))
+        let noise = try XCTUnwrap(f.arrays["noise_packed"]).asType(KleinCore.precision)
+        let context = try XCTUnwrap(f.arrays["prompt_embeds"]).asType(KleinCore.precision)
+        let imgIds = try XCTUnwrap(f.arrays["img_ids"])[0].asType(.int32)
+        let txtIds = try XCTUnwrap(f.arrays["txt_ids"])[0].asType(.int32)
+        let t0 = try XCTUnwrap(f.arrays["timesteps"])[0].item(Float.self)
+        let ours = transformer(latents: noise, context: context, timestep: MLXArray(t0),
+                               imageIds: imgIds, textIds: txtIds)
+        eval(ours)
+        let theirs = try XCTUnwrap(f.arrays["velocity_step0"])
+        let error = relativeError(ours, theirs)
+        print("[KleinParity] step-0 velocity relative error \(error)")
+        XCTAssertLessThan(error, 0.06)
+        // Our own noise from the same seed must equal mflux's (shared MLX RNG).
+        let mine = MLXRandom.normal([1, 128, 32, 32], key: MLXRandom.key(42))
+            .reshaped([1, 128, 1024]).transposed(0, 2, 1)
+        XCTAssertLessThan(relativeError(mine, try XCTUnwrap(f.arrays["noise_packed"])), 0.01,
+                          "bf16 rounding only — the RNG stream itself is shared")
+    }
+
+    func testTextToImageMatchesTheMfluxFrame() async throws {
+        let f = try loadFixtures()
+        let core = KleinCore()
+        let started = Date()
+        let png = try await core.render(
+            OnDeviceRenderRequest(prompt: try XCTUnwrap(f.prompts["t2i"]), width: 512, height: 512, seed: 42),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let seconds = Date().timeIntervalSince(started)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-parity-t2i.png")
+        try png.write(to: out)
+        let diff = try frameDifference(png, fixture: f.directory.appendingPathComponent("t2i_512_seed42.png"))
+        print("[KleinParity] t2i mean diff \(diff.mean) within8 \(diff.within8) in \(String(format: "%.1f", seconds))s → \(out.path)")
+        XCTAssertLessThan(diff.mean, 0.06, "same seed, same prompt: same picture")
+        XCTAssertGreaterThan(diff.within8, 0.5)
+        XCTAssertLessThan(seconds, 300)
+    }
+
+    func testEditWithReferenceMatchesTheMfluxFrame() async throws {
+        let f = try loadFixtures()
+        let reference = try Data(contentsOf: f.directory.appendingPathComponent("ref_char_sketch.png"))
+        let core = KleinCore()
+        let started = Date()
+        let png = try await core.render(
+            OnDeviceRenderRequest(prompt: try XCTUnwrap(f.prompts["edit"]), width: 512, height: 512,
+                                  seed: 42, references: [reference]),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let seconds = Date().timeIntervalSince(started)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-parity-edit.png")
+        try png.write(to: out)
+        let diff = try frameDifference(png, fixture: f.directory.appendingPathComponent("edit_512_seed42.png"))
+        print("[KleinParity] edit mean diff \(diff.mean) within8 \(diff.within8) in \(String(format: "%.1f", seconds))s → \(out.path)")
+        XCTAssertLessThan(diff.mean, 0.06, "the reference path (VAE encode → tokens) must match too")
+        XCTAssertGreaterThan(diff.within8, 0.5)
+    }
+
+    /// DC-0070 memory profile: the three workloads the owner hit, with
+    /// MLX + process memory after each, and the footprint once the core
+    /// is done. Run with TEST_RUNNER_DC_KLEIN_MEMTRACE=1 for per-stage lines.
+    func testMemoryProfileOfRealWorkloads() async throws {
+        let f = try loadFixtures()
+        let source = try Data(contentsOf: f.directory.appendingPathComponent("ref_char_sketch.png"))
+        // A 1024² reference like a cloud-generated scene frame.
+        let big = try XCTUnwrap(Self.upscaledPNG(source, to: 1024))
+        let weights = LocalImageEngine.shared.weightsDirectory
+        let core = KleinCore()
+        func report(_ label: String) {
+            let m = KleinCore.memorySample(label)
+            print("[KleinMem] == \(label): active \(m.activeMB) MB · cache \(m.cacheMB) MB · peak \(m.peakMB) MB · footprint \(m.footprintMB) MB")
+        }
+        report("before load")
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "A lighthouse on a cliff, ink sketch", width: 768, height: 432, seed: 1),
+                                  weightsDirectory: weights)
+        report("after 768×432 text-to-image")
+        assertBounded("after a 768×432 frame")
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "Change the jacket to a tweed blazer", width: 1024, height: 1024, seed: 1, references: [big]),
+                                  weightsDirectory: weights)
+        report("after 1024² edit with a 1024² reference")
+        assertBounded("after a 1024² edit")
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "1. remove the badge\nKeep everything not mentioned exactly as it is in the picture.",
+                                                        width: 0, height: 0, seed: 1, references: [big],
+                                                        editRegions: [EditRegion(x: 0.5, y: 0.6)]),
+                                  weightsDirectory: weights)
+        report("after 1024² inpaint")
+        assertBounded("after a 1024² inpaint")
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        report("idle 2s later")
+        await core.releaseModel()
+        report("after releaseModel")
+        XCTAssertLessThan(KleinCore.physicalFootprintMB(), 1_500, "released model must give the memory back")
+        XCTAssertEqual(GPU.snapshot().cacheMemory, 0)
+    }
+
+    /// The owner's release bar (DC-0070): between jobs the process holds
+    /// the weights and nothing else — no MLX cache, footprint bounded.
+    private func assertBounded(_ when: String) {
+        let m = KleinCore.memorySample(when)
+        XCTAssertEqual(m.cacheMB, 0, "\(when): MLX cache must be empty between jobs")
+        XCTAssertLessThan(m.footprintMB, 7_000, "\(when): footprint must stay near the ~4 GB of weights")
+        XCTAssertLessThan(m.peakMB, 12_000, "\(when): transient peak on a 36 GB Mac")
+    }
+
+    /// Weights are dropped after the idle interval — the app returns to
+    /// its own footprint when the user walks away.
+    func testWeightsAreReleasedAfterIdling() async throws {
+        _ = try loadFixtures()
+        let saved = MLXMemoryPolicy.idleReleaseInterval
+        MLXMemoryPolicy.idleReleaseInterval = 0.3
+        defer { MLXMemoryPolicy.idleReleaseInterval = saved }
+        let core = KleinCore()
+        _ = try await core.render(OnDeviceRenderRequest(prompt: "a tree", width: 256, height: 256, seed: 3),
+                                  weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let residentAfterRender = await core.isModelResident
+        XCTAssertTrue(residentAfterRender)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        let residentAfterIdle = await core.isModelResident
+        XCTAssertFalse(residentAfterIdle, "idle release must fire")
+        XCTAssertEqual(GPU.snapshot().cacheMemory, 0)
+    }
+
+    static func upscaledPNG(_ png: Data, to side: Int) -> Data? {
+        guard let image = NSImage(data: png) else { return nil }
+        let out = NSImage(size: NSSize(width: side, height: side))
+        out.lockFocus(); image.draw(in: NSRect(x: 0, y: 0, width: side, height: side)); out.unlockFocus()
+        guard let tiff = out.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    /// Ad-hoc scene/shot composition from labelled references — the
+    /// Gemini-parity question (does the local model honour a location,
+    /// characters and props at once?). TEST_RUNNER_DC_KLEIN_ADHOC_REFS=
+    /// "path|kind:name;path|kind:name" DC_KLEIN_ADHOC_SCENE="subject"
+    /// [DC_KLEIN_ADHOC_STYLE=comic] [DC_KLEIN_ADHOC_FRAMING="…"]. Writes
+    /// dc-klein-adhoc-scene.png. Skips without the env.
+    func testAdhocSceneFromLabelledReferences() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let refsText = env["DC_KLEIN_ADHOC_REFS"], let subject = env["DC_KLEIN_ADHOC_SCENE"] else {
+            throw XCTSkip("no ad-hoc scene requested")
+        }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        var pictures: [Data] = [], labels: [String] = []
+        for entry in refsText.split(separator: ";") {
+            let parts = entry.split(separator: "|", maxSplits: 1).map(String.init)
+            pictures.append(try Data(contentsOf: URL(fileURLWithPath: parts[0])))
+            labels.append(parts.count > 1 ? parts[1] : "")
+        }
+        let style = VisualStyle(rawValue: env["DC_KLEIN_ADHOC_STYLE"] ?? "") ?? .sketch
+        let spec = StoryboardFrameSpec(subject: subject, notes: env["DC_KLEIN_ADHOC_FRAMING"],
+                                       width: 768, height: 432, seed: 42, purpose: .shot, style: style,
+                                       references: pictures, referenceLabels: labels)
+        let started = Date()
+        let png = try await LocalImageEngine.shared.generateFrame(spec)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-adhoc-scene.png")
+        try png.write(to: out)
+        print("[KleinParity] scene with \(pictures.count) references in \(String(format: "%.1f", Date().timeIntervalSince(started)))s → \(out.path)")
+    }
+
+    /// Ad-hoc location plates through the real engine, for tuning the
+    /// location framing: DC_KLEIN_ADHOC_LOCATIONS="<prompt>;<prompt>" (the
+    /// provider prompt, cleaned the way the engine cleans it) rendered in
+    /// both looks; writes dc-klein-adhoc-location-<n>-<look>.png to the
+    /// temporary directory. Skips without the env.
+    func testAdhocLocationPlatesFromEnvironment() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let promptsText = env["DC_KLEIN_ADHOC_LOCATIONS"] else { throw XCTSkip("no ad-hoc location requested") }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        for (n, prompt) in promptsText.split(separator: ";").map(String.init).enumerated() {
+            for style in [VisualStyle.sketch, .comic] {
+                let spec = StoryboardFrameSpec(subject: StoryboardSubjects.plainSubject(from: prompt),
+                                               width: 768, height: 432, seed: 42, purpose: .location, style: style)
+                let started = Date()
+                let png = try await LocalImageEngine.shared.generateFrame(spec)
+                let out = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("dc-klein-adhoc-location-\(n)-\(style.rawValue).png")
+                try png.write(to: out)
+                print("[KleinParity] location plate \(n) \(style.rawValue) in \(String(format: "%.1f", Date().timeIntervalSince(started)))s → \(out.path)")
+            }
+        }
+    }
+
+    /// Ad-hoc local edit on any picture — for reproducing an owner report
+    /// through the real core: DC_KLEIN_ADHOC_SOURCE=<png> DC_KLEIN_ADHOC_REGION="x,y,r"
+    /// DC_KLEIN_ADHOC_PROMPT="1. …". Skips without the env; writes
+    /// dc-klein-adhoc.png to the temporary directory.
+    func testAdhocLocalEditFromEnvironment() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let source = env["DC_KLEIN_ADHOC_SOURCE"], let regionText = env["DC_KLEIN_ADHOC_REGION"],
+              let prompt = env["DC_KLEIN_ADHOC_PROMPT"] else { throw XCTSkip("no ad-hoc edit requested") }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        let parts = regionText.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 3 else { return XCTFail("region must be x,y,r") }
+        let data = try Data(contentsOf: URL(fileURLWithPath: source))
+        let started = Date()
+        let png = try await KleinCore().render(
+            OnDeviceRenderRequest(prompt: prompt + "\nKeep everything not mentioned exactly as it is in the picture.",
+                                  width: 0, height: 0, seed: 42, references: [data],
+                                  editRegions: [EditRegion(x: parts[0], y: parts[1], radius: parts[2])]),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-adhoc.png")
+        try png.write(to: out)
+        print("[KleinParity] ad-hoc edit in \(String(format: "%.1f", Date().timeIntervalSince(started)))s → \(out.path)")
+    }
+
+    /// DC-0069: an annotation edit repaints the marked spot and NOTHING
+    /// else — pixels outside the region are byte-identical to the source.
+    func testInpaintChangesOnlyTheMarkedRegion() async throws {
+        let f = try loadFixtures()
+        let sourceData = try Data(contentsOf: f.directory.appendingPathComponent("ref_char_sketch.png"))
+        let region = EditRegion(x: 0.5, y: 0.62, radius: 0.16)      // the jacket front
+        let core = KleinCore()
+        let started = Date()
+        let png = try await core.render(
+            OnDeviceRenderRequest(prompt: "1. a large round enamel badge pinned on the jacket\nKeep everything not mentioned exactly as it is in the picture.",
+                                  width: 640, height: 640, seed: 7,
+                                  references: [sourceData], editRegions: [region]),
+            weightsDirectory: LocalImageEngine.shared.weightsDirectory)
+        let seconds = Date().timeIntervalSince(started)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dc-klein-inpaint.png")
+        try png.write(to: out)
+        let a = try XCTUnwrap(NSBitmapImageRep(data: png))
+        let b = try XCTUnwrap(NSBitmapImageRep(data: sourceData))
+        XCTAssertEqual(a.pixelsWide, b.pixelsWide, "an inpaint keeps the source size")
+        XCTAssertEqual(a.pixelsHigh, b.pixelsHigh)
+        let (w, h) = (a.pixelsWide, a.pixelsHigh)
+        var outsideDiff: Float = 0, outsideN = 0, insideDiff: Float = 0, insideN = 0
+        for y in stride(from: 0, to: h, by: 4) {
+            for x in stride(from: 0, to: w, by: 4) {
+                guard let ca = a.colorAt(x: x, y: y), let cb = b.colorAt(x: x, y: y) else { continue }
+                let d = (abs(Float(ca.redComponent - cb.redComponent)) + abs(Float(ca.greenComponent - cb.greenComponent))
+                         + abs(Float(ca.blueComponent - cb.blueComponent))) / 3
+                let dx = (Double(x) / Double(w) - region.x) * Double(w), dy = (Double(y) / Double(h) - region.y) * Double(h)
+                let dist = (dx * dx + dy * dy).squareRoot() / Double(min(w, h))
+                if dist > region.radius + KleinCore.regionFeather + 0.01 { outsideDiff += d; outsideN += 1 }
+                else if dist < region.radius * 0.6 { insideDiff += d; insideN += 1 }
+            }
+        }
+        let outside = outsideDiff / Float(outsideN), inside = insideDiff / Float(insideN)
+        print("[KleinParity] inpaint outside-region diff \(outside) inside \(inside) in \(String(format: "%.1f", seconds))s → \(out.path)")
+        XCTAssertLessThan(outside, 0.002, "everything outside the marked region must be untouched")
+        XCTAssertGreaterThan(inside, 0.01, "the marked region must actually change")
+    }
+}
+
+
+// MARK: - End-to-end local build of a fresh project (DC-0071)
+
+/// Builds a brand-new project the way a user does — script, characters,
+/// locations, a prop and a costume, shots that use those images, shot
+/// previews, storyboard frames, scene previews — with EVERY image drawn
+/// by the local model in the requested look. Drives the app's own action
+/// layer (the same code the assistant and the UI share) and the same
+/// helpers the shot surfaces use, so the resulting project opens in the
+/// app exactly as if it had been made by hand.
+/// Run: TEST_RUNNER_DC_LOCAL_BUILD_LOOK=sketch|comic
+/// [TEST_RUNNER_DC_LOCAL_BUILD_MANIFEST=<jsonl path>]. Skips otherwise.
+@MainActor
+final class LocalProjectBuildEvals: XCTestCase {
+
+    private struct Made: Encodable {
+        let kind: String; let name: String; let path: String; let seconds: Double; let look: String
+    }
+    private var manifest: URL?
+    private var look = VisualStyle.sketch
+
+    private func record(_ kind: String, _ name: String, _ path: String, _ seconds: Double) {
+        print("[LocalBuild] \(kind) · \(name) · \(String(format: "%.1f", seconds))s → \(path)")
+        guard let manifest else { return }
+        let made = Made(kind: kind, name: name, path: path, seconds: seconds, look: look.rawValue)
+        if let data = try? JSONEncoder().encode(made), let line = String(data: data, encoding: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: manifest) {
+                handle.seekToEndOfFile(); handle.write((line + "\n").data(using: .utf8)!); try? handle.close()
+            } else {
+                try? (line + "\n").write(to: manifest, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    func testBuildAWholeProjectWithTheLocalModel() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let lookName = env["DC_LOCAL_BUILD_LOOK"], let requested = VisualStyle(rawValue: lookName) else {
+            throw XCTSkip("no local build requested")
+        }
+        guard LocalImageEngine.shared.isModelDownloaded() else { throw XCTSkip("klein weights not on disk") }
+        look = requested
+        manifest = env["DC_LOCAL_BUILD_MANIFEST"].map { URL(fileURLWithPath: $0) }
+
+        // Preferences the user would set: images on-device, the chosen look.
+        let defaults = UserDefaults.standard
+        let savedProvider = defaults.string(forKey: AIFunction.image.preferenceKey)
+        let savedStyle = AIProviderSelection.shared.visualStyle
+        defaults.set("device", forKey: AIFunction.image.preferenceKey)
+        AIProviderSelection.shared.visualStyle = look
+        defer {
+            if let savedProvider { defaults.set(savedProvider, forKey: AIFunction.image.preferenceKey) }
+            else { defaults.removeObject(forKey: AIFunction.image.preferenceKey) }
+            AIProviderSelection.shared.visualStyle = savedStyle
+        }
+
+        // ---- 1. New project (in the signed-in user's folder) -------------------
+        let savedUser = ProjectDirectoryManager.currentUsername
+        ProjectDirectoryManager.currentUsername = env["DC_LOCAL_BUILD_USER"] ?? savedUser
+        defer { ProjectDirectoryManager.currentUsername = savedUser }
+        let pvm = ProjectViewModel(project: Project.empty())
+        pvm.createNew(named: "Keeper's Light (\(look.displayName))")
+        // A new project ships with a placeholder scene; a writer deletes it.
+        for s in pvm.project.sequences.indices { pvm.project.sequences[s].scenes.removeAll() }
+        pvm.project.sequences.removeAll()
+        let projectFile = try XCTUnwrap(pvm.projectPath, "createNew must give the project a file")
+        let projectDir = projectFile.deletingLastPathComponent()
+        print("[LocalBuild] project at \(projectDir.path)")
+        let coordinator = AppCoordinator()
+        let registry = AssistantActionFactory.makeRegistry(projectViewModel: pvm, coordinator: coordinator)
+        func run(_ name: String, _ json: String) async throws {
+            let action = try XCTUnwrap(registry.action(named: name), "action \(name)")
+            let data = Data(json.utf8)
+            _ = try action.validate(argumentsData: data)
+            _ = try await action.execute(argumentsData: data)
+        }
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n")
+        }
+
+        // ---- 2. The script ---------------------------------------------------
+        pvm.project.genre = "Drama"
+        pvm.project.overviewLogline = "A lighthouse keeper on her last night of service and the nephew replacing her pull a stranger from the fog."
+        try await run("add_sequence", #"{"name": "Keeper's Light", "description": "One night at the Marrow Point light."}"#)
+        let scenes: [(name: String, location: String, time: String, weather: String, description: String)] = [
+            ("Last Light", "Lighthouse Gallery", "Dusk", "Fog rolling in",
+             "On the iron gallery of the Marrow Point lighthouse, Noor trims the lamp wick for the last time while fog swallows the sea below. Teo climbs the ladder with a dented thermos and a nervous grin."),
+            ("Kitchen Watch", "Lighthouse Kitchen", "Night", "Storm",
+             "In the cramped lighthouse kitchen a radio hisses. Noor writes in the logbook by lantern light; Teo presses his face to the rain-streaked window and spots a small boat's light dying in the swell."),
+            ("First Light", "Cliff Path", "Dawn", "Clearing",
+             "At dawn Noor and Teo walk Idris, the rescued boatman wrapped in a wool blanket, up the muddy cliff path toward the keeper's cottage as the fog lifts off the water."),
+        ]
+        for sc in scenes {
+            try await run("add_scene", #"{"name": "\#(esc(sc.name))", "sequence": "Keeper's Light", "description": "\#(esc(sc.description))", "location": "\#(esc(sc.location))", "time_of_day": "\#(sc.time)", "weather": "\#(esc(sc.weather))"}"#)
+        }
+        let lines: [(scene: String, who: String?, text: String)] = [
+            ("Last Light", nil, "Noor trims the wick with a pocketknife and does not look up when the ladder rattles."),
+            ("Last Light", "Teo", "They said you'd be gone by six."),
+            ("Last Light", "Noor", "The light doesn't know what they said."),
+            ("Last Light", nil, "Teo holds out the thermos. Noor takes it without a word and turns back to the lamp."),
+            ("Kitchen Watch", nil, "Rain hammers the window. The radio crackles a coastguard bulletin nobody answers."),
+            ("Kitchen Watch", "Teo", "There's a light out there. Low. It keeps going under."),
+            ("Kitchen Watch", "Noor", "Then it's a boat, and it's ours now."),
+            ("Kitchen Watch", nil, "Noor closes the logbook, lifts the brass storm lantern from its hook and pulls on her oilskin."),
+            ("First Light", nil, "The three of them climb the path in single file, Idris between them, the blanket dragging in the mud."),
+            ("First Light", "Idris", "I saw the light go round. I counted it."),
+            ("First Light", "Noor", "Then you're the last one who'll count it. Keep counting."),
+        ]
+        for line in lines {
+            if let who = line.who {
+                try await run("add_dialogue", #"{"scene": "\#(esc(line.scene))", "character": "\#(who)", "text": "\#(esc(line.text))"}"#)
+            } else {
+                try await run("add_scene_action", #"{"scene": "\#(esc(line.scene))", "text": "\#(esc(line.text))"}"#)
+            }
+        }
+
+        // ---- 3. Characters (the form fields a user fills in) --------------------
+        try await run("add_character", #"{"name": "Noor", "about": "Marrow Point's keeper for thirty-one years, retiring tonight; brisk, unsentimental, unable to leave a light untended.", "occupation": "Lighthouse keeper", "goal": "Hand the light over without admitting she is afraid of the silence after."}"#)
+        try await run("add_character", #"{"name": "Teo", "about": "Noor's nephew, sent by the authority to replace her; eager, seasick, determined to earn the post.", "occupation": "Assistant keeper", "goal": "Prove he can keep the light alone."}"#)
+        try await run("add_character", #"{"name": "Idris", "about": "A boatman who lost his engine in the fog and steered by the lighthouse beam until the swell took the boat.", "occupation": "Fisherman"}"#)
+        func setCharacter(_ name: String, _ body: (inout Character) -> Void) {
+            guard let i = pvm.project.characters.firstIndex(where: { $0.name == name }) else { return XCTFail("no character \(name)") }
+            body(&pvm.project.characters[i])
+        }
+        setCharacter("Noor") { c in
+            c.gender = "female"; c.age = 58; c.build = "Slim"; c.hairColor = "Black with grey streaks"; c.hairLength = "Long"; c.hairStyle = "Tied back"
+            c.eyeColorDescription = "Dark brown"; c.distinguishingFeatures = "weathered face, a thin scar across the left hand"
+            c.costume = "a thick cream wool sweater under a black oilskin coat"
+        }
+        setCharacter("Teo") { c in
+            c.gender = "male"; c.age = 24; c.build = "Athletic"; c.hairColor = "Dark brown"; c.hairLength = "Short"; c.hairStyle = "Curly"
+            c.eyeColorDescription = "Hazel"; c.distinguishingFeatures = "lanky, a knit cap pulled low"
+            c.costume = "a yellow rain jacket over a grey hoodie"
+        }
+        setCharacter("Idris") { c in
+            c.gender = "male"; c.age = 45; c.build = "Stocky"; c.hairColor = "Black"; c.hairLength = "Bald"; c.hairStyle = "Shaved"
+            c.eyeColorDescription = "Brown"; c.distinguishingFeatures = "full dark beard, soaked to the skin"
+            c.costume = "a sodden navy peacoat"
+        }
+
+        // ---- 4. Locations and a prop --------------------------------------------
+        try await run("add_location", #"{"name": "Lighthouse Gallery", "description": "The iron gallery ringing the lamp room of the Marrow Point lighthouse: riveted railings, salt-white paint, the great lens behind glass, fog below and a bruised sky."}"#)
+        try await run("add_location", #"{"name": "Lighthouse Kitchen", "description": "A cramped round kitchen at the lighthouse base: whitewashed stone, a coal range, an enamel table with a logbook and a brass storm lantern, a small rain-streaked window over the sea."}"#)
+        try await run("add_location", #"{"name": "Cliff Path", "description": "A muddy path zigzagging up a grassy sea cliff from a shingle cove to a stone cottage, gorse and wet rock, morning fog lifting off the water."}"#)
+        for name in ["Lighthouse Gallery", "Lighthouse Kitchen", "Cliff Path"] {
+            if let i = pvm.project.locations.firstIndex(where: { $0.name == name }) {
+                pvm.project.locations[i].locationType = name == "Lighthouse Kitchen" ? "indoor" : "outdoor"
+            }
+        }
+        try await run("add_prop", #"{"name": "Brass storm lantern", "description": "A dented brass storm lantern with a cracked glass chimney and a leather carrying strap.", "category": "Handheld"}"#)
+
+        // ---- 5. Images: characters first (base + one turnaround) ---------------------
+        for name in ["Noor", "Teo", "Idris"] {
+            var started = Date()
+            try await run("generate_character_images", #"{"character": "\#(name)", "angles": ["base"]}"#)
+            var c = pvm.project.characters.first { $0.name == name }!
+            record("character", name, c.baseImage ?? "?", Date().timeIntervalSince(started))
+            started = Date()
+            try await run("generate_character_images", #"{"character": "\#(name)", "angles": ["three_quarter_left"]}"#)
+            c = pvm.project.characters.first { $0.name == name }!
+            record("character-turnaround", name, c.imageThreeQuarterLeft ?? "?", Date().timeIntervalSince(started))
+        }
+
+        // ---- 6. Locations (primary; the gallery also gets a night variation) ---------
+        for name in ["Lighthouse Gallery", "Lighthouse Kitchen", "Cliff Path"] {
+            let started = Date()
+            try await run("generate_location_images", #"{"location": "\#(name)"}"#)
+            let l = pvm.project.locations.first { $0.name == name }!
+            record("location", name, l.primaryImage ?? "?", Date().timeIntervalSince(started))
+        }
+        do {
+            let started = Date()
+            try await run("generate_location_images", #"{"location": "Lighthouse Gallery", "variations": ["night"]}"#)
+            let l = pvm.project.locations.first { $0.name == "Lighthouse Gallery" }!
+            record("location-variation", "Lighthouse Gallery · night", l.images.first { $0.contains("night") } ?? "?", Date().timeIntervalSince(started))
+        }
+
+        // ---- 7. A costume sheet for Noor, from her base image ------------------------
+        do {
+            try await run("add_costume", #"{"name": "Watch Oilskins", "character": "Noor", "notes": "What she wears on the gallery: cream wool sweater, black oilskin coat, sea boots."}"#)
+            let noorIndex = try XCTUnwrap(pvm.project.characters.firstIndex { $0.name == "Noor" })
+            var noor = pvm.project.characters[noorIndex]
+            var costume = CharacterCostume(name: "Watch Oilskins", description: "Her working clothes for the gallery at night.",
+                                           era: "Present day", styleCategory: "Workwear", colorPalette: ["cream", "black", "brass"],
+                                           garmentTop: "thick cream wool fisherman's sweater", garmentBottom: "dark wool trousers",
+                                           footwear: "black rubber sea boots", outerwear: "long black oilskin coat", headwear: "none",
+                                           primaryFabric: "wool and waxed cotton")
+            if let existing = noor.costumes?.firstIndex(where: { $0.name == "Watch Oilskins" }) {
+                costume.costumeId = noor.costumes![existing].costumeId
+                noor.costumes![existing] = costume
+            } else {
+                noor.costumes = (noor.costumes ?? []) + [costume]
+            }
+            noor.activeCostumeIndex = noor.costumes!.firstIndex { $0.name == "Watch Oilskins" }
+            pvm.project.characters[noorIndex] = noor
+            let baseData = try Data(contentsOf: projectDir.appendingPathComponent(try XCTUnwrap(noor.baseImage)))
+            let prompt = StoryDesignPromptBuilder.costumePrompt(character: noor, costume: costume) + ", costume design reference, full body shot"
+            let started = Date()
+            let response = try await AIServiceClient.shared.generateImage(ImageGenerationRequest(
+                prompt: prompt, provider: .onDevice, aspectRatio: "1:1",
+                referenceImageBase64: baseData.base64EncodedString(), referenceMimeType: "image/png",
+                brief: VisualBrief(purpose: .costume, subject: StoryboardSubjects.subject(for: costume, wornBy: noor))))
+            let png = try XCTUnwrap(response.images.first)
+            let relative = "assets/characters/\(DiscoveredCharacterImages.sanitizedName(for: noor.name))/costumes/\(DiscoveredCostumeImages.sanitizedName(for: costume.name))/front.png"
+            let url = projectDir.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try png.write(to: url)
+            pvm.project.characters[noorIndex].costumes![pvm.project.characters[noorIndex].costumes!.firstIndex { $0.name == "Watch Oilskins" }!].imageFront = relative
+            record("costume", "Noor · Watch Oilskins", relative, Date().timeIntervalSince(started))
+        }
+
+        // ---- 8. Shots that use those images: previews + storyboard frames -----------
+        let shotPlan: [(scene: String, description: String, type: String, angle: String)] = [
+            ("Last Light", "Wide: Noor alone on the gallery trimming the wick, fog pouring over the railing below her", "Wide", "Low"),
+            ("Last Light", "Two-shot at the ladder: Teo's head and shoulders rising into frame with the thermos, Noor turning from the lamp", "Medium", "Eye Level"),
+            ("Kitchen Watch", "Teo at the rain-streaked window, his reflection over the black sea, a faint boat light in the glass", "Close-up", "Eye Level"),
+            ("Kitchen Watch", "Noor lifting the brass storm lantern from its hook, logbook open on the enamel table behind her", "Medium", "Low"),
+            ("First Light", "Three figures in single file on the cliff path at dawn, Idris in the blanket between Noor and Teo, fog lifting", "Wide", "High"),
+            ("First Light", "Idris looking back down at the sea, wrapped in the blanket, Noor's hand on his shoulder", "Close-up", "Eye Level"),
+        ]
+        for plan in shotPlan {
+            try await run("add_shot", #"{"scene": "\#(esc(plan.scene))", "description": "\#(esc(plan.description))", "shot_type": "\#(plan.type)", "camera_angle": "\#(plan.angle)"}"#)
+        }
+        let characters = pvm.project.characters
+        let locations = pvm.project.locations
+        for (seqIndex, sequence) in pvm.project.sequences.enumerated() {
+            for (sceneIndex, scene) in sequence.scenes.enumerated() {
+                for (shotIndex, shot) in scene.shots.enumerated() {
+                    // Shot preview: exactly what CinematographyView+ShotPreview sends.
+                    var started = Date()
+                    let prompt = ShotPromptBuilder.previewPrompt(shot: shot, scene: scene, locations: locations, characters: characters)
+                    let refs = CharacterReferenceHelper.collectReferenceImages(forScene: scene, characters: characters,
+                                                                               locations: locations, projectDirectory: projectDir)
+                    let request = ImageGenerationRequest(
+                        prompt: refs.isEmpty ? prompt : CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: refs) + prompt,
+                        provider: .onDevice, aspectRatio: "16:9", numberOfImages: 1,
+                        referenceImages: refs.isEmpty ? nil : refs,
+                        brief: VisualBrief(purpose: .shot,
+                                           subject: StoryboardSubjects.subject(for: shot, in: scene, locations: locations, characters: characters),
+                                           framing: StoryboardSubjects.notes(for: shot)))
+                    let previewResponse = try await AIServiceClient.shared.generateImage(request)
+                    let png = try XCTUnwrap(previewResponse.images.first)
+                    let shotDir = projectDir.appendingPathComponent("assets/shots/shot_\(shot.shotId)")
+                    try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+                    let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd_HHmmss"; formatter.locale = Locale(identifier: "en_US_POSIX")
+                    let file = "preview_\(formatter.string(from: Date())).png"
+                    try png.write(to: shotDir.appendingPathComponent(file))
+                    try? prompt.write(to: shotDir.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
+                    let previewRelative = "assets/shots/shot_\(shot.shotId)/\(file)"
+                    pvm.project.sequences[seqIndex].scenes[sceneIndex].shots[shotIndex].previewImage = previewRelative
+                    record("shot-preview", "\(scene.name) · shot \(shot.shotId) (\(refs.count) refs)", previewRelative, Date().timeIntervalSince(started))
+
+                    // Storyboard frame: the pencil on the storyboard card.
+                    started = Date()
+                    let frame = try await LocalImageEngine.shared.generateFrame(StoryboardFrameSpec(
+                        subject: StoryboardSubjects.subject(for: shot, in: scene, locations: locations, characters: characters),
+                        notes: StoryboardSubjects.notes(for: shot), purpose: .shot))
+                    let saved = try StoryboardFrameStore.save(png: frame, projectBasePath: projectDir, relativeDirectory: "assets/shots/shot_\(shot.shotId)")
+                    pvm.project.sequences[seqIndex].scenes[sceneIndex].shots[shotIndex].storyboardImage = saved.relativePath
+                    record("storyboard", "\(scene.name) · shot \(shot.shotId)", saved.relativePath, Date().timeIntervalSince(started))
+                }
+            }
+        }
+
+        // ---- 9. Scene previews (the assistant's generate_scene_image) --------------------
+        for sc in scenes {
+            let started = Date()
+            try await run("generate_scene_image", #"{"scene": "\#(esc(sc.name))"}"#)
+            let scene = pvm.project.sequences.flatMap(\.scenes).first { $0.name == sc.name }!
+            record("scene-preview", sc.name, scene.sceneOverviewImage ?? "?", Date().timeIntervalSince(started))
+        }
+
+        await pvm.save()
+        print("[LocalBuild] saved \(projectFile.path)")
+        XCTAssertEqual(pvm.project.characters.filter { $0.baseImage != nil }.count, 3)
+        XCTAssertEqual(pvm.project.locations.filter { $0.primaryImage != nil }.count, 3)
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).count, 3, "exactly the three written scenes")
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).flatMap(\.shots).filter { $0.previewImage != nil }.count, 6)
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).flatMap(\.shots).filter { $0.storyboardImage != nil }.count, 6)
+        XCTAssertEqual(pvm.project.sequences.flatMap(\.scenes).filter { $0.sceneOverviewImage != nil }.count, 3)
     }
 }

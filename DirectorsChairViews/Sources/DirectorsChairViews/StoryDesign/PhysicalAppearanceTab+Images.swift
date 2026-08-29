@@ -73,7 +73,8 @@ extension PhysicalAppearanceTab {
             provider: AIProviderSelection.shared.provider(for: .image),
             aspectRatio: "1:1",
             referenceImageBase64: referenceBase64,
-            referenceMimeType: "image/png"
+            referenceMimeType: "image/png",
+            editRegions: annotations.map { EditRegion(x: $0.normalizedX, y: $0.normalizedY) }
         )
 
         // Show progress

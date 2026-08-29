@@ -23,6 +23,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var styleOverride: String?  // FilmStyle ID override
     public var referenceMedia: [ReferenceMedia]  // Reference images and videos
     public var previewImage: String?  // AI-generated shot preview image path
+    public var storyboardImage: String?  // On-device ink-sketch storyboard frame path (DC-0064)
     public var linkedDialogueIds: [String]  // IDs of dialogues connected to this shot
     public var linkedActionIds: [String]  // IDs of actions connected to this shot
     public var linkedNarrationIds: [String]  // IDs of narrations connected to this shot
@@ -57,6 +58,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         styleOverride: String? = nil,
         referenceMedia: [ReferenceMedia] = [],
         previewImage: String? = nil,
+        storyboardImage: String? = nil,
         linkedDialogueIds: [String] = [],
         linkedActionIds: [String] = [],
         linkedNarrationIds: [String] = [],
@@ -86,6 +88,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.styleOverride = styleOverride
         self.referenceMedia = referenceMedia
         self.previewImage = previewImage
+        self.storyboardImage = storyboardImage
         self.linkedDialogueIds = linkedDialogueIds
         self.linkedActionIds = linkedActionIds
         self.linkedNarrationIds = linkedNarrationIds
@@ -117,6 +120,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case styleOverride = "style_override"
         case referenceMedia = "reference_media"
         case previewImage = "preview_image"
+        case storyboardImage = "storyboard_image"
         case linkedDialogueIds = "linked_dialogue_ids"
         case linkedActionIds = "linked_action_ids"
         case linkedNarrationIds = "linked_narration_ids"
@@ -202,6 +206,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         styleOverride = try container.decodeIfPresent(String.self, forKey: .styleOverride)
         referenceMedia = try container.decodeIfPresent([ReferenceMedia].self, forKey: .referenceMedia) ?? []
         previewImage = try container.decodeIfPresent(String.self, forKey: .previewImage)
+        storyboardImage = try container.decodeIfPresent(String.self, forKey: .storyboardImage)
         linkedDialogueIds = try container.decodeIfPresent([String].self, forKey: .linkedDialogueIds) ?? []
         linkedActionIds = try container.decodeIfPresent([String].self, forKey: .linkedActionIds) ?? []
         linkedNarrationIds = try container.decodeIfPresent([String].self, forKey: .linkedNarrationIds) ?? []

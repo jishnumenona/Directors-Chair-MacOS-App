@@ -51,18 +51,22 @@ final class AIProviderSelectionTests: XCTestCase {
             }
         }
         // On-device options: local-model chat (DC-0059, conversation
-        // only), local-model text (DC-0057), and the always-available
-        // system voice. The local-model ones gate on the DC-0055 engine
-        // being READY, never "assume fine".
+        // only), local-model text (DC-0057), storyboard-model image
+        // sketches (DC-0065), and the always-available system voice.
+        // The model-backed ones gate on their engine being READY (text
+        // model for chat/text, storyboard engine ABLE TO DRAW for image),
+        // never "assume fine".
         let onDevice = AIFunction.allCases.flatMap { function in
             AIProviderCatalog.options(for: function)
                 .filter { $0.healthKey == nil }
                 .map { (function, $0) }
         }
-        XCTAssertEqual(onDevice.map(\.1.wireId), ["device", "device", "device"])
+        XCTAssertEqual(onDevice.map(\.1.wireId), ["device", "device", "device", "device"])
         XCTAssertEqual(onDevice.map(\.1.requiresLocalModel),
-                       [true, true, false])    // chat/text gate; voice doesn't
-        XCTAssertEqual(onDevice.map(\.0), [.chat, .text, .voiceReplies])
+                       [true, true, false, false])    // chat/text gate on the TEXT model
+        XCTAssertEqual(onDevice.map(\.1.requiresStoryboardModel),
+                       [false, false, true, false])   // image gates on the SKETCH engine
+        XCTAssertEqual(onDevice.map(\.0), [.chat, .text, .image, .voiceReplies])
     }
 
     func testLocalModelChoiceResolvesToOnDeviceProvider() {
@@ -73,11 +77,16 @@ final class AIProviderSelectionTests: XCTestCase {
         // The typed provider is the routing sentinel generateText branches
         // on before any network code — never a wire value.
         XCTAssertEqual(selection.provider(for: .text), .onDevice)
-        // The local model is a TEXT option only — a stored "device" for
-        // image must degrade to the default, not route to a model that
-        // cannot draw.
+        // DC-0065: image gained its own on-device option (the storyboard
+        // sketch engine) — a stored "device" now resolves to the routing
+        // sentinel generateImage branches on before any network code.
         defaults.set("device", forKey: AIFunction.image.preferenceKey)
-        XCTAssertEqual(selection.wireId(for: .image), "google_imagen")
+        XCTAssertEqual(selection.wireId(for: .image), "device")
+        XCTAssertEqual(selection.provider(for: .image), .onDevice)
+        // VIDEO has no device option — a stray "device" there must still
+        // degrade to the function's real default, never reach the wire.
+        defaults.set("device", forKey: AIFunction.video.preferenceKey)
+        XCTAssertEqual(selection.wireId(for: .video), "google_veo")
     }
 
     func testPreferenceKeysAreFrozen() {

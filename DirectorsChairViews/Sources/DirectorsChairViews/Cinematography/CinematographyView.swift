@@ -76,6 +76,12 @@ public struct CinematographyView: View {
     @State private var lastAppliedShotId: Int?
     @State private var isShotListCollapsed: Bool = true
 
+    // On-device storyboard (DC-0064): one engine-state read for the whole
+    // grid, per-shot in-flight tracking, and a readable failure surface.
+    @State private var storyboardEngineReady: Bool = false
+    @State private var generatingStoryboardShotIds: Set<String> = []
+    @State private var storyboardError: String?
+
     // MARK: - Init
 
     public init(
@@ -900,16 +906,64 @@ public struct CinematographyView: View {
                     StoryboardCard(
                         shot: shot,
                         isSelected: viewModel.selectedShotId == shot.id,
+                        projectBasePath: projectBasePath,
+                        engineReady: storyboardEngineReady,
+                        isGenerating: generatingStoryboardShotIds.contains(shot.uuid),
                         onSelect: {
                             viewModel.selectShot(shot.id)
                         },
                         onEdit: {
                             viewModel.editShot(shot)
+                        },
+                        onGenerateStoryboard: {
+                            generateStoryboardFrame(for: shot)
                         }
                     )
                 }
             }
             .padding()
+        }
+        .task { storyboardEngineReady = await LocalImageEngine.shared.availability() == .ready }
+        .alert("Storyboard sketch failed", isPresented: Binding(
+            get: { storyboardError != nil },
+            set: { if !$0 { storyboardError = nil } })) {
+            Button("OK", role: .cancel) { storyboardError = nil }
+        } message: {
+            Text(storyboardError ?? "")
+        }
+    }
+
+    /// One frame through the on-device engine (DC-0064): subject from the
+    /// shot + its scene, camera terms on the FRAMING line, saved under the
+    /// shot's existing asset folder, relative path persisted on the shot.
+    private func generateStoryboardFrame(for shot: Shot) {
+        guard !generatingStoryboardShotIds.contains(shot.uuid) else { return }
+        generatingStoryboardShotIds.insert(shot.uuid)
+        let scene = sceneForShot(shot)
+        Task {
+            defer { Task { @MainActor in generatingStoryboardShotIds.remove(shot.uuid) } }
+            do {
+                let spec = StoryboardFrameSpec(
+                    subject: StoryboardSubjects.subject(for: shot, in: scene,
+                                                        locations: locations,
+                                                        characters: characters),
+                    notes: StoryboardSubjects.notes(for: shot),
+                    purpose: .shot)
+                let png = try await LocalImageEngine.shared.generateFrame(spec)
+                guard let base = projectBasePath?.deletingLastPathComponent() else {
+                    throw StoryboardEngineError.generationFailed("No project path")
+                }
+                let saved = try StoryboardFrameStore.save(
+                    png: png, projectBasePath: base,
+                    relativeDirectory: "assets/shots/shot_\(shot.shotId)")
+                await MainActor.run {
+                    updateShotField(shot) { $0.storyboardImage = saved.relativePath }
+                }
+            } catch let error as StoryboardEngineError {
+                await MainActor.run { storyboardError = error.userMessage }
+            } catch {
+                await MainActor.run { storyboardError = error.localizedDescription }
+            }
         }
     }
 

@@ -156,17 +156,20 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
             // 3B-model ceiling: past ~2000 tokens of output the small model
             // rambles; server providers handle the long-form asks.
             let cap = max(64, min(maxTokens, 2000))
-            return try await container.perform { modelContext in
-                let input = try await modelContext.processor.prepare(
-                    input: UserInput(chat: chat))
-                let result = try MLXLMCommon.generate(
-                    input: input,
-                    parameters: GenerateParameters(temperature: Float(temperature)),
-                    context: modelContext
-                ) { tokens in
-                    tokens.count >= cap ? .stop : .more
+            // A declared activity keeps App Nap off the generation (DC-0071).
+            return try await LocalModelActivity.perform("Generating text on the local model") {
+                try await container.perform { modelContext in
+                    let input = try await modelContext.processor.prepare(
+                        input: UserInput(chat: chat))
+                    let result = try MLXLMCommon.generate(
+                        input: input,
+                        parameters: GenerateParameters(temperature: Float(temperature)),
+                        context: modelContext
+                    ) { tokens in
+                        tokens.count >= cap ? .stop : .more
+                    }
+                    return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
-                return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         } catch let error as InsightEngineError {
             throw error
@@ -193,6 +196,7 @@ public final class MLXInsightEngine: InsightEngine, OnDeviceTextResponding, @unc
         let hub = HubApi(downloadBase: storageRoot)
         let configuration = ModelConfiguration(id: selected)
         do {
+            MLXMemoryPolicy.apply()   // DC-0070: one cache policy for every MLX engine
             let loaded = try await LLMModelFactory.shared.loadContainer(
                 hub: hub, configuration: configuration
             ) { [weak self] downloadProgress in

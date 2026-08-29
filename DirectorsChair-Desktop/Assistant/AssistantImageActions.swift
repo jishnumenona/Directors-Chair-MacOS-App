@@ -27,8 +27,12 @@ private func objectSchema(_ properties: [String: JSONValue],
 }
 
 /// (prompt, aspectRatio, referencePNGBase64?) → PNG data.
+/// (prompt, aspectRatio, referencePNGBase64?, brief) → PNG data. The brief
+/// tells the on-device engine what kind of picture this is; without one a
+/// location plate was drawn as a mood-board scene and gained a chef
+/// (DC-0071).
 typealias AssistantImageGenerate =
-    @Sendable (String, String, String?) async throws -> Data
+    @Sendable (String, String, String?, VisualBrief?) async throws -> Data
 
 private func money(_ count: Int) -> String {
     String(format: "$%.2f",
@@ -92,7 +96,14 @@ final class GenerateSceneImageAction: ProjectAssistantAction, AssistantAction {
         let scene = pvm.project.sequences[seq].scenes[sc]
         let prompt = args.customPrompt
             ?? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene)
-        let imageData = try await makeGenerate()(prompt, "16:9", nil)
+        // The same character reference SceneDetailView sends (DC-0071:
+        // the assistant's scene image had no likeness to anchor to).
+        let reference = CharacterReferenceHelper.referenceImage(
+            forScene: scene, characters: pvm.project.characters,
+            projectDirectory: projectFile.deletingLastPathComponent())
+        let imageData = try await makeGenerate()(
+            prompt, "16:9", reference?.base64,
+            VisualBrief(purpose: .scene, subject: StoryboardSubjects.subject(for: scene)))
 
         // Mirrors SceneDetailView+Generation: assets/scenes/<name>/overview_latest.png
         let sanitized = SceneCardHelpers.sanitizeFilename(scene.name)
@@ -220,7 +231,8 @@ final class GenerateLocationImagesAction: ProjectAssistantAction, AssistantActio
                     + "identical framing and geography. " + location.description
             }
             let reference = variation == "primary" ? nil : referenceBase64()
-            let imageData = try await makeGenerate()(prompt, "16:9", reference)
+            let imageData = try await makeGenerate()(prompt, "16:9", reference,
+                                                     Self.brief(for: location, variation: variation))
             try imageData.write(to: directory.appendingPathComponent("\(variation).png"))
 
             // Mirrors ContentView+CentralStack: primary sets primaryImage;
@@ -292,7 +304,7 @@ final class GenerateVisionBoardImageAction: ProjectAssistantAction, AssistantAct
         }
         // Mirrors the A0 vision-board executor: prompt prefix, 16:9.
         let prompt = "Cinematic mood-board reference image: \(args.prompt). "
-        let imageData = try await makeGenerate()(prompt, "16:9", nil)
+        let imageData = try await makeGenerate()(prompt, "16:9", nil, nil)
 
         // Collision-safe write through the Slice-2 store — epoch filenames
         // collide when two generations land in the same second.
@@ -335,14 +347,15 @@ extension AssistantActionFactory {
     @MainActor static func imageActions(projectViewModel: ProjectViewModel?,
                                         coordinator: AppCoordinator?) -> [any AssistantAction] {
         let makeGenerate: @MainActor () -> AssistantImageGenerate = {
-            { prompt, aspectRatio, referenceBase64 in
+            { prompt, aspectRatio, referenceBase64, brief in
                 let request = ImageGenerationRequest(
                     prompt: prompt,
                     provider: AIProviderSelection.shared.provider(for: .image),
                     aspectRatio: aspectRatio,
                     numberOfImages: 1,
                     referenceImageBase64: referenceBase64,
-                    referenceMimeType: referenceBase64 != nil ? "image/png" : nil)
+                    referenceMimeType: referenceBase64 != nil ? "image/png" : nil,
+                    brief: brief)
                 let response = try await AIServiceClient.shared.generateImage(request)
                 guard let data = response.images.first else {
                     throw ActionError("the image service returned no image")
@@ -358,5 +371,31 @@ extension AssistantActionFactory {
             GenerateVisionBoardImageAction(projectViewModel: projectViewModel,
                                            coordinator: coordinator, makeGenerate: makeGenerate),
         ]
+    }
+}
+
+extension GenerateLocationImagesAction {
+    /// The brief the on-device engine draws from — the place itself, the
+    /// variation as a property of the place (DC-0071: drawn without a
+    /// purpose, "Cinematic establishing shot of the kitchen" became a chef
+    /// at the range in every plate and variation).
+    static func brief(for location: Location, variation: String) -> VisualBrief {
+        let place = location.description.isEmpty
+            ? location.name
+            : "\(location.name): \(location.description)"
+        let subject = variation == "primary" ? place : "\(place) — \(variationPhrase(variation))"
+        return VisualBrief(purpose: .location, subject: subject)
+    }
+
+    static func variationPhrase(_ variation: String) -> String {
+        switch variation {
+        case "day": return "in full daylight"
+        case "night": return "at night"
+        case "golden_hour": return "at golden hour, low warm sun and long shadows"
+        case "overcast": return "under a flat overcast sky"
+        case "wide": return "a wide view taking in the whole place"
+        case "detail": return "a close view of its most telling detail"
+        default: return "at \(variation.replacingOccurrences(of: "_", with: " "))"
+        }
     }
 }

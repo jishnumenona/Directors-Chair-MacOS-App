@@ -329,7 +329,7 @@ struct SceneCardView: View {
         Task {
             do {
                 let aiClient = AIServiceClient.shared
-                guard await aiClient.testConnection() else {
+                guard await aiClient.imageServiceReachable() else {
                     await MainActor.run { isGenerating = false }
                     return
                 }
@@ -346,7 +346,11 @@ struct SceneCardView: View {
                     aspectRatio: "16:9",
                     numberOfImages: 1,
                     referenceImageBase64: ref?.base64,
-                    referenceMimeType: ref?.mimeType
+                    referenceMimeType: ref?.mimeType,
+                    brief: VisualBrief(
+                        purpose: .scene,
+                        subject: customPrompt.map(StoryboardSubjects.plainSubject)
+                            ?? StoryboardSubjects.subject(for: scene))
                 )
 
                 let response = try await aiClient.generateImage(request)

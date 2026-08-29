@@ -181,6 +181,15 @@ public struct ImageGenerationRequest: Sendable {
     public var referenceMimeType: String?
     /// Multiple labeled reference images (location, character, costume).
     public var referenceImages: [ReferenceImage]?
+    /// DC-0066: the provider-neutral description of the picture. The
+    /// on-device engine draws from THIS (purpose + plain subject +
+    /// framing); `prompt` stays the cloud providers' photoreal text.
+    /// nil = the on-device route recovers a subject from `prompt`.
+    public var brief: VisualBrief?
+    /// DC-0069: marked spots of an annotation edit — the on-device
+    /// engine repaints only these; cloud providers read the positions
+    /// from the prompt text as before.
+    public var editRegions: [EditRegion]
 
     public init(
         prompt: String,
@@ -190,7 +199,9 @@ public struct ImageGenerationRequest: Sendable {
         numberOfImages: Int = 1,
         referenceImageBase64: String? = nil,
         referenceMimeType: String? = nil,
-        referenceImages: [ReferenceImage]? = nil
+        referenceImages: [ReferenceImage]? = nil,
+        brief: VisualBrief? = nil,
+        editRegions: [EditRegion] = []
     ) {
         self.prompt = prompt
         self.provider = provider
@@ -200,6 +211,102 @@ public struct ImageGenerationRequest: Sendable {
         self.referenceImageBase64 = referenceImageBase64
         self.referenceMimeType = referenceMimeType
         self.referenceImages = referenceImages
+        self.brief = brief
+        self.editRegions = editRegions
+    }
+
+    /// True for "change this existing picture" asks (annotation edits,
+    /// vision-board redraws): they only make sense with a provider that
+    /// takes the picture as input.
+    public var isEditOfExistingImage: Bool {
+        // "Edit this image…", "Edit this scene preview…", "Edit this shot preview…"
+        prompt.lowercased().hasPrefix("edit this ")
+    }
+}
+
+extension AIServiceClient {
+    /// The wire body every CLOUD provider receives for an image ask — the
+    /// contract the Gemini/Imagen adapters were built against. Pure so a
+    /// test can pin that on-device-only fields (brief, edit regions) never
+    /// change a byte of it.
+    static func cloudImageBody(for request: ImageGenerationRequest,
+                               preferredModel: String?) -> [String: Any] {
+        var body: [String: Any] = [
+            "prompt": request.prompt,
+            "provider": request.provider.rawValue,
+            "aspect_ratio": request.aspectRatio,
+            "n": request.numberOfImages
+        ]
+        // DC-0059: call-site model wins; else the preferences choice; else
+        // the server default (field omitted).
+        if let model = request.model ?? preferredModel {
+            body["model"] = model
+        }
+        if let refs = request.referenceImages, !refs.isEmpty {
+            body["reference_images"] = refs.map { ref in
+                ["base64": ref.base64, "mime_type": ref.mimeType, "label": ref.label]
+            }
+        } else if let refImage = request.referenceImageBase64 {
+            body["reference_image_base64"] = refImage
+            body["reference_mime_type"] = request.referenceMimeType ?? "image/png"
+        }
+        return body
+    }
+
+    /// The request's pictures as raw bytes with their labels: the single
+    /// reference first (the picture being edited, or the scene's one
+    /// reference), then the labelled set ordered by what a composition
+    /// needs most — location, characters, props, costumes — capped at
+    /// klein's practical four.
+    static func onDeviceReferences(for request: ImageGenerationRequest) -> (pictures: [Data], labels: [String]) {
+        var pictures: [Data] = []
+        var labels: [String] = []
+        if let single = request.referenceImageBase64, let data = Data(base64Encoded: single) {
+            pictures.append(data); labels.append("")
+        }
+        let kindOf: (String) -> String = { $0.split(separator: ":").first.map(String.init)?.lowercased() ?? "" }
+        let rank: (String) -> Int = { ["location": 0, "character": 1, "prop": 2, "costume": 3][kindOf($0)] ?? 4 }
+        // Composing a shot or scene: full-body costume sheets make the model
+        // reproduce a sheet of panels (owner-reported collage); wardrobe
+        // reaches it through the face picture and the subject text instead.
+        let composing = [.shot, .scene, .moodboard].contains(request.brief?.purpose ?? .moodboard)
+        // A shot draws the people the shot names (DC-0071: an insert of
+        // Noor's hand drew all three of the scene's characters because every
+        // scene reference rode along). When the shot's subject names at
+        // least one character, only those characters' pictures go in.
+        let named = Self.charactersNamed(in: request.brief?.subject ?? "",
+                                         among: (request.referenceImages ?? []).map(\.label))
+        let shotScoped = request.brief?.purpose == .shot && !named.isEmpty
+        // An edit repaints the FIRST picture the surface sent; re-ranking by
+        // kind moved a scene's location plate ahead of the preview being
+        // edited (annotation review, 2026-08-28) — edits keep their order.
+        let editing = request.brief?.purpose == .edit || request.isEditOfExistingImage
+        let ordered = (request.referenceImages ?? []).enumerated()
+            .filter { !(composing && kindOf($0.element.label) == "costume") }
+            .filter { !(shotScoped && kindOf($0.element.label) == "character" && !named.contains($0.element.label)) }
+            .sorted { editing ? $0.offset < $1.offset
+                              : (rank($0.element.label), $0.offset) < (rank($1.element.label), $1.offset) }
+        for (_, reference) in ordered {
+            if let data = Data(base64Encoded: reference.base64) {
+                pictures.append(data); labels.append(reference.label)
+            }
+        }
+        return (Array(pictures.prefix(4)), Array(labels.prefix(4)))
+    }
+
+    /// The "character:<name>" labels whose name (or its first word) appears
+    /// in the subject text, whole-word and case-insensitive.
+    static func charactersNamed(in subject: String, among labels: [String]) -> Set<String> {
+        // Only the shot's own description counts — the subject goes on to
+        // list "People in the frame", which would name everyone it lists.
+        let description = subject.components(separatedBy: "People in the frame:").first ?? subject
+        var found: Set<String> = []
+        for label in labels {
+            let parts = label.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, parts[0].lowercased() == "character" else { continue }
+            if StoryboardSubjects.mentions(description, name: parts[1]) { found.insert(label) }
+        }
+        return found
     }
 }
 
@@ -444,6 +551,25 @@ public actor AIServiceClient {
     /// substitute a stub. Production never touches this.
     nonisolated(unsafe) public static var onDeviceTextEngine: any OnDeviceTextResponding
         = MLXInsightEngine.shared
+
+    /// DC-0065: the engine behind `.onDevice` IMAGE requests — the same
+    /// seam discipline as text (tests substitute a scripted engine; the
+    /// real one only draws inside app bundles).
+    nonisolated(unsafe) public static var onDeviceImageEngine: any StoryboardEngine
+        = LocalImageEngine.shared
+
+    /// The frame sizes the on-device sketch engine draws per requested
+    /// aspect ratio (multiples of 16 for the latent grid; 512–768-class,
+    /// where the 8-step model is fastest).
+    static func onDeviceImageSize(for aspectRatio: String) -> (width: Int, height: Int) {
+        switch aspectRatio {
+        case "9:16": return (432, 768)
+        case "1:1": return (640, 640)
+        case "4:3": return (704, 528)
+        case "3:4": return (528, 704)
+        default: return (768, 432)   // 16:9 and anything unrecognized
+        }
+    }
 
     // MARK: - Initialization
 
@@ -699,10 +825,51 @@ public actor AIServiceClient {
         return textResponse
     }
     
+    /// Whether an image ask can be served right now: the on-device
+    /// engine needs no server at all (DC-0066 — a sketch must work on a
+    /// train), every other provider needs the gateway reachable.
+    public func imageServiceReachable() async -> Bool {
+        if AIProviderSelection.shared.provider(for: .image) == .onDevice { return true }
+        return await testConnection()
+    }
+
     // MARK: - Image Generation
     
     /// Generate images using AI
     public func generateImage(_ request: ImageGenerationRequest) async throws -> ImageGenerationResponse {
+        // DC-0065: the on-device sketch engine never touches the network —
+        // route it BEFORE the availability guard (the text-generation
+        // precedent). One frame per call: the engine draws sequentially,
+        // and reference images don't apply to the sketch surface.
+        if request.provider == .onDevice {
+            // DC-0068: the klein engine takes pictures in. Every reference
+            // the request carries (the picture to edit, characters, garments,
+            // a place) rides along in order — the first is "the reference
+            // picture" in prompt language. klein's practical limit is four.
+            let (references, labels) = Self.onDeviceReferences(for: request)
+            let size = Self.onDeviceImageSize(for: request.aspectRatio)
+            let brief: VisualBrief
+            if let requested = request.brief {
+                brief = requested
+            } else if request.isEditOfExistingImage {
+                guard !references.isEmpty else {
+                    throw StoryboardEngineError.generationFailed(
+                        "There is no picture to edit — generate one first, then mark it up.")
+                }
+                brief = VisualBrief(purpose: .edit,
+                                    subject: StoryboardSubjects.editInstruction(from: request.prompt))
+            } else {
+                brief = VisualBrief(purpose: StoryboardSubjects.inferredPurpose(fromPrompt: request.prompt),
+                                    subject: StoryboardSubjects.plainSubject(from: request.prompt))
+            }
+            let frame = try await Self.onDeviceImageEngine.generateFrame(
+                StoryboardFrameSpec(brief: brief, width: size.width, height: size.height,
+                                    references: references, editRegions: request.editRegions,
+                                    referenceLabels: brief.purpose == .edit ? [] : labels))
+            return ImageGenerationResponse(
+                images: [frame], provider: .onDevice,
+                model: LocalImageEngine.model.id)   // on-device = $0
+        }
         let url = baseURL.appendingPathComponent("generate/image")
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
@@ -710,28 +877,8 @@ public actor AIServiceClient {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         applyAuthHeader(to: &urlRequest)
 
-        var body: [String: Any] = [
-            "prompt": request.prompt,
-            "provider": request.provider.rawValue,
-            "aspect_ratio": request.aspectRatio,
-            "n": request.numberOfImages
-        ]
-
-        // DC-0059: call-site model wins; else the preferences choice; else
-        // the server default (field omitted).
-        if let model = request.model
-            ?? AIProviderSelection.shared.modelId(for: .image) {
-            body["model"] = model
-        }
-        if let refs = request.referenceImages, !refs.isEmpty {
-            body["reference_images"] = refs.map { ref in
-                ["base64": ref.base64, "mime_type": ref.mimeType, "label": ref.label]
-            }
-        } else if let refImage = request.referenceImageBase64 {
-            body["reference_image_base64"] = refImage
-            body["reference_mime_type"] = request.referenceMimeType ?? "image/png"
-        }
-        
+        let body = Self.cloudImageBody(
+            for: request, preferredModel: AIProviderSelection.shared.modelId(for: .image))
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, httpResponse) = try await performWithAutoRefresh(urlRequest)

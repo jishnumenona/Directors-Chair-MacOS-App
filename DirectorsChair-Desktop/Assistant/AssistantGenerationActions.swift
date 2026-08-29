@@ -37,8 +37,10 @@ private func objectSchema(_ properties: [String: JSONValue],
 /// matching Character field. The provider call is injected for testability.
 @MainActor
 struct CharacterImagePipeline {
-    /// (prompt, referencePNGBase64?) → PNG data.
-    typealias Generate = @Sendable (String, String?) async throws -> Data
+    /// (prompt, referencePNGBase64?, brief) → PNG data. The brief carries
+    /// the angle as framing for the on-device engine (DC-0071: without it a
+    /// "left profile" request was drawn as the default front portrait).
+    typealias Generate = @Sendable (String, String?, VisualBrief?) async throws -> Data
 
     /// Matches gateway cost.py (google_imagen per image) — reconcile there.
     static let estimatedCostPerImage = 0.04
@@ -132,8 +134,13 @@ struct CharacterImagePipeline {
         }
 
         let reference = angle == "base" ? nil : loadReferenceBase64(for: character)
+        // The same brief the Story Design tab sends (ContentView+CentralStack
+        // .onDeviceBrief): the subject from the record, the angle as framing.
+        let brief = VisualBrief(purpose: .character,
+                                subject: StoryboardSubjects.subject(for: character),
+                                framing: StoryboardSubjects.characterFraming(angle: angle))
         let imageData = try await generate(
-            Self.prompt(for: character, angle: angle), reference)
+            Self.prompt(for: character, angle: angle), reference, brief)
 
         let sanitized = Self.sanitizeAssetName(character.name)
         let (subfolder, filename) = Self.assetPath(for: angle)
@@ -281,14 +288,15 @@ extension AssistantActionFactory {
             GenerateCharacterImagesAction(
                 projectViewModel: projectViewModel, coordinator: coordinator,
                 makeGenerate: {
-                    { prompt, referenceBase64 in
+                    { prompt, referenceBase64, brief in
                         let request = ImageGenerationRequest(
                             prompt: prompt,
                             provider: AIProviderSelection.shared.provider(for: .image),
                             aspectRatio: "1:1",
                             numberOfImages: 1,
                             referenceImageBase64: referenceBase64,
-                            referenceMimeType: referenceBase64 != nil ? "image/png" : nil)
+                            referenceMimeType: referenceBase64 != nil ? "image/png" : nil,
+                            brief: brief)
                         let response = try await AIServiceClient.shared.generateImage(request)
                         guard let data = response.images.first else {
                             throw ActionError("the image service returned no image")
