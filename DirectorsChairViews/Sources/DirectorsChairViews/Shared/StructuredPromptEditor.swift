@@ -8,6 +8,19 @@
 
 import SwiftUI
 
+/// A reference picture that travels with the prompt (what the model SEES).
+public struct PromptPicture: Identifiable, Equatable {
+    public let id: String
+    public var label: String
+    public var image: NSImage
+
+    public init(label: String, image: NSImage) {
+        self.id = label + "|" + String(image.hashValue)
+        self.label = label
+        self.image = image
+    }
+}
+
 /// One part of a prompt and where it came from.
 public struct PromptSection: Identifiable, Equatable {
     public let id: String
@@ -18,14 +31,19 @@ public struct PromptSection: Identifiable, Equatable {
     public var isIncluded: Bool
     /// App-fixed wording (style, format) is shown but starts read-only.
     public var isFixed: Bool
+    /// The reference pictures this part sends along (owner 2026-08-29: show
+    /// the picture the model gets, not just the words).
+    public var pictures: [PromptPicture]
 
-    public init(id: String, title: String, source: String, text: String, isIncluded: Bool = true, isFixed: Bool = false) {
+    public init(id: String, title: String, source: String, text: String, isIncluded: Bool = true, isFixed: Bool = false,
+                pictures: [PromptPicture] = []) {
         self.id = id
         self.title = title
         self.source = source
         self.text = text
         self.isIncluded = isIncluded
         self.isFixed = isFixed
+        self.pictures = pictures
     }
 }
 
@@ -228,7 +246,30 @@ public struct StructuredPromptEditor: View {
                     .foregroundColor(.accentColor)
                 }
             }
-            if locked {
+            if !section.wrappedValue.pictures.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(section.wrappedValue.pictures) { picture in
+                            VStack(spacing: 3) {
+                                Image(nsImage: picture.image)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(height: 72)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                                Text(picture.label)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .help("These pictures are sent with the prompt as references")
+            }
+            if section.wrappedValue.text.isEmpty {
+                EmptyView()
+            } else if locked {
                 Text(section.wrappedValue.text)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)

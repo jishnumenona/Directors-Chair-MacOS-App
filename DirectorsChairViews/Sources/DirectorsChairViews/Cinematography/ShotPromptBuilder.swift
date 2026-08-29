@@ -19,10 +19,10 @@ public enum ShotPromptBuilder {
     /// parts joined with ". " — the exact text the surfaces always sent.
     static func previewSections(shot: Shot, scene: DCScene?, locations: [Location], characters: [Character]) -> [PromptSection] {
         var sections: [PromptSection] = []
-        func add(_ id: String, _ title: String, _ source: String, _ parts: [String], fixed: Bool = false) {
+        func add(_ id: String, _ title: String, _ source: String, _ parts: [String], fixed: Bool = false, included: Bool = true) {
             let text = parts.filter { !$0.isEmpty }.joined(separator: ". ")
             guard !text.isEmpty else { return }
-            sections.append(PromptSection(id: id, title: title, source: source, text: text, isFixed: fixed))
+            sections.append(PromptSection(id: id, title: title, source: source, text: text, isIncluded: included, isFixed: fixed))
         }
 
         add("style", "Style", "App default", ["Cinematic film still, professional cinematography"], fixed: true)
@@ -72,7 +72,9 @@ public enum ShotPromptBuilder {
             }
 
             if !scene.description.isEmpty {
-                add("scene", "Scene", "Scene: \(scene.name)", [scene.description.prefix(200).description])
+                // Owner 2026-08-29: the scene's prose is off by default — it belongs to
+                // the scene, not to this shot; switch it on in the editor when wanted.
+                add("scene", "Scene", "Scene: \(scene.name)", [scene.description.prefix(200).description], included: false)
             }
 
             // Owner rule 2026-08-29: only the shot's own people (its cast list and

@@ -39,6 +39,8 @@ struct ShotPreviewSection: View {
     @State private var lastUsedPrompt: String = ""
     /// The prompt as parts with sources, for the sectioned editor.
     @State private var promptSections: [PromptSection] = []
+    /// A generation held back because the shot has no location (owner 2026-08-29).
+    @State private var promptAwaitingLocation: String?
     @State private var allPreviewImages: [URL] = []
     /// Which history picture is the shot's picture (latest.png) right now.
     @State private var defaultPreviewIndex: Int?
@@ -336,6 +338,16 @@ struct ShotPreviewSection: View {
             // 16:9 box, capped so the page stays scrollable); the empty and
             // loading states keep the old 420-pt box.
             .modifier(PreviewFrameShape(image: previewImage))
+            .alert("No location set", isPresented: Binding(get: { promptAwaitingLocation != nil },
+                                                            set: { if !$0 { promptAwaitingLocation = nil } })) {
+                Button("Generate anyway") {
+                    if let prompt = promptAwaitingLocation { generatePreview(with: prompt, locationConfirmed: true) }
+                    promptAwaitingLocation = nil
+                }
+                Button("Cancel", role: .cancel) { promptAwaitingLocation = nil }
+            } message: {
+                Text("This shot's scene has no location, so the preview won't know where it takes place. Set one in Shot Context or type #location in the description — or generate anyway.")
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
@@ -394,7 +406,7 @@ struct ShotPreviewSection: View {
         .sheet(isPresented: $showingPromptEditor) {
             PromptEditorSheet(
                 sections: $promptSections,
-                onReset: { promptSections = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: locations, characters: characters) },
+                onReset: { promptSections = builtSectionsWithPictures() },
                 isPresented: $showingPromptEditor,
                 onGenerate: { customPrompt in
                     generatePreview(with: customPrompt)
@@ -434,8 +446,46 @@ struct ShotPreviewSection: View {
     /// What the sectioned editor opens with: the built parts; a previous
     /// annotation edit shows its marked changes above the base parts; a
     /// prompt the user wrote by hand shows as one part.
+    /// The reference pictures this generation will send, with their labels.
+    private func referencePictures() -> [PromptPicture] {
+        guard let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() else { return [] }
+        var refs = CharacterReferenceHelper.collectReferenceImages(
+            forShot: shot, in: scene, characters: characters, locations: locations, props: props, projectDirectory: projDir)
+        let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+        refs = ContinuityReferences.merged(continuity: continuity, others: refs,
+                                           onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)
+        return refs.compactMap { ref in
+            guard let data = Data(base64Encoded: ref.base64), let image = NSImage(data: data) else { return nil }
+            let parts = ref.label.split(separator: ":", maxSplits: 1).map(String.init)
+            let kind = parts.first ?? "reference"
+            let name = parts.count > 1 ? parts[1] : ref.label
+            return PromptPicture(label: "\(name) · \(kind)", image: image)
+        }
+    }
+
+    /// The built parts with the pictures each one sends (owner 2026-08-29).
+    private func builtSectionsWithPictures() -> [PromptSection] {
+        var sections = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: locations, characters: characters)
+        let pictures = referencePictures()
+        guard !pictures.isEmpty else { return sections }
+        func attach(_ id: String, _ kinds: [String]) {
+            guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+            sections[index].pictures = pictures.filter { picture in kinds.contains { picture.label.hasSuffix("· \($0)") } }
+        }
+        attach("location", ["location"])
+        attach("characters", ["character", "costume"])
+        let rest = pictures.filter { picture in !["location", "character", "costume"].contains { picture.label.hasSuffix("· \($0)") } }
+        if !rest.isEmpty {
+            let references = PromptSection(id: "references", title: "Reference pictures", source: "Props · continuity shots",
+                                           text: "", isFixed: true, pictures: rest)
+            let at = sections.firstIndex { $0.id == "description" }.map { $0 + 1 } ?? sections.count
+            sections.insert(references, at: at)
+        }
+        return sections
+    }
+
     private func promptSectionsForEditor() -> [PromptSection] {
-        let built = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: locations, characters: characters)
+        let built = builtSectionsWithPictures()
         guard !lastUsedPrompt.isEmpty, lastUsedPrompt != buildPrompt() else { return built }
         if let edit = PromptSections.splitEditPrompt(lastUsedPrompt) {
             let changes = PromptSection(id: "changes", title: "Changes you marked", source: "Annotation editor",
@@ -820,7 +870,12 @@ struct ShotPreviewSection: View {
 
     // MARK: - Generate Preview
 
-    private func generatePreview(with prompt: String) {
+    private func generatePreview(with prompt: String, locationConfirmed: Bool = false) {
+        // Owner 2026-08-29: a shot without a location has nowhere to happen — ask first.
+        if !locationConfirmed, (scene?.location ?? "").isEmpty {
+            promptAwaitingLocation = prompt
+            return
+        }
         isGenerating = true
         errorMessage = nil
         lastUsedPrompt = prompt

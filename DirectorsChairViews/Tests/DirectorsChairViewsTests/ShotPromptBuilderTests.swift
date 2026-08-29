@@ -147,7 +147,7 @@ final class ShotPromptBuilderTests: XCTestCase {
                                                    cameraMotion: "Static", duration: 5.0)
         XCTAssertTrue(prompt.contains("Location: Warehouse (indoor)"), "location record missing")
         XCTAssertTrue(prompt.contains("Abandoned dockside warehouse"), "location description missing")
-        XCTAssertTrue(prompt.contains("Scene: Dust hangs in the light"), "scene description missing")
+        XCTAssertTrue(prompt.contains("Scene: Dust hangs in the light"), "the video prompt keeps the scene context")
         XCTAssertTrue(prompt.contains("Props: crowbar, shipping crate"), "props missing")
         XCTAssertTrue(prompt.contains("Alex (Weathered detective"), "character appearance missing")
         XCTAssertTrue(prompt.contains("Maya"), "action-only character missing")
@@ -394,6 +394,10 @@ final class ShotPromptBuilderTests: XCTestCase {
         XCTAssertEqual(PromptSections.assemble(sections),
                        ShotPromptBuilder.previewPrompt(shot: shot, scene: scene, locations: [location], characters: []))
         XCTAssertEqual(sections.map(\.id), ["style", "framing", "camera", "description", "location", "look", "format"])
+        var talky = scene; talky.description = "Dust hangs in the light."
+        let withScene = ShotPromptBuilder.previewSections(shot: shot, scene: talky, locations: [location], characters: [])
+        XCTAssertEqual(withScene.first { $0.id == "scene" }?.isIncluded, false, "the scene's prose is an optional part, off by default")
+        XCTAssertFalse(ShotPromptBuilder.previewPrompt(shot: shot, scene: talky, locations: [location], characters: []).contains("Dust hangs"))
         XCTAssertEqual(sections.first { $0.id == "location" }?.source, "Location: Desert road")
         XCTAssertTrue(sections.first { $0.id == "style" }?.isFixed ?? false)
         var dropped = sections
