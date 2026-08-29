@@ -124,11 +124,14 @@ public struct ImageAnnotationEditor: View {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 12))
                         .foregroundColor(.accentColor)
-                    CharacterMentionTextField(text: $wholeInstruction,
-                                              placeholder: "Describe how the whole picture should change — e.g. make it dusk, put @Susan by the door, remove the $Mini van",
-                                              characters: characters, locations: locations, props: props, shots: shots,
-                                              font: .system(size: 12), foregroundColor: .primary,
-                                              onSubmit: { if canApply { applyEdits() } })
+                    MentionTextView(text: $wholeInstruction, characters: characters, locations: locations, props: props,
+                                    continuityShots: shots, projectDirectory: projectDirectory,
+                                    placeholder: "Describe how the whole picture should change — e.g. make it dusk, put @Susan by the door, remove the $Mini van",
+                                    onOpenMention: onOpenMention,
+                                    submitsOnReturn: true, onSubmit: { if canApply { applyEdits() } })
+                        .frame(minHeight: 48, maxHeight: 90)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(6)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                         .background(Color.white.opacity(0.06))
@@ -362,15 +365,15 @@ public struct ImageAnnotationEditor: View {
                             .foregroundColor(.white)
                     )
 
-                CharacterMentionTextField(text: $editingText, placeholder: "What changes here? (@ # $ &)",
-                                          characters: characters, locations: locations, props: props, shots: shots,
-                                          font: .system(size: 11), foregroundColor: .primary,
-                                          onSubmit: { confirmEdit() })
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.white.opacity(0.06))
-                .cornerRadius(4)
-                .frame(width: 190)
+                // The same inline mention editor as the shot description
+                // (owner 2026-08-29): pills with pictures, double-click opens.
+                MentionTextView(text: $editingText, characters: characters, locations: locations, props: props,
+                                continuityShots: shots, projectDirectory: projectDirectory,
+                                placeholder: "What changes here? (@ # $ &)", onOpenMention: onOpenMention,
+                                submitsOnReturn: true, onSubmit: { confirmEdit() })
+                    .frame(width: 260, height: 46)
+                    .background(Color.white.opacity(0.06))
+                    .cornerRadius(4)
 
                 Button(action: confirmEdit) {
                     Image(systemName: "checkmark.circle.fill")

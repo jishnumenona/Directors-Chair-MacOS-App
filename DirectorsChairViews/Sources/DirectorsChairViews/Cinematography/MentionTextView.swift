@@ -59,6 +59,10 @@ struct MentionTextView: NSViewRepresentable {
     let projectDirectory: URL?
     var placeholder: String = "Write a description…"
     var onOpenMention: ((ResolvedMention) -> Void)?
+    /// Return confirms instead of inserting a newline (short notes, e.g. a
+    /// pin's instruction in the annotation editor).
+    var submitsOnReturn: Bool = false
+    var onSubmit: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -371,7 +375,13 @@ struct MentionTextView: NSViewRepresentable {
 
         // Keyboard while the list is up: arrows move, return picks, escape closes.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard popover != nil else { return false }
+            guard popover != nil else {
+                if parent.submitsOnReturn, commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                    parent.onSubmit?()
+                    return true
+                }
+                return false
+            }
             let items = candidates()
             switch commandSelector {
             case #selector(NSResponder.moveDown(_:)):
