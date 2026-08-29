@@ -93,31 +93,16 @@ public struct CharacterAnalysisResult: Sendable {
 
 // MARK: - Trait Definitions
 
-/// The 25 personality traits used for character analysis (OCEAN model).
-/// These names must match the UI trait names in PersonalityTraitsTab exactly.
+/// The 25 personality traits used for character analysis (OCEAN model) —
+/// read from the one vocabulary in Core (DC-0078), so the analyzer, the
+/// Personality tab, the sheet HTML and the deck can never drift apart.
 public struct CharacterTraits {
     /// All trait names (OCEAN: 5 categories × 5 sub-traits)
-    public static let allTraits: [String] = [
-        // Openness
-        "Creativity", "Curiosity", "Imagination", "Open-mindedness", "Artistic Interest",
-        // Conscientiousness
-        "Organization", "Diligence", "Reliability", "Self-discipline", "Ambition",
-        // Extraversion
-        "Sociability", "Energy", "Assertiveness", "Enthusiasm", "Talkativeness",
-        // Agreeableness
-        "Empathy", "Cooperation", "Trust", "Kindness", "Politeness",
-        // Neuroticism
-        "Anxiety", "Moodiness", "Sensitivity", "Irritability", "Self-consciousness"
-    ]
+    public static let allTraits: [String] = TraitVocabulary.facets
 
     /// Trait categories (OCEAN)
-    public static let categories: [String: [String]] = [
-        "Openness": ["Creativity", "Curiosity", "Imagination", "Open-mindedness", "Artistic Interest"],
-        "Conscientiousness": ["Organization", "Diligence", "Reliability", "Self-discipline", "Ambition"],
-        "Extraversion": ["Sociability", "Energy", "Assertiveness", "Enthusiasm", "Talkativeness"],
-        "Agreeableness": ["Empathy", "Cooperation", "Trust", "Kindness", "Politeness"],
-        "Neuroticism": ["Anxiety", "Moodiness", "Sensitivity", "Irritability", "Self-consciousness"]
-    ]
+    public static let categories: [String: [String]] = Dictionary(
+        uniqueKeysWithValues: TraitVocabulary.categories.map { ($0.name, $0.facets) })
 }
 
 // MARK: - Character Analyzer Actor

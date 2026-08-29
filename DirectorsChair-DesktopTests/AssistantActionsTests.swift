@@ -214,6 +214,30 @@ final class AssistantActionsTests: XCTestCase {
         XCTAssertEqual(projectVM.project.characters[0].traits["Creativity"], 91)
     }
 
+    /// DC-0078: any spelling of a facet lands on its canonical key; a name
+    /// outside the vocabulary is refused with the list, so a character
+    /// never grows a 26th trait.
+    func testUpdateCharacterTraitNormalisesSpellingAndRefusesUnknownTraits() async throws {
+        let trait = action("update_character_trait")
+        for (spelling, facet) in [("creativity", "Creativity"), ("open mindedness", "Open-mindedness"),
+                                  ("SELF_DISCIPLINE", "Self-discipline")] {
+            let payload = args(#"{"character": "Mara", "trait": "\#(spelling)", "value": 64}"#)
+            let plan = try trait.validate(argumentsData: payload)
+            XCTAssertTrue(plan.summary.contains(facet), plan.summary)
+            _ = try await trait.execute(argumentsData: payload)
+            XCTAssertEqual(projectVM.project.characters[0].traits[facet], 64)
+            XCTAssertNil(projectVM.project.characters[0].traits[spelling == facet ? "" : spelling])
+        }
+        XCTAssertEqual(projectVM.project.characters[0].traits.count, 25)
+
+        XCTAssertThrowsError(try trait.validate(argumentsData:
+            args(#"{"character": "Mara", "trait": "swagger", "value": 80}"#))) { error in
+            let message = "\(error)"
+            XCTAssertTrue(message.contains("trait must be one of"), message)
+            XCTAssertTrue(message.contains("Open-mindedness"), "the refusal lists the vocabulary")
+        }
+    }
+
     func testUpdateCharacterBioAndRelationshipExecute() async throws {
         let bio = action("update_character_bio")
         _ = try await bio.execute(argumentsData:

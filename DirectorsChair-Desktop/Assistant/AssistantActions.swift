@@ -244,9 +244,23 @@ final class UpdateCharacterTraitAction: ProjectAssistantAction, AssistantAction 
     let summary = "Set one personality trait (0–100) on a character."
     let risk = ActionRisk.mutating
     var parameterSchema: JSONValue {
-        objectSchema(["character": stringProp, "trait": stringProp,
+        // The trait is one of the vocabulary's 25 facets (DC-0078) — the
+        // model picks from the list instead of inventing a key.
+        objectSchema(["character": stringProp,
+                      "trait": .object(["type": .string("string"),
+                                        "enum": .array(TraitVocabulary.facets.map(JSONValue.string))]),
                       "value": numberProp, "reason": stringProp],
                      required: ["character", "trait", "value"])
+    }
+
+    /// Any spelling of a facet lands on its canonical key; anything else
+    /// is refused with the vocabulary, so a populated character never
+    /// grows a 26th trait.
+    static func facet(named name: String) throws -> String {
+        guard let facet = TraitVocabulary.canonicalName(name) else {
+            throw ActionError("trait must be one of: " + TraitVocabulary.facets.joined(separator: ", "))
+        }
+        return facet
     }
 
     private struct Arguments: Decodable {
@@ -262,11 +276,14 @@ final class UpdateCharacterTraitAction: ProjectAssistantAction, AssistantAction 
             throw ActionError("value must be between 0 and 100")
         }
         let pvm = try requireProject()
+        // The character first — an unknown name answers with the known
+        // names (golden transcript); the trait is checked once it exists.
         let index = try character(named: args.character, in: pvm)
-        let old = pvm.project.characters[index].traits[args.trait]
+        let facet = try Self.facet(named: args.trait)
+        let old = pvm.project.characters[index].traits[facet]
         return ActionPlan(
-            summary: "Set \(args.character)'s \(args.trait) to \(Int(args.value))",
-            previews: [ActionPreview(title: "\(args.character) · \(args.trait)",
+            summary: "Set \(args.character)'s \(facet) to \(Int(args.value))",
+            previews: [ActionPreview(title: "\(args.character) · \(facet)",
                                      oldValue: old.map { "\(Int($0))" } ?? "unset",
                                      newValue: "\(Int(args.value))")])
     }
@@ -275,10 +292,11 @@ final class UpdateCharacterTraitAction: ProjectAssistantAction, AssistantAction 
         let args = try decodeArguments(Arguments.self, from: argumentsData, action: name)
         let pvm = try requireProject()
         let index = try character(named: args.character, in: pvm)
-        pvm.project.characters[index].traits[args.trait] = args.value
+        let facet = try Self.facet(named: args.trait)
+        pvm.project.characters[index].traits[facet] = args.value
         didMutate(.general)
         return ActionOutcome(resultForModel: #"{"status": "applied"}"#,
-                             userSummary: "Updated \(args.character)'s \(args.trait)")
+                             userSummary: "Updated \(args.character)'s \(facet)")
     }
 }
 

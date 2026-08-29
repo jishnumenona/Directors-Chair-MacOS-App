@@ -866,16 +866,17 @@ final class ModelRoundTripTests: XCTestCase {
 
     func testCharacterTraitsRoundTrip() throws {
         var customTraits = Character.defaultTraits()
-        customTraits["confidence"] = 85.0
-        customTraits["empathy"] = 92.0
+        customTraits["Assertiveness"] = 85.0
+        customTraits["Empathy"] = 92.0
         let original = Character(name: "Alice", traits: customTraits)
 
         let decoded = try roundTrip(original)
 
-        XCTAssertEqual(decoded.traits["confidence"], 85.0)
-        XCTAssertEqual(decoded.traits["empathy"], 92.0)
-        // All 25 default trait keys should survive
+        XCTAssertEqual(decoded.traits["Assertiveness"], 85.0)
+        XCTAssertEqual(decoded.traits["Empathy"], 92.0)
+        // All 25 facet keys should survive (DC-0078: the one vocabulary)
         XCTAssertEqual(decoded.traits.count, 25)
+        XCTAssertNil(decoded.legacyTraits)
     }
 
     func testCharacterSnakeCaseCodingKeys() throws {

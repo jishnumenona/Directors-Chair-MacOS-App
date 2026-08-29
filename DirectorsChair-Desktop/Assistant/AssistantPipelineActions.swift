@@ -243,9 +243,11 @@ final class CalibrateCharacterTraitsAction: ProjectAssistantAction, AssistantAct
         let index = try character(named: args.character, in: pvm)
         let result = try await analyze(pvm.project.characters[index], pvm.project)
 
-        // Mirrors the Story Design seam's writes exactly.
+        // Mirrors the Story Design seam's writes exactly; scores land on
+        // the vocabulary's facets only (DC-0078).
         for (trait, score) in result.traitScores {
-            pvm.project.characters[index].traits[trait] = score
+            guard let facet = TraitVocabulary.canonicalName(trait) else { continue }
+            pvm.project.characters[index].traits[facet] = score
         }
         pvm.project.characters[index].traitsConfidenceScore = result.confidenceScore
         pvm.project.characters[index].traitsAiReasoning = result.reasoning

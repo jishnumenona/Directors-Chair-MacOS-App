@@ -259,18 +259,9 @@ public enum ProjectOverviewBuilder {
     /// The desktop's TraitCategory grouping (PersonalityTraitsTab): five
     /// Big-Five categories × five Title-Case facet keys, values 0–100.
     /// Colors are the portal/seed convention.
-    static let oceanFacets: [(category: String, color: String, facets: [String])] = [
-        ("Openness", "#9B59B6",
-         ["Creativity", "Curiosity", "Imagination", "Open-mindedness", "Artistic Interest"]),
-        ("Conscientiousness", "#3498DB",
-         ["Organization", "Diligence", "Reliability", "Self-discipline", "Ambition"]),
-        ("Extraversion", "#E67E22",
-         ["Sociability", "Energy", "Assertiveness", "Enthusiasm", "Talkativeness"]),
-        ("Agreeableness", "#27AE60",
-         ["Empathy", "Cooperation", "Trust", "Kindness", "Politeness"]),
-        ("Neuroticism", "#E74C3C",
-         ["Anxiety", "Moodiness", "Sensitivity", "Irritability", "Self-consciousness"]),
-    ]
+    static let oceanFacets: [(category: String, color: String, facets: [String])] =
+        zip(TraitVocabulary.categories, ["#9B59B6", "#3498DB", "#E67E22", "#27AE60", "#E74C3C"])
+            .map { (category: $0.name, color: $1, facets: $0.facets) }
 
     /// Full character sheet, matching the portal's OverviewCharacter wire
     /// type (api.ts). Every field optional-omitted: the page gates each tab
