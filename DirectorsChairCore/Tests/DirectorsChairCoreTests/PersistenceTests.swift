@@ -215,3 +215,31 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(isValid)
     }
 }
+
+
+// MARK: - Backup rotation (audit 2026-08-28)
+
+final class BackupRotationTests: XCTestCase {
+    /// Copies of a file replaced in place all shared one birth time, so the
+    /// ring sorted on creation date dropped arbitrary — usually the newest —
+    /// backups. It now keeps the five most recent writes.
+    func testRotationKeepsTheFiveNewestBackups() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-rotation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("project.json")
+        let persistence = ProjectPersistence(maxBackups: 5)
+        for version in 1...7 {
+            try await persistence.save(Project(name: "v\(version)"), to: url)
+            try await Task.sleep(nanoseconds: 1_050_000_000)   // distinct write times and names
+        }
+        let backups = try FileManager.default.contentsOfDirectory(at: dir.appendingPathComponent(".backups"),
+                                                                  includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("project_") }
+        XCTAssertEqual(backups.count, 5)
+        let names = try backups.map { try JSONDecoder().decode(Project.self, from: Data(contentsOf: $0)).name }
+        XCTAssertEqual(Set(names), ["v2", "v3", "v4", "v5", "v6"],
+                       "the backups are of the six previous files; the oldest (v1) is the one to go")
+    }
+}

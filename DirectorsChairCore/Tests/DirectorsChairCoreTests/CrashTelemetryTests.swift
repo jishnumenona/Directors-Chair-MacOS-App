@@ -40,6 +40,16 @@ final class CrashTelemetryTests: XCTestCase {
         XCTAssertNil(report, "a clean quit must never nag")
     }
 
+    /// The terminate path cannot await: the synchronous goodbye must take
+    /// the lock off on its own (audit 2026-08-28 — the old semaphore
+    /// pattern never ran, so every clean quit looked like a crash).
+    func testTheSynchronousGoodbyeRemovesTheLock() async {
+        await telemetry.beginSession(appVersion: "3.10")
+        telemetry.endSessionCleanlyNow()
+        let report = await telemetry.launchCheck(appVersion: "3.10", osVersion: "15.0")
+        XCTAssertNil(report, "a synchronous clean quit must never nag either")
+    }
+
     func testAnUncleanExitIsReportedOnceWithItsBreadcrumbs() async {
         await telemetry.beginSession(appVersion: "3.10")
         await telemetry.noteState(lastView: "Vision Board",

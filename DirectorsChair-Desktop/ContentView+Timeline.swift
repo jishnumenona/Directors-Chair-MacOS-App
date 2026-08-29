@@ -210,21 +210,30 @@ struct TimelineContainer: View {
             onShotLabelMoved: { _, _, _ in
                 // Sync updated project and save silently (no loading overlay)
                 if let updatedProject = timelineViewModel.getProject() {
-                    projectViewModel.project = updatedProject
+                    // Only the timeline's own fields come back — its copy may
+                    // predate edits made elsewhere (audit 2026-08-28 P0).
+                    projectViewModel.project = projectViewModel.project
+                        .adoptingTimelineEdits(from: updatedProject)
                     Task { await projectViewModel.saveSilently() }
                 }
             },
             onSegmentMoved: { _, _ in
                 // Sync updated project and save silently (no loading overlay)
                 if let updatedProject = timelineViewModel.getProject() {
-                    projectViewModel.project = updatedProject
+                    // Only the timeline's own fields come back — its copy may
+                    // predate edits made elsewhere (audit 2026-08-28 P0).
+                    projectViewModel.project = projectViewModel.project
+                        .adoptingTimelineEdits(from: updatedProject)
                     Task { await projectViewModel.saveSilently() }
                 }
             },
             onSegmentsMoved: { _ in
                 // Sync updated project and save silently (no loading overlay)
                 if let updatedProject = timelineViewModel.getProject() {
-                    projectViewModel.project = updatedProject
+                    // Only the timeline's own fields come back — its copy may
+                    // predate edits made elsewhere (audit 2026-08-28 P0).
+                    projectViewModel.project = projectViewModel.project
+                        .adoptingTimelineEdits(from: updatedProject)
                     Task { await projectViewModel.saveSilently() }
                 }
             },
@@ -299,7 +308,8 @@ struct TimelineContainer: View {
 
                             // Sync project back
                             if let updatedProject = timelineViewModel.getProject() {
-                                projectViewModel.project = updatedProject
+                                projectViewModel.project = projectViewModel.project
+                                    .adoptingTimelineEdits(from: updatedProject)
                                 Task { await projectViewModel.saveSilently() }
                             }
 

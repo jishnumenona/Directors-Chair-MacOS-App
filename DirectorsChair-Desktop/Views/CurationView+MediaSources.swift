@@ -406,21 +406,27 @@ final class DailiesIngestController: ObservableObject {
     }
 
     /// A human filing an unsorted clip from the navigator.
+    /// Files the clip; the copy runs off the main thread and the take is
+    /// appended when it lands. The returned task completes then — the
+    /// lifecycle and tests await it, the watcher ignores it.
+    @discardableResult
     func file(_ file: URL, sequenceIndex: Int, sceneIndex: Int,
-              shotIndex: Int) {
+              shotIndex: Int) -> Task<Void, Never>? {
         let match = DailiesIngest.parse(fileName: file.lastPathComponent)
             ?? DailiesIngest.Match(sceneNumber: "")
-        ingest(file, match: match,
-               at: DailiesIngest.Destination(sequenceIndex: sequenceIndex,
-                                             sceneIndex: sceneIndex,
-                                             shotIndex: shotIndex))
+        let task = ingest(file, match: match,
+                          at: DailiesIngest.Destination(sequenceIndex: sequenceIndex,
+                                                        sceneIndex: sceneIndex,
+                                                        shotIndex: shotIndex))
         unsorted.removeAll { $0 == file }
+        return task
     }
 
+    @discardableResult
     private func ingest(_ file: URL, match: DailiesIngest.Match,
-                        at destination: DailiesIngest.Destination) {
+                        at destination: DailiesIngest.Destination) -> Task<Void, Never>? {
         guard let viewModel = projectViewModel,
-              let projectPath = viewModel.projectPath else { return }
+              let projectPath = viewModel.projectPath else { return nil }
         let projectDir = projectPath.deletingLastPathComponent()
         let shot = viewModel.project
             .sequences[destination.sequenceIndex]
@@ -442,27 +448,39 @@ final class DailiesIngestController: ObservableObject {
             target = footageDir.appendingPathComponent(
                 "\(stem)-\(UUID().uuidString.prefix(6)).\(ext)")
         }
-        do {
-            try FileManager.default.copyItem(at: file, to: target)
-        } catch {
-            unsorted.append(file)
-            return
+        // A multi-GB clip from a card reader used to be copied on the main
+        // thread — the whole app froze per arriving file (audit 2026-08-28).
+        let copyTarget = target
+        return Task { @MainActor in
+            let copied = await Task.detached(priority: .utility) {
+                do { try FileManager.default.copyItem(at: file, to: copyTarget); return true }
+                catch { return false }
+            }.value
+            guard copied else {
+                unsorted.append(file)
+                return
+            }
+            let relative = copyTarget.path.replacingOccurrences(
+                of: projectDir.path + "/", with: "")
+            let take = DailiesIngest.makeTake(
+                fileName: file.lastPathComponent,
+                relativeVideoPath: relative,
+                match: match,
+                existingTakes: shot.takes)
+            guard viewModel.project.sequences.indices.contains(destination.sequenceIndex),
+                  viewModel.project.sequences[destination.sequenceIndex].scenes.indices
+                    .contains(destination.sceneIndex),
+                  viewModel.project.sequences[destination.sequenceIndex]
+                    .scenes[destination.sceneIndex].shots.indices.contains(destination.shotIndex)
+            else { unsorted.append(file); return }
+            viewModel.project
+                .sequences[destination.sequenceIndex]
+                .scenes[destination.sceneIndex]
+                .shots[destination.shotIndex]
+                .takes.append(take)
+            ingestedThisSession += 1
+            ProxyMediaStore.shared.sweep(relativePaths: [relative],
+                                         projectBase: projectDir)
         }
-
-        let relative = target.path.replacingOccurrences(
-            of: projectDir.path + "/", with: "")
-        let take = DailiesIngest.makeTake(
-            fileName: file.lastPathComponent,
-            relativeVideoPath: relative,
-            match: match,
-            existingTakes: shot.takes)
-        viewModel.project
-            .sequences[destination.sequenceIndex]
-            .scenes[destination.sceneIndex]
-            .shots[destination.shotIndex]
-            .takes.append(take)
-        ingestedThisSession += 1
-        ProxyMediaStore.shared.sweep(relativePaths: [relative],
-                                     projectBase: projectDir)
     }
 }

@@ -426,6 +426,25 @@ final class NoLostWorkTests: XCTestCase {
         XCTAssertNotNil(viewModel.lastSaved)
     }
 
+    /// Opening a project is not an edit: it must not come up dirty, and the
+    /// file on disk must not be rewritten (with a backup rotation) 500 ms
+    /// later (audit 2026-08-28).
+    func testOpeningAProjectLeavesItCleanAndUntouched() async throws {
+        let url = try temporaryProjectURL()
+        try await ProjectPersistence(enableBackups: false).save(Project(name: "Opened"), to: url)
+        let before = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+        let viewModel = ProjectViewModel()
+        try await viewModel.load(from: url)
+        XCTAssertEqual(viewModel.project.name, "Opened")
+        pump(seconds: 1.2)   // well past the 500 ms autosave debounce
+        XCTAssertFalse(viewModel.isDirty, "a freshly opened project is clean")
+        let after = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+        XCTAssertEqual(before, after, "opening must not rewrite the file")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: url.deletingLastPathComponent().appendingPathComponent(".backups").path),
+            "no backup rotation on open")
+    }
+
     func testLifecycleFlushWritesWithoutWaitingForTheDebounce() throws {
         let url = try temporaryProjectURL()
         let viewModel = ProjectViewModel()
@@ -639,6 +658,8 @@ final class ProjectSnapshotIntegrationTests: XCTestCase {
         await viewModel.restoreSnapshot(locked)
 
         XCTAssertEqual(viewModel.project.name, "the good cut")
+        XCTAssertEqual(viewModel.project.basePath, url.deletingLastPathComponent().path,
+                       "a restored project keeps its folder — cloud sync needs it")
         // Restoring must never be how work gets lost: the mistake is
         // itself preserved as a safety snapshot.
         let after = await ProjectSnapshotStore.shared.list(forProjectAt: url)
