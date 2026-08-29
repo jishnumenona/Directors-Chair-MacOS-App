@@ -59,9 +59,10 @@ public enum PromptSections {
             .joined(separator: separator)
     }
 
-    /// An edit prompt is "Edit this … changes: … Original prompt: <base>".
+    /// An edit prompt: the composer's cloud wording ("Edit the FIRST attached
+    /// picture. …") or the older "Edit this … changes: … Original prompt: <base>".
     public static func isEditPrompt(_ prompt: String) -> Bool {
-        prompt.hasPrefix("Edit this ")
+        prompt.hasPrefix("Edit this ") || prompt.hasPrefix("Edit the FIRST attached picture")
     }
 
     /// The marked changes and the base of an edit prompt, if it is one.

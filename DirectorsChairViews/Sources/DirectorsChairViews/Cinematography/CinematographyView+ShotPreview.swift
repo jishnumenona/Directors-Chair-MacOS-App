@@ -143,23 +143,8 @@ struct ShotPreviewSection: View {
                             .buttonStyle(.plain)
                             .requiresTier(.creator, feature: "AI shot images")
 
-                            if locationPicturePath != nil {
-                                Button(action: { useLocationPictureAsPreview() }) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "mappin.and.ellipse")
-                                            .font(.system(size: 12))
-                                        Text("Use location picture")
-                                            .font(.system(size: 12, weight: .medium))
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(Color.green.opacity(0.18))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(8)
-                                }
-                                .buttonStyle(.plain)
-                                .help("Start from the scene location's picture and annotate it into this shot's preview")
-                                .accessibilityIdentifier("preview-use-location")
+                            if !startFromOptions.isEmpty {
+                                startFromMenu
                             }
 
                             Button(action: { uploadPreviewImage() }) {
@@ -686,10 +671,69 @@ struct ShotPreviewSection: View {
         return (path?.isEmpty == false) ? path : nil
     }
 
-    /// DC-0102: the location's picture becomes this shot's preview (history +
+    /// Owner 2026-08-29: a shot's preview can start from a picture that already
+    /// exists — the scene location's picture or a continuity shot's preview —
+    /// and be annotated into this shot from there.
+    private struct StartFromOption: Identifiable {
+        let id: String
+        let title: String
+        let systemImage: String
+        let path: String
+        let accessibilityId: String
+    }
+
+    private var startFromOptions: [StartFromOption] {
+        var options: [StartFromOption] = []
+        if let path = locationPicturePath {
+            let name = scene?.location.flatMap { $0.isEmpty ? nil : " · \($0)" } ?? ""
+            options.append(StartFromOption(id: "location", title: "Location picture\(name)",
+                                           systemImage: "mappin.and.ellipse", path: path,
+                                           accessibilityId: "preview-use-location"))
+        }
+        for other in referencedShots {
+            guard let path = other.previewImage, !path.isEmpty else { continue }
+            options.append(StartFromOption(id: other.id, title: "Shot #\(other.shotId) preview (continuity)",
+                                           systemImage: "film.stack", path: path,
+                                           accessibilityId: "preview-use-shot-\(other.shotId)"))
+        }
+        return options
+    }
+
+    private var startFromMenu: some View {
+        Menu {
+            ForEach(startFromOptions) { option in
+                Button {
+                    usePictureAsPreview(relativePath: option.path)
+                } label: {
+                    Label(option.title, systemImage: option.systemImage)
+                }
+                .accessibilityIdentifier(option.accessibilityId)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 12))
+                Text("Start from")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color.green.opacity(0.18))
+            .foregroundColor(.white)
+            .cornerRadius(8)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Put an existing picture in as this shot's preview — the location's picture or a continuity shot's preview — then annotate it into this shot")
+        .accessibilityIdentifier("preview-start-from")
+    }
+
+    /// DC-0102 / owner 2026-08-29: an existing picture (the location's, or a
+    /// continuity shot's preview) becomes this shot's preview (history +
     /// latest, like an upload), ready to be annotated into the shot.
-    private func useLocationPictureAsPreview() {
-        guard let basePath = projectBasePath, let path = locationPicturePath,
+    private func usePictureAsPreview(relativePath path: String) {
+        guard let basePath = projectBasePath,
               let data = try? Data(contentsOf: basePath.deletingLastPathComponent().appendingPathComponent(path)),
               let png = UploadedImage.normalizedPNG(from: data) else { return }
         do {
@@ -826,6 +870,18 @@ struct ShotPreviewSection: View {
                     }
                     Text("Shot #\(other.shotId)")
                         .font(.system(size: 10, weight: .medium))
+                    if let path = other.previewImage, !path.isEmpty {
+                        Button {
+                            usePictureAsPreview(relativePath: path)
+                        } label: {
+                            Image(systemName: "photo.on.rectangle")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Use Shot #\(other.shotId)'s preview as this shot's picture, to annotate from")
+                        .accessibilityIdentifier("continuity-use-\(other.shotId)")
+                    }
                     Button {
                         var updated = shot
                         updated.referenceShotIds.removeAll { $0 == other.id }
