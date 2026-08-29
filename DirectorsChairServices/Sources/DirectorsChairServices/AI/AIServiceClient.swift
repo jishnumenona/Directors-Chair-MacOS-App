@@ -305,7 +305,7 @@ extension AIServiceClient {
     static func charactersNamed(in subject: String, among labels: [String]) -> Set<String> {
         // Only the shot's own description counts — the subject goes on to
         // list "People in the frame", which would name everyone it lists.
-        let description = subject.components(separatedBy: "People in the frame:").first ?? subject
+        let description = StoryboardSubjects.description(before: subject)
         var found: Set<String> = []
         for label in labels {
             let parts = label.split(separator: ":", maxSplits: 1).map(String.init)
