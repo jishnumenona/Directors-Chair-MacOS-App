@@ -21,6 +21,10 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     /// prompts show these first; the description and the scene's speakers
     /// still fill in when this is empty.
     public var characters: [String]
+    /// DC-0091: other shots whose finished previews ride along as
+    /// reference pictures when this shot is generated, so a scene keeps
+    /// its place, light, cast and wardrobe from frame to frame.
+    public var referenceShotIds: [String]
     public var status: String  // "Planning", "Ready", "Shooting", "Review", "Approved"
     public var cameraAngle: String
     public var lensMm: Int?
@@ -58,6 +62,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         description: String = "",
         notes: String = "",
         characters: [String] = [],
+        referenceShotIds: [String] = [],
         status: String = "Planning",
         cameraAngle: String = "Medium",
         lensMm: Int? = 50,
@@ -90,6 +95,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.description = description
         self.notes = notes
         self.characters = characters
+        self.referenceShotIds = referenceShotIds
         self.status = status
         self.cameraAngle = cameraAngle
         self.lensMm = lensMm
@@ -124,6 +130,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case description
         case notes
         case characters
+        case referenceShotIds = "reference_shot_ids"
         case status
         case cameraAngle = "camera_angle"
         case lensMm = "lens_mm"
@@ -196,6 +203,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
 
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Planning"
         characters = (try? container.decodeIfPresent([String].self, forKey: .characters)) ?? []
+        referenceShotIds = (try? container.decodeIfPresent([String].self, forKey: .referenceShotIds)) ?? []
         cameraAngle = try container.decodeIfPresent(String.self, forKey: .cameraAngle) ?? "Medium"
 
         // lensMm: handle both lens_mm (Int) and lens (String like "50mm")

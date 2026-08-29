@@ -353,4 +353,19 @@ final class ShotPromptBuilderTests: XCTestCase {
         XCTAssertTrue(without.contains("turnaround sheet"))
     }
 
+
+    // MARK: - Location prompts (DC-0090 owner report: a film crew in every location)
+
+    func testLocationPromptAsksForThePlaceNotTheProduction() {
+        var location = Location(name: "Outside the mini van")
+        location.description = "Wide open desert with a road going through it"
+        location.locationType = "outdoor"
+        let prompt = StoryDesignPromptBuilder.locationPrompt(location: location)
+        XCTAssertTrue(prompt.hasPrefix("Outside the mini van, Wide open desert"))
+        XCTAssertTrue(prompt.contains("outdoor location"))
+        XCTAssertFalse(prompt.lowercased().contains("film production"), prompt)
+        XCTAssertTrue(prompt.contains("empty of people, no film crew"), prompt)
+        XCTAssertTrue(StoryDesignPromptBuilder.locationVariationPrompt(location: location, override: "at night", hasPrimaryImage: true)
+                        .contains("EXACT SAME location"))
+    }
 }

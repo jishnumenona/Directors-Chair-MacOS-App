@@ -258,7 +258,12 @@ public enum AIModelCatalog {
                     AIModelOption(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5")]
         case "google_imagen":
             return [.serverDefault,
-                    AIModelOption(id: "gemini-2.5-flash-image", displayName: "Gemini 2.5 Flash Image (server default)")]
+                    AIModelOption(id: "gemini-2.5-flash-image", displayName: "Gemini 2.5 Flash Image (server default)"),
+                    // DC-0090: the Gemini 3 image models honour the size class
+                    // (2K/4K), so Full HD previews come out sharp instead of
+                    // upscaled from 1344×768.
+                    AIModelOption(id: "gemini-3.1-flash-image", displayName: "Gemini 3.1 Flash Image (true 2K/4K)"),
+                    AIModelOption(id: "gemini-3-pro-image-preview", displayName: "Gemini 3 Pro Image (highest quality)")]
         case "stability":
             return [.serverDefault]
         default:
@@ -389,6 +394,8 @@ extension AIProviderSelection {
 
     /// UserDefaults key for the on-device look — stable, never rename.
     public static let visualStyleKey = "pref.ai.onDeviceVisualStyle"
+    /// DC-0093: show every image prompt for review before it is sent.
+    public static let reviewImagePromptsKey = "pref.ai.reviewImagePrompts"
 
     /// The look every on-device drawing uses (Settings → Storyboard
     /// Model). Unknown stored values degrade to Sketch, the classic

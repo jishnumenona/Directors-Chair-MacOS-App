@@ -17,6 +17,8 @@ struct ShotEditorSheet: View {
     @Binding var shot: Shot
     let presets: [CameraPreset]
     let characters: [Character]
+    var locations: [Location] = []
+    var props: [Prop] = []
     @Binding var isPresented: Bool
     var onSave: (() -> Void)?
 
@@ -45,7 +47,9 @@ struct ShotEditorSheet: View {
                         CharacterMentionTextEditor(
                             text: $shot.description,
                             characters: characters,
-                            placeholder: "Write a description..."
+                            locations: locations,
+                            props: props,
+                            placeholder: "Write a description... (@ character, # location, $ prop)"
                         )
                         .frame(minHeight: 80)
                         .background(Color(hex: "#1E1E1E"))

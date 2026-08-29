@@ -140,7 +140,8 @@ enum SceneCardHelpers {
             aspectRatio: "16:9",
             numberOfImages: 1,
             referenceImages: references.isEmpty ? nil : references,
-            brief: brief)
+            brief: brief,
+            targetSize: .projectPreview)   // DC-0090
     }
 
     /// Build an AI prompt for scene overview image generation

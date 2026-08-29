@@ -154,7 +154,8 @@ extension SceneDetailView {
             locations: projectViewModel.project.locations, props: projectViewModel.project.props,
             projectDirectory: basePath)
         let edit = AnnotationEdit(source: source, annotations: annotations, context: "scene preview",
-                                  originalPrompt: basePrompt, contextPictures: likeness, aspectRatio: "16:9")
+                                  originalPrompt: basePrompt, contextPictures: likeness, aspectRatio: "16:9",
+                                  targetSize: .projectPreview)
         let prompt = AnnotationEditComposer.prompt(for: edit)
         lastUsedPrompt = prompt
         isGeneratingImage = true
@@ -292,10 +293,14 @@ extension SceneDetailView {
         storyboardErrorText = nil
         Task {
             do {
+                let target = ImageTargetSize.projectPreview   // DC-0090
+                let frame = target.onDeviceFrame(maxArea: ImageTargetSize.onDeviceMaxArea)
                 let spec = StoryboardFrameSpec(
                     subject: StoryboardSubjects.subject(for: scene),
+                    width: frame.width, height: frame.height,
                     purpose: .scene)
-                let png = try await LocalImageEngine.shared.generateFrame(spec)
+                let drawn = try await LocalImageEngine.shared.generateFrame(spec)
+                let png = ImageResampler.resample(drawn, to: target) ?? drawn
                 let directory = "assets/scenes/\(SceneCardHelpers.sanitizeFilename(scene.name))"
                 let saved = try StoryboardFrameStore.save(
                     png: png, projectBasePath: basePath,

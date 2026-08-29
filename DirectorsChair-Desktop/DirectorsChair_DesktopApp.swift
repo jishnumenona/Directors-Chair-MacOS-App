@@ -9,6 +9,7 @@
 import SwiftUI
 import DirectorsChairCore
 import DirectorsChairServices
+import DirectorsChairViews
 import AppKit
 
 // MARK: - Onboarding State
@@ -53,9 +54,14 @@ struct DirectorsChair_DesktopApp: App {
         _projectViewModel = StateObject(wrappedValue: ProjectViewModel())
     }
 
+    /// DC-0093: the prompt-review gate (Settings → AI Services).
+    @StateObject private var promptReviewCenter = ImagePromptReviewCenter()
+
     var body: some SwiftUI.Scene {
         WindowGroup {
             ContentView()
+                // DC-0092 navigation memory + DC-0093 prompt review hooks.
+                .modifier(SessionHooks(reviewCenter: promptReviewCenter))
                 .environmentObject(coordinator)
                 .environmentObject(projectViewModel)
                 .environmentObject(onboardingState)

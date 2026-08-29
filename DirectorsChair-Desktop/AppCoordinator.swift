@@ -81,10 +81,14 @@ class AppCoordinator: ObservableObject {
     @Published var selectedSequence: DirectorsChairCore.Sequence?
 
     /// Currently selected scene (if any)
-    @Published var selectedScene: DirectorsChairCore.Scene?
+    @Published var selectedScene: DirectorsChairCore.Scene? {
+        didSet { if let id = selectedScene?.id { surfaceMemory.sceneId = id } }
+    }
 
     /// Currently selected shot (for cinematography)
-    @Published var selectedShot: Shot?
+    @Published var selectedShot: Shot? {
+        didSet { if let id = selectedShot?.id { surfaceMemory.shotId = id } }
+    }
     /// The vision-board element to bring to the middle of the screen when
     /// the board opens — set by "Show on the vision board" from a scene or
     /// a shot, cleared by the board once it has arrived.
@@ -93,13 +97,80 @@ class AppCoordinator: ObservableObject {
     @Published var showingSnapshots = false
 
     /// Currently selected character (for story design)
-    @Published var selectedCharacter: Character?
+    @Published var selectedCharacter: Character? {
+        didSet { if let id = selectedCharacter?.id { surfaceMemory.characterId = id } }
+    }
 
     /// Currently selected location (for story design)
-    @Published var selectedLocation: Location?
+    @Published var selectedLocation: Location? {
+        didSet { if let id = selectedLocation?.id { surfaceMemory.locationId = id } }
+    }
 
     /// Preferred Story Design mode when navigating without a specific character/location
     @Published var preferredStoryDesignMode: String?
+
+    // MARK: - Surface Memory (DC-0092)
+
+    /// Where the user was on each surface, per project. Central views are
+    /// unmounted two clicks away (LRU-2) and take their @State with them —
+    /// this is what brings a person back to the location, character, shot,
+    /// scene or tab they were looking at (owner request 2026-08-29). A nil
+    /// selection never erases a remembered one; a remembered id that no
+    /// longer exists is simply skipped on restore.
+    struct SurfaceMemory: Codable, Equatable {
+        var storyDesignMode: String?
+        var designTab: String?
+        var characterId: String?
+        var locationId: String?
+        var costumeCharacterId: String?
+        var propId: String?
+        var shotId: String?
+        var sceneId: String?
+        var sceneDetailId: String?
+    }
+
+    @Published var surfaceMemory = SurfaceMemory() {
+        didSet { if surfaceMemory != oldValue { persistSurfaceMemory() } }
+    }
+    /// The project the memory belongs to; nil = nothing to persist (no
+    /// project open, or mid-restore).
+    private var surfaceMemoryProjectId: String?
+
+    static func surfaceMemoryKey(projectId: String) -> String { "surfaceMemory.\(projectId)" }
+
+    /// Load the project's memory and re-seat the selections the central
+    /// views read when they mount.
+    func restoreSurfaceMemory(for project: Project) {
+        surfaceMemoryProjectId = nil
+        var memory = SurfaceMemory()
+        if let data = UserDefaults.standard.data(forKey: Self.surfaceMemoryKey(projectId: project.uuid)),
+           let stored = try? JSONDecoder().decode(SurfaceMemory.self, from: data) {
+            memory = stored
+        }
+        surfaceMemory = memory
+        let scenes = project.sequences.flatMap(\.scenes)
+        selectedCharacter = project.characters.first { $0.id == memory.characterId }
+        selectedLocation = project.locations.first { $0.id == memory.locationId }
+        selectedScene = scenes.first { $0.id == memory.sceneId }
+        selectedShot = scenes.flatMap(\.shots).first { $0.id == memory.shotId }
+        surfaceMemoryProjectId = project.uuid
+    }
+
+    /// Forget the open project's memory (its selections restore to the
+    /// first items next time).
+    func forgetSurfaceMemory() {
+        if let projectId = surfaceMemoryProjectId {
+            UserDefaults.standard.removeObject(forKey: Self.surfaceMemoryKey(projectId: projectId))
+        }
+        surfaceMemoryProjectId = nil
+        surfaceMemory = SurfaceMemory()
+    }
+
+    private func persistSurfaceMemory() {
+        guard let projectId = surfaceMemoryProjectId,
+              let data = try? JSONEncoder().encode(surfaceMemory) else { return }
+        UserDefaults.standard.set(data, forKey: Self.surfaceMemoryKey(projectId: projectId))
+    }
 
     /// Light cue ID to select when navigating to lighting design
     @Published var selectedLightCueId: String?
@@ -416,7 +487,7 @@ class AppCoordinator: ObservableObject {
 
     /// Select a character and navigate to story design if needed
     func selectCharacter(_ character: Character) {
-        selectedLocation = nil
+        surfaceMemory.storyDesignMode = "characters"
         selectedCharacter = character
         if selectedView != .storyDesign {
             navigateTo(.storyDesign)
@@ -425,7 +496,7 @@ class AppCoordinator: ObservableObject {
 
     /// Select a location and navigate to story design if needed
     func selectLocation(_ location: Location) {
-        selectedCharacter = nil
+        surfaceMemory.storyDesignMode = "locations"
         selectedLocation = location
         if selectedView != .storyDesign {
             navigateTo(.storyDesign)
@@ -504,6 +575,7 @@ class AppCoordinator: ObservableObject {
         selectedScene = nil
         selectedShot = nil
         selectedCharacter = nil
+        selectedLocation = nil
     }
 }
 

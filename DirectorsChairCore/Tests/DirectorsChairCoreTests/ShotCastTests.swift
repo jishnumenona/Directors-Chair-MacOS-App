@@ -21,4 +21,19 @@ final class ShotCastTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(object["characters"] as? [String], ["Teo", "Noor"])
     }
+
+    // DC-0091: continuity references persist and default to none.
+    func testReferenceShotIdsRoundTripAndDefaultEmpty() throws {
+        var shot = Shot(shotId: 2, description: "Reverse angle")
+        XCTAssertEqual(shot.referenceShotIds, [])
+        shot.referenceShotIds = ["shot-1-uuid"]
+        let data = try JSONEncoder().encode(shot)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["reference_shot_ids"] as? [String], ["shot-1-uuid"])
+        XCTAssertEqual(try JSONDecoder().decode(Shot.self, from: data).referenceShotIds, ["shot-1-uuid"])
+        var legacy = json
+        legacy.removeValue(forKey: "reference_shot_ids")
+        let decoded = try JSONDecoder().decode(Shot.self, from: try JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertEqual(decoded.referenceShotIds, [])
+    }
 }

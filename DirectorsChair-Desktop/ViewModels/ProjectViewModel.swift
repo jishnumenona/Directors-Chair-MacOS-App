@@ -28,7 +28,13 @@ class ProjectViewModel: ObservableObject {
     // MARK: - Published Properties
 
     /// Current project
-    @Published var project: Project
+    @Published var project: Project {
+        didSet {
+            // DC-0090: package code that generates pictures never sees the
+            // Project — it reads the size from here.
+            ProjectImageDefaults.shared.previewSize = ImageTargetSize(project.previewResolution)
+        }
+    }
 
     /// Whether project has unsaved changes
     @Published var isDirty = false

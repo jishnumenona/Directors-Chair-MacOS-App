@@ -251,6 +251,7 @@ extension ProjectSettingsView {
         endDate = p.endDate
         defaultExpenseDepartment = p.defaultExpenseDepartment
         defaultExpenseAccountCode = p.defaultExpenseAccountCode
+        previewResolution = p.previewResolution
         aiProxyURL = "https://directorschair.app/ai"
         hasUnsavedChanges = false
     }
@@ -271,6 +272,7 @@ extension ProjectSettingsView {
         projectViewModel.project.endDate = endDate
         projectViewModel.project.defaultExpenseDepartment = defaultExpenseDepartment
         projectViewModel.project.defaultExpenseAccountCode = defaultExpenseAccountCode
+        projectViewModel.project.previewResolution = previewResolution
         projectViewModel.isDirty = true
         hasUnsavedChanges = false
     }
@@ -292,7 +294,8 @@ extension ProjectSettingsView {
             startDate != p.startDate ||
             endDate != p.endDate ||
             defaultExpenseDepartment != p.defaultExpenseDepartment ||
-            defaultExpenseAccountCode != p.defaultExpenseAccountCode
+            defaultExpenseAccountCode != p.defaultExpenseAccountCode ||
+            previewResolution != p.previewResolution
     }
 
     func checkAIHealth() {

@@ -1224,4 +1224,57 @@ final class ImagineServiceRequestTests: XCTestCase {
         XCTAssertEqual(request.aspectRatio, "16:9")
         XCTAssertEqual(request.numberOfImages, 1)
     }
+
+    // MARK: - Surface memory (DC-0092)
+
+    func testSurfaceMemoryRestoresSelectionsPerProject() {
+        var project = Project(name: "Remembered")
+        let alex = Character(name: "Alex")
+        let desert = Location(name: "Desert road")
+        project.characters = [Character(name: "First"), alex]
+        project.locations = [Location(name: "First place"), desert]
+        let key = AppCoordinator.surfaceMemoryKey(projectId: project.uuid)
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+
+        coordinator.restoreSurfaceMemory(for: project)
+        XCTAssertNil(coordinator.selectedLocation, "nothing remembered yet")
+        coordinator.surfaceMemory.storyDesignMode = "locations"
+        coordinator.surfaceMemory.designTab = "costume"
+        coordinator.selectedCharacter = alex
+        coordinator.selectedLocation = desert
+
+        let later = AppCoordinator()
+        later.restoreSurfaceMemory(for: project)
+        XCTAssertEqual(later.surfaceMemory.storyDesignMode, "locations")
+        XCTAssertEqual(later.surfaceMemory.designTab, "costume")
+        XCTAssertEqual(later.selectedCharacter?.id, alex.id)
+        XCTAssertEqual(later.selectedLocation?.id, desert.id)
+    }
+
+    func testSurfaceMemorySkipsIdsThatNoLongerExistAndKeepsRememberedOnNilSelection() {
+        var project = Project(name: "Pruned")
+        let desert = Location(name: "Desert road")
+        project.locations = [desert]
+        let key = AppCoordinator.surfaceMemoryKey(projectId: project.uuid)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        coordinator.restoreSurfaceMemory(for: project)
+        coordinator.selectedLocation = desert
+        coordinator.selectedLocation = nil
+        XCTAssertEqual(coordinator.surfaceMemory.locationId, desert.id, "a nil selection never erases the memory")
+
+        project.locations = []
+        let later = AppCoordinator()
+        later.restoreSurfaceMemory(for: project)
+        XCTAssertNil(later.selectedLocation)
+        XCTAssertEqual(later.surfaceMemory.locationId, desert.id)
+    }
+
+    func testCrossViewLocationAskRemembersTheLocationsMode() {
+        coordinator.selectLocation(Location(name: "Desert road"))
+        XCTAssertEqual(coordinator.surfaceMemory.storyDesignMode, "locations")
+        XCTAssertEqual(coordinator.selectedView, .storyDesign)
+        coordinator.selectCharacter(Character(name: "Alex"))
+        XCTAssertEqual(coordinator.surfaceMemory.storyDesignMode, "characters")
+    }
 }

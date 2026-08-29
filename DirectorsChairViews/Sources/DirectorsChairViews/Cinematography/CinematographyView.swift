@@ -48,6 +48,8 @@ public struct CinematographyView: View {
 
     /// Callback to jump to a script element (itemId, itemType)
     public var onJumpToScriptElement: ((String, String) -> Void)?
+    /// DC-0092: the user picked a shot in the list (shot.id).
+    var onShotSelected: ((String) -> Void)?
 
     /// Callback when a shot is Option+clicked (jump to script for shot)
     public var onOptionClickShot: ((Shot) -> Void)?
@@ -100,6 +102,7 @@ public struct CinematographyView: View {
         scrollToShotSection: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
         onJumpToScriptElement: ((String, String) -> Void)? = nil,
+        onShotSelected: ((String) -> Void)? = nil,
         onOptionClickShot: ((Shot) -> Void)? = nil,
         onNavigateToCharacter: ((Character) -> Void)? = nil,
         onNavigateToLocation: ((Location) -> Void)? = nil,
@@ -122,6 +125,7 @@ public struct CinematographyView: View {
         self._scrollToShotSection = scrollToShotSection
         self.onShotsChanged = onShotsChanged
         self.onJumpToScriptElement = onJumpToScriptElement
+        self.onShotSelected = onShotSelected
         self.onOptionClickShot = onOptionClickShot
         self.onNavigateToCharacter = onNavigateToCharacter
         self.onNavigateToLocation = onNavigateToLocation
@@ -201,6 +205,9 @@ public struct CinematographyView: View {
         }
         .onChange(of: initialSelectedShotId) { _, newValue in
             applyInitialSelection()
+        }
+        .onChange(of: viewModel.selectedShotId) { _, newValue in
+            if let newValue { onShotSelected?(newValue) }
         }
     }
 
@@ -564,16 +571,20 @@ public struct CinematographyView: View {
                         characters: characters,
                         locations: locations,
                         props: props,
+                        allShots: viewModel.shots,
                         projectBasePath: projectBasePath,
                         onPreviewGenerated: { imagePath in
                             updateShotField(shot) { $0.previewImage = imagePath }
-                        }
+                        },
+                        onShotUpdated: { updated in viewModel.updateShot(updated) }
                     )
 
                     // Description (Click to edit)
                     InlineDescriptionEditor(
                         description: shot.description,
                         characters: characters,
+                        locations: locations,
+                        props: props,
                         onDescriptionChange: { newDescription in
                             updateShotField(shot) { $0.description = newDescription }
                         }
@@ -958,13 +969,19 @@ public struct CinematographyView: View {
         Task {
             defer { Task { @MainActor in generatingStoryboardShotIds.remove(shot.uuid) } }
             do {
+                // DC-0090: the project's preview shape at a RAM-safe scale,
+                // delivered at the exact project size.
+                let target = ImageTargetSize.projectPreview
+                let frame = target.onDeviceFrame(maxArea: ImageTargetSize.onDeviceMaxArea)
                 let spec = StoryboardFrameSpec(
                     subject: StoryboardSubjects.subject(for: shot, in: scene,
                                                         locations: locations,
                                                         characters: characters),
                     notes: StoryboardSubjects.notes(for: shot),
+                    width: frame.width, height: frame.height,
                     purpose: .shot)
-                let png = try await LocalImageEngine.shared.generateFrame(spec)
+                let drawn = try await LocalImageEngine.shared.generateFrame(spec)
+                let png = ImageResampler.resample(drawn, to: target) ?? drawn
                 guard let base = projectBasePath?.deletingLastPathComponent() else {
                     throw StoryboardEngineError.generationFailed("No project path")
                 }

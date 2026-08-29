@@ -102,9 +102,8 @@ struct SceneCardView: View {
             } else if let image = overviewImage {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
-                    .frame(height: 140)
-                    .clipped()
+                    .scaledToFit()   // DC-0090: the whole frame, no crop
+                    .frame(maxWidth: .infinity)
                     .overlay {
                         if isHoveringImage {
                             Color.black.opacity(0.35)
@@ -350,7 +349,8 @@ struct SceneCardView: View {
                     brief: VisualBrief(
                         purpose: .scene,
                         subject: customPrompt.map(StoryboardSubjects.plainSubject)
-                            ?? StoryboardSubjects.subject(for: scene))
+                            ?? StoryboardSubjects.subject(for: scene)),
+                    targetSize: .projectPreview   // DC-0090
                 )
 
                 let response = try await aiClient.generateImage(request)

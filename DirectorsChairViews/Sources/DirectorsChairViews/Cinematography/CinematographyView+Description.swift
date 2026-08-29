@@ -16,6 +16,8 @@ import DirectorsChairServices
 struct InlineDescriptionEditor: View {
     let description: String
     let characters: [Character]
+    var locations: [Location] = []
+    var props: [Prop] = []
     let onDescriptionChange: (String) -> Void
 
     @State private var editText = ""
@@ -38,9 +40,14 @@ struct InlineDescriptionEditor: View {
             CharacterMentionTextEditor(
                 text: $editText,
                 characters: characters,
-                placeholder: "Write a description..."
+                locations: locations,
+                props: props,
+                placeholder: "Write a description... (@ character, # location, $ prop)"
             )
         }
+        // The mention list is an overlay — keep this section above the cards
+        // stacked after it (owner report 2026-08-29: hidden behind Notes).
+        .zIndex(1)
         .onAppear {
             editText = description
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

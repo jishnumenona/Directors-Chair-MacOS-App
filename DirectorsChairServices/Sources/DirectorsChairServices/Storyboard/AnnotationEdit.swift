@@ -56,14 +56,18 @@ public struct AnnotationEdit: Equatable, Sendable {
     public var contextPictures: [ReferenceImage]
     /// The surface's own aspect ratio, as it always sent it.
     public var aspectRatio: String
+    /// DC-0090: the size the edited picture is delivered at (nil = as drawn).
+    public var targetSize: ImageTargetSize?
     /// The label the source carries when pictures travel as a labelled
     /// set (the wording the shot surface always used).
     public var sourceLabel: String
 
     public init(source: Data, pins: [AnnotationPin], context: String,
                 originalPrompt: String? = nil, contextPictures: [ReferenceImage] = [],
-                aspectRatio: String = "16:9", sourceLabel: String? = nil) {
+                aspectRatio: String = "16:9", sourceLabel: String? = nil,
+                targetSize: ImageTargetSize? = nil) {
         self.source = source
+        self.targetSize = targetSize
         self.pins = pins
         self.context = context
         self.originalPrompt = originalPrompt
@@ -74,10 +78,11 @@ public struct AnnotationEdit: Equatable, Sendable {
 
     public init(source: Data, annotations: [KeyframeAnnotation], context: String,
                 originalPrompt: String? = nil, contextPictures: [ReferenceImage] = [],
-                aspectRatio: String = "16:9", sourceLabel: String? = nil) {
+                aspectRatio: String = "16:9", sourceLabel: String? = nil,
+                targetSize: ImageTargetSize? = nil) {
         self.init(source: source, pins: annotations.map(AnnotationPin.init), context: context,
                   originalPrompt: originalPrompt, contextPictures: contextPictures,
-                  aspectRatio: aspectRatio, sourceLabel: sourceLabel)
+                  aspectRatio: aspectRatio, sourceLabel: sourceLabel, targetSize: targetSize)
     }
 }
 

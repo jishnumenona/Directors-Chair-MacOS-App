@@ -248,6 +248,19 @@ struct CentralViewStack: View {
                     Task {
                         await analyzeCharacterReferenceImage(character: character, imageData: imageData, progressHandler: progressHandler)
                     }
+                },
+                // DC-0092: come back to the same tab, character and location.
+                remembered: StoryDesignSelection(mode: coordinator.surfaceMemory.storyDesignMode,
+                                                 tab: coordinator.surfaceMemory.designTab),
+                onSelectionChanged: { selection in
+                    coordinator.surfaceMemory.storyDesignMode = selection.mode
+                    coordinator.surfaceMemory.designTab = selection.tab
+                    if let id = selection.characterId, coordinator.selectedCharacter?.id != id {
+                        coordinator.selectedCharacter = projectViewModel.project.characters.first { $0.id == id }
+                    }
+                    if let id = selection.locationId, coordinator.selectedLocation?.id != id {
+                        coordinator.selectedLocation = projectViewModel.project.locations.first { $0.id == id }
+                    }
                 }
             )
             .onAppear { debugLog("📱 StoryDesignView appeared") }
@@ -1127,7 +1140,8 @@ struct CentralViewStack: View {
                 referenceImageBase64: referenceBase64,
                 referenceMimeType: referenceMime,
                 brief: VisualBrief(purpose: .location,
-                                   subject: StoryboardSubjects.plainSubject(from: prompt))
+                                   subject: StoryboardSubjects.plainSubject(from: prompt)),
+                targetSize: .projectPreview   // DC-0090
             )
 
             // Simulate gradual progress during the AI call
@@ -1254,6 +1268,12 @@ struct CinematographyViewAdapter: View {
                     },
                     onJumpToScriptElement: { itemId, itemType in
                         coordinator.jumpToScriptElement(itemId: itemId, itemType: itemType)
+                    },
+                    // DC-0092: the shot list's own selection is the selected shot.
+                    onShotSelected: { shotId in
+                        if coordinator.selectedShot?.id != shotId {
+                            coordinator.selectedShot = adapter.allShots.first { $0.id == shotId }
+                        }
                     },
                     onOptionClickShot: { shot in
                         let parentScene = projectViewModel.allScenes.first { scene in

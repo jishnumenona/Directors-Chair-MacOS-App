@@ -157,7 +157,8 @@ extension LocationDetailView {
         let fullPath = basePath.appendingPathComponent(imagePath)
         let basePrompt = buildVariationPrompt(override: variationDefaultOverride(variation))
         let edit = AnnotationEdit(source: source, annotations: annotations,
-                                  context: "location \(variation) image", originalPrompt: basePrompt)
+                                  context: "location \(variation) image", originalPrompt: basePrompt,
+                                  targetSize: .projectPreview)   // DC-0090
         generatingProgress[variation] = 0.0
         Task {
             do {

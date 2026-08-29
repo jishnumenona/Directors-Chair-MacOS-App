@@ -20,8 +20,13 @@ struct ShotPreviewSection: View {
     let locations: [Location]
     /// Prop-shop registry — the props a shot names ride along as references (DC-0079).
     var props: [Prop] = []
+    /// DC-0091: every shot in the project — the pool of continuity references.
+    var allShots: [Shot] = []
     let projectBasePath: URL?
     let onPreviewGenerated: (String) -> Void
+    /// DC-0091: the shot's chosen continuity references changed.
+    var onShotUpdated: ((Shot) -> Void)?
+    @State private var showingContinuityPicker = false
 
     @State private var isGenerating = false
     @State private var previewImage: NSImage?
@@ -44,12 +49,12 @@ struct ShotPreviewSection: View {
                     .fill(Color(hex: "#1A1A1A"))
 
                 if let image = previewImage {
-                    // Display preview image
+                    // DC-0090: the WHOLE picture, never a centre crop — the
+                    // container takes the picture's own shape (below).
                     Image(nsImage: image)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(maxWidth: .infinity, maxHeight: 420)
-                        .clipped()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else if isGenerating {
                     // Loading state
@@ -299,11 +304,17 @@ struct ShotPreviewSection: View {
                     }
                 }
             }
-            .frame(height: 420)
+            // DC-0090: a picture sets the frame's shape (a 16:9 preview is a
+            // 16:9 box, capped so the page stays scrollable); the empty and
+            // loading states keep the old 420-pt box.
+            .modifier(PreviewFrameShape(image: previewImage))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
             )
+
+            // DC-0091: the frames this shot keeps continuity with.
+            continuityRow
 
             // Shot info pills and prompt info
             HStack(spacing: 8) {
@@ -605,6 +616,140 @@ struct ShotPreviewSection: View {
         }
     }
 
+    // MARK: - Continuity references (DC-0091)
+
+    private var sceneShotIds: [String] { scene?.shots.map(\.id) ?? [] }
+
+    private var referencedShots: [Shot] {
+        shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } }
+    }
+
+    private var continuityCandidates: [Shot] {
+        ContinuityReferences.candidates(for: shot, sceneShotIds: sceneShotIds, allShots: allShots)
+            .filter { !shot.referenceShotIds.contains($0.id) }
+    }
+
+    private var continuityRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: "film.stack")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text("Continuity")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .help("Other shots' finished previews sent along as references so this shot keeps the same place, light, cast and wardrobe")
+
+            ForEach(referencedShots, id: \.id) { other in
+                HStack(spacing: 5) {
+                    if let path = other.previewImage, let base = projectBasePath?.deletingLastPathComponent() {
+                        AsyncThumbnail(url: base.appendingPathComponent(path), displaySize: 28) {
+                            Color.gray.opacity(0.3)
+                        }
+                        .frame(width: 36, height: 20)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+                    Text("Shot #\(other.shotId)")
+                        .font(.system(size: 10, weight: .medium))
+                    Button {
+                        var updated = shot
+                        updated.referenceShotIds.removeAll { $0 == other.id }
+                        onShotUpdated?(updated)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop using Shot #\(other.shotId) as a reference")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.12)))
+                .accessibilityIdentifier("continuity-ref-\(other.shotId)")
+            }
+
+            Button {
+                showingContinuityPicker = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .medium))
+                    Text(referencedShots.isEmpty ? "Use another shot as reference" : "Add")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(.accentColor.opacity(0.9))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.accentColor.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(continuityCandidates.isEmpty)
+            .help(continuityCandidates.isEmpty
+                  ? "Generate a preview on another shot first — finished previews can be used as references"
+                  : "Pick a shot whose preview this shot should keep continuity with")
+            .accessibilityIdentifier("continuity-add")
+            .popover(isPresented: $showingContinuityPicker, arrowEdge: .bottom) {
+                continuityPicker
+            }
+
+            Spacer()
+        }
+    }
+
+    private var continuityPicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Keep continuity with")
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(continuityCandidates, id: \.id) { other in
+                        Button {
+                            var updated = shot
+                            updated.referenceShotIds.append(other.id)
+                            onShotUpdated?(updated)
+                            showingContinuityPicker = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                if let path = other.previewImage, let base = projectBasePath?.deletingLastPathComponent() {
+                                    AsyncThumbnail(url: base.appendingPathComponent(path), displaySize: 64) {
+                                        Color.gray.opacity(0.3)
+                                    }
+                                    .frame(width: 64, height: 36)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Shot #\(other.shotId)\(sceneShotIds.contains(other.id) ? "" : " · other scene")")
+                                        .font(.system(size: 11, weight: .medium))
+                                    Text(other.description.isEmpty ? other.shotType : String(other.description.prefix(60)))
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("continuity-pick-\(other.shotId)")
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 260)
+        }
+        .frame(width: 320)
+    }
+
     // MARK: - Generate Preview
 
     private func generatePreview(with prompt: String) {
@@ -637,6 +782,15 @@ struct ShotPreviewSection: View {
                     )
                 }
 
+                // DC-0091: other shots' finished frames come first, within
+                // the provider's reference budget.
+                if let projDir = projectBasePath?.deletingLastPathComponent() {
+                    let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+                    refs = ContinuityReferences.merged(
+                        continuity: continuity, others: refs,
+                        onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)
+                }
+
                 // Prepend reference image instructions to the prompt
                 let fullPrompt: String
                 if !refs.isEmpty {
@@ -660,7 +814,8 @@ struct ShotPreviewSection: View {
                     numberOfImages: 1,
                     referenceImages: refs.isEmpty ? nil : refs,
                     brief: VisualBrief(purpose: .shot, subject: onDeviceSubject,
-                                       framing: StoryboardSubjects.notes(for: shot))
+                                       framing: StoryboardSubjects.notes(for: shot)),
+                    targetSize: .projectPreview   // DC-0090: the project's preview size
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -756,7 +911,8 @@ struct ShotPreviewSection: View {
         }
         // DC-0073: one description of the edit; the client composes the request.
         let edit = AnnotationEdit(source: source, annotations: annotations, context: "shot preview",
-                                  originalPrompt: basePrompt, contextPictures: context, aspectRatio: "16:9")
+                                  originalPrompt: basePrompt, contextPictures: context, aspectRatio: "16:9",
+                                  targetSize: .projectPreview)
         let combinedPrompt = AnnotationEditComposer.prompt(for: edit)
 
         isGenerating = true
@@ -1014,5 +1170,24 @@ struct ShotPreviewFullSizeSheet: View {
         }
         .frame(width: sheetSize.width, height: sheetSize.height)
         .background(Color(hex: "#252525"))
+    }
+}
+
+// MARK: - Preview frame shape (DC-0090)
+
+/// The hero box follows the picture: its aspect ratio, full width, height
+/// capped at 640 pt (a 1920×1080 preview in a wide column would otherwise
+/// be taller than the window). Without a picture: the fixed 420-pt box.
+private struct PreviewFrameShape: ViewModifier {
+    let image: NSImage?
+
+    func body(content: Content) -> some View {
+        if let image, image.size.height > 0 {
+            content
+                .aspectRatio(image.size.width / image.size.height, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: 640)
+        } else {
+            content.frame(height: 420)
+        }
     }
 }

@@ -250,6 +250,13 @@ struct ScenesListView: View {
             if coordinator.selectedScene == nil {
                 coordinator.selectedScene = projectViewModel.allScenes.first
             }
+            // DC-0092: reopen the scene page the user was reading.
+            if detailScene == nil, let id = coordinator.surfaceMemory.sceneDetailId {
+                detailScene = projectViewModel.allScenes.first { $0.id == id }
+            }
+        }
+        .onChange(of: detailScene?.id) { _, newValue in
+            coordinator.surfaceMemory.sceneDetailId = newValue
         }
     }
 

@@ -9,6 +9,22 @@ import UniformTypeIdentifiers
 
 // MARK: - Top-Level Mode
 
+/// DC-0092: what Story Design is showing — handed out on every change so
+/// the app can bring the user back here after they leave.
+public struct StoryDesignSelection: Equatable, Sendable {
+    public var mode: String?
+    public var characterId: String?
+    public var locationId: String?
+    public var tab: String?
+
+    public init(mode: String? = nil, characterId: String? = nil, locationId: String? = nil, tab: String? = nil) {
+        self.mode = mode
+        self.characterId = characterId
+        self.locationId = locationId
+        self.tab = tab
+    }
+}
+
 public enum StoryDesignMode: String, CaseIterable {
     // Lighting design was removed here — it belongs to the Theater edition,
     // not the cinema version of DirectorsChair.
@@ -68,6 +84,10 @@ public struct StoryDesignView: View {
     var initialCharacterId: String?
     var initialLocationId: String?
     var preferredMode: String?
+    /// DC-0092: where the user was last time (mode, tab); ids come in as
+    /// initialCharacterId / initialLocationId.
+    var remembered: StoryDesignSelection?
+    var onSelectionChanged: ((StoryDesignSelection) -> Void)?
     var initialLightCueId: String?
     var initialSFXCueId: String?
     var initialSupportCueId: String?
@@ -100,9 +120,13 @@ public struct StoryDesignView: View {
         onAnalyzeTraits: ((Character) -> Void)? = nil,
         onGenerateBiography: ((Character) -> Void)? = nil,
         onGenerateLocationImage: ((Location, String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
-        onUploadReferenceImage: ((Character, Data, @escaping @MainActor (Double) -> Void) -> Void)? = nil
+        onUploadReferenceImage: ((Character, Data, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
+        remembered: StoryDesignSelection? = nil,
+        onSelectionChanged: ((StoryDesignSelection) -> Void)? = nil
     ) {
         self._project = project
+        self.remembered = remembered
+        self.onSelectionChanged = onSelectionChanged
         self.projectBasePath = projectBasePath
         self.initialCharacterId = initialCharacterId
         self.initialLocationId = initialLocationId
@@ -161,6 +185,11 @@ public struct StoryDesignView: View {
             applyInitialSelection()
             loadEditingCharacter()
         }
+        // DC-0092: report every selection change so it survives leaving.
+        .onChange(of: selectedMode) { _, _ in reportSelection() }
+        .onChange(of: selectedTab) { _, _ in reportSelection() }
+        .onChange(of: selectedCharacter?.id) { _, _ in reportSelection() }
+        .onChange(of: selectedLocation?.id) { _, _ in reportSelection() }
         .onDisappear {
             flushEditingCharacter()
         }

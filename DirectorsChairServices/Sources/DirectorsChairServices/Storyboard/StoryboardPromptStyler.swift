@@ -126,6 +126,10 @@ public enum StoryboardPromptStyler {
             case "prop":
                 let name = parts.dropFirst().joined(separator: ":")
                 return "The \(ordinal) picture is the prop\(name.isEmpty ? "" : " \(name)"): keep its exact design."
+            case "shot":
+                // DC-0091: continuity with a finished frame of the same scene.
+                let name = parts.dropFirst().joined(separator: ":")
+                return "The \(ordinal) picture is \(name.isEmpty ? "another shot" : name) of the same scene: keep the same place, light, cast and wardrobe — a new angle of the same moment, not a copy."
             default:
                 return label.isEmpty ? nil : "The \(ordinal) picture shows \(label)."
             }

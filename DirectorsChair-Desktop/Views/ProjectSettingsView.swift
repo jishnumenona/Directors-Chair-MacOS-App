@@ -71,6 +71,9 @@ struct ProjectSettingsView: View {
     @State var defaultExpenseDepartment = ""
     @State var defaultExpenseAccountCode = ""
 
+    // Generated previews (DC-0090)
+    @State var previewResolution: PreviewResolution = .default
+
     // Cinematography Presets
     @State var customPresets: [CameraPreset] = []
     @State var selectedPresetId: String?
@@ -105,6 +108,7 @@ struct ProjectSettingsView: View {
                         productionTeamSection
                         productionScheduleSection
                     case .cinematography:
+                        previewResolutionSection   // DC-0090
                         cinematographyPresetsSection
                         cinematographyDefaultsSection
                         cinematographyOptionsSection
@@ -147,5 +151,6 @@ struct ProjectSettingsView: View {
         .onChange(of: endDate) { _ in checkForChanges() }
         .onChange(of: defaultExpenseDepartment) { _ in checkForChanges() }
         .onChange(of: defaultExpenseAccountCode) { _ in checkForChanges() }
+        .onChange(of: previewResolution) { _ in checkForChanges() }
     }
 }
