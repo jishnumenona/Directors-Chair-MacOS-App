@@ -36,6 +36,8 @@ struct ShotContextCard: View {
     var onOpenConnections: ((String?) -> Void)?
 
     @State private var showingCharacterPicker = false
+    /// DC-0100: a pasted location that would replace the scene's current one.
+    @State private var pendingLocationReplace: StoryReference?
     @State private var showingPropInput = false
     @State private var showingPropPicker = false
     @State private var newPropName = ""
@@ -63,6 +65,21 @@ struct ShotContextCard: View {
                         .foregroundColor(.white.opacity(0.9))
                 }
                 Spacer()
+
+                // DC-0100: paste a copied character / location / prop / costume.
+                PasteReferenceButton(accepts: [.character, .location, .prop, .costume]) { reference in
+                    applyReference(reference)
+                }
+                .alert("Replace the location?", isPresented: Binding(get: { pendingLocationReplace != nil },
+                                                                   set: { if !$0 { pendingLocationReplace = nil } })) {
+                    Button("Replace") {
+                        if let reference = pendingLocationReplace { setLocation(reference.name) }
+                        pendingLocationReplace = nil
+                    }
+                    Button("Keep \(scene?.location ?? "current")", role: .cancel) { pendingLocationReplace = nil }
+                } message: {
+                    Text("This scene is set at \(scene?.location ?? "another location"). Use \(pendingLocationReplace?.name ?? "the copied location") instead?")
+                }
 
                 if let onOpenConnections {
                     Button(action: { onOpenConnections(nil) }) {
@@ -669,6 +686,37 @@ struct ShotContextCard: View {
     // MARK: - Character Chip
 
     @ViewBuilder
+    // MARK: - Pasted references (DC-0100)
+
+    /// File a pasted reference where it belongs on this shot / scene.
+    private func applyReference(_ reference: StoryReference) {
+        switch reference.kind {
+        case .character:
+            guard let character = characters.first(where: { $0.id == reference.id })
+                    ?? characters.first(where: { $0.name.caseInsensitiveCompare(reference.name) == .orderedSame }) else { return }
+            var updated = explicitCast(shot, visible: visibleCastNames)
+            if !updated.characters.contains(where: { $0.caseInsensitiveCompare(character.name) == .orderedSame }) {
+                updated.characters.append(character.name)
+            }
+            onShotUpdated?(updated)
+        case .location:
+            let current = scene?.location ?? ""
+            if !current.isEmpty, current.caseInsensitiveCompare(reference.name) != .orderedSame {
+                pendingLocationReplace = reference   // ask first
+            } else {
+                setLocation(reference.name)
+            }
+        case .prop:
+            addProp(reference.name)
+        case .costume:
+            guard var updated = scene, let owner = reference.ownerName else { return }
+            var assignments = updated.costumeAssignments ?? [:]
+            assignments[owner] = reference.id
+            updated.costumeAssignments = assignments
+            onSceneUpdated?(updated)
+        }
+    }
+
     private var visibleCastNames: [String] {
         guard let currentScene = scene else { return shot.characters }
         return shot.castIsExplicit

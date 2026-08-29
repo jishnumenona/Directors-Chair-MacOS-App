@@ -502,9 +502,12 @@ struct PropShopView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Identity
-                TextField("Prop name", text: prop.name)
-                    .font(.system(size: 18, weight: .semibold))
-                    .textFieldStyle(.plain)
+                HStack(spacing: 10) {
+                    TextField("Prop name", text: prop.name)
+                        .font(.system(size: 18, weight: .semibold))
+                        .textFieldStyle(.plain)
+                    CopyReferenceButton(reference: .prop(prop.wrappedValue))   // DC-0100
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {

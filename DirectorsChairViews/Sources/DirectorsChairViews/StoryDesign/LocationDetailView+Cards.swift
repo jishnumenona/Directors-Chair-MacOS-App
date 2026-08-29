@@ -444,6 +444,7 @@ extension LocationDetailView {
                                 Text(location.name)
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundColor(.white)
+                                CopyReferenceButton(reference: .location(location), onDark: true)   // DC-0100
                                 // Rename: assigning through the binding runs the
                                 // WS2.5b cascade (scene/sequence locations,
                                 // schedule rows, gantt tasks follow).

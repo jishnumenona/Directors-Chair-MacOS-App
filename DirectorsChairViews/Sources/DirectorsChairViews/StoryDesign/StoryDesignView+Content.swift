@@ -236,6 +236,7 @@ extension StoryDesignView {
                     Text(character.name)
                         .font(.title2)
                         .fontWeight(.bold)
+                    CopyReferenceButton(reference: .character(character))   // DC-0100
 
                     // Rename: commits through the editing buffer, whose flush
                     // CASCADES the rename to every reference — dialogue cues,

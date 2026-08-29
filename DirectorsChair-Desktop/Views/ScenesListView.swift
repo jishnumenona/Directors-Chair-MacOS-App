@@ -88,6 +88,9 @@ struct ScenesListView: View {
                         },
                         onSceneNotesChanged: { text in
                             updateSceneField(scene) { $0.notes = text }
+                        },
+                        onSceneUpdated: { updated in
+                            updateSceneField(scene) { $0 = updated }
                         }
                     )
                 } else {
