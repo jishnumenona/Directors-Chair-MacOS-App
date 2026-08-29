@@ -125,6 +125,24 @@ enum SceneCardHelpers {
         return items
     }
 
+    /// The scene preview's generation request (DC-0082): with references the
+    /// prompt carries the same per-picture instructions shot previews use
+    /// and the labelled set rides along; without any the request is exactly
+    /// the plain one — pure, so the rule is tested.
+    static func overviewRequest(prompt: String, references: [ReferenceImage],
+                                provider: AIProvider, brief: VisualBrief) -> ImageGenerationRequest {
+        let fullPrompt = references.isEmpty
+            ? prompt
+            : CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: references) + prompt
+        return ImageGenerationRequest(
+            prompt: fullPrompt,
+            provider: provider,
+            aspectRatio: "16:9",
+            numberOfImages: 1,
+            referenceImages: references.isEmpty ? nil : references,
+            brief: brief)
+    }
+
     /// Build an AI prompt for scene overview image generation
     static func buildSceneOverviewPrompt(scene: DirectorsChairCore.Scene) -> String {
         var parts: [String] = []
