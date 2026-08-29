@@ -88,6 +88,9 @@ public struct StoryDesignView: View {
     /// initialCharacterId / initialLocationId.
     var remembered: StoryDesignSelection?
     var onSelectionChanged: ((StoryDesignSelection) -> Void)?
+    /// Prop page "Where it's used" jumps (DC-0096).
+    var onOpenScene: ((DCScene) -> Void)?
+    var onOpenShot: ((Shot, DCScene) -> Void)?
     var initialLightCueId: String?
     var initialSFXCueId: String?
     var initialSupportCueId: String?
@@ -122,11 +125,15 @@ public struct StoryDesignView: View {
         onGenerateLocationImage: ((Location, String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
         onUploadReferenceImage: ((Character, Data, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
         remembered: StoryDesignSelection? = nil,
-        onSelectionChanged: ((StoryDesignSelection) -> Void)? = nil
+        onSelectionChanged: ((StoryDesignSelection) -> Void)? = nil,
+        onOpenScene: ((DCScene) -> Void)? = nil,
+        onOpenShot: ((Shot, DCScene) -> Void)? = nil
     ) {
         self._project = project
         self.remembered = remembered
         self.onSelectionChanged = onSelectionChanged
+        self.onOpenScene = onOpenScene
+        self.onOpenShot = onOpenShot
         self.projectBasePath = projectBasePath
         self.initialCharacterId = initialCharacterId
         self.initialLocationId = initialLocationId
@@ -166,7 +173,9 @@ public struct StoryDesignView: View {
             case .props:
                 PropShopView(
                     project: $project,
-                    projectBasePath: projectBasePath
+                    projectBasePath: projectBasePath,
+                    onOpenScene: onOpenScene,
+                    onOpenShot: onOpenShot
                 )
             }
         }

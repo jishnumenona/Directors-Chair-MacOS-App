@@ -261,7 +261,13 @@ struct CentralViewStack: View {
                     if let id = selection.locationId, coordinator.selectedLocation?.id != id {
                         coordinator.selectedLocation = projectViewModel.project.locations.first { $0.id == id }
                     }
-                }
+                },
+                // DC-0096: prop page jumps to a scene or a shot.
+                onOpenScene: { scene in
+                    coordinator.selectScene(scene)
+                    coordinator.navigateTo(.scenes)
+                },
+                onOpenShot: { shot, _ in coordinator.selectShot(shot) }
             )
             .onAppear { debugLog("📱 StoryDesignView appeared") }
         case .curation:

@@ -20,6 +20,9 @@ import DirectorsChairServices
 struct PropShopView: View {
     @Binding var project: Project
     let projectBasePath: URL?
+    /// Owner 2026-08-29: "Where it's used" rows jump to the scene / shot.
+    var onOpenScene: ((DCScene) -> Void)? = nil
+    var onOpenShot: ((Shot, DCScene) -> Void)? = nil
 
     @State private var selectedPropId: String?
     @State private var statusFilter: String = "All"
@@ -56,6 +59,20 @@ struct PropShopView: View {
         scenes.filter { scene in
             scene.props.contains { $0.caseInsensitiveCompare(propName) == .orderedSame }
         }
+    }
+
+    /// Shots that carry a prop: every shot of a scene the prop is placed in,
+    /// plus any shot elsewhere whose description names it. Pure — tested.
+    static func shotsUsing(_ propName: String, in scenes: [DCScene]) -> [(scene: DCScene, shot: Shot)] {
+        let placed = Set(scenesUsing(propName, in: scenes).map(\.id))
+        var rows: [(scene: DCScene, shot: Shot)] = []
+        for scene in scenes {
+            for shot in scene.shots
+            where placed.contains(scene.id) || StoryboardSubjects.mentionsProp(shot.description, name: propName) {
+                rows.append((scene, shot))
+            }
+        }
+        return rows
     }
 
     /// Registered props matching a scene's prop-name list (case-insensitive),
@@ -631,6 +648,9 @@ struct PropShopView: View {
                     }
                 }
 
+                // Where it's used — scenes and shots, each a jump (owner 2026-08-29)
+                whereUsedSection(prop.wrappedValue)
+
                 // Notes + delete
                 VStack(alignment: .leading, spacing: 6) {
                     Text("HANDLING / CONTINUITY NOTES").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
@@ -970,6 +990,91 @@ struct PropShopView: View {
             }
             .buttonStyle(.plain)
             .padding(3)
+        }
+    }
+
+    private func whereUsedSection(_ prop: Prop) -> some View {
+        let scenes = Self.scenesUsing(prop.name, in: allScenes)
+        let shotRows = Self.shotsUsing(prop.name, in: allScenes)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("WHERE IT'S USED").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
+            if scenes.isEmpty && shotRows.isEmpty {
+                Text("No scene or shot uses this prop yet. Place it in a scene above, or mention it in a shot's description with $\(prop.name).")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray.opacity(0.6))
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(scenes) { scene in
+                        Button(action: { onOpenScene?(scene) }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "film")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.accentColor)
+                                    .frame(width: 14)
+                                Text(scene.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                if let location = scene.location, !location.isEmpty {
+                                    Text("@ \(location)")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.green.opacity(0.9))
+                                }
+                                Spacer()
+                                Text("\(shotRows.filter { $0.scene.id == scene.id }.count) shots")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.gray.opacity(0.5))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(hex: "#1A1A1A"))
+                            .cornerRadius(6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open this scene")
+                        .accessibilityIdentifier("prop-used-scene-\(scene.name)")
+                    }
+                    ForEach(Array(shotRows.enumerated()), id: \.element.shot.id) { _, row in
+                        Button(action: { onOpenShot?(row.shot, row.scene) }) {
+                            HStack(spacing: 8) {
+                                if let basePath = projectBasePath, let path = row.shot.previewImage, !path.isEmpty {
+                                    AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 48) {
+                                        Color.gray.opacity(0.25)
+                                    }
+                                    .frame(width: 48, height: 27)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                } else {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 4).fill(Color.gray.opacity(0.15))
+                                        Image(systemName: "camera").font(.system(size: 9)).foregroundColor(.gray)
+                                    }
+                                    .frame(width: 48, height: 27)
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Shot #\(row.shot.shotId) · \(row.scene.name)")
+                                        .font(.system(size: 10, weight: .medium))
+                                    Text(row.shot.description.isEmpty ? row.shot.shotType : String(row.shot.description.prefix(90)))
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.gray.opacity(0.5))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open this shot")
+                        .accessibilityIdentifier("prop-used-shot-\(row.shot.shotId)")
+                    }
+                }
+            }
         }
     }
 

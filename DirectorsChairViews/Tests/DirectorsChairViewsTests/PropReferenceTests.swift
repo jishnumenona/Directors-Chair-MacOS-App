@@ -95,4 +95,15 @@ final class PropReferenceTests: XCTestCase {
         let prefix = CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: [ref])
         XCTAssertTrue(prefix.contains("Image 1 is the prop \"Storm Lantern\""), prefix)
     }
+
+    // DC-0096: "Where it's used" — placed scenes' shots plus shots that name the prop.
+    func testShotsUsingPropCoverPlacedScenesAndMentions() {
+        var placed = Scene(name: "Van"); placed.props = ["Mini van"]
+        placed.shots = [Shot(shotId: 1, description: "Driving"), Shot(shotId: 2, description: "Reverse")]
+        var other = Scene(name: "Diner")
+        other.shots = [Shot(shotId: 3, description: "The $Mini van waits outside"), Shot(shotId: 4, description: "Coffee")]
+        let rows = PropShopView.shotsUsing("Mini van", in: [placed, other])
+        XCTAssertEqual(rows.map(\.shot.shotId), [1, 2, 3])
+        XCTAssertEqual(rows.map(\.scene.name), ["Van", "Van", "Diner"])
+    }
 }
