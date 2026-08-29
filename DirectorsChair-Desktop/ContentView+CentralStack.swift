@@ -1296,6 +1296,10 @@ struct CinematographyViewAdapter: View {
                         coordinator.selectLocation(location)
                     },
                     onNavigateToProp: { prop in coordinator.selectProp(prop) },
+                    onShotsReordered: {
+                        projectViewModel.renumberShots()
+                        coordinator.notifyProjectChanged()
+                    },
                     onNavigateToStoryDesign: {
                         coordinator.navigateTo(.storyDesign)
                     },

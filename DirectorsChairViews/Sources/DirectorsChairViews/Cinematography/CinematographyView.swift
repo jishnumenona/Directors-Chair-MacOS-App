@@ -59,6 +59,8 @@ public struct CinematographyView: View {
     public var onNavigateToLocation: ((Location) -> Void)?
     /// DC-0095: open a prop's page (double-click on an inline $ mention).
     public var onNavigateToProp: ((Prop) -> Void)?
+    /// The user reordered shots in the list — the host renumbers them.
+    public var onShotsReordered: (() -> Void)?
     public var onNavigateToStoryDesign: (() -> Void)?
     public var onNavigateToCuration: ((Shot) -> Void)?
 
@@ -109,6 +111,7 @@ public struct CinematographyView: View {
         onNavigateToCharacter: ((Character) -> Void)? = nil,
         onNavigateToLocation: ((Location) -> Void)? = nil,
         onNavigateToProp: ((Prop) -> Void)? = nil,
+        onShotsReordered: (() -> Void)? = nil,
         onNavigateToStoryDesign: (() -> Void)? = nil,
         onNavigateToCuration: ((Shot) -> Void)? = nil,
         onOpenConnections: ((Shot, String?) -> Void)? = nil,
@@ -133,6 +136,7 @@ public struct CinematographyView: View {
         self.onNavigateToCharacter = onNavigateToCharacter
         self.onNavigateToLocation = onNavigateToLocation
         self.onNavigateToProp = onNavigateToProp
+        self.onShotsReordered = onShotsReordered
         self.onNavigateToStoryDesign = onNavigateToStoryDesign
         self.onNavigateToCuration = onNavigateToCuration
         self.onSceneUpdated = onSceneUpdated
@@ -368,6 +372,7 @@ public struct CinematographyView: View {
                         }
                         .onMove { source, destination in
                             viewModel.moveShot(from: source, to: destination)
+                            onShotsReordered?()
                         }
                     }
                 }

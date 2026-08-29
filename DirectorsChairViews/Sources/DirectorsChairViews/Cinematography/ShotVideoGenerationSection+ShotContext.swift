@@ -179,6 +179,10 @@ struct ShotContextCard: View {
                                 }
                                 if !locations.isEmpty {
                                     addButton { showingLocationPicker = true }
+                                        // Anchored to the button, not the card (owner report 2026-08-29).
+                                        .popover(isPresented: $showingLocationPicker, arrowEdge: .bottom) {
+                                            locationPickerPopover
+                                        }
                                 } else {
                                     addButton { showingLocationInput = true }
                                 }
@@ -297,9 +301,6 @@ struct ShotContextCard: View {
                 }
             }
         )
-        .popover(isPresented: $showingLocationPicker) {
-            locationPickerPopover
-        }
     }
 
     // MARK: - Scene Mutation Helpers

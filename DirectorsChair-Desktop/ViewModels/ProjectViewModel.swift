@@ -594,6 +594,23 @@ class ProjectViewModel: ObservableObject {
         guard to >= 0, to < project.sequences[seqIndex].scenes[scnIndex].shots.count else { return }
         project.sequences[seqIndex].scenes[scnIndex].shots.swapAt(from, to)
         isDirty = true
+        renumberShots()
+    }
+
+    /// Owner 2026-08-29: after a reorder, shot numbers follow story order and
+    /// each shot's picture folder moves with it.
+    func renumberShots() {
+        let (renumbered, moves) = project.renumberingShots()
+        guard !moves.isEmpty else { return }
+        if let projectDir = projectPath?.deletingLastPathComponent() {
+            do {
+                try ShotFolderMigration.apply(moves, projectDirectory: projectDir)
+            } catch {
+                debugLog("Shot folder migration failed: \(error)")
+            }
+        }
+        project = renumbered
+        isDirty = true
     }
 
     /// Rename a scene within a sequence
