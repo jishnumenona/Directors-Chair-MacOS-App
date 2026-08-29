@@ -50,6 +50,20 @@ public enum SceneConnectionConstants {
     /// Maximum control point offset
     public static let maxControlOffset: CGFloat = 100
 
+    // MARK: - Connection Removal
+
+    /// Width of the invisible hit band along a connection line (hover / click / right-click)
+    public static let connectionHitWidth: CGFloat = 20
+
+    /// Hovered connection line width
+    public static let connectionLineWidthHovered: CGFloat = 3
+
+    /// Diameter of the × glyph drawn at a hovered or selected line's midpoint
+    public static let connectionRemoveGlyphSize: CGFloat = 18
+
+    /// Diameter of the glyph's click target (more forgiving than the drawn disc)
+    public static let connectionRemoveHitSize: CGFloat = 26
+
     // MARK: - Animation
 
     /// Connection creation animation duration
@@ -257,5 +271,91 @@ public struct ScriptConnection: Identifiable, Hashable {
         self.scriptItemId = scriptItemId
         self.shotId = shotId
         self.itemType = itemType
+    }
+}
+
+// MARK: - Connection Geometry
+
+/// Pure curve maths shared by the lines overlay, the canvas hit bands, and
+/// tests — one definition so what is drawn, what is clickable, and where
+/// the × sits can never drift apart.
+public enum ConnectionGeometry {
+    /// Cubic control points: horizontal tangents at both ports, pulled toward
+    /// each other by up to `maxControlOffset`.
+    public static func controlPoints(from start: CGPoint, to end: CGPoint) -> (CGPoint, CGPoint) {
+        let distance = abs(end.x - start.x)
+        let controlOffset = min(SceneConnectionConstants.maxControlOffset,
+                                max(50, distance * SceneConnectionConstants.bezierControlFactor))
+        return (CGPoint(x: start.x + controlOffset, y: start.y),
+                CGPoint(x: end.x - controlOffset, y: end.y))
+    }
+
+    /// The connection curve, script port to shot port.
+    public static func path(from start: CGPoint, to end: CGPoint) -> Path {
+        let (control1, control2) = controlPoints(from: start, to: end)
+        var path = Path()
+        path.move(to: start)
+        path.addCurve(to: end, control1: control1, control2: control2)
+        return path
+    }
+
+    /// Point on the curve at `t` (0 = script port, 1 = shot port).
+    public static func point(from start: CGPoint, to end: CGPoint, at t: CGFloat) -> CGPoint {
+        let (control1, control2) = controlPoints(from: start, to: end)
+        let u = 1 - t
+        let a = u * u * u
+        let b = 3 * u * u * t
+        let c = 3 * u * t * t
+        let d = t * t * t
+        return CGPoint(x: a * start.x + b * control1.x + c * control2.x + d * end.x,
+                       y: a * start.y + b * control1.y + c * control2.y + d * end.y)
+    }
+
+    /// Where the × remove glyph sits. The horizontal tangents cancel the
+    /// control offsets at t = 0.5, so this is always halfway between the dots.
+    public static func midpoint(from start: CGPoint, to end: CGPoint) -> CGPoint {
+        point(from: start, to: end, at: 0.5)
+    }
+
+    /// Whether `location` is on the remove glyph centred at `midpoint`.
+    public static func isOnRemoveGlyph(
+        _ location: CGPoint,
+        midpoint: CGPoint,
+        hitDiameter: CGFloat = SceneConnectionConstants.connectionRemoveHitSize
+    ) -> Bool {
+        hypot(location.x - midpoint.x, location.y - midpoint.y) <= hitDiameter / 2
+    }
+
+    /// Hit region for one connection: the curve, sampled as a polyline and
+    /// stroked `hitWidth` wide, kept only where it runs inside `bounds` — so
+    /// the band never covers the port dots at either end (those must stay
+    /// draggable) and never floats over the toolbar when both cards are
+    /// scrolled out of view. The band already spans the midpoint, so the ×
+    /// needs no extra shape of its own.
+    public static func hitPath(
+        from start: CGPoint,
+        to end: CGPoint,
+        within bounds: CGRect,
+        hitWidth: CGFloat = SceneConnectionConstants.connectionHitWidth,
+        samples: Int = 32
+    ) -> Path {
+        let steps = max(1, samples)
+        var polyline = Path()
+        var runOpen = false
+        for step in 0...steps {
+            let sample = point(from: start, to: end, at: CGFloat(step) / CGFloat(steps))
+            if bounds.contains(sample) {
+                if runOpen {
+                    polyline.addLine(to: sample)
+                } else {
+                    polyline.move(to: sample)
+                    runOpen = true
+                }
+            } else {
+                runOpen = false
+            }
+        }
+        guard !polyline.isEmpty else { return polyline }
+        return polyline.strokedPath(StrokeStyle(lineWidth: hitWidth, lineCap: .round, lineJoin: .round))
     }
 }

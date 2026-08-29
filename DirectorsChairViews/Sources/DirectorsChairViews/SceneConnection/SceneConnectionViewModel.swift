@@ -27,6 +27,13 @@ public class SceneConnectionViewModel: ObservableObject {
     /// Currently selected connection
     @Published public var selectedConnection: ScriptConnection?
 
+    /// Connection under the pointer on the canvas — the overlay draws it solid
+    /// with its × glyph. Set on enter/exit only, never per pointer tick.
+    @Published public var hoveredConnectionId: String?
+
+    /// The pointer sits on the hovered connection's × glyph (armed style).
+    @Published public var isPointerOnRemoveGlyph: Bool = false
+
     /// Filter toggles for item types
     @Published public var showDialogues: Bool = true { didSet { rebuildGrouped() } }
     @Published public var showActions: Bool = true { didSet { rebuildGrouped() } }
@@ -56,6 +63,7 @@ public class SceneConnectionViewModel: ObservableObject {
     private var shotIdsByItem: [String: Set<String>] = [:]
     private var shotsById: [String: Shot] = [:]
     private var groupedCache: [ScriptListEntry] = []
+    private var scriptItemsById: [String: ScriptItem] = [:]
 
     // MARK: - Callbacks
 
@@ -197,6 +205,35 @@ public class SceneConnectionViewModel: ObservableObject {
         )
     }
 
+    /// Shot lookup — O(1), for menu titles and context-menu headers
+    public func shot(withId shotId: String) -> Shot? {
+        shotsById[shotId]
+    }
+
+    /// Script item lookup — O(1), for menu titles and context-menu headers
+    public func scriptItem(withId scriptItemId: String) -> ScriptItem? {
+        scriptItemsById[scriptItemId]
+    }
+
+    /// Every connection leaving a script item's port, in shot-number order —
+    /// the dot's "Remove connection to …" menu.
+    public func connections(forScriptItem scriptItemId: String) -> [ScriptConnection] {
+        connections
+            .filter { $0.scriptItemId == scriptItemId }
+            .sorted { (shotsById[$0.shotId]?.shotId ?? 0) < (shotsById[$1.shotId]?.shotId ?? 0) }
+    }
+
+    /// Every connection arriving at one of a shot's typed ports, in script
+    /// order — that dot's "Remove connection to …" menu.
+    public func connections(forShot shotId: String, itemType: ScriptItemType) -> [ScriptConnection] {
+        connections
+            .filter { $0.shotId == shotId && $0.itemType == itemType }
+            .sorted {
+                (scriptItemsById[$0.scriptItemId]?.chronologyNumber ?? 0)
+                    < (scriptItemsById[$1.scriptItemId]?.chronologyNumber ?? 0)
+            }
+    }
+
     /// Check if a connection exists — O(1) shot lookup
     public func connectionExists(scriptItemId: String, shotId: String, itemType: ScriptItemType) -> Bool {
         guard let shot = shotsById[shotId] else { return false }
@@ -247,6 +284,7 @@ public class SceneConnectionViewModel: ObservableObject {
         items.append(contentsOf: narrations.map { .narration($0) })
 
         scriptItems = items.sorted { $0.chronologyNumber < $1.chronologyNumber }
+        scriptItemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         rebuildGrouped()
     }
 
@@ -273,10 +311,7 @@ public class SceneConnectionViewModel: ObservableObject {
         if let selected = selectedShotId, shotsById[selected] == nil {
             selectedShotId = nil
         }
-        if let connection = selectedConnection,
-           !connections.contains(where: { $0.id == connection.id }) {
-            selectedConnection = nil
-        }
+        pruneStaleConnectionState()
     }
 
     // MARK: - Connection CRUD
@@ -346,10 +381,6 @@ public class SceneConnectionViewModel: ObservableObject {
             shots[shotIndex].linkedActionIds.removeAll { $0 == connection.scriptItemId }
         case .narration:
             shots[shotIndex].linkedNarrationIds.removeAll { $0 == connection.scriptItemId }
-        }
-
-        if selectedConnection?.id == connection.id {
-            selectedConnection = nil
         }
 
         notifyChange(undoing: before, actionName: "Remove Connection")
@@ -511,6 +542,7 @@ public class SceneConnectionViewModel: ObservableObject {
     /// `notifyChange(undoing:)`.
     private func notifyChange(undoing before: [Shot]? = nil, actionName: String = "Edit Connection") {
         rebuildDerived()
+        pruneStaleConnectionState()
         if let before, let undoManager {
             undoManager.registerUndo(withTarget: self) { viewModel in
                 MainActor.assumeIsolated {
@@ -528,5 +560,19 @@ public class SceneConnectionViewModel: ObservableObject {
         let current = shots
         shots = snapshot
         notifyChange(undoing: current, actionName: actionName)
+    }
+
+    /// Drop selection/hover that points at a connection which no longer
+    /// exists — removed here, undone, or edited away in another view.
+    private func pruneStaleConnectionState() {
+        if let connection = selectedConnection,
+           !connections.contains(where: { $0.id == connection.id }) {
+            selectedConnection = nil
+        }
+        if let hovered = hoveredConnectionId,
+           !connections.contains(where: { $0.id == hovered }) {
+            hoveredConnectionId = nil
+            isPointerOnRemoveGlyph = false
+        }
     }
 }

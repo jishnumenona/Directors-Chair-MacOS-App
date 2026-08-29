@@ -429,4 +429,130 @@ final class SceneConnectionViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.connectionExists(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue),
                       "redo re-applies the connection")
     }
+
+    // MARK: - Removal affordances (endpoint menus, hover state, ⌫)
+
+    func testConnectionsAtScriptItemPortListEveryLinkedShotInShotOrder() {
+        setupTestData()
+        let dialogueId = viewModel.scriptItems.first { $0.itemType == .dialogue }!.id
+        let shot1 = viewModel.shots[0]
+        let shot2 = viewModel.shots[1]
+
+        viewModel.createConnection(scriptItemId: dialogueId, shotId: shot2.id, itemType: .dialogue)
+        viewModel.createConnection(scriptItemId: dialogueId, shotId: shot1.id, itemType: .dialogue)
+
+        let atPort = viewModel.connections(forScriptItem: dialogueId)
+        XCTAssertEqual(atPort.map(\.shotId), [shot1.id, shot2.id],
+                       "menu lists shots in shot-number order, not creation order")
+        XCTAssertTrue(atPort.allSatisfy { $0.itemType == .dialogue })
+        XCTAssertTrue(viewModel.connections(forScriptItem: "nobody").isEmpty)
+    }
+
+    func testConnectionsAtShotPortAreScopedToThatPortsType() {
+        setupTestData()
+        let dialogueId = viewModel.scriptItems.first { $0.itemType == .dialogue }!.id
+        let actionId = viewModel.scriptItems.first { $0.itemType == .action }!.id
+        let shotId = viewModel.shots[0].id
+
+        viewModel.createConnection(scriptItemId: dialogueId, shotId: shotId, itemType: .dialogue)
+        viewModel.createConnection(scriptItemId: actionId, shotId: shotId, itemType: .action)
+
+        XCTAssertEqual(viewModel.connections(forShot: shotId, itemType: .dialogue).map(\.scriptItemId), [dialogueId])
+        XCTAssertEqual(viewModel.connections(forShot: shotId, itemType: .action).map(\.scriptItemId), [actionId])
+        XCTAssertTrue(viewModel.connections(forShot: shotId, itemType: .narration).isEmpty,
+                      "the narration dot has nothing to remove")
+        XCTAssertTrue(viewModel.connections(forShot: viewModel.shots[1].id, itemType: .dialogue).isEmpty)
+    }
+
+    func testRemovingFromAnEndpointWritesBackLikeCreating() {
+        setupTestData()
+        var received: [[Shot]] = []
+        viewModel.onShotsChanged = { received.append($0) }
+        let dialogueId = viewModel.scriptItems.first { $0.itemType == .dialogue }!.id
+        let shotId = viewModel.shots[0].id
+
+        viewModel.createConnection(scriptItemId: dialogueId, shotId: shotId, itemType: .dialogue)
+        let connection = viewModel.connections(forScriptItem: dialogueId).first!
+        viewModel.removeConnection(connection)
+
+        XCTAssertEqual(received.count, 2, "create and remove each hand the host the full shots array once")
+        let persistedShot = received.last!.first { $0.id == shotId }!
+        XCTAssertFalse(persistedShot.linkedDialogueIds.contains(dialogueId))
+        XCTAssertTrue(viewModel.connections.isEmpty)
+        XCTAssertTrue(viewModel.connections(forScriptItem: dialogueId).isEmpty)
+    }
+
+    func testRemovingADialogueConnectionAlsoUnlinksItsSubBubbles() {
+        let dialogues = makeDialogues()
+        let parentId = dialogues[0].id
+        var child = Action(description: "Child action", chronologyNumber: 2)
+        child.parentDialogueId = parentId
+        viewModel.updateScriptItems(dialogues: dialogues, actions: [child], narrations: [])
+        viewModel.updateShots(makeShots())
+        let shotId = viewModel.shots[0].id
+
+        viewModel.createConnection(scriptItemId: parentId, shotId: shotId, itemType: .dialogue)
+        XCTAssertTrue(viewModel.shots[0].linkedActionIds.contains(child.id), "connect cascades to the sub-bubble")
+
+        viewModel.removeConnection(viewModel.connections(forScriptItem: parentId).first!)
+
+        XCTAssertTrue(viewModel.shots[0].linkedDialogueIds.isEmpty)
+        XCTAssertTrue(viewModel.shots[0].linkedActionIds.isEmpty, "remove cascades the same way")
+        XCTAssertTrue(viewModel.connections.isEmpty)
+    }
+
+    func testRemovingTheHoveredConnectionClearsHoverAndGlyphState() {
+        setupTestData()
+        let dialogueId = viewModel.scriptItems.first { $0.itemType == .dialogue }!.id
+        viewModel.createConnection(scriptItemId: dialogueId, shotId: viewModel.shots[0].id, itemType: .dialogue)
+        let connection = viewModel.connections.first!
+        viewModel.selectConnection(connection)
+        viewModel.hoveredConnectionId = connection.id
+        viewModel.isPointerOnRemoveGlyph = true
+
+        viewModel.removeConnection(connection)
+
+        XCTAssertNil(viewModel.selectedConnection)
+        XCTAssertNil(viewModel.hoveredConnectionId, "no highlight may outlive its line")
+        XCTAssertFalse(viewModel.isPointerOnRemoveGlyph)
+    }
+
+    func testRefreshPrunesHoverOfAConnectionEditedAwayElsewhere() {
+        let (dialogue, shot) = makeLinkedFixture()
+        viewModel.createConnection(scriptItemId: dialogue.id, shotId: shot.id, itemType: .dialogue)
+        let connection = viewModel.connections.first!
+        viewModel.hoveredConnectionId = connection.id
+        viewModel.selectConnection(connection)
+
+        // External edit (Shots view) dropped the link
+        viewModel.refresh(dialogues: [dialogue], actions: [], narrations: [],
+                          shots: [Shot(uuid: shot.id, shotId: shot.shotId)])
+
+        XCTAssertNil(viewModel.hoveredConnectionId)
+        XCTAssertNil(viewModel.selectedConnection)
+    }
+
+    func testDeleteKeyWithNothingSelectedIsANoOp() {
+        setupTestData()
+        let dialogueId = viewModel.scriptItems.first { $0.itemType == .dialogue }!.id
+        viewModel.createConnection(scriptItemId: dialogueId, shotId: viewModel.shots[0].id, itemType: .dialogue)
+        var notified = false
+        viewModel.onShotsChanged = { _ in notified = true }
+
+        viewModel.selectScriptItem(dialogueId)   // selecting a card drops any line selection
+        viewModel.deleteSelectedConnection()
+
+        XCTAssertFalse(notified, "⌫ with no line selected must not touch the project")
+        XCTAssertEqual(viewModel.connections.count, 1)
+    }
+
+    func testLookupsByIdBackTheMenuTitles() {
+        setupTestData()
+        let dialogueId = viewModel.scriptItems.first { $0.itemType == .dialogue }!.id
+
+        XCTAssertEqual(viewModel.shot(withId: viewModel.shots[1].id)?.shotId, 2)
+        XCTAssertEqual(viewModel.scriptItem(withId: dialogueId)?.itemType, .dialogue)
+        XCTAssertNil(viewModel.shot(withId: "missing"))
+        XCTAssertNil(viewModel.scriptItem(withId: "missing"))
+    }
 }

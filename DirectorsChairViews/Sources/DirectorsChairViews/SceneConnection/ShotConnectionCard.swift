@@ -26,6 +26,9 @@ public struct ShotConnectionCard: View {
     var connectTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
     var onToggleConnect: ((ConnectionMenuTarget) -> Void)? = nil
     var onPortHit: ((ScriptItemType) -> Void)?
+    /// "Remove connection to …" — per typed port dot and in the card menu.
+    var removeTargetsProvider: ((ScriptItemType) -> [ConnectionMenuTarget])? = nil
+    var onRemoveConnection: ((ConnectionMenuTarget) -> Void)? = nil
 
     // MARK: - State
 
@@ -77,6 +80,18 @@ public struct ShotConnectionCard: View {
                 }
                 Divider()
             }
+            if let onRemoveConnection, totalConnections > 0 {
+                let targets = allRemoveTargets
+                if !targets.isEmpty {
+                    Menu("Remove Connection") {
+                        ForEach(targets) { target in
+                            Button(target.title) { onRemoveConnection(target) }
+                                .accessibilityIdentifier("connection-remove-card-\(target.connectionId ?? target.id)")
+                        }
+                    }
+                    Divider()
+                }
+            }
             Button("Select") {
                 onSelect?()
             }
@@ -94,7 +109,9 @@ public struct ShotConnectionCard: View {
                 itemType: .dialogue,
                 isOutput: false,
                 isConnected: connectedDialogueCount > 0,
-                isHighlighted: highlightedItemType == .dialogue
+                isHighlighted: highlightedItemType == .dialogue,
+                removeTargetsProvider: removeTargets(for: .dialogue),
+                onRemoveConnection: onRemoveConnection
             )
 
             // Action port
@@ -103,7 +120,9 @@ public struct ShotConnectionCard: View {
                 itemType: .action,
                 isOutput: false,
                 isConnected: connectedActionCount > 0,
-                isHighlighted: highlightedItemType == .action
+                isHighlighted: highlightedItemType == .action,
+                removeTargetsProvider: removeTargets(for: .action),
+                onRemoveConnection: onRemoveConnection
             )
 
             // Narration port
@@ -112,7 +131,9 @@ public struct ShotConnectionCard: View {
                 itemType: .narration,
                 isOutput: false,
                 isConnected: connectedNarrationCount > 0,
-                isHighlighted: highlightedItemType == .narration
+                isHighlighted: highlightedItemType == .narration,
+                removeTargetsProvider: removeTargets(for: .narration),
+                onRemoveConnection: onRemoveConnection
             )
         }
         .padding(.leading, 4)
@@ -302,6 +323,19 @@ public struct ShotConnectionCard: View {
 
     private var totalConnections: Int {
         connectedDialogueCount + connectedActionCount + connectedNarrationCount
+    }
+
+    /// The port-scoped remove provider — nil when the host offers no removal,
+    /// so the dot's right-click falls through to the card menu.
+    private func removeTargets(for type: ScriptItemType) -> (() -> [ConnectionMenuTarget])? {
+        guard let provider = removeTargetsProvider else { return nil }
+        return { provider(type) }
+    }
+
+    /// Every removable connection on this card, dialogues first — menu-open only.
+    private var allRemoveTargets: [ConnectionMenuTarget] {
+        guard let provider = removeTargetsProvider else { return [] }
+        return ScriptItemType.allCases.flatMap { provider($0) }
     }
 
     private var backgroundColor: Color {

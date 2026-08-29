@@ -19,6 +19,11 @@ public struct ConnectionPort: View {
     var onDragUpdate: ((CGPoint) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
 
+    /// Connections at this dot, for its right-click "Remove connection to …"
+    /// menu — built lazily when the menu opens, like the cards' connect menus.
+    var removeTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
+    var onRemoveConnection: ((ConnectionMenuTarget) -> Void)? = nil
+
     // MARK: - State
 
     @State private var isHovered: Bool = false
@@ -68,6 +73,11 @@ public struct ConnectionPort: View {
                         dragOffset = .zero
                     }
             )
+            .modifier(PortRemoveMenu(
+                isEnabled: isConnected && onRemoveConnection != nil,
+                targetsProvider: removeTargetsProvider,
+                onRemove: onRemoveConnection
+            ))
             .preference(key: PortPositionKey.self, value: [
                 portId: CGPoint(
                     x: geometry.frame(in: .named("sceneConnections")).midX,
@@ -96,6 +106,38 @@ public struct ConnectionPort: View {
             return itemType.color
         } else {
             return SceneConnectionColors.portDefault
+        }
+    }
+}
+
+// MARK: - Port Remove Menu
+
+/// Right-click on a connected dot lists that endpoint's connections for
+/// removal. Applied only while connected, so an idle dot still falls
+/// through to its card's menu.
+private struct PortRemoveMenu: ViewModifier {
+    let isEnabled: Bool
+    let targetsProvider: (() -> [ConnectionMenuTarget])?
+    let onRemove: ((ConnectionMenuTarget) -> Void)?
+
+    func body(content: Content) -> some View {
+        if isEnabled, let onRemove {
+            content.contextMenu {
+                if let targets = targetsProvider?(), !targets.isEmpty {
+                    ForEach(targets) { target in
+                        Button {
+                            onRemove(target)
+                        } label: {
+                            Label("Remove connection to \(target.title)", systemImage: "xmark")
+                        }
+                        .accessibilityIdentifier("connection-remove-port-\(target.connectionId ?? target.id)")
+                    }
+                } else {
+                    Text("No connections")
+                }
+            }
+        } else {
+            content
         }
     }
 }
