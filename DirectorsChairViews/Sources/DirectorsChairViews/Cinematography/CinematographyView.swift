@@ -600,6 +600,7 @@ public struct CinematographyView: View {
                         onOpenMention: { mention in openMention(mention) },
                         onDescriptionChange: { newDescription in
                             updateShotField(shot) { $0.description = newDescription }
+                            syncMentions(for: shot, description: newDescription)
                         }
                     )
                     .id("description-section")
@@ -833,6 +834,16 @@ public struct CinematographyView: View {
                 .contentShape(Rectangle())
             }
         }
+    }
+
+    /// What the description mentions joins the shot's lists (owner 2026-08-29).
+    private func syncMentions(for shot: Shot, description: String) {
+        var current = viewModel.shots.first { $0.id == shot.id } ?? shot
+        current.description = description
+        let synced = MentionSync.apply(description: description, shot: current, scene: sceneForShot(shot),
+                                       characters: characters, locations: locations, props: props)
+        if synced.shotChanged { viewModel.updateShot(synced.shot) }
+        if synced.sceneChanged, let scene = synced.scene { onSceneUpdated?(scene) }
     }
 
     /// DC-0095: a double-clicked mention goes to its page (a shot stays here).

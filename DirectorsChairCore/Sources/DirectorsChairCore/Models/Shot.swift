@@ -365,6 +365,11 @@ public struct KeyframeAnnotation: Codable, Identifiable, Hashable, Sendable {
     /// picture's shorter side (DC-0073). nil = the engine's default reach.
     public var radius: Double?
 
+    /// A reach that covers the whole picture: the annotation is an
+    /// instruction for all of it, not a spot (owner request 2026-08-29).
+    public static let wholePictureRadius: Double = 1.0
+    public var coversWholePicture: Bool { (radius ?? 0) >= Self.wholePictureRadius }
+
     public init(
         id: String = UUID().uuidString,
         normalizedX: Double = 0.5,

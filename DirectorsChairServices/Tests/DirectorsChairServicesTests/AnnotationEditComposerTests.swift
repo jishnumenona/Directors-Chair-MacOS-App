@@ -170,4 +170,18 @@ final class AnnotationEditComposerTests: XCTestCase {
         let annotation = try JSONDecoder().decode(KeyframeAnnotation.self, from: Data(json.utf8))
         XCTAssertNil(annotation.radius)
     }
+
+    // Owner 2026-08-29: one instruction can re-imagine the whole picture.
+    func testWholePicturePinBecomesAWholeEditWithNoMask() {
+        let whole = AnnotationPin(x: 0.5, y: 0.5, text: "make it dusk", number: 1, radius: KeyframeAnnotation.wholePictureRadius)
+        let spot = AnnotationPin(x: 0.2, y: 0.3, text: "remove the car", number: 2, radius: 0.15)
+        let edit = AnnotationEdit(source: Data([1, 2, 3]), pins: [whole, spot], context: "location picture")
+        let text = AnnotationEditComposer.instructions(pins: edit.pins, context: edit.context)
+        XCTAssertTrue(text.hasPrefix("Edit this location picture as a whole: make it dusk."), text)
+        XCTAssertTrue(text.contains("Also, at these spots:\n2. At (20%, 30%): remove the car"), text)
+        XCTAssertEqual(AnnotationEditComposer.regions(for: edit).count, 1, "the whole-picture pin has no mask")
+        let onlyWhole = AnnotationEdit(source: Data([1]), pins: [whole], context: "shot preview")
+        XCTAssertTrue(AnnotationEditComposer.regions(for: onlyWhole).isEmpty)
+        XCTAssertFalse(AnnotationEditComposer.instructions(pins: onlyWhole.pins, context: "shot preview").contains("Keep all other areas"))
+    }
 }

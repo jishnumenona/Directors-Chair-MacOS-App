@@ -22,6 +22,9 @@ public struct AnnotationPin: Equatable, Sendable {
     public var number: Int
     public var radius: Double?
 
+    /// The pin is an instruction for the whole picture (radius ≥ 1).
+    public var coversWholePicture: Bool { (radius ?? 0) >= KeyframeAnnotation.wholePictureRadius }
+
     public init(x: Double, y: Double, text: String, number: Int, radius: Double? = nil) {
         self.x = x
         self.y = y
@@ -93,13 +96,23 @@ public enum AnnotationEditComposer {
     /// changes with their positions, then the keep-everything rule.
     public static func instructions(pins: [AnnotationPin], context: String) -> String {
         guard !pins.isEmpty else { return "" }
-        var prompt = "Edit this \(context) with the following changes:\n"
-        for pin in pins.sorted(by: { $0.number < $1.number }) {
-            let region = "(\(Int(pin.x * 100))%, \(Int(pin.y * 100))%)"
-            prompt += "\(pin.number). At \(region): \(pin.text)\n"
+        let whole = pins.filter(\.coversWholePicture)
+        let spots = pins.filter { !$0.coversWholePicture }
+        var prompt = ""
+        if !whole.isEmpty {
+            // Owner 2026-08-29: re-imagine the whole picture from one instruction.
+            prompt += "Edit this \(context) as a whole: " + whole.map(\.text).joined(separator: "; ") + ".\n"
+            prompt += "Re-imagine the entire picture to match; keep its subject, place and framing unless the instruction says otherwise.\n"
         }
-        prompt += "Keep all other areas unchanged."
-        return prompt
+        if !spots.isEmpty {
+            prompt += whole.isEmpty ? "Edit this \(context) with the following changes:\n" : "Also, at these spots:\n"
+            for pin in spots.sorted(by: { $0.number < $1.number }) {
+                let region = "(\(Int(pin.x * 100))%, \(Int(pin.y * 100))%)"
+                prompt += "\(pin.number). At \(region): \(pin.text)\n"
+            }
+            prompt += "Keep all other areas unchanged."
+        }
+        return prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The full cloud prompt: the instructions, then the original prompt
@@ -112,8 +125,11 @@ public enum AnnotationEditComposer {
     }
 
     /// The pins as the regions the on-device engine repaints.
+    /// The pins as the regions the on-device engine repaints. A whole-picture
+    /// pin has no region: the engine then edits the entire picture by
+    /// instruction instead of inpainting a spot.
     public static func regions(for edit: AnnotationEdit) -> [EditRegion] {
-        edit.pins.map { pin in
+        edit.pins.filter { !$0.coversWholePicture }.map { pin in
             pin.radius.map { EditRegion(x: pin.x, y: pin.y, radius: $0) } ?? EditRegion(x: pin.x, y: pin.y)
         }
     }

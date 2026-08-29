@@ -72,6 +72,7 @@ public struct StructuredPromptEditor: View {
     let onGenerate: (String) -> Void
 
     @State private var showAssembled = true
+    @State private var editorHeight: CGFloat = StructuredPromptEditor.hostHeight()
     @State private var unlockedFixed: Set<String> = []
 
     public init(title: String, subtitle: String? = nil, sections: Binding<[PromptSection]>, separator: String = ". ",
@@ -193,8 +194,11 @@ public struct StructuredPromptEditor: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private var editorHeight: CGFloat {
-        let host = NSApp.keyWindow?.frame.height ?? NSScreen.main?.visibleFrame.height ?? 900
+    /// Measured once from the main window (reading the key window per render
+    /// re-sized the sheet when it became key).
+    static func hostHeight() -> CGFloat {
+        let host = (NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && !$0.isSheet })?.frame.height
+            ?? NSScreen.main?.visibleFrame.height ?? 900
         return max(560, min(host * 0.86, 980))
     }
 

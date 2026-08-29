@@ -19,6 +19,10 @@ public struct ImageAnnotationEditor: View {
     let onApplyEdits: ([KeyframeAnnotation]) -> Void
 
     @State private var annotations: [KeyframeAnnotation] = []
+    @State private var editorSize: CGSize = ImageAnnotationEditor.hostSize()
+    /// Owner 2026-08-29: mark spots, or re-imagine the whole picture.
+    @State private var wholePicture = false
+    @State private var wholeInstruction = ""
     @State private var selectedAnnotationId: String? = nil
     @State private var editingText: String = ""
 
@@ -57,8 +61,20 @@ public struct ImageAnnotationEditor: View {
                     }
                 }
                 Spacer()
-                Button("Done") { isPresented = false }
+                // Mark spots, or change the whole picture from one instruction.
+                Picker("", selection: $wholePicture) {
+                    Text("Mark spots").tag(false)
+                    Text("Whole picture").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 200)
+                .accessibilityIdentifier("annotation-mode")
+                Button("Cancel") { isPresented = false }
                     .foregroundColor(.gray)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("annotation-cancel")
                 Button(action: applyEdits) {
                     HStack(spacing: 6) {
                         Image(systemName: "wand.and.stars")
@@ -68,12 +84,12 @@ public struct ImageAnnotationEditor: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(annotations.isEmpty ? Color.gray.opacity(0.3) : Color.accentColor)
+                    .background(canApply ? Color.accentColor : Color.gray.opacity(0.3))
                     .foregroundColor(.white)
                     .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
-                .disabled(annotations.isEmpty || annotations.contains(where: { $0.text.isEmpty }))
+                .disabled(!canApply)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -81,11 +97,34 @@ public struct ImageAnnotationEditor: View {
 
             Divider().opacity(0.3)
 
-            // Instruction banner
-            HStack(spacing: 12) {
-                instructionPill(icon: "hand.tap", text: "Click to add")
-                instructionPill(icon: "cursorarrow.click", text: "Click pin to edit")
-                instructionPill(icon: "trash", text: "Right-click to delete")
+            // Instruction banner — or, in whole-picture mode, the instruction itself
+            Group {
+            if wholePicture {
+                HStack(spacing: 10) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 12))
+                        .foregroundColor(.accentColor)
+                    TextField("Describe how the whole picture should change — e.g. make it dusk, remove the car, turn the road to gravel", text: $wholeInstruction)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(6)
+                        .onSubmit { if canApply { applyEdits() } }
+                        .accessibilityIdentifier("annotation-whole-instruction")
+                    Text("The picture is re-imagined from this; its subject and framing are kept unless you say otherwise.")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: 260, alignment: .leading)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    instructionPill(icon: "hand.tap", text: "Click to add")
+                    instructionPill(icon: "cursorarrow.click", text: "Click pin to edit")
+                    instructionPill(icon: "trash", text: "Right-click to delete")
+                }
+            }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
@@ -276,8 +315,11 @@ public struct ImageAnnotationEditor: View {
     }
 
     /// Most of the window the editor sits in (the picture is the point).
-    private var editorSize: CGSize {
-        let host = NSApp.keyWindow?.frame.size
+    /// Measured ONCE from the app's main window: reading the key window on
+    /// every render made the sheet re-size itself when it became key
+    /// (owner report 2026-08-29: "the window resized by itself").
+    static func hostSize() -> CGSize {
+        let host = (NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.isKind(of: NSWindow.self) && !$0.isSheet })?.frame.size
             ?? NSScreen.main?.visibleFrame.size
             ?? CGSize(width: 1400, height: 900)
         return CGSize(width: max(900, host.width * 0.92), height: max(600, host.height * 0.9))
@@ -524,7 +566,22 @@ public struct ImageAnnotationEditor: View {
         }
     }
 
+    private var canApply: Bool {
+        if wholePicture { return !wholeInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return !annotations.isEmpty && !annotations.contains(where: { $0.text.isEmpty })
+    }
+
     private func applyEdits() {
+        if wholePicture {
+            // One instruction for the whole picture: a pin whose reach covers
+            // everything (radius 1) — the composer words it as a whole-picture
+            // edit and the on-device engine repaints without a mask.
+            let instruction = wholeInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            isPresented = false
+            onApplyEdits([KeyframeAnnotation(normalizedX: 0.5, normalizedY: 0.5, text: instruction, number: 1,
+                                             radius: KeyframeAnnotation.wholePictureRadius)])
+            return
+        }
         // Confirm any pending edit
         if let id = selectedAnnotationId,
            let idx = annotations.firstIndex(where: { $0.id == id }),
