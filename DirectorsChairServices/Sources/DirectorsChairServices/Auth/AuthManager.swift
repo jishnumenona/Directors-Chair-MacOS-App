@@ -87,7 +87,7 @@ public enum AuthError: LocalizedError {
 
 // MARK: - Token Response
 
-private struct TokenResponse: Codable {
+struct TokenResponse: Codable {
     let access_token: String
     let token_type: String
     let expires_in: Int?
@@ -126,6 +126,9 @@ public class AuthManager: ObservableObject {
     // MARK: - Published State
 
     @Published public var isAuthenticated = false
+    /// Set when the session could not be persisted (the keychain refused);
+    /// the sign-in itself stands — the user is only asked again after relaunch.
+    @Published public var sessionPersistenceWarning: String?
     @Published public var currentUser: AuthenticatedUser?
     @Published public var isLoading = false
     @Published public var errorMessage: String?
@@ -162,7 +165,7 @@ public class AuthManager: ObservableObject {
     /// instead of each POSTing (which would invalidate the rotated token).
     private var inFlightRefresh: Task<Void, Error>?
 
-    private let keychain: KeychainService
+    private let keychain: any TokenStoring
     private let session: URLSession
     private var authSession: ASWebAuthenticationSession?
     #if canImport(AppKit)
@@ -176,7 +179,7 @@ public class AuthManager: ObservableObject {
     ///     store; tests inject an isolated instance so they never touch the real login.
     ///   - protocolClasses: URLProtocol stubs for network-path tests (the
     ///     GiteaClient/WS4.7 convention). nil = the shared production session.
-    public init(configuration: AuthConfiguration = .default, keychain: KeychainService = .shared,
+    public init(configuration: AuthConfiguration = .default, keychain: any TokenStoring = KeychainService.shared,
                 protocolClasses: [AnyClass]? = nil) {
         self.configuration = configuration
         self.keychain = keychain
@@ -528,7 +531,7 @@ public class AuthManager: ObservableObject {
 
         let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
         authLog("[Auth] Token received, scope: \(tokenResponse.scope ?? "none")")
-        try await storeTokens(tokenResponse)
+        await storeTokens(tokenResponse)
         self.codeVerifier = nil
     }
 
@@ -586,7 +589,7 @@ public class AuthManager: ObservableObject {
         }
 
         let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
-        try await storeTokens(tokenResponse)
+        await storeTokens(tokenResponse)
     }
 
     // MARK: - User Info
@@ -621,16 +624,21 @@ public class AuthManager: ObservableObject {
 
         currentUser = user
 
-        // Cache user info in Keychain
+        // Cache user info in Keychain — best effort, never fatal.
         if let userJSON = try? JSONEncoder().encode(user),
            let userString = String(data: userJSON, encoding: .utf8) {
-            try await keychain.save(userString, forKey: .userInfo)
+            do { try await keychain.save(userString, forKey: .userInfo) }
+            catch { authLogger.error("[Auth] user info could not be persisted: \(String(describing: error), privacy: .public)") }
         }
     }
 
     // MARK: - Token Storage
 
-    private func storeTokens(_ response: TokenResponse) async throws {
+    /// Adopt freshly minted tokens. The in-memory session is the sign-in;
+    /// persisting it is best effort — a refused keychain (an ad-hoc build
+    /// that cannot touch another build's items) used to throw here and
+    /// discard a login the server had just completed (2026-08-29 loop).
+    func storeTokens(_ response: TokenResponse) async {
         accessToken = response.access_token
         tier = ProductTier(fromJWT: response.access_token)
         refreshToken = response.refresh_token
@@ -649,8 +657,10 @@ public class AuthManager: ObservableObject {
             if let expiry = tokenExpiry {
                 try await keychain.save(String(expiry.timeIntervalSince1970), forKey: .tokenExpiry)
             }
+            sessionPersistenceWarning = nil
         } catch {
-            throw AuthError.keychainError(error.localizedDescription)
+            authLogger.error("[Auth] session could not be persisted: \(String(describing: error), privacy: .public) — staying signed in for this launch")
+            sessionPersistenceWarning = "Signed in, but this Mac refused to store the session — you'll be asked to sign in again after relaunch."
         }
     }
 

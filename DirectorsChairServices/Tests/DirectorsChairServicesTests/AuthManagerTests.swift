@@ -495,4 +495,33 @@ final class AuthManagerTests: XCTestCase {
         XCTAssertEqual(authManager.tier, .free,
                        "signed out = no claim = Free")
     }
+
+    // MARK: - Persistence must never cost the sign-in (2026-08-29 loop)
+
+    /// A store that refuses every write — what an ad-hoc-signed build meets
+    /// when the keychain holds another build's items.
+    private final class RefusingStore: TokenStoring {
+        struct Refused: Error {}
+        func save(_ value: String, forKey key: KeychainService.Key) async throws { throw Refused() }
+        func load(key: KeychainService.Key) async throws -> String? { nil }
+        func delete(key: KeychainService.Key) async throws {}
+        func deleteAll() async throws {}
+    }
+
+    func testARefusedSessionSaveKeepsTheSignInAndWarns() async {
+        let manager = AuthManager(configuration: testConfig, keychain: RefusingStore())
+        await manager.storeTokens(TokenResponse(access_token: "access-1", token_type: "Bearer",
+                                                expires_in: 900, refresh_token: "refresh-1", scope: "all"))
+        XCTAssertEqual(manager.currentAccessToken, "access-1", "the sign-in stands for this launch")
+        XCTAssertNotNil(manager.sessionPersistenceWarning, "the user is told the session will not survive relaunch")
+    }
+
+    func testAStoredSessionCarriesNoWarning() async {
+        await authManager.storeTokens(TokenResponse(access_token: "access-2", token_type: "Bearer",
+                                                    expires_in: 900, refresh_token: nil, scope: nil))
+        XCTAssertEqual(authManager.currentAccessToken, "access-2")
+        XCTAssertNil(authManager.sessionPersistenceWarning)
+        let stored = try? await testKeychain.load(key: .accessToken)
+        XCTAssertEqual(stored, "access-2")
+    }
 }

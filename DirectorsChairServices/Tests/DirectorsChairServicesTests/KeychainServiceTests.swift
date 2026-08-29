@@ -348,4 +348,19 @@ final class KeychainServiceTests: XCTestCase {
         let error: any LocalizedError = KeychainError.saveFailed(0)
         XCTAssertNotNil(error.errorDescription, "KeychainError should provide an error description")
     }
+
+    #if !DEBUG
+    // Release builds only (swift test -c release): the local store is the
+    // fallback when the keychain refuses a write, and its value is the newer one.
+    func testReleaseFallbackValueWinsAndIsRemovedWithTheItem() async throws {
+        let suite = "com.directorschair.auth.tests.fallback.\(UUID().uuidString)"
+        let keychain = KeychainService(suiteName: suite)
+        UserDefaults(suiteName: suite)!.set(Data("local-token".utf8), forKey: KeychainService.Key.accessToken.rawValue)
+        let loaded = try await keychain.load(key: .accessToken)
+        XCTAssertEqual(loaded, "local-token", "a local copy exists only when the keychain refused — it is newer")
+        try await keychain.delete(key: .accessToken)
+        XCTAssertNil(UserDefaults(suiteName: suite)!.data(forKey: KeychainService.Key.accessToken.rawValue))
+        await keychain.removePersistentDomain()
+    }
+    #endif
 }
