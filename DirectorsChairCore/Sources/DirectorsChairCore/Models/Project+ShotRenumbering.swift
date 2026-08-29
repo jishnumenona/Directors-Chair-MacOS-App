@@ -49,8 +49,12 @@ public extension Project {
         let old = shot.shotId
         var renumbered = shot
         renumbered.shotId = new
+        // JSONEncoder escapes "/" as "\\/" by default — the path search would
+        // never match (caught by ShotRenumberingTests).
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
         guard old != new,
-              let data = try? JSONEncoder().encode(renumbered),
+              let data = try? encoder.encode(renumbered),
               let json = String(data: data, encoding: .utf8) else { return renumbered }
         let rewritten = json.replacingOccurrences(of: "assets/shots/shot_\(old)/", with: "assets/shots/shot_\(new)/")
         guard let out = rewritten.data(using: .utf8), let decoded = try? JSONDecoder().decode(Shot.self, from: out) else {
