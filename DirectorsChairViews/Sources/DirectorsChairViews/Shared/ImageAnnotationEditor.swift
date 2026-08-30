@@ -110,6 +110,9 @@ public struct ImageAnnotationEditor: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canApply)
+                // Owner 2026-08-30: 
+                .keyboardShortcut(.return, modifiers: .command)
+                .accessibilityIdentifier("annotation-apply")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -128,7 +131,8 @@ public struct ImageAnnotationEditor: View {
                                     continuityShots: shots, projectDirectory: projectDirectory,
                                     placeholder: "Describe how the whole picture should change — e.g. make it dusk, put @Susan by the door, remove the $Mini van",
                                     onOpenMention: onOpenMention,
-                                    submitsOnReturn: true, onSubmit: { if canApply { applyEdits() } })
+                                    submitsOnReturn: true, onSubmit: { if canApply { applyEdits() } },
+                                    onCommandReturn: { if canApply { applyEdits() } })
                         .frame(minHeight: 48, maxHeight: 90)
                         .background(Color.white.opacity(0.06))
                         .cornerRadius(6)
@@ -370,7 +374,9 @@ public struct ImageAnnotationEditor: View {
                 MentionTextView(text: $editingText, characters: characters, locations: locations, props: props,
                                 continuityShots: shots, projectDirectory: projectDirectory,
                                 placeholder: "What changes here? (@ # $ &)", onOpenMention: onOpenMention,
-                                submitsOnReturn: true, onSubmit: { confirmEdit() })
+                                submitsOnReturn: true, onSubmit: { confirmEdit() },
+                                // 2026-08-30: commit this pin, then press the big green button.
+                                onCommandReturn: { confirmEdit(); if canApply { applyEdits() } })
                     .frame(width: 260, height: 46)
                     .background(Color.white.opacity(0.06))
                     .cornerRadius(4)
@@ -397,7 +403,7 @@ public struct ImageAnnotationEditor: View {
                 Slider(value: Binding(
                     get: { annotation.radius ?? EditRegion.defaultRadius },
                     set: { setReach(of: annotation.id, to: $0) }
-                ), in: 0.08...0.5)
+                ), in: 0.01...0.5)
                 .controlSize(.mini)
                 .frame(width: 150)
                 .accessibilityIdentifier("annotation-area-slider")
@@ -675,7 +681,8 @@ public struct ImageAnnotationEditor: View {
 
     private func setReach(of id: String, to value: Double) {
         guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
-        annotations[idx].radius = min(0.5, max(0.08, value))
+        // Owner 2026-08-30: down to a single point (1% of the shorter side).
+        annotations[idx].radius = min(0.5, max(0.01, value))
     }
 
     private func selectAnnotation(_ annotation: KeyframeAnnotation) {

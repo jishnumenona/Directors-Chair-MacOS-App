@@ -63,6 +63,9 @@ struct MentionTextView: NSViewRepresentable {
     /// pin's instruction in the annotation editor).
     var submitsOnReturn: Bool = false
     var onSubmit: (() -> Void)?
+    /// A surface can give command+Return its own meaning (the annotation
+    /// editor's Apply, owner 2026-08-30); without one it falls back to submit.
+    var onCommandReturn: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -91,7 +94,8 @@ struct MentionTextView: NSViewRepresentable {
         // ⌘↩ confirms wherever the editor has a submit action (owner 2026-08-29:
         // "command + return should click the green button").
         textView.onCommandReturn = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.onSubmit?()
+            guard let parent = coordinator?.parent else { return }
+            (parent.onCommandReturn ?? parent.onSubmit)?()
         }
         let scroll = NSScrollView()
         scroll.documentView = textView

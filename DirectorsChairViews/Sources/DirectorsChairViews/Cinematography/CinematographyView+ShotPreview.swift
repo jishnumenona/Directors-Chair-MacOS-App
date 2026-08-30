@@ -47,6 +47,8 @@ struct ShotPreviewSection: View {
     /// Which history picture is the shot's picture (latest.png) right now.
     @State private var defaultPreviewIndex: Int?
     @State private var currentImageIndex: Int = -1
+    /// Owner 2026-08-30: the hover toolbar's icons say their names.
+    @State private var hoveredToolName: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -170,7 +172,7 @@ struct ShotPreviewSection: View {
 
                 // Overlay buttons (when image exists)
                 if previewImage != nil {
-                    VStack {
+                    VStack(alignment: .trailing, spacing: 2) {
                         HStack {
                             Spacer()
                             if !isGenerating {
@@ -185,6 +187,7 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("View full size")
+                                .onHover { hoveredToolName = $0 ? "View full size" : nil }
 
                                 // Annotate & edit button
                                 Button(action: { showingAnnotationEditor = true }) {
@@ -197,6 +200,7 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Annotate & edit image")
+                                .onHover { hoveredToolName = $0 ? "Annotate & edit" : nil }
 
                                 // Edit prompt button
                                 Button(action: { openPromptEditor() }) {
@@ -210,6 +214,7 @@ struct ShotPreviewSection: View {
                                 .buttonStyle(.plain)
                                 .help("Edit prompt")
                                 .requiresTier(.creator, feature: "AI shot images")
+                                .onHover { hoveredToolName = $0 ? "Edit prompt" : nil }
 
                                 // Download button
                                 Button(action: { downloadPreviewImage() }) {
@@ -222,6 +227,7 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Download image")
+                                .onHover { hoveredToolName = $0 ? "Download" : nil }
 
                                 // Upload custom image button
                                 Button(action: { uploadPreviewImage() }) {
@@ -234,11 +240,13 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Upload custom image")
+                                .onHover { hoveredToolName = $0 ? "Upload a picture" : nil }
 
                                 // Owner 2026-08-29: start over from an existing
                                 // picture (location / continuity shot) to annotate.
                                 if !startFromOptions.isEmpty {
                                     startFromMenu(compact: true)
+                                        .onHover { hoveredToolName = $0 ? "Start from a picture" : nil }
                                 }
                             }
 
@@ -262,8 +270,19 @@ struct ShotPreviewSection: View {
                             .buttonStyle(.plain)
                             .disabled(isGenerating)
                             .help(isGenerating ? "Generating..." : "Regenerate preview")
+                            .onHover { hoveredToolName = $0 ? "Regenerate" : nil }
                         }
                         .padding(12)
+                        if let name = hoveredToolName {
+                            Text(name)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.black.opacity(0.75))
+                                .cornerRadius(6)
+                                .padding(.trailing, 14)
+                        }
                         Spacer()
                     }
                 }
