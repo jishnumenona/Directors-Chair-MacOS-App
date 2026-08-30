@@ -752,7 +752,9 @@ struct ShotPreviewSection: View {
         var body: some View {
             Button { showingPicker = true } label: {
                 if compact {
-                    Image(systemName: "photo.stack")
+                    // Owner 2026-08-30 (second pass): a layers glyph — the filled
+                    // BOTTOM layer is the base picture — nothing like Upload's photo.
+                    Image(systemName: "square.3.layers.3d.bottom.filled")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.white)
                         .padding(8)
@@ -760,7 +762,7 @@ struct ShotPreviewSection: View {
                         .clipShape(Circle())
                 } else {
                     HStack(spacing: 6) {
-                        Image(systemName: "photo.stack")
+                        Image(systemName: "square.3.layers.3d.bottom.filled")
                             .font(.system(size: 12))
                         Text("Start from")
                             .font(.system(size: 12, weight: .medium))
