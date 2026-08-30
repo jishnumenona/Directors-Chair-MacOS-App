@@ -330,10 +330,14 @@ final class LocalImageEngineTests: XCTestCase {
         let two = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
         XCTAssertTrue(two.contains("Noor") && two.contains("Teo") && !two.contains("Idris"), two)
         XCTAssertTrue(two.contains("Two people in the frame:"), two)
+        // Owner rule 2026-08-29 (usability batch): elements reach a shot's
+        // prompt ONLY from the shot itself — named in its description or in
+        // its lists. A description that names nobody infers nobody, even
+        // when it implies figures and the scene has speakers.
         insert.description = "Three figures in single file on the cliff path at dawn"
         let wide = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
-        XCTAssertTrue(wide.contains("Noor") && wide.contains("Teo") && wide.contains("Idris"), wide)
-        XCTAssertTrue(wide.contains("Three people in the frame:"), wide)
+        XCTAssertFalse(wide.contains("Noor") || wide.contains("Teo") || wide.contains("Idris"), wide)
+        XCTAssertFalse(wide.contains("people in the frame"), wide)
         XCTAssertTrue(StoryboardSubjects.mentions("Noor's hand", name: "Noor Haddad"))
         XCTAssertFalse(StoryboardSubjects.mentions("a meteor", name: "Teo"))
 
