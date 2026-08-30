@@ -234,6 +234,12 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Upload custom image")
+
+                                // Owner 2026-08-29: start over from an existing
+                                // picture (location / continuity shot) to annotate.
+                                if !startFromOptions.isEmpty {
+                                    startFromMenu(compact: true)
+                                }
                             }
 
                             // Regenerate button (shows spinner when generating)
@@ -699,7 +705,11 @@ struct ShotPreviewSection: View {
         return options
     }
 
-    private var startFromMenu: some View {
+    private var startFromMenu: some View { startFromMenu(compact: false) }
+
+    /// The "Start from" menu: full button in the empty state, a round
+    /// hover-toolbar button (`compact`) over an existing preview.
+    private func startFromMenu(compact: Bool) -> some View {
         Menu {
             ForEach(startFromOptions) { option in
                 Button {
@@ -707,26 +717,35 @@ struct ShotPreviewSection: View {
                 } label: {
                     Label(option.title, systemImage: option.systemImage)
                 }
-                .accessibilityIdentifier(option.accessibilityId)
+                .accessibilityIdentifier(option.accessibilityId + (compact ? "-hover" : ""))
             }
         } label: {
-            HStack(spacing: 6) {
+            if compact {
                 Image(systemName: "photo.on.rectangle.angled")
-                    .font(.system(size: 12))
-                Text("Start from")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(Circle())
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 12))
+                    Text("Start from")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.green.opacity(0.18))
+                .foregroundColor(.white)
+                .cornerRadius(8)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(Color.green.opacity(0.18))
-            .foregroundColor(.white)
-            .cornerRadius(8)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Put an existing picture in as this shot's preview — the location's picture or a continuity shot's preview — then annotate it into this shot")
-        .accessibilityIdentifier("preview-start-from")
+        .help("Start from an existing picture — the location's picture or a continuity shot's preview — and annotate it into this shot's preview")
+        .accessibilityIdentifier(compact ? "preview-start-from-hover" : "preview-start-from")
     }
 
     /// DC-0102 / owner 2026-08-29: an existing picture (the location's, or a
