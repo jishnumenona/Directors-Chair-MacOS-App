@@ -699,9 +699,10 @@ struct ShotPreviewSection: View {
     /// Owner 2026-08-29: a shot's preview can start from a picture that already
     /// exists — the scene location's picture or a continuity shot's preview —
     /// and be annotated into this shot from there.
-    private struct StartFromOption: Identifiable {
+    fileprivate struct StartFromOption: Identifiable {
         let id: String
         let title: String
+        let subtitle: String
         let systemImage: String
         let path: String
         let accessibilityId: String
@@ -710,61 +711,122 @@ struct ShotPreviewSection: View {
     private var startFromOptions: [StartFromOption] {
         var options: [StartFromOption] = []
         if let path = locationPicturePath {
-            let name = scene?.location.flatMap { $0.isEmpty ? nil : " · \($0)" } ?? ""
-            options.append(StartFromOption(id: "location", title: "Location picture\(name)",
+            let name = scene?.location.flatMap { $0.isEmpty ? nil : $0 } ?? "the scene location"
+            options.append(StartFromOption(id: "location", title: "Location picture",
+                                           subtitle: name,
                                            systemImage: "mappin.and.ellipse", path: path,
                                            accessibilityId: "preview-use-location"))
         }
         for other in referencedShots {
             guard let path = other.previewImage, !path.isEmpty else { continue }
-            options.append(StartFromOption(id: other.id, title: "Shot #\(other.shotId) preview (continuity)",
+            options.append(StartFromOption(id: other.id, title: "Shot #\(other.shotId) preview",
+                                           subtitle: "kept for continuity",
                                            systemImage: "film.stack", path: path,
                                            accessibilityId: "preview-use-shot-\(other.shotId)"))
         }
         return options
     }
 
-    private var startFromMenu: some View { startFromMenu(compact: false) }
+    private var startFromMenu: some View {
+        StartFromButton(options: startFromOptions, compact: false,
+                        projectRoot: projectBasePath?.deletingLastPathComponent(),
+                        onPick: { usePictureAsPreview(relativePath: $0.path) })
+    }
 
-    /// The "Start from" menu: full button in the empty state, a round
-    /// hover-toolbar button (`compact`) over an existing preview.
     private func startFromMenu(compact: Bool) -> some View {
-        Menu {
-            ForEach(startFromOptions) { option in
-                Button {
-                    usePictureAsPreview(relativePath: option.path)
-                } label: {
-                    Label(option.title, systemImage: option.systemImage)
-                }
-                .accessibilityIdentifier(option.accessibilityId + (compact ? "-hover" : ""))
-            }
-        } label: {
-            if compact {
-                Image(systemName: "photo.on.rectangle.angled")
-                    .font(.system(size: 11, weight: .medium))
+        StartFromButton(options: startFromOptions, compact: compact,
+                        projectRoot: projectBasePath?.deletingLastPathComponent(),
+                        onPick: { usePictureAsPreview(relativePath: $0.path) })
+    }
+
+    /// The "Start from" picker (owner 2026-08-30: the menu was bare text —
+    /// options now show their pictures, like the continuity picker; the icon
+    /// is a stack of photos, no longer a twin of Upload's).
+    fileprivate struct StartFromButton: View {
+        let options: [StartFromOption]
+        let compact: Bool
+        let projectRoot: URL?
+        let onPick: (StartFromOption) -> Void
+        @State private var showingPicker = false
+
+        var body: some View {
+            Button { showingPicker = true } label: {
+                if compact {
+                    Image(systemName: "photo.stack")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(Color.black.opacity(0.6))
+                        .clipShape(Circle())
+                } else {
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.stack")
+                            .font(.system(size: 12))
+                        Text("Start from")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.18))
                     .foregroundColor(.white)
-                    .padding(8)
-                    .background(Color.black.opacity(0.6))
-                    .clipShape(Circle())
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 12))
-                    Text("Start from")
-                        .font(.system(size: 12, weight: .medium))
+                    .cornerRadius(8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color.green.opacity(0.18))
-                .foregroundColor(.white)
-                .cornerRadius(8)
             }
+            .buttonStyle(.plain)
+            .help("Start from an existing picture — the location's picture or a continuity shot's preview — and annotate it into this shot's preview")
+            .accessibilityIdentifier(compact ? "preview-start-from-hover" : "preview-start-from")
+            .popover(isPresented: $showingPicker, arrowEdge: .bottom) { picker }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Start from an existing picture — the location's picture or a continuity shot's preview — and annotate it into this shot's preview")
-        .accessibilityIdentifier(compact ? "preview-start-from-hover" : "preview-start-from")
+
+        private var picker: some View {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Start from an existing picture")
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                Divider()
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(options) { option in
+                            Button {
+                                showingPicker = false
+                                onPick(option)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    if let root = projectRoot {
+                                        AsyncThumbnail(url: root.appendingPathComponent(option.path), displaySize: 64) {
+                                            Color.gray.opacity(0.3)
+                                        }
+                                        .frame(width: 64, height: 36)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(option.title)
+                                            .font(.system(size: 11, weight: .medium))
+                                        Text(option.subtitle)
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: option.systemImage)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier(option.accessibilityId)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(maxHeight: 240)
+            }
+            .frame(width: 300)
+        }
     }
 
     /// DC-0102 / owner 2026-08-29: an existing picture (the location's, or a
