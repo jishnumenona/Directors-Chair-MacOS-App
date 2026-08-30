@@ -37,6 +37,8 @@ public struct ImageAnnotationEditor: View {
     /// NSTextView has focus in the sheet — a local key monitor catches it
     /// at the event level, whatever is focused.
     @State private var commandReturnMonitor: Any?
+    /// Owner 2026-08-30: show the exact instruction the edit will send.
+    @State private var showingPrompt = false
 
     public init(
         image: NSImage,
@@ -95,6 +97,22 @@ public struct ImageAnnotationEditor: View {
                 .controlSize(.small)
                 .frame(width: 200)
                 .accessibilityIdentifier("annotation-mode")
+                Button { showingPrompt.toggle() } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "text.quote")
+                            .font(.system(size: 10))
+                        Text("Prompt")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(showingPrompt ? .accentColor : .gray)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(showingPrompt ? 0.1 : 0.05))
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+                .help("See the exact instruction that will be sent with your marks")
+                .accessibilityIdentifier("annotation-show-prompt")
                 Button("Cancel") { isPresented = false }
                     .foregroundColor(.gray)
                     .keyboardShortcut(.cancelAction)
@@ -174,6 +192,24 @@ public struct ImageAnnotationEditor: View {
 
                 annotationListPanel
                     .frame(width: 220)
+            }
+
+            // Owner 2026-08-30: the exact wording the edit sends, live —
+            // circles for spot marks, mentions as attached-picture references.
+            if showingPrompt {
+                Divider().opacity(0.3)
+                ScrollView {
+                    Text(composedPreviewPrompt)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                }
+                .frame(maxHeight: 130)
+                .background(Color(hex: "#141414"))
+                .accessibilityIdentifier("annotation-prompt-preview")
             }
 
             Divider().opacity(0.3)
@@ -516,6 +552,36 @@ public struct ImageAnnotationEditor: View {
     }
 
     // MARK: - Mentioned elements (DC-0102)
+
+    /// The exact cloud wording the current marks compose to (the same
+    /// composer the request uses): circle wording when there are spot marks
+    /// (the picture travels as a marked copy), mentions rewritten to
+    /// attached-picture references in the Mentioned panel's order.
+    private var composedPreviewPrompt: String {
+        let pins: [AnnotationPin]
+        if wholePicture {
+            let text = wholeInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return "Describe a change above to see the prompt." }
+            pins = [AnnotationPin(x: 0.5, y: 0.5, text: text, number: 1,
+                                  radius: KeyframeAnnotation.wholePictureRadius)]
+        } else {
+            guard !annotations.isEmpty else { return "Add a mark to see the prompt." }
+            pins = annotations.map(AnnotationPin.init)
+        }
+        let references = mentionedElements.map { mention -> ReferenceImage in
+            let kind: String
+            switch mention.kind {
+            case .character: kind = "character"
+            case .location: kind = "location"
+            case .prop: kind = "prop"
+            case .shot: kind = "shot"
+            }
+            return ReferenceImage(base64: "", mimeType: "image/png", label: "\(kind):\(mention.name)")
+        }
+        let edit = AnnotationEdit(source: Data(), pins: pins, context: "picture", contextPictures: references)
+        let located = pins.contains { !$0.coversWholePicture }
+        return AnnotationEditComposer.prompt(for: edit, located: located)
+    }
 
     /// Every story element the instructions mention, in order of first use.
     private var mentionedElements: [ResolvedMention] {
