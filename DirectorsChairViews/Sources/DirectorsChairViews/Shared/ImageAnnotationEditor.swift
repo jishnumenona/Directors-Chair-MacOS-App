@@ -33,6 +33,10 @@ public struct ImageAnnotationEditor: View {
     @State private var wholeInstruction = ""
     @State private var selectedAnnotationId: String? = nil
     @State private var editingText: String = ""
+    /// Owner 2026-08-30: SwiftUI's keyboardShortcut misses ⌘↩ when an
+    /// NSTextView has focus in the sheet — a local key monitor catches it
+    /// at the event level, whatever is focused.
+    @State private var commandReturnMonitor: Any?
 
     public init(
         image: NSImage,
@@ -195,6 +199,18 @@ public struct ImageAnnotationEditor: View {
         .background(Color(hex: "#252525"))
         .onAppear {
             annotations = initialAnnotations
+            commandReturnMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.modifierFlags.contains(.command),
+                      event.keyCode == 36 || event.keyCode == 76 else { return event }
+                if canApply { applyEdits() }
+                return nil
+            }
+        }
+        .onDisappear {
+            if let monitor = commandReturnMonitor {
+                NSEvent.removeMonitor(monitor)
+                commandReturnMonitor = nil
+            }
         }
     }
 
