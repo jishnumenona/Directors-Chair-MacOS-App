@@ -54,9 +54,16 @@ public enum UploadedImage {
     public static func writePNG(_ png: Data, projectBasePath: URL,
                                 relativeDirectory: String,
                                 filename: String) throws -> String {
-        let directory = projectBasePath.appendingPathComponent(relativeDirectory)
-        _ = projectBasePath.startAccessingSecurityScopedResource()
-        defer { projectBasePath.stopAccessingSecurityScopedResource() }
+        // Surfaces disagree about what "the project base" is: most pass the
+        // project FOLDER, the cinematography stack passes the project.json
+        // FILE (owner bug 2026-08-30: "project.json couldn't be saved" —
+        // the write tried to create a folder INSIDE the file). Accept both.
+        let root = projectBasePath.pathExtension.lowercased() == "json"
+            ? projectBasePath.deletingLastPathComponent()
+            : projectBasePath
+        let directory = root.appendingPathComponent(relativeDirectory)
+        _ = root.startAccessingSecurityScopedResource()
+        defer { root.stopAccessingSecurityScopedResource() }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let target = directory.appendingPathComponent(filename)
         try png.write(to: target)
