@@ -21,13 +21,28 @@ final class ImagePromptReviewCenterTests: XCTestCase {
         XCTAssertNil(center.pending)
     }
 
-    func testPresentsThenResumesWithTheDecision() async {
+    /// The ask lands on the main actor whenever the scheduler gets to it —
+    /// under a full-suite backlog that can be late, so the wait is a real
+    /// deadline that FAILS, never a fixed yield count that traps or wedges
+    /// (this test hung two full verify runs on 2026-08-30).
+    private func pendingReview(in center: ImagePromptReviewCenter,
+                               seconds: Double = 5) async throws -> PendingImagePromptReview {
+        let start = Date()
+        while center.pending == nil {
+            if Date().timeIntervalSince(start) > seconds {
+                XCTFail("no review surfaced within \(seconds)s")
+                throw XCTestError(.timeoutWhileWaiting)
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return center.pending!
+    }
+
+    func testPresentsThenResumesWithTheDecision() async throws {
         UserDefaults.standard.set(true, forKey: key)
         let center = ImagePromptReviewCenter()
         let task = Task { await center.review(ImageGenerationRequest(prompt: "a road")) }
-        // The ask lands on the main actor; give it a turn.
-        for _ in 0..<50 where center.pending == nil { await Task.yield() }
-        let pending = try! XCTUnwrap(center.pending)
+        let pending = try await pendingReview(in: center)
         var edited = pending.request
         edited.prompt = "a road at dusk"
         center.resolve(pending, with: edited)
@@ -36,21 +51,25 @@ final class ImagePromptReviewCenterTests: XCTestCase {
         XCTAssertNil(center.pending)
     }
 
-    func testCancelReturnsNilAndTheQueueAdvances() async {
+    func testCancelReturnsNilAndTheQueueAdvances() async throws {
         UserDefaults.standard.set(true, forKey: key)
         let center = ImagePromptReviewCenter()
         let first = Task { await center.review(ImageGenerationRequest(prompt: "one")) }
         let second = Task { await center.review(ImageGenerationRequest(prompt: "two")) }
-        for _ in 0..<50 where center.pending == nil { await Task.yield() }
-        let a = try! XCTUnwrap(center.pending)
+        // The two asks land in EITHER order — cancel whichever surfaced
+        // first, send the other, and assert the outcome as a set. Awaiting
+        // a specific task's value between the resolves could face the wrong
+        // order and wedge the whole suite (seen 2026-08-30).
+        let a = try await pendingReview(in: center)
         center.resolve(a, with: nil)
-        let firstOut = await first.value
-        XCTAssertNil(firstOut)
-        for _ in 0..<50 where center.pending == nil { await Task.yield() }
-        let b = try! XCTUnwrap(center.pending)
+        let b = try await pendingReview(in: center)
         XCTAssertNotEqual(a.request.prompt, b.request.prompt)
         center.resolve(b, with: b.request)
+        let firstOut = await first.value
         let secondOut = await second.value
-        XCTAssertNotNil(secondOut)
+        let outcomes = [firstOut, secondOut]
+        XCTAssertEqual(outcomes.compactMap { $0 }.count, 1, "exactly one sent: \(outcomes)")
+        XCTAssertTrue(outcomes.contains(where: { $0 == nil }), "exactly one cancelled: \(outcomes)")
+        XCTAssertNil(center.pending)
     }
 }
