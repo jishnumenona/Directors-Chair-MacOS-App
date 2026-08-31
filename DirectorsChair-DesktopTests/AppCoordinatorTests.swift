@@ -1237,6 +1237,7 @@ final class ImagineServiceRequestTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: key)
         defer { UserDefaults.standard.removeObject(forKey: key) }
 
+        let coordinator = AppCoordinator()
         coordinator.restoreSurfaceMemory(for: project)
         XCTAssertNil(coordinator.selectedLocation, "nothing remembered yet")
         coordinator.surfaceMemory.storyDesignMode = "locations"
@@ -1258,6 +1259,7 @@ final class ImagineServiceRequestTests: XCTestCase {
         project.locations = [desert]
         let key = AppCoordinator.surfaceMemoryKey(projectId: project.uuid)
         defer { UserDefaults.standard.removeObject(forKey: key) }
+        let coordinator = AppCoordinator()
         coordinator.restoreSurfaceMemory(for: project)
         coordinator.selectedLocation = desert
         coordinator.selectedLocation = nil
@@ -1271,6 +1273,7 @@ final class ImagineServiceRequestTests: XCTestCase {
     }
 
     func testCrossViewLocationAskRemembersTheLocationsMode() {
+        let coordinator = AppCoordinator()
         coordinator.selectLocation(Location(name: "Desert road"))
         XCTAssertEqual(coordinator.surfaceMemory.storyDesignMode, "locations")
         XCTAssertEqual(coordinator.selectedView, .storyDesign)
