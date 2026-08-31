@@ -369,9 +369,50 @@ extension SceneDetailView {
             Divider().frame(height: 30)
             let charCount = SceneCardHelpers.sceneCharacters(scene: scene).count
             statItem(value: "\(charCount)", label: "Characters", icon: "person.2.fill", color: .green)
+            Divider().frame(height: 30)
+            // DC-0100: paste a copied location / prop / costume onto this scene.
+            PasteReferenceButton(accepts: [.location, .prop, .costume]) { reference in
+                applyReference(reference)
+            }
+            .padding(.horizontal, 16)
+            .alert("Replace the location?", isPresented: Binding(get: { pendingLocationReplace != nil },
+                                                               set: { if !$0 { pendingLocationReplace = nil } })) {
+                Button("Replace") {
+                    if let reference = pendingLocationReplace { var updated = scene; updated.location = reference.name; onSceneUpdated?(updated) }
+                    pendingLocationReplace = nil
+                }
+                Button("Keep \(scene.location ?? "current")", role: .cancel) { pendingLocationReplace = nil }
+            } message: {
+                Text("This scene is set at \(scene.location ?? "another location"). Use \(pendingLocationReplace?.name ?? "the copied location") instead?")
+            }
         }
         .padding(.vertical, 14)
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    /// DC-0100: file a pasted reference on this scene.
+    func applyReference(_ reference: StoryReference) {
+        var updated = scene
+        switch reference.kind {
+        case .location:
+            let current = scene.location ?? ""
+            if !current.isEmpty, current.caseInsensitiveCompare(reference.name) != .orderedSame {
+                pendingLocationReplace = reference
+                return
+            }
+            updated.location = reference.name
+        case .prop:
+            guard !updated.props.contains(where: { $0.caseInsensitiveCompare(reference.name) == .orderedSame }) else { return }
+            updated.props.append(reference.name)
+        case .costume:
+            guard let owner = reference.ownerName else { return }
+            var assignments = updated.costumeAssignments ?? [:]
+            assignments[owner] = reference.id
+            updated.costumeAssignments = assignments
+        case .character:
+            return   // a scene's cast comes from its script; paste characters on a shot
+        }
+        onSceneUpdated?(updated)
     }
 
     func statItem(value: String, label: String, icon: String, color: Color) -> some View {

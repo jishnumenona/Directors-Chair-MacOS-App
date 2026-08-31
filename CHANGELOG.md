@@ -9,6 +9,33 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+### Added
+- **Trim any timeline block by its edges.** Drag the left or right edge of a
+  dialogue, action, narration, sound note or shot on the Timeline to change
+  its length (the cursor becomes a resize arrow over an edge, and the new
+  duration is shown while you drag). Durations snap to a tenth of a second
+  and never go below half a second; a trimmed block keeps its size across
+  reloads and in Playback.
+- **Resizable Shots track.** Drag the bottom edge of the Shots track to make
+  it taller and see shot previews bigger (double-click the handle to reset,
+  or pick a size from the new toolbar menu next to the Shots toggle). The
+  height is remembered.
+- **Reset a dialogue block to its spoken length.** Right-click a dialogue on
+  the Timeline for "Reset to spoken length (N.N s)": the block takes the time
+  the line needs at its speaker's pace — the character's voice pace from the
+  Voice tab scaled onto the timeline's WPM, or the timeline WPM alone — and
+  flows back into its place in the scene.
+
+### Changed
+- **Bubble View cards hug their text.** Dialogue, action, narration, note and
+  sound bubbles are only as wide as what they say (plus padding), up to 70% of
+  the row, after which the text wraps — while editing too: a field grows as
+  you type instead of stretching across the row.
+- **Trim minimums follow the block.** Action, narration and sound blocks can
+  be trimmed right down to half a second whatever their text (it clips inside
+  the block); a dialogue block can't be trimmed narrower than its line needs
+  to stay readable at the current zoom.
+
 ## [3.10.1] — 2026-08-29
 
 ### Fixed

@@ -89,6 +89,50 @@ extension TimelineCanvas {
         return nil
     }
 
+    /// Top Y of every lane keyed by track name, honouring the virtual vertical offset
+    func laneTopYs() -> [String: CGFloat] {
+        var result: [String: CGFloat] = [:]
+        var yCursor: CGFloat = -verticalOffset
+        for (index, character) in charactersInOrder.enumerated() {
+            result[character] = yCursor
+            yCursor += laneHeights[index] + TimelineLayoutConstants.rowGap
+        }
+        return result
+    }
+
+    /// On-screen frame of a segment's bubble box (without its tail), or nil when its track is collapsed
+    func bubbleRect(for segment: TimelineSegment, laneTops: [String: CGFloat]) -> CGRect? {
+        guard !hiddenTracks.contains(segment.character),
+              let laneY = laneTops[segment.character] else { return nil }
+        let rx = originX + segment.start * pxPerSec
+        let bubbleWidth = DurationEstimator.bubbleWidth(for: segment, pxPerSec: pxPerSec, showThumbs: showThumbs)
+        let subLane = subLaneAssignments[segment.id] ?? 0
+        let subLaneY = laneY + CGFloat(subLane) * TimelineLayoutConstants.subLaneHeight
+        return CGRect(
+            x: rx + TimelineLayoutConstants.tailWidth,
+            y: subLaneY + 6,
+            width: bubbleWidth - TimelineLayoutConstants.tailWidth,
+            height: TimelineLayoutConstants.subLaneHeight - 12
+        )
+    }
+
+    /// Find a block whose leading or trailing edge is under the point (trim-handle hit-test)
+    func findSegmentEdge(at point: CGPoint) -> (segment: TimelineSegment, edge: TimelineTrim.Edge)? {
+        let laneTops = laneTopYs()
+        let hitWidth = TimelineLayoutConstants.trimEdgeHitWidth
+        for segment in segments {
+            guard let rect = bubbleRect(for: segment, laneTops: laneTops),
+                  point.y >= rect.minY, point.y <= rect.maxY else { continue }
+            if abs(point.x - rect.maxX) <= hitWidth {
+                return (segment, .trailing)
+            }
+            if abs(point.x - rect.minX) <= hitWidth {
+                return (segment, .leading)
+            }
+        }
+        return nil
+    }
+
     /// Find which character track lane contains the given point
     func findTrackCharacter(at point: CGPoint) -> String? {
         var yCursor: CGFloat = -verticalOffset

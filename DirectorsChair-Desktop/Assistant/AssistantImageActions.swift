@@ -355,7 +355,10 @@ extension AssistantActionFactory {
                     numberOfImages: 1,
                     referenceImageBase64: referenceBase64,
                     referenceMimeType: referenceBase64 != nil ? "image/png" : nil,
-                    brief: brief)
+                    brief: brief,
+                    // DC-0090: scene and location previews at the project size;
+                    // vision-board pictures keep the ratio the user asked for.
+                    targetSize: brief.map { [.scene, .location].contains($0.purpose) } == true ? .projectPreview : nil)
                 let response = try await AIServiceClient.shared.generateImage(request)
                 guard let data = response.images.first else {
                     throw ActionError("the image service returned no image")

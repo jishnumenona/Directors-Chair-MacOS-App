@@ -1251,10 +1251,16 @@ final class VisionAnnotateTests: XCTestCase {
                                baseImage: bytes)
 
         let prompt = try XCTUnwrap(sentPrompt)
-        XCTAssertTrue(prompt.contains("At (30%, 60%): brighter window"),
-                      "a pin's position and words become the instruction")
-        XCTAssertTrue(prompt.contains("Original prompt: a rain-soaked neon street"),
-                      "the words that made it are carried along")
+        // 2026-08-30 edit rework: the change is located by a marked circle
+        // (or plain-words position when the bytes can't be marked) and the
+        // original generation prompt is NEVER sent — it made the model
+        // start the picture over.
+        XCTAssertTrue(prompt.hasPrefix("Edit the FIRST attached picture"), prompt)
+        XCTAssertTrue(prompt.contains("brighter window"),
+                      "the pin's words become the instruction")
+        XCTAssertFalse(prompt.contains("Original prompt:"), prompt)
+        XCTAssertFalse(prompt.contains("a rain-soaked neon street"),
+                       "the card's old prompt stays out of the edit")
         XCTAssertEqual(sentImage, bytes,
                        "the picture itself goes as the reference — an edit, "
                        + "not a fresh invention")

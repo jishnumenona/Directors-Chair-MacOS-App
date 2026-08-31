@@ -214,7 +214,7 @@ public struct DialogueEditorPanel: View {
                 Text("Duration:")
                     .font(.caption)
 
-                TextField("Auto", value: $editedManualDuration, format: .number)
+                DecimalField("Auto", optionalValue: $editedManualDuration, in: 0...3600)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 80)
 

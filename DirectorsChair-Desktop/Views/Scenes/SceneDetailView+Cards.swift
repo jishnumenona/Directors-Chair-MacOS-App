@@ -111,10 +111,12 @@ extension SceneDetailView {
                     .padding(.vertical, 2)
                     .allowsHitTesting(false)
             }
-            TextEditor(text: text)
-                .font(font)
-                .foregroundColor(foreground)
-                .scrollContentBackground(.hidden)
+            // Mentions (@ # $ &) in scene prose too — owner 2026-08-29.
+            CharacterMentionTextEditor(text: text, characters: projectViewModel.project.characters,
+                                       locations: projectViewModel.project.locations,
+                                       props: projectViewModel.project.props,
+                                       continuityShots: scene.shots, placeholder: "",
+                                       font: font, foregroundColor: foreground)
                 .lineSpacing(lineSpacing)
                 .frame(minHeight: 20)
                 .fixedSize(horizontal: false, vertical: true)

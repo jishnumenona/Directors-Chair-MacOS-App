@@ -84,6 +84,11 @@ public struct TimelineLayoutConstants {
     /// Maximum bubble width based on text (to prevent overly wide bubbles)
     public static let maxTextBasedBubbleWidth: CGFloat = 800
 
+    /// Smallest a block that clips its text is drawn (room for the tail and both
+    /// grips). Action, narration and sound blocks are as wide as their duration,
+    /// never their text, so they can be trimmed right down to the 0.5 s floor.
+    public static let minClippedBubbleWidth: CGFloat = 24
+
     /// Corner radius for bubbles (0 = rectangular, like Python)
     public static let bubbleCornerRadius: CGFloat = 0
 
@@ -145,6 +150,26 @@ public struct TimelineLayoutConstants {
 
     /// Spacing between film perforation holes
     public static let filmPerforationSpacing: CGFloat = 8
+
+    /// Smallest height the user can drag the Shots track to
+    public static let minShotLaneHeight: CGFloat = 64
+
+    /// Largest height the user can drag the Shots track to
+    public static let maxShotLaneHeight: CGFloat = 400
+
+    /// Height of the drag strip on the bottom edge of the Shots track
+    public static let shotLaneResizeHandleHeight: CGFloat = 8
+
+    /// Clamp a requested Shots track height to the supported range
+    public static func clampedShotLaneHeight(_ height: CGFloat) -> CGFloat {
+        guard height.isFinite else { return shotLaneHeight }
+        return min(maxShotLaneHeight, max(minShotLaneHeight, height))
+    }
+
+    // MARK: - Trim Handles
+
+    /// Half-width of the edge zone that starts a trim drag on any block
+    public static let trimEdgeHitWidth: CGFloat = 6
 
     // MARK: - Lighting Cue Lane
 

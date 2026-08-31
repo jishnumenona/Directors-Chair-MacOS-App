@@ -22,7 +22,7 @@ extension PhysicalAppearanceTab {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(.secondary)
                     .tracking(1)
-                TextField("", value: $character.age, format: .number)
+                IntegerField(value: $character.age, in: 0...150)
                     .textFieldStyle(.plain)
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)

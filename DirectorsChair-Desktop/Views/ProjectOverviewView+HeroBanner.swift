@@ -8,6 +8,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import DirectorsChairCore
 import DirectorsChairServices
+import DirectorsChairViews
 import AppKit
 
 
@@ -31,6 +32,8 @@ struct OverviewHeroBanner: View {
 
     // Prompt editor
     @State private var showingPromptEditor = false
+    /// Owner 2026-08-29: the poster takes annotation edits like every picture.
+    @State private var showingPosterAnnotationEditor = false
     @State private var customPrompt = ""
     @State private var allPosterImages: [URL] = []
     @State private var currentImageIndex: Int = -1
@@ -153,6 +156,25 @@ struct OverviewHeroBanner: View {
                             }
                             .buttonStyle(.plain)
                             .help("Regenerate poster")
+
+                            // Annotate button — mark what to change on the poster
+                            if heroImage != nil {
+                                Button { showingPosterAnnotationEditor = true } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "pencil.tip.crop.circle")
+                                            .font(.system(size: 9))
+                                        Text("Annotate")
+                                            .font(.system(size: 10, weight: .medium))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Capsule().fill(Color.white.opacity(0.2)))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Mark spots on the poster and say what to change there")
+                                .accessibilityIdentifier("poster-annotate")
+                            }
 
                             // Edit Prompt button
                             Button {
@@ -281,6 +303,17 @@ struct OverviewHeroBanner: View {
                 onDownload: { downloadPoster() }
             )
         }
+        .sheet(isPresented: $showingPosterAnnotationEditor) {
+            if let image = heroImage {
+                ImageAnnotationEditor(
+                    image: image,
+                    title: "Annotate the poster",
+                    subtitle: "Mark what to change and describe it — the rest of the poster is kept.",
+                    isPresented: $showingPosterAnnotationEditor,
+                    onApplyEdits: { annotations in applyPosterAnnotations(annotations) }
+                )
+            }
+        }
         .sheet(isPresented: $showingPromptEditor) {
             PosterPromptEditor(
                 prompt: $customPrompt,
@@ -381,13 +414,19 @@ struct OverviewHeroBanner: View {
                     return
                 }
 
-                let finalPrompt = prompt ?? buildPosterPrompt()
+                let basePrompt = prompt ?? buildPosterPrompt()
+                // Owner 2026-08-29: the poster is drawn from the film's own frames —
+                // every shot picture rides along as a reference (4 on-device, 8 cloud).
+                let provider = AIProviderSelection.shared.provider(for: .image)
+                let frames = posterReferences(limit: provider == .onDevice ? 4 : 8)
+                let finalPrompt = frames.isEmpty ? basePrompt : posterReferencePrefix(for: frames) + basePrompt
 
                 let request = ImageGenerationRequest(
                     prompt: finalPrompt,
-                    provider: AIProviderSelection.shared.provider(for: .image),
+                    provider: provider,
                     aspectRatio: "3:4",
-                    numberOfImages: 1
+                    numberOfImages: 1,
+                    referenceImages: frames.isEmpty ? nil : frames
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -396,74 +435,136 @@ struct OverviewHeroBanner: View {
                     throw AIClientError.invalidResponse("No image generated")
                 }
 
-                let projectDir = projectPath.deletingLastPathComponent()
-                let sanitizedName = sanitizeFilename(project.name)
+                try await storePoster(imageData, projectPath: projectPath)
 
-                // Save to posters/ directory
-                let postersDir = projectDir.appendingPathComponent("posters")
-                if !FileManager.default.fileExists(atPath: postersDir.path) {
-                    try FileManager.default.createDirectory(at: postersDir, withIntermediateDirectories: true)
-                }
-                let posterFilename = "\(sanitizedName)_poster.png"
-                let posterPath = postersDir.appendingPathComponent(posterFilename)
-                try imageData.write(to: posterPath)
-                let posterRelativePath = "posters/\(posterFilename)"
-
-                // Save timestamped copy for history
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
-                let timestamp = dateFormatter.string(from: Date())
-                let timestampedFilename = "\(sanitizedName)_poster_\(timestamp).png"
-                let timestampedPath = postersDir.appendingPathComponent(timestampedFilename)
-                try imageData.write(to: timestampedPath)
-
-                // Also save to assets/icons/ for icon usage
-                let iconsDir = projectDir.appendingPathComponent("assets").appendingPathComponent("icons")
-                if !FileManager.default.fileExists(atPath: iconsDir.path) {
-                    try FileManager.default.createDirectory(at: iconsDir, withIntermediateDirectories: true)
-                }
-                let iconFilename = "\(sanitizedName)_icon.png"
-                let iconPath = iconsDir.appendingPathComponent(iconFilename)
-                try imageData.write(to: iconPath)
-                let iconRelativePath = "assets/icons/\(iconFilename)"
-
-                // Invalidate cache for old paths
-                let oldPosterPaths = project.overviewPosterPaths
-                let oldIconPath = project.projectIcon
-
+            } catch {
                 await MainActor.run {
-                    // Invalidate old cache entries
-                    for oldPath in oldPosterPaths {
-                        if !oldPath.isEmpty {
-                            let fullPath = projectDir.appendingPathComponent(oldPath)
-                            OverviewImageCache.shared.removeImage(forKey: fullPath.path)
-                        }
-                    }
-                    if !oldIconPath.isEmpty {
-                        let fullPath = projectDir.appendingPathComponent(oldIconPath)
-                        OverviewImageCache.shared.removeImage(forKey: fullPath.path)
-                    }
-                    // Also invalidate new paths in case they were cached with old data
-                    OverviewImageCache.shared.removeImage(forKey: posterPath.path)
-                    OverviewImageCache.shared.removeImage(forKey: iconPath.path)
-
-                    // Update model
-                    if !project.overviewPosterPaths.contains(posterRelativePath) {
-                        project.overviewPosterPaths = [posterRelativePath]
-                    }
-                    project.projectIcon = iconRelativePath
-                    onProjectChanged()
-
-                    // Force image reload
-                    if let newImage = NSImage(contentsOf: posterPath) {
-                        OverviewImageCache.shared.setImage(newImage, forKey: posterPath.path)
-                        heroImage = newImage
-                    }
-                    imageRefreshId = UUID()
+                    posterError = error.localizedDescription
+                    showingPosterError = true
                     isGeneratingPoster = false
-                    discoverPosterImages()
                 }
+            }
+        }
+    }
 
+    /// The project's own pictures as poster references, faces first: the
+    /// characters' portraits, then finished shot frames in story order, then
+    /// the locations' primary pictures — within the provider's budget
+    /// (owner 2026-08-29: the poster must look like THIS cast).
+    private func posterReferences(limit: Int) -> [ReferenceImage] {
+        guard let projectDir = projectDir else { return [] }
+        var refs: [ReferenceImage] = []
+        func add(_ path: String?, label: String) {
+            guard refs.count < limit, let path, !path.isEmpty,
+                  let data = try? Data(contentsOf: projectDir.appendingPathComponent(path)) else { return }
+            refs.append(ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png", label: label))
+        }
+        for character in project.characters.prefix(4) {
+            add(character.representativeImage, label: "character:\(character.name)")
+        }
+        for scene in project.sequences.flatMap(\.scenes) {
+            for shot in scene.shots { add(shot.previewImage, label: "shot:Shot #\(shot.shotId)") }
+        }
+        for location in project.locations {
+            add(location.primaryImage ?? location.images.first, label: "location:\(location.name)")
+        }
+        return refs
+    }
+
+    /// What each reference picture is (the shared wording every surface
+    /// uses), then what a poster does with them.
+    private func posterReferencePrefix(for refs: [ReferenceImage]) -> String {
+        CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: refs)
+            + "Compose an original one-sheet movie poster from these references — the same faces, wardrobe, places, light and colour as the pictures, not a collage of them.\n\n"
+    }
+
+    /// Save a new poster picture (main file, timestamped history copy, icon),
+    /// refresh caches and the model — shared by generation and annotation edits.
+    private func storePoster(_ imageData: Data, projectPath: URL) async throws {
+        let projectDir = projectPath.deletingLastPathComponent()
+        let sanitizedName = sanitizeFilename(project.name)
+
+        // Save to posters/ directory
+        let postersDir = projectDir.appendingPathComponent("posters")
+        if !FileManager.default.fileExists(atPath: postersDir.path) {
+            try FileManager.default.createDirectory(at: postersDir, withIntermediateDirectories: true)
+        }
+        let posterFilename = "\(sanitizedName)_poster.png"
+        let posterPath = postersDir.appendingPathComponent(posterFilename)
+        try imageData.write(to: posterPath)
+        let posterRelativePath = "posters/\(posterFilename)"
+
+        // Save timestamped copy for history
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+        let timestamp = dateFormatter.string(from: Date())
+        let timestampedFilename = "\(sanitizedName)_poster_\(timestamp).png"
+        let timestampedPath = postersDir.appendingPathComponent(timestampedFilename)
+        try imageData.write(to: timestampedPath)
+
+        // Also save to assets/icons/ for icon usage
+        let iconsDir = projectDir.appendingPathComponent("assets").appendingPathComponent("icons")
+        if !FileManager.default.fileExists(atPath: iconsDir.path) {
+            try FileManager.default.createDirectory(at: iconsDir, withIntermediateDirectories: true)
+        }
+        let iconFilename = "\(sanitizedName)_icon.png"
+        let iconPath = iconsDir.appendingPathComponent(iconFilename)
+        try imageData.write(to: iconPath)
+        let iconRelativePath = "assets/icons/\(iconFilename)"
+
+        // Invalidate cache for old paths
+        let oldPosterPaths = project.overviewPosterPaths
+        let oldIconPath = project.projectIcon
+
+        await MainActor.run {
+            // Invalidate old cache entries
+            for oldPath in oldPosterPaths {
+                if !oldPath.isEmpty {
+                    let fullPath = projectDir.appendingPathComponent(oldPath)
+                    OverviewImageCache.shared.removeImage(forKey: fullPath.path)
+                }
+            }
+            if !oldIconPath.isEmpty {
+                let fullPath = projectDir.appendingPathComponent(oldIconPath)
+                OverviewImageCache.shared.removeImage(forKey: fullPath.path)
+            }
+            // Also invalidate new paths in case they were cached with old data
+            OverviewImageCache.shared.removeImage(forKey: posterPath.path)
+            OverviewImageCache.shared.removeImage(forKey: iconPath.path)
+
+            // Update model
+            if !project.overviewPosterPaths.contains(posterRelativePath) {
+                project.overviewPosterPaths = [posterRelativePath]
+            }
+            project.projectIcon = iconRelativePath
+            onProjectChanged()
+
+            // Force image reload
+            if let newImage = NSImage(contentsOf: posterPath) {
+                OverviewImageCache.shared.setImage(newImage, forKey: posterPath.path)
+                heroImage = newImage
+            }
+            imageRefreshId = UUID()
+            isGeneratingPoster = false
+            discoverPosterImages()
+        }
+    }
+
+    /// DC-0073 edit path for the poster: the marked picture itself is edited.
+    private func applyPosterAnnotations(_ annotations: [KeyframeAnnotation]) {
+        guard let projectPath = projectPath, let url = currentPosterURL(),
+              let source = try? Data(contentsOf: url) else {
+            posterError = "There is no poster to edit yet — generate one first."
+            showingPosterError = true
+            return
+        }
+        let edit = AnnotationEdit(source: source, annotations: annotations, context: "movie poster",
+                                  originalPrompt: buildPosterPrompt(), aspectRatio: "3:4")
+        isGeneratingPoster = true
+        Task {
+            do {
+                let edited = try await AIServiceClient.shared.editImage(edit)
+                try await storePoster(edited, projectPath: projectPath)
             } catch {
                 await MainActor.run {
                     posterError = error.localizedDescription

@@ -15,18 +15,42 @@ public struct ImageAnnotationEditor: View {
     let title: String
     let subtitle: String?
     let initialAnnotations: [KeyframeAnnotation]
+    /// DC-0102: the story elements the instructions may mention (@ # $ &).
+    var characters: [Character] = []
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
+    var projectDirectory: URL? = nil
+    /// Double-click on a mentioned element opens its page.
+    var onOpenMention: ((ResolvedMention) -> Void)? = nil
     @Binding var isPresented: Bool
     let onApplyEdits: ([KeyframeAnnotation]) -> Void
 
     @State private var annotations: [KeyframeAnnotation] = []
+    @State private var editorSize: CGSize = ImageAnnotationEditor.hostSize()
+    /// Owner 2026-08-29: mark spots, or re-imagine the whole picture.
+    @State private var wholePicture = false
+    @State private var wholeInstruction = ""
     @State private var selectedAnnotationId: String? = nil
     @State private var editingText: String = ""
+    /// Owner 2026-08-30: SwiftUI's keyboardShortcut misses ⌘↩ when an
+    /// NSTextView has focus in the sheet — a local key monitor catches it
+    /// at the event level, whatever is focused.
+    @State private var commandReturnMonitor: Any?
+    /// Owner 2026-08-30: show the exact instruction the edit will send.
+    @State private var showingPrompt = false
 
     public init(
         image: NSImage,
         title: String,
         subtitle: String? = nil,
         initialAnnotations: [KeyframeAnnotation] = [],
+        characters: [Character] = [],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
+        projectDirectory: URL? = nil,
+        onOpenMention: ((ResolvedMention) -> Void)? = nil,
         isPresented: Binding<Bool>,
         onApplyEdits: @escaping ([KeyframeAnnotation]) -> Void
     ) {
@@ -34,6 +58,12 @@ public struct ImageAnnotationEditor: View {
         self.title = title
         self.subtitle = subtitle
         self.initialAnnotations = initialAnnotations
+        self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
+        self.projectDirectory = projectDirectory
+        self.onOpenMention = onOpenMention
         self._isPresented = isPresented
         self.onApplyEdits = onApplyEdits
     }
@@ -57,8 +87,36 @@ public struct ImageAnnotationEditor: View {
                     }
                 }
                 Spacer()
-                Button("Done") { isPresented = false }
+                // Mark spots, or change the whole picture from one instruction.
+                Picker("", selection: $wholePicture) {
+                    Text("Mark spots").tag(false)
+                    Text("Whole picture").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 200)
+                .accessibilityIdentifier("annotation-mode")
+                Button { showingPrompt.toggle() } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "text.quote")
+                            .font(.system(size: 10))
+                        Text("Prompt")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(showingPrompt ? .accentColor : .gray)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(showingPrompt ? 0.1 : 0.05))
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+                .help("See the exact instruction that will be sent with your marks")
+                .accessibilityIdentifier("annotation-show-prompt")
+                Button("Cancel") { isPresented = false }
                     .foregroundColor(.gray)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("annotation-cancel")
                 Button(action: applyEdits) {
                     HStack(spacing: 6) {
                         Image(systemName: "wand.and.stars")
@@ -68,12 +126,15 @@ public struct ImageAnnotationEditor: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(annotations.isEmpty ? Color.gray.opacity(0.3) : Color.accentColor)
+                    .background(canApply ? Color.accentColor : Color.gray.opacity(0.3))
                     .foregroundColor(.white)
                     .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
-                .disabled(annotations.isEmpty || annotations.contains(where: { $0.text.isEmpty }))
+                .disabled(!canApply)
+                // Owner 2026-08-30: 
+                .keyboardShortcut(.return, modifiers: .command)
+                .accessibilityIdentifier("annotation-apply")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -81,11 +142,40 @@ public struct ImageAnnotationEditor: View {
 
             Divider().opacity(0.3)
 
-            // Instruction banner
-            HStack(spacing: 12) {
-                instructionPill(icon: "hand.tap", text: "Click to add")
-                instructionPill(icon: "cursorarrow.click", text: "Click pin to edit")
-                instructionPill(icon: "trash", text: "Right-click to delete")
+            // Instruction banner — or, in whole-picture mode, the instruction itself
+            Group {
+            if wholePicture {
+                HStack(spacing: 10) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 12))
+                        .foregroundColor(.accentColor)
+                    MentionTextView(text: $wholeInstruction, characters: characters, locations: locations, props: props,
+                                    continuityShots: shots, projectDirectory: projectDirectory,
+                                    placeholder: "Describe how the whole picture should change — e.g. make it dusk, put @Susan by the door, remove the $Mini van",
+                                    onOpenMention: onOpenMention,
+                                    submitsOnReturn: true, onSubmit: { if canApply { applyEdits() } },
+                                    onCommandReturn: { if canApply { applyEdits() } })
+                        .frame(minHeight: 48, maxHeight: 90)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(6)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(6)
+                        .onSubmit { if canApply { applyEdits() } }
+                        .accessibilityIdentifier("annotation-whole-instruction")
+                    Text("The picture is re-imagined from this; its subject and framing are kept unless you say otherwise.")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: 260, alignment: .leading)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    instructionPill(icon: "hand.tap", text: "Click to add")
+                    instructionPill(icon: "cursorarrow.click", text: "Click pin to edit")
+                    instructionPill(icon: "trash", text: "Right-click to delete")
+                }
+            }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
@@ -102,6 +192,24 @@ public struct ImageAnnotationEditor: View {
 
                 annotationListPanel
                     .frame(width: 220)
+            }
+
+            // Owner 2026-08-30: the exact wording the edit sends, live —
+            // circles for spot marks, mentions as attached-picture references.
+            if showingPrompt {
+                Divider().opacity(0.3)
+                ScrollView {
+                    Text(composedPreviewPrompt)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                }
+                .frame(maxHeight: 130)
+                .background(Color(hex: "#141414"))
+                .accessibilityIdentifier("annotation-prompt-preview")
             }
 
             Divider().opacity(0.3)
@@ -122,10 +230,23 @@ public struct ImageAnnotationEditor: View {
             .padding(.vertical, 10)
             .background(Color(hex: "#1E1E1E"))
         }
-        .frame(width: 900, height: 600)
+        // Owner 2026-08-29: the picture is the point — take most of the window.
+        .frame(width: editorSize.width, height: editorSize.height)
         .background(Color(hex: "#252525"))
         .onAppear {
             annotations = initialAnnotations
+            commandReturnMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.modifierFlags.contains(.command),
+                      event.keyCode == 36 || event.keyCode == 76 else { return event }
+                if canApply { applyEdits() }
+                return nil
+            }
+        }
+        .onDisappear {
+            if let monitor = commandReturnMonitor {
+                NSEvent.removeMonitor(monitor)
+                commandReturnMonitor = nil
+            }
         }
     }
 
@@ -274,6 +395,17 @@ public struct ImageAnnotationEditor: View {
         .help(annotation.text.isEmpty ? "Click to add description" : annotation.text)
     }
 
+    /// Most of the window the editor sits in (the picture is the point).
+    /// Measured ONCE from the app's main window: reading the key window on
+    /// every render made the sheet re-size itself when it became key
+    /// (owner report 2026-08-29: "the window resized by itself").
+    static func hostSize() -> CGSize {
+        let host = (NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.isKind(of: NSWindow.self) && !$0.isSheet })?.frame.size
+            ?? NSScreen.main?.visibleFrame.size
+            ?? CGSize(width: 1400, height: 900)
+        return CGSize(width: max(900, host.width * 0.92), height: max(600, host.height * 0.9))
+    }
+
     // MARK: - Annotation Text Card
 
     @ViewBuilder
@@ -289,12 +421,17 @@ public struct ImageAnnotationEditor: View {
                             .foregroundColor(.white)
                     )
 
-                TextField("Describe the change...", text: $editingText, onCommit: {
-                    confirmEdit()
-                })
-                .font(.system(size: 11))
-                .textFieldStyle(.plain)
-                .frame(width: 150)
+                // The same inline mention editor as the shot description
+                // (owner 2026-08-29): pills with pictures, double-click opens.
+                MentionTextView(text: $editingText, characters: characters, locations: locations, props: props,
+                                continuityShots: shots, projectDirectory: projectDirectory,
+                                placeholder: "What changes here? (@ # $ &)", onOpenMention: onOpenMention,
+                                submitsOnReturn: true, onSubmit: { confirmEdit() },
+                                // 2026-08-30: commit this pin, then press the big green button.
+                                onCommandReturn: { confirmEdit(); if canApply { applyEdits() } })
+                    .frame(width: 260, height: 46)
+                    .background(Color.white.opacity(0.06))
+                    .cornerRadius(4)
 
                 Button(action: confirmEdit) {
                     Image(systemName: "checkmark.circle.fill")
@@ -305,30 +442,30 @@ public struct ImageAnnotationEditor: View {
                 .disabled(editingText.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
-            // How far the change may reach around the pin (DC-0073).
-            HStack(spacing: 6) {
-                Text("REACH")
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(1)
+            // How far the change may reach around the pin (DC-0073) — a
+            // slider the dashed circle follows live (owner 2026-08-29: the
+            // +/- buttons were not intuitive).
+            HStack(spacing: 8) {
+                Image(systemName: "circle.dashed")
+                    .font(.system(size: 10))
                     .foregroundColor(.gray)
-                Button(action: { adjustReach(of: annotation.id, by: -0.04) }) {
-                    Image(systemName: "minus.circle").font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.white.opacity(0.8))
+                Text("Area")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.gray)
+                Slider(value: Binding(
+                    get: { annotation.radius ?? EditRegion.defaultRadius },
+                    set: { setReach(of: annotation.id, to: $0) }
+                ), in: 0.01...0.5)
+                .controlSize(.mini)
+                .frame(width: 150)
+                .accessibilityIdentifier("annotation-area-slider")
                 Text("\(Int((annotation.radius ?? EditRegion.defaultRadius) * 100))%")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.85))
-                    .frame(width: 34)
-                Button(action: { adjustReach(of: annotation.id, by: 0.04) }) {
-                    Image(systemName: "plus.circle").font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.white.opacity(0.8))
-                Spacer()
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(width: 30, alignment: .trailing)
             }
         }
-        .padding(10)
+        .padding(8)
         .background(Color(hex: "#1A1A1A").opacity(0.95))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -383,6 +520,10 @@ public struct ImageAnnotationEditor: View {
                 Spacer()
             }
 
+            // DC-0102: what the instructions mention, by kind — their pictures
+            // travel with the edit as references.
+            mentionedPanel
+
             // Add button
             Button(action: {
                 addAnnotation(at: 0.5, 0.5)
@@ -408,6 +549,145 @@ public struct ImageAnnotationEditor: View {
             .padding(.bottom, 14)
         }
         .background(Color(hex: "#1E1E1E"))
+    }
+
+    // MARK: - Mentioned elements (DC-0102)
+
+    /// The exact cloud wording the current marks compose to (the same
+    /// composer the request uses): circle wording when there are spot marks
+    /// (the picture travels as a marked copy), mentions rewritten to
+    /// attached-picture references in the Mentioned panel's order.
+    private var composedPreviewPrompt: String {
+        let pins: [AnnotationPin]
+        if wholePicture {
+            let text = wholeInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return "Describe a change above to see the prompt." }
+            pins = [AnnotationPin(x: 0.5, y: 0.5, text: text, number: 1,
+                                  radius: KeyframeAnnotation.wholePictureRadius)]
+        } else {
+            guard !annotations.isEmpty else { return "Add a mark to see the prompt." }
+            pins = annotations.map(AnnotationPin.init)
+        }
+        let references = mentionedElements.map { mention -> ReferenceImage in
+            let kind: String
+            switch mention.kind {
+            case .character: kind = "character"
+            case .location: kind = "location"
+            case .prop: kind = "prop"
+            case .shot: kind = "shot"
+            }
+            return ReferenceImage(base64: "", mimeType: "image/png", label: "\(kind):\(mention.name)")
+        }
+        let edit = AnnotationEdit(source: Data(), pins: pins, context: "picture", contextPictures: references)
+        let located = pins.contains { !$0.coversWholePicture }
+        return AnnotationEditComposer.prompt(for: edit, located: located)
+    }
+
+    /// Every story element the instructions mention, in order of first use.
+    private var mentionedElements: [ResolvedMention] {
+        let texts = annotations.map(\.text) + [wholeInstruction] + [editingText]
+        return MentionParser.mentions(in: texts.joined(separator: "\n"), characters: characters,
+                                      locations: locations, props: props, shots: shots)
+    }
+
+    @ViewBuilder
+    private var mentionedPanel: some View {
+        let mentioned = mentionedElements
+        if !mentioned.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "link.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(ReferenceStyle.tint)
+                    Text("MENTIONED")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.0)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("pictures go with the edit")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray.opacity(0.7))
+                }
+                ForEach([ResolvedMention.Kind.character, .location, .prop, .shot], id: \.self) { kind in
+                    let items = mentioned.filter { $0.kind == kind }
+                    if !items.isEmpty {
+                        Text(mentionKindTitle(kind))
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.gray.opacity(0.8))
+                        ForEach(items) { mention in
+                            mentionRow(mention)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+        }
+    }
+
+    private func mentionKindTitle(_ kind: ResolvedMention.Kind) -> String {
+        switch kind {
+        case .character: return "Characters"
+        case .location: return "Locations"
+        case .prop: return "Props"
+        case .shot: return "Shots"
+        }
+    }
+
+    private func mentionRow(_ mention: ResolvedMention) -> some View {
+        HStack(spacing: 8) {
+            if let path = mention.imagePath, !path.isEmpty, let base = projectDirectory {
+                AsyncThumbnail(url: base.appendingPathComponent(path), displaySize: 28) {
+                    mention.color.opacity(0.25)
+                }
+                .frame(width: mention.kind == .character ? 24 : 36, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: mention.kind == .character ? 12 : 4))
+            } else {
+                Image(systemName: mention.symbol)
+                    .font(.system(size: 10))
+                    .foregroundColor(mention.color)
+                    .frame(width: 24, height: 24)
+            }
+            Text(mention.name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(1)
+            Spacer()
+            Button(action: { removeMention(mention) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.gray.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Remove \(mention.name) from the instructions")
+            .accessibilityIdentifier("annotation-mention-remove-\(mention.name)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(mention.color.opacity(0.08))
+        .cornerRadius(6)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { onOpenMention?(mention) }
+        .help(onOpenMention == nil ? mention.name : "Double-click to open \(mention.name)")
+    }
+
+    /// Strip every "<trigger>Name" token of this element from the instructions.
+    private func removeMention(_ mention: ResolvedMention) {
+        let trigger: String
+        switch mention.kind {
+        case .character: trigger = "@"
+        case .location: trigger = "#"
+        case .prop: trigger = "$"
+        case .shot: trigger = "&"
+        }
+        let token = trigger + mention.name
+        func strip(_ text: String) -> String {
+            text.replacingOccurrences(of: token + " ", with: "", options: .caseInsensitive)
+                .replacingOccurrences(of: token, with: "", options: .caseInsensitive)
+        }
+        for index in annotations.indices { annotations[index].text = strip(annotations[index].text) }
+        wholeInstruction = strip(wholeInstruction)
+        editingText = strip(editingText)
     }
 
     // MARK: - Annotation List Row
@@ -481,10 +761,10 @@ public struct ImageAnnotationEditor: View {
         editingText = ""
     }
 
-    private func adjustReach(of id: String, by delta: Double) {
+    private func setReach(of id: String, to value: Double) {
         guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
-        let current = annotations[idx].radius ?? EditRegion.defaultRadius
-        annotations[idx].radius = min(0.5, max(0.08, current + delta))
+        // Owner 2026-08-30: down to a single point (1% of the shorter side).
+        annotations[idx].radius = min(0.5, max(0.01, value))
     }
 
     private func selectAnnotation(_ annotation: KeyframeAnnotation) {
@@ -512,7 +792,22 @@ public struct ImageAnnotationEditor: View {
         }
     }
 
+    private var canApply: Bool {
+        if wholePicture { return !wholeInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return !annotations.isEmpty && !annotations.contains(where: { $0.text.isEmpty })
+    }
+
     private func applyEdits() {
+        if wholePicture {
+            // One instruction for the whole picture: a pin whose reach covers
+            // everything (radius 1) — the composer words it as a whole-picture
+            // edit and the on-device engine repaints without a mask.
+            let instruction = wholeInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            isPresented = false
+            onApplyEdits([KeyframeAnnotation(normalizedX: 0.5, normalizedY: 0.5, text: instruction, number: 1,
+                                             radius: KeyframeAnnotation.wholePictureRadius)])
+            return
+        }
         // Confirm any pending edit
         if let id = selectedAnnotationId,
            let idx = annotations.firstIndex(where: { $0.id == id }),

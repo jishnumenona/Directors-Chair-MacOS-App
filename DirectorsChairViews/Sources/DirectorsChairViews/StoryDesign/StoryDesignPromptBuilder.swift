@@ -186,6 +186,12 @@ public enum StoryDesignPromptBuilder {
     }
 
     /// Location establishing-shot prompt from the location model.
+    /// The look every location picture asks for: the place, empty — no
+    /// people, no crew, no gear. Positive wording first, the exclusions
+    /// spelled out because the models read "film" as "film set".
+    public static let locationPlateStyle =
+        "photorealistic establishing photograph of the place itself, empty of people, no film crew, no cameras or lighting equipment"
+
     public static func locationPrompt(location: Location) -> String {
         var parts: [String] = []
         parts.append(location.name)
@@ -206,7 +212,10 @@ public enum StoryDesignPromptBuilder {
         if let timeOfDay = location.cinematographyDefaults["time_of_day"], !timeOfDay.isEmpty {
             parts.append(timeOfDay)
         }
-        parts.append("professional film production design, photorealistic")
+        // "film production design" made the model draw the PRODUCTION — a
+        // crew, camera and bounce boards in front of the place (owner
+        // report 2026-08-29). Ask for the place itself.
+        parts.append(locationPlateStyle)
         return parts.joined(separator: ", ")
     }
 

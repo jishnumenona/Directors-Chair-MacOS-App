@@ -271,13 +271,20 @@ class PlaybackViewModel: ObservableObject {
                         t += duration
 
                     case .action(let action):
-                        let actionDuration = TimelineWPMConstants.actionDuration
+                        // A block trimmed on the timeline keeps its dragged size here too
+                        let actionDuration = DurationEstimator.effectiveDuration(
+                            manualDuration: action.manualDuration,
+                            fallback: TimelineWPMConstants.actionDuration
+                        )
                         t += actionDuration
 
                     case .narration(let narration):
-                        let estimatedDuration = max(
-                            TimelineWPMConstants.actionDuration,
-                            DurationEstimator.estimateDialogueDuration(text: narration.text, wpm: wpm)
+                        let estimatedDuration = DurationEstimator.effectiveDuration(
+                            manualDuration: narration.manualDuration,
+                            fallback: max(
+                                TimelineWPMConstants.actionDuration,
+                                DurationEstimator.estimateDialogueDuration(text: narration.text, wpm: wpm)
+                            )
                         )
                         t += estimatedDuration
                     }

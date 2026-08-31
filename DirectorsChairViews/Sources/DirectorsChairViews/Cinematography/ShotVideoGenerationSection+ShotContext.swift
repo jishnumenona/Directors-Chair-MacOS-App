@@ -20,6 +20,8 @@ struct ShotContextCard: View {
     let scene: DCScene?
     let characters: [Character]
     let locations: [Location]
+    /// The Prop Shop — the props a scene can pick from (owner 2026-08-29).
+    var props: [Prop] = []
     let projectBasePath: URL?
     /// False when hosted inside a CollapsibleCard, which supplies the title.
     var showsHeader: Bool = true
@@ -27,12 +29,17 @@ struct ShotContextCard: View {
     var onNavigateToLocation: ((Location) -> Void)?
     var onNavigateToStoryDesign: (() -> Void)?
     var onSceneUpdated: ((DCScene) -> Void)?
+    /// The shot's own edits (its explicit cast) — the picker adds to THIS shot.
+    var onShotUpdated: ((Shot) -> Void)?
     /// Deep-link into Scene Connections, optionally targeting a script item
     /// (nil = just open the canvas for this shot's scene).
     var onOpenConnections: ((String?) -> Void)?
 
     @State private var showingCharacterPicker = false
+    /// DC-0100: a pasted location that would replace the scene's current one.
+    @State private var pendingLocationReplace: StoryReference?
     @State private var showingPropInput = false
+    @State private var showingPropPicker = false
     @State private var newPropName = ""
     @State private var showingSoundInput = false
     @State private var newSoundDescription = ""
@@ -58,6 +65,21 @@ struct ShotContextCard: View {
                         .foregroundColor(.white.opacity(0.9))
                 }
                 Spacer()
+
+                // DC-0100: paste a copied character / location / prop / costume.
+                PasteReferenceButton(accepts: [.character, .location, .prop, .costume]) { reference in
+                    applyReference(reference)
+                }
+                .alert("Replace the location?", isPresented: Binding(get: { pendingLocationReplace != nil },
+                                                                   set: { if !$0 { pendingLocationReplace = nil } })) {
+                    Button("Replace") {
+                        if let reference = pendingLocationReplace { setLocation(reference.name) }
+                        pendingLocationReplace = nil
+                    }
+                    Button("Keep \(scene?.location ?? "current")", role: .cancel) { pendingLocationReplace = nil }
+                } message: {
+                    Text("This scene is set at \(scene?.location ?? "another location"). Use \(pendingLocationReplace?.name ?? "the copied location") instead?")
+                }
 
                 if let onOpenConnections {
                     Button(action: { onOpenConnections(nil) }) {
@@ -108,13 +130,29 @@ struct ShotContextCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Characters
                 if let currentScene = scene {
-                    let charNames = resolveAllCharacterNames(scene: currentScene)
+                    // The shot's explicit cast first, then everyone the scene's
+                    // script puts on set.
+                    // A hand-edited cast is the whole cast (even empty); otherwise the
+                    // explicit picks come first, then everyone the scene puts on set.
+                    // Owner rule 2026-08-29: the shot's own cast — its list plus the
+                    // names in its description; the scene's speakers never fill in.
+                    let charNames = visibleCastNames
                     contextSection(icon: "person.2.fill", iconColor: .blue, title: "CHARACTERS") {
                         VideoContextFlowLayout(spacing: 8) {
                             ForEach(charNames, id: \.self) { name in
-                                characterChip(name: name)
+                                characterChip(name: name) {
+                                    // Owner 2026-08-29: any character can be taken off a shot.
+                                    var updated = explicitCast(shot, visible: charNames)
+                                    updated.characters.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+                                    onShotUpdated?(updated)
+                                }
                             }
                             addButton { showingCharacterPicker = true }
+                                // Anchored to the button so the list opens next to the cast,
+                                // not in the middle of the window (owner report 2026-08-29).
+                                .popover(isPresented: $showingCharacterPicker, arrowEdge: .bottom) {
+                                    characterPickerPopover
+                                }
                         }
                     }
 
@@ -157,6 +195,10 @@ struct ShotContextCard: View {
                                 }
                                 if !locations.isEmpty {
                                     addButton { showingLocationPicker = true }
+                                        // Anchored to the button, not the card (owner report 2026-08-29).
+                                        .popover(isPresented: $showingLocationPicker, arrowEdge: .bottom) {
+                                            locationPickerPopover
+                                        }
                                 } else {
                                     addButton { showingLocationInput = true }
                                 }
@@ -183,7 +225,13 @@ struct ShotContextCard: View {
                             if showingPropInput {
                                 propInputField
                             } else {
-                                addButton { showingPropInput = true }
+                                addButton {
+                                    // Pick from the Prop Shop when it has anything; else type.
+                                    if props.isEmpty { showingPropInput = true } else { showingPropPicker = true }
+                                }
+                                .popover(isPresented: $showingPropPicker, arrowEdge: .bottom) {
+                                    propPickerPopover(scene: currentScene)
+                                }
                             }
                         }
                     }
@@ -269,12 +317,6 @@ struct ShotContextCard: View {
                 }
             }
         )
-        .popover(isPresented: $showingCharacterPicker) {
-            characterPickerPopover
-        }
-        .popover(isPresented: $showingLocationPicker) {
-            locationPickerPopover
-        }
     }
 
     // MARK: - Scene Mutation Helpers
@@ -283,6 +325,91 @@ struct ShotContextCard: View {
         guard var updated = scene else { return }
         updated.location = name
         onSceneUpdated?(updated)
+    }
+
+    /// The Prop Shop's props not yet in this scene, as a picker.
+    private func propPickerPopover(scene currentScene: DCScene) -> some View {
+        let available = props.filter { prop in
+            !currentScene.props.contains { $0.caseInsensitiveCompare(prop.name) == .orderedSame }
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Add a prop to this scene")
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if available.isEmpty {
+                        Text("Every Prop Shop prop is already in this scene.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .padding(10)
+                    }
+                    ForEach(available, id: \.id) { prop in
+                        Button {
+                            addProp(prop.name)
+                            showingPropPicker = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                if let path = prop.thumbnail ?? prop.referencePhotos.first, !path.isEmpty,
+                                   let basePath = projectBasePath {
+                                    AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 28) {
+                                        Color.orange.opacity(0.2)
+                                    }
+                                    .frame(width: 28, height: 28)
+                                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                                } else {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 5).fill(Color.orange.opacity(0.15))
+                                        Image(systemName: "shippingbox.fill")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.orange)
+                                    }
+                                    .frame(width: 28, height: 28)
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(prop.name)
+                                        .font(.system(size: 11, weight: .medium))
+                                    if !prop.category.isEmpty {
+                                        Text(prop.category)
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("prop-pick-\(prop.name)")
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 260)
+            Divider()
+            Button {
+                showingPropPicker = false
+                showingPropInput = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10))
+                    Text("Type a prop that isn't in the Prop Shop…")
+                        .font(.system(size: 10))
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("prop-pick-new")
+        }
+        .frame(width: 300)
     }
 
     private func removeProp(_ prop: String) {
@@ -558,19 +685,64 @@ struct ShotContextCard: View {
     // MARK: - Character Chip
 
     @ViewBuilder
-    private func characterChip(name: String) -> some View {
-        let char = characters.first(where: { $0.name == name })
-        // Character is removable only if they come from action character lists, not dialogue speakers
-        let speaksDialogue = scene?.dialogues.contains(where: { $0.character == name }) ?? false
+    // MARK: - Pasted references (DC-0100)
 
-        HStack(spacing: 0) {
+    /// File a pasted reference where it belongs on this shot / scene.
+    private func applyReference(_ reference: StoryReference) {
+        switch reference.kind {
+        case .character:
+            guard let character = characters.first(where: { $0.id == reference.id })
+                    ?? characters.first(where: { $0.name.caseInsensitiveCompare(reference.name) == .orderedSame }) else { return }
+            var updated = explicitCast(shot, visible: visibleCastNames)
+            if !updated.characters.contains(where: { $0.caseInsensitiveCompare(character.name) == .orderedSame }) {
+                updated.characters.append(character.name)
+            }
+            onShotUpdated?(updated)
+        case .location:
+            let current = scene?.location ?? ""
+            if !current.isEmpty, current.caseInsensitiveCompare(reference.name) != .orderedSame {
+                pendingLocationReplace = reference   // ask first
+            } else {
+                setLocation(reference.name)
+            }
+        case .prop:
+            addProp(reference.name)
+        case .costume:
+            guard var updated = scene, let owner = reference.ownerName else { return }
+            var assignments = updated.costumeAssignments ?? [:]
+            assignments[owner] = reference.id
+            updated.costumeAssignments = assignments
+            onSceneUpdated?(updated)
+        }
+    }
+
+    private var visibleCastNames: [String] {
+        guard let currentScene = scene else { return shot.characters }
+        return StoryboardSubjects.cast(for: shot, in: currentScene, characters: characters).map(\.name)
+    }
+
+    /// The shot's cast, made explicit from what is on screen right now so an
+    /// add or remove edits exactly the list the user sees.
+    private func explicitCast(_ shot: Shot, visible: [String]) -> Shot {
+        var updated = shot
+        if !updated.castIsExplicit {
+            updated.characters = visible
+            updated.castIsExplicit = true
+        }
+        return updated
+    }
+
+    private func characterChip(name: String, onRemove: (() -> Void)? = nil) -> some View {
+        let char = characters.first(where: { $0.name == name })
+
+        return HStack(spacing: 0) {
             Button(action: {
                 if let char = char { onNavigateToCharacter?(char) }
             }) {
                 HStack(spacing: 6) {
                     // Thumbnail
                     if let char = char, let basePath = projectBasePath {
-                        let imgPath = char.imageFront ?? char.baseImage ?? char.avatar
+                        let imgPath = char.representativeImage
                         if let path = imgPath {
                             AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 22) {
                                 defaultCircleIcon(icon: "person.fill", color: .blue)
@@ -602,14 +774,16 @@ struct ShotContextCard: View {
             }
             .buttonStyle(.plain)
 
-            if !speaksDialogue {
-                Button(action: { removeCharacterFromScene(name) }) {
+            if let onRemove {
+                Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundColor(.gray.opacity(0.5))
                         .padding(.leading, 6)
                 }
                 .buttonStyle(.plain)
+                .help("Remove \(name) from this shot")
+                .accessibilityIdentifier("shot-cast-remove-\(name)")
             }
         }
         .padding(.horizontal, 10)
@@ -744,10 +918,23 @@ struct ShotContextCard: View {
 
     @ViewBuilder
     private func deletablePropChip(prop: String) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: "cube")
-                .font(.system(size: 9))
-                .foregroundColor(.orange.opacity(0.7))
+        // The Prop Shop's picture for this prop, when it has one (owner 2026-08-29).
+        let shopProp = props.first { $0.name.caseInsensitiveCompare(prop) == .orderedSame }
+        let picture = shopProp.flatMap { $0.thumbnail ?? $0.referencePhotos.first }.flatMap { $0.isEmpty ? nil : $0 }
+        return HStack(spacing: 5) {
+            if let picture, let basePath = projectBasePath {
+                AsyncThumbnail(url: basePath.appendingPathComponent(picture), displaySize: 22) {
+                    Image(systemName: "cube")
+                        .font(.system(size: 9))
+                        .foregroundColor(.orange.opacity(0.7))
+                }
+                .frame(width: 22, height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Image(systemName: "cube")
+                    .font(.system(size: 9))
+                    .foregroundColor(.orange.opacity(0.7))
+            }
             Text(prop)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.white.opacity(0.85))
@@ -1136,7 +1323,7 @@ struct ShotContextCard: View {
             HStack(alignment: .top, spacing: 8) {
                 // Mini avatar
                 if let char = char, let basePath = projectBasePath,
-                   let path = char.imageFront ?? char.baseImage ?? char.avatar {
+                   let path = char.representativeImage {
                     AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 18) {
                         speakerInitial(dialogue.character)
                     }
@@ -1313,17 +1500,20 @@ struct ShotContextCard: View {
 
     private var characterPickerPopover: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Add Character")
+            Text("Add to this shot")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
                 .padding(.bottom, 4)
 
-            let existingNames = scene.map { resolveAllCharacterNames(scene: $0) } ?? []
-            let availableChars = characters.filter { !existingNames.contains($0.name) }
+            // Anyone in the project who is not already cast in THIS shot. Picking
+            // one adds them here — it used to open their Story Design page.
+            let availableChars = characters.filter { candidate in
+                !shot.characters.contains { $0.caseInsensitiveCompare(candidate.name) == .orderedSame }
+            }
 
             if availableChars.isEmpty {
                 VStack(spacing: 8) {
-                    Text("All characters are in this scene")
+                    Text(characters.isEmpty ? "No characters in the project yet" : "Every character is already in this shot")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
 
@@ -1347,11 +1537,13 @@ struct ShotContextCard: View {
                         ForEach(availableChars) { char in
                             Button(action: {
                                 showingCharacterPicker = false
-                                onNavigateToCharacter?(char)
+                                var updated = explicitCast(shot, visible: visibleCastNames)
+                                updated.characters.append(char.name)
+                                onShotUpdated?(updated)
                             }) {
                                 HStack(spacing: 8) {
                                     if let basePath = projectBasePath,
-                                       let path = char.imageFront ?? char.baseImage ?? char.avatar {
+                                       let path = char.representativeImage {
                                         AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 24) {
                                             defaultCircleIcon(icon: "person.fill", color: .blue)
                                         }

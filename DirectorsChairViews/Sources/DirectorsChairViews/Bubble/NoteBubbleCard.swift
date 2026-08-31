@@ -11,6 +11,9 @@ public struct NoteBubbleCard: View {
     let isSelected: Bool
     let projectBasePath: URL?
     let characters: [Character]
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
     let globalIndex: Int?
 
     var onTap: (() -> Void)?
@@ -30,6 +33,9 @@ public struct NoteBubbleCard: View {
     @FocusState private var textFieldFocused: Bool
     @FocusState private var indexFieldFocused: Bool
 
+    /// Width of the row this card sits in (BubbleView publishes it); the card caps itself at a share of it
+    @Environment(\.bubbleRowWidth) private var rowWidth
+
     private let accentColor = Color(red: 0.85, green: 0.65, blue: 0.2) // Amber/gold
 
     public init(
@@ -38,6 +44,9 @@ public struct NoteBubbleCard: View {
         startInEditMode: Bool = false,
         projectBasePath: URL? = nil,
         characters: [Character] = [],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
         globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -51,6 +60,9 @@ public struct NoteBubbleCard: View {
         self.startInEditMode = startInEditMode
         self.projectBasePath = projectBasePath
         self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
         self.globalIndex = globalIndex
         self.onTap = onTap
         self.onEdit = onEdit
@@ -107,6 +119,9 @@ public struct NoteBubbleCard: View {
                     text: $editedText,
                     placeholder: "Note content...",
                     characters: characters,
+                    locations: locations,
+                    props: props,
+                    shots: shots,
                     font: .system(size: 12),
                     foregroundColor: accentColor.opacity(0.9),
                     onSubmit: { commitEdit() }
@@ -121,7 +136,6 @@ public struct NoteBubbleCard: View {
                 Text(displayText)
                     .font(.system(size: 12))
                     .foregroundColor(note.content.isEmpty && note.title.isEmpty ? .gray : accentColor.opacity(0.9))
-                    .lineLimit(1)
                     .onTapGesture(count: 2) {
                         startEditing()
                     }
@@ -153,8 +167,8 @@ public struct NoteBubbleCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .fixedSize(horizontal: !isEditing, vertical: false)
-        .frame(minWidth: isEditing ? 200 : nil)
+        // Hug the text, in display and edit mode alike; wrap past a share of the row (owner 2026-08-29)
+        .hugWidth(max: BubbleCardSizing.maxWidth(forRowWidth: rowWidth))
         .onHover { isHovered = $0 }
         .onTapGesture { onTap?() }
         .contextMenu {
@@ -175,6 +189,9 @@ public struct NoteBubbleCard: View {
                 onEditModeStarted?()
             }
         }
+        // The mention list is an overlay: keep an editing card above its
+        // neighbours (owner report 2026-08-29: the list looked transparent).
+        .zIndex(isEditing ? 10 : 0)
     }
 
     private var iconName: String {

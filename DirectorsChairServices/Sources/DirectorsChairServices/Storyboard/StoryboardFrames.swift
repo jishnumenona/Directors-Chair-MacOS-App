@@ -71,10 +71,21 @@ public enum StoryboardSubjects {
     /// scene's speakers, because Teo has no line in that scene). A shot
     /// that names nobody shows the scene's cast. At most three.
     public static func cast(for shot: Shot, in scene: Scene, characters: [Character]) -> [Character] {
+        // The director's explicit cast first, in the order they were added
+        // (usability batch 2026-08-28: "Add" in the shot's Characters section).
+        let explicit = shot.characters.compactMap { name in
+            characters.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        }
         let description = plainSubject(from: shot.description)
-        let named = characters.filter { mentions(description, name: $0.name) }
-        let chosen = named.isEmpty ? charactersPresent(in: scene, from: characters) : named
-        return Array(chosen.prefix(3))
+        let named = characters.filter { candidate in
+            mentions(description, name: candidate.name)
+                && !explicit.contains { $0.name.caseInsensitiveCompare(candidate.name) == .orderedSame }
+        }
+        // A hand-edited cast is the whole cast — even an empty one.
+        if shot.castIsExplicit { return Array(explicit.prefix(4)) }
+        // Owner rule 2026-08-29: only the shot's own people — its cast list and
+        // the names in its description. The scene's speakers never fill in.
+        return Array((explicit + named).prefix(4))
     }
 
     /// The cast line's opening for a given head count.
@@ -149,6 +160,10 @@ public enum StoryboardSubjects {
         }
         if shot.movement != "Static" && !shot.movement.isEmpty {
             terms.append("a sense of \(shot.movement.lowercased()) movement")
+        }
+        let cameraWords = shot.cameraDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cameraWords.isEmpty {
+            terms.append(cameraWords)
         }
         return terms.isEmpty ? nil : terms.joined(separator: ", ")
     }

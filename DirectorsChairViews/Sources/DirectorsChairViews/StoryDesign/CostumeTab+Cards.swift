@@ -190,6 +190,7 @@ extension CostumeTab {
                         .padding(8)
                         .background(Color(nsColor: .quaternarySystemFill))
                         .cornerRadius(6)
+                    CopyReferenceButton(reference: .costume(costume.wrappedValue, of: character))   // DC-0100
                 }
 
                 Divider().opacity(0.5)

@@ -89,6 +89,8 @@ extension BubbleView {
                         // cachedChronologicalItems — so reorders re-diff the
                         // rows in place instead of discarding the whole list.
                         .padding()
+                        // Cards cap themselves at a share of the row (BubbleCardSizing)
+                        .environment(\.bubbleRowWidth, bubbleRowWidth)
                     }
                     .background(backgroundView)
                     .onChange(of: scrollToItemId) { newItemId in
@@ -142,6 +144,12 @@ extension BubbleView {
                 )
             }
         }
+    }
+
+    /// Width a bubble row has to work with: the scroll area minus the list's
+    /// padding. Cards read it from the environment to cap themselves.
+    var bubbleRowWidth: CGFloat {
+        max(0, scrollAreaFrame.width - 32)
     }
 
     // MARK: - Background View
@@ -388,6 +396,9 @@ extension BubbleView {
                 isSelected: false,
                 startInEditMode: false,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[action.id],
                 onTap: { },
                 onEdit: { editAction(action) },
@@ -419,6 +430,9 @@ extension BubbleView {
                 isSelected: false,
                 startInEditMode: false,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[narration.id],
                 onTap: { },
                 onEdit: { editNarration(narration) },
@@ -451,6 +465,9 @@ extension BubbleView {
                 startInEditMode: false,
                 projectBasePath: projectBasePath,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[note.id],
                 onTap: { },
                 onEdit: { editNote(note) },
@@ -483,6 +500,9 @@ extension BubbleView {
                 isSelected: false,
                 startInEditMode: false,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[soundNote.id],
                 onTap: { },
                 onEdit: { editSoundNote(soundNote) },
@@ -521,6 +541,9 @@ extension BubbleView {
                 isSelected: false,
                 startInEditMode: action.id == newlyAddedItemId,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[action.id],
                 onTap: { },
                 onEdit: { editAction(action) },
@@ -552,6 +575,9 @@ extension BubbleView {
                 isSelected: false,
                 startInEditMode: narration.id == newlyAddedItemId,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[narration.id],
                 onTap: { },
                 onEdit: { editNarration(narration) },
@@ -584,6 +610,9 @@ extension BubbleView {
                 startInEditMode: note.id == newlyAddedItemId,
                 projectBasePath: projectBasePath,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[note.id],
                 onTap: { },
                 onEdit: { editNote(note) },
@@ -616,6 +645,9 @@ extension BubbleView {
                 isSelected: false,
                 startInEditMode: soundNote.id == newlyAddedItemId,
                 characters: project.characters,
+                locations: project.locations,
+                props: project.props,
+                shots: selectedScene?.shots ?? [],
                 globalIndex: cachedGlobalIndices[soundNote.id],
                 onTap: { },
                 onEdit: { editSoundNote(soundNote) },

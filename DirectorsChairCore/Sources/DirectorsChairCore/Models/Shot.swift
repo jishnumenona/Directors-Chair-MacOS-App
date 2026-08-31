@@ -16,6 +16,23 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     /// The user's own free-text notes on the shot (DC-0074) — separate from
     /// the description the drawings are made from.
     public var notes: String
+    /// The people the director puts in this shot, by character name — the
+    /// explicit cast (usability batch 2026-08-29). Chips and storyboard
+    /// prompts show these first; the description and the scene's speakers
+    /// still fill in when this is empty.
+    public var characters: [String]
+    /// DC-0091: other shots whose finished previews ride along as
+    /// reference pictures when this shot is generated, so a scene keeps
+    /// its place, light, cast and wardrobe from frame to frame.
+    public var referenceShotIds: [String]
+    /// The user has edited this shot's cast by hand: `characters` is the
+    /// whole cast (even when empty) and the scene/description no longer
+    /// add anyone (owner 2026-08-29: could not remove characters the
+    /// scene put on the shot).
+    public var castIsExplicit: Bool
+    /// Plain-English camera direction ("low, looking up past the dashboard")
+    /// — joins the preview prompt alongside the chips (owner 2026-08-29).
+    public var cameraDescription: String
     public var status: String  // "Planning", "Ready", "Shooting", "Review", "Approved"
     public var cameraAngle: String
     public var lensMm: Int?
@@ -52,6 +69,10 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         itemChronology: Int = 0,
         description: String = "",
         notes: String = "",
+        characters: [String] = [],
+        referenceShotIds: [String] = [],
+        castIsExplicit: Bool = false,
+        cameraDescription: String = "",
         status: String = "Planning",
         cameraAngle: String = "Medium",
         lensMm: Int? = 50,
@@ -83,6 +104,10 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.itemChronology = itemChronology
         self.description = description
         self.notes = notes
+        self.characters = characters
+        self.referenceShotIds = referenceShotIds
+        self.castIsExplicit = castIsExplicit
+        self.cameraDescription = cameraDescription
         self.status = status
         self.cameraAngle = cameraAngle
         self.lensMm = lensMm
@@ -116,6 +141,10 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case itemChronology = "item_chronology"
         case description
         case notes
+        case characters
+        case referenceShotIds = "reference_shot_ids"
+        case castIsExplicit = "cast_is_explicit"
+        case cameraDescription = "camera_description"
         case status
         case cameraAngle = "camera_angle"
         case lensMm = "lens_mm"
@@ -187,6 +216,10 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         }
 
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "Planning"
+        characters = (try? container.decodeIfPresent([String].self, forKey: .characters)) ?? []
+        referenceShotIds = (try? container.decodeIfPresent([String].self, forKey: .referenceShotIds)) ?? []
+        castIsExplicit = (try? container.decodeIfPresent(Bool.self, forKey: .castIsExplicit)) ?? false
+        cameraDescription = (try? container.decodeIfPresent(String.self, forKey: .cameraDescription)) ?? ""
         cameraAngle = try container.decodeIfPresent(String.self, forKey: .cameraAngle) ?? "Medium"
 
         // lensMm: handle both lens_mm (Int) and lens (String like "50mm")
@@ -331,6 +364,11 @@ public struct KeyframeAnnotation: Codable, Identifiable, Hashable, Sendable {
     /// How far the change may reach around the pin, as a fraction of the
     /// picture's shorter side (DC-0073). nil = the engine's default reach.
     public var radius: Double?
+
+    /// A reach that covers the whole picture: the annotation is an
+    /// instruction for all of it, not a spot (owner request 2026-08-29).
+    public static let wholePictureRadius: Double = 1.0
+    public var coversWholePicture: Bool { (radius ?? 0) >= Self.wholePictureRadius }
 
     public init(
         id: String = UUID().uuidString,

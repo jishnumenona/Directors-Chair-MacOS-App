@@ -18,6 +18,17 @@ struct TimelineControlsView: View {
     var viewportWidth: CGFloat = 800
     var onAnalyzeTimeline: (() -> Void)?
 
+    /// Shots track height — the same value the drag handle on the track's bottom edge writes
+    @AppStorage("timeline.shotsTrackHeight") private var shotsTrackHeight: Double = Double(TimelineLayoutConstants.shotLaneHeight)
+
+    /// Preset heights offered in the toolbar menu (points)
+    static let shotsTrackHeightPresets: [(name: String, height: CGFloat)] = [
+        ("Compact", TimelineLayoutConstants.minShotLaneHeight),
+        ("Default", TimelineLayoutConstants.shotLaneHeight),
+        ("Large", 140),
+        ("Extra Large", 220),
+    ]
+
     var body: some View {
         VStack(spacing: 4) {
             // Row 1: Navigation & Info
@@ -249,6 +260,30 @@ struct TimelineControlsView: View {
                 }
                 .toggleStyle(.checkbox)
                 .help("Show shots lane on timeline")
+
+                // Shots track height (the track's bottom edge is draggable too)
+                if viewModel.showShotLabels {
+                    Menu {
+                        ForEach(Self.shotsTrackHeightPresets, id: \.height) { preset in
+                            Button {
+                                shotsTrackHeight = Double(preset.height)
+                            } label: {
+                                if abs(CGFloat(shotsTrackHeight) - preset.height) < 0.5 {
+                                    Label(preset.name, systemImage: "checkmark")
+                                } else {
+                                    Text(preset.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.and.down.square")
+                            .font(.system(size: 11))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Shots track height — or drag the bottom edge of the Shots track")
+                    .accessibilityIdentifier("timeline-shots-track-height")
+                }
 
                 // Soundtrack toggle
                 Toggle(isOn: $viewModel.showSoundtracks) {

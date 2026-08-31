@@ -97,6 +97,10 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     public var defaultExpenseDepartment: String
     public var defaultExpenseAccountCode: String
 
+    // MARK: - Generated Previews (DC-0090)
+    /// The size every generated shot/scene/location preview is delivered at.
+    public var previewResolution: PreviewResolution
+
     // MARK: - Project Overview (for pitching to producers)
     public var overviewPosterPath: String?  // DEPRECATED: Use overviewPosterPaths list
     public var overviewPosterPaths: [String]  // List of poster paths (relative to project base)
@@ -168,6 +172,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         projectBudget: ProjectBudget? = nil,
         defaultExpenseDepartment: String = "",
         defaultExpenseAccountCode: String = "",
+        previewResolution: PreviewResolution = .default,
         overviewPosterPath: String? = nil,
         overviewPosterPaths: [String] = [],
         overviewPosterCurrentIndex: Int = 0,
@@ -222,6 +227,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         self.userManager = userManager
         self.projectBudget = projectBudget
         self.defaultExpenseDepartment = defaultExpenseDepartment
+        self.previewResolution = previewResolution
         self.defaultExpenseAccountCode = defaultExpenseAccountCode
         self.overviewPosterPath = overviewPosterPath
         self.overviewPosterPaths = overviewPosterPaths
@@ -282,6 +288,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         case projectBudget = "project_budget"
         case defaultExpenseDepartment = "default_expense_department"
         case defaultExpenseAccountCode = "default_expense_account_code"
+        case previewResolution = "preview_resolution"
         case overviewPosterPath = "overview_poster_path"
         case overviewPosterPaths = "overview_poster_paths"
         case overviewPosterCurrentIndex = "overview_poster_current_index"
@@ -376,6 +383,9 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         // Accounting defaults
         defaultExpenseDepartment = try container.decodeIfPresent(String.self, forKey: .defaultExpenseDepartment) ?? ""
         defaultExpenseAccountCode = try container.decodeIfPresent(String.self, forKey: .defaultExpenseAccountCode) ?? ""
+
+        // Generated previews (DC-0090): absent in older files = Full HD.
+        previewResolution = PreviewResolution.stored(try? container.decodeIfPresent(String.self, forKey: .previewResolution))
 
         // Project overview
         overviewPosterPath = try container.decodeIfPresent(String.self, forKey: .overviewPosterPath)

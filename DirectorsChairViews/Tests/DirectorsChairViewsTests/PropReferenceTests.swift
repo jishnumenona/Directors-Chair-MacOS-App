@@ -49,17 +49,20 @@ final class PropReferenceTests: XCTestCase {
         XCTAssertFalse(refs[0].base64.isEmpty)
     }
 
-    func testShotBundleCarriesOnlyThePropsTheShotNames() throws {
-        let scene = DirectorsChairCore.Scene(name: "Cottage wall", props: ["Storm Lantern", "Logbook"])
-        let props = [try prop("Storm Lantern"), try prop("Logbook")]
-        let lantern = Shot(shotId: 1, description: "Teo lifts the brass storm lantern")
+    // Owner 2026-08-29: the props chosen for the scene (Prop Shop picker on the
+    // shot page) ride along with every shot of it, then any prop the shot names.
+    func testShotBundleCarriesTheScenesChosenPropsThenThePropsTheShotNames() throws {
+        let scene = DirectorsChairCore.Scene(name: "Cottage wall", props: ["Storm Lantern"])
+        let props = [try prop("Storm Lantern"), try prop("Logbook"), try prop("Compass")]
+        let compass = Shot(shotId: 1, description: "Teo checks the compass")
         let wall = Shot(shotId: 2, description: "Teo at the cottage wall")
         XCTAssertEqual(CharacterReferenceHelper.collectReferenceImages(
-            forShot: lantern, in: scene, characters: [], locations: [], props: props,
-            projectDirectory: projectDir).map(\.label), ["prop:Storm Lantern"])
+            forShot: compass, in: scene, characters: [], locations: [], props: props,
+            projectDirectory: projectDir).map(\.label), ["prop:Storm Lantern", "prop:Compass"])
         XCTAssertEqual(CharacterReferenceHelper.collectReferenceImages(
             forShot: wall, in: scene, characters: [], locations: [], props: props,
-            projectDirectory: projectDir).map(\.label), [], "a shot that names no prop gets no prop picture")
+            projectDirectory: projectDir).map(\.label), ["prop:Storm Lantern"],
+            "a shot that names no prop still carries the scene's chosen props")
     }
 
     func testPropPicturesAreCappedAndOnlyPicturedPropsTakeASlot() throws {
@@ -94,5 +97,16 @@ final class PropReferenceTests: XCTestCase {
         let ref = ReferenceImage(base64: "abc", mimeType: "image/png", label: "prop:Storm Lantern")
         let prefix = CharacterReferenceHelper.buildReferenceImagePromptPrefix(for: [ref])
         XCTAssertTrue(prefix.contains("Image 1 is the prop \"Storm Lantern\""), prefix)
+    }
+
+    // DC-0096: "Where it's used" — placed scenes' shots plus shots that name the prop.
+    func testShotsUsingPropCoverPlacedScenesAndMentions() {
+        var placed = Scene(name: "Van"); placed.props = ["Mini van"]
+        placed.shots = [Shot(shotId: 1, description: "Driving"), Shot(shotId: 2, description: "Reverse")]
+        var other = Scene(name: "Diner")
+        other.shots = [Shot(shotId: 3, description: "The $Mini van waits outside"), Shot(shotId: 4, description: "Coffee")]
+        let rows = PropShopView.shotsUsing("Mini van", in: [placed, other])
+        XCTAssertEqual(rows.map(\.shot.shotId), [1, 2, 3])
+        XCTAssertEqual(rows.map(\.scene.name), ["Van", "Van", "Diner"])
     }
 }

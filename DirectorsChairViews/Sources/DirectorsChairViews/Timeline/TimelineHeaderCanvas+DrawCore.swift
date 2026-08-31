@@ -153,7 +153,7 @@ extension TimelineHeaderCanvas {
         }
 
         // --- Expanded shot lane ---
-        let singleLaneHeight = TimelineLayoutConstants.shotLaneHeight
+        let singleLaneHeight = shotLaneHeight
         let perfSize = TimelineLayoutConstants.filmPerforationSize
         let perfSpacing = TimelineLayoutConstants.filmPerforationSpacing
 
@@ -220,9 +220,18 @@ extension TimelineHeaderCanvas {
                 cardX += (dragCurrentX - dragStartX)
             }
 
+            var previewDuration: CGFloat = shotLabel.duration
             if isResizing {
-                cardWidth += (dragCurrentX - resizeStartX)
-                cardWidth = max(TimelineLayoutConstants.minShotCardWidth, cardWidth)
+                // Live trim preview (either edge), snapped like the value that gets saved
+                let preview = TimelineTrim.resolve(
+                    edge: resizingShotEdge,
+                    start: shotLabel.time,
+                    duration: resizeStartDuration,
+                    deltaSeconds: (dragCurrentX - resizeStartX) / pxPerSec
+                )
+                previewDuration = preview.duration
+                cardX = originX + preview.start * pxPerSec
+                cardWidth = max(TimelineLayoutConstants.minShotCardWidth, preview.duration * pxPerSec)
             }
 
             if cardX + cardWidth < 0 || cardX > size.width { continue }
@@ -379,6 +388,19 @@ extension TimelineHeaderCanvas {
                         at: CGPoint(x: cardRect.maxX - 10, y: imageAreaRect.midY), anchor: .center
                     )
                 }
+            }
+
+            // Trim handles: grips on the selected card, live duration at the dragged edge
+            if isResizing || shotLabel.id == selectedShotLabelId {
+                TimelineTrim.drawEdgeGrips(in: cardRect, context: context, color: Color.white.opacity(0.6))
+            }
+            if isResizing {
+                let edgeX = resizingShotEdge == .leading ? cardRect.minX : cardRect.maxX
+                TimelineTrim.drawDurationBadge(
+                    TimelineTrim.label(for: previewDuration),
+                    at: CGPoint(x: edgeX, y: cardRect.midY),
+                    context: context
+                )
             }
 
             // Connection indicator: small triangle at bottom of linked shot cards

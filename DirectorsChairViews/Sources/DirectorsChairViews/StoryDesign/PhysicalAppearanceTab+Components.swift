@@ -180,7 +180,7 @@ struct MeasurementField: View {
             }
 
             HStack(spacing: 6) {
-                TextField("—", value: $value, format: .number)
+                DecimalField("—", optionalValue: $value, in: range)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .frame(width: 52)

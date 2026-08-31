@@ -66,6 +66,8 @@ struct SoftwarePreferencesView: View {
     @AppStorage(ProxyPlayback.preferenceKey) private var useProxyMedia = true
     /// DC-0066: the on-device look (Sketch | Comic) — same key
     /// AIProviderSelection.visualStyle reads at generation time.
+    // DC-0093: see every image prompt before it is sent.
+    @AppStorage(AIProviderSelection.reviewImagePromptsKey) private var reviewImagePrompts = false
     @AppStorage(AIProviderSelection.visualStyleKey)
     private var onDeviceVisualStyle = VisualStyle.sketch.rawValue
 
@@ -766,6 +768,14 @@ struct SoftwarePreferencesView: View {
                 Spacer()
             }
             Text(VisualStyle(rawValue: onDeviceVisualStyle)?.detail ?? "")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+
+            // DC-0093: the prompt review gate — every picture surface.
+            PrefToggle(label: "Review each image prompt before it is sent", icon: "text.magnifyingglass",
+                       isOn: $reviewImagePrompts)
+                .accessibilityIdentifier("pref-review-image-prompts")
+            Text("Shows exactly what will be sent for every generated picture — shots, scenes, locations, characters, costumes, props — and lets you change or cancel it.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
                 .accessibilityIdentifier("storyboard-visual-style-detail")

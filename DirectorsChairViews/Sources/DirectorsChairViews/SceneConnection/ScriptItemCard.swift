@@ -14,6 +14,9 @@ struct ConnectionMenuTarget: Identifiable {
     let title: String
     let isConnected: Bool
     var itemType: ScriptItemType? = nil
+    /// For "Remove connection to …" entries: the connection being removed,
+    /// so UI tests can find the item by the same id the canvas line uses.
+    var connectionId: String? = nil
 }
 
 public struct ScriptItemCard: View {
@@ -32,6 +35,9 @@ public struct ScriptItemCard: View {
     var onDragEnd: ((CGPoint) -> Void)?
     var connectTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
     var onToggleConnect: ((ConnectionMenuTarget) -> Void)? = nil
+    /// "Remove connection to …" — on the port dot and in the card menu.
+    var removeTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
+    var onRemoveConnection: ((ConnectionMenuTarget) -> Void)? = nil
 
     // MARK: - State
 
@@ -53,7 +59,9 @@ public struct ScriptItemCard: View {
                 isHighlighted: isSelected,
                 onDragStart: onDragStart,
                 onDragUpdate: onDragUpdate,
-                onDragEnd: onDragEnd
+                onDragEnd: onDragEnd,
+                removeTargetsProvider: removeTargetsProvider,
+                onRemoveConnection: onRemoveConnection
             )
             .padding(.trailing, 4)
         }
@@ -87,6 +95,16 @@ public struct ScriptItemCard: View {
                                 Text(target.title)
                             }
                         }
+                    }
+                }
+                Divider()
+            }
+            if let onRemoveConnection, !connectedShotIds.isEmpty,
+               let targets = removeTargetsProvider?(), !targets.isEmpty {
+                Menu("Remove Connection") {
+                    ForEach(targets) { target in
+                        Button(target.title) { onRemoveConnection(target) }
+                            .accessibilityIdentifier("connection-remove-card-\(target.connectionId ?? target.id)")
                     }
                 }
                 Divider()
@@ -204,6 +222,9 @@ public struct ScriptItemGroupCard: View {
     var onDragEnd: ((CGPoint) -> Void)?
     var connectTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
     var onToggleConnect: ((ConnectionMenuTarget) -> Void)? = nil
+    /// "Remove connection to …" — on the port dot and in the card menu.
+    var removeTargetsProvider: (() -> [ConnectionMenuTarget])? = nil
+    var onRemoveConnection: ((ConnectionMenuTarget) -> Void)? = nil
 
     // MARK: - State
 
@@ -254,7 +275,9 @@ public struct ScriptItemGroupCard: View {
                 isHighlighted: isSelected,
                 onDragStart: onDragStart,
                 onDragUpdate: onDragUpdate,
-                onDragEnd: onDragEnd
+                onDragEnd: onDragEnd,
+                removeTargetsProvider: removeTargetsProvider,
+                onRemoveConnection: onRemoveConnection
             )
             .padding(.trailing, 4)
         }
@@ -290,6 +313,16 @@ public struct ScriptItemGroupCard: View {
                                 Text(target.title)
                             }
                         }
+                    }
+                }
+                Divider()
+            }
+            if let onRemoveConnection, !connectedShotIds.isEmpty,
+               let targets = removeTargetsProvider?(), !targets.isEmpty {
+                Menu("Remove Connection") {
+                    ForEach(targets) { target in
+                        Button(target.title) { onRemoveConnection(target) }
+                            .accessibilityIdentifier("connection-remove-card-\(target.connectionId ?? target.id)")
                     }
                 }
                 Divider()

@@ -35,6 +35,28 @@ final class UploadedImageTests: XCTestCase {
         XCTAssertEqual(png!.prefix(4), Data([0x89, 0x50, 0x4E, 0x47]))
     }
 
+    /// Owner bug 2026-08-30: the cinematography surface hands writePNG the
+    /// project.json FILE where other surfaces hand the FOLDER — the write
+    /// then tried to create "project.json/assets/…" and macOS refused with
+    /// "project.json couldn't be saved". Both shapes must land in the same
+    /// place.
+    func testWritePNGAcceptsTheProjectFileOrItsFolder() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dc-upload-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let png = makeImageData(type: .png)
+        let viaFolder = try UploadedImage.writePNG(png, projectBasePath: dir,
+                                                   relativeDirectory: "assets/shots/shot_1", filename: "a.png")
+        let viaFile = try UploadedImage.writePNG(png, projectBasePath: dir.appendingPathComponent("project.json"),
+                                                 relativeDirectory: "assets/shots/shot_1", filename: "b.png")
+        XCTAssertEqual(viaFolder, "assets/shots/shot_1/a.png")
+        XCTAssertEqual(viaFile, "assets/shots/shot_1/b.png")
+        for name in ["a.png", "b.png"] {
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent("assets/shots/shot_1/\(name)").path), name)
+        }
+    }
+
     func testRejectsNonImageData() {
         XCTAssertNil(UploadedImage.normalizedPNG(from: Data("not an image".utf8)))
         XCTAssertNil(UploadedImage.normalizedPNG(from: Data()))

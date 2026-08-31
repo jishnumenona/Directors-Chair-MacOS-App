@@ -330,10 +330,14 @@ final class LocalImageEngineTests: XCTestCase {
         let two = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
         XCTAssertTrue(two.contains("Noor") && two.contains("Teo") && !two.contains("Idris"), two)
         XCTAssertTrue(two.contains("Two people in the frame:"), two)
+        // Owner rule 2026-08-29 (usability batch): elements reach a shot's
+        // prompt ONLY from the shot itself — named in its description or in
+        // its lists. A description that names nobody infers nobody, even
+        // when it implies figures and the scene has speakers.
         insert.description = "Three figures in single file on the cliff path at dawn"
         let wide = StoryboardSubjects.subject(for: insert, in: scene, characters: cast)
-        XCTAssertTrue(wide.contains("Noor") && wide.contains("Teo") && wide.contains("Idris"), wide)
-        XCTAssertTrue(wide.contains("Three people in the frame:"), wide)
+        XCTAssertFalse(wide.contains("Noor") || wide.contains("Teo") || wide.contains("Idris"), wide)
+        XCTAssertFalse(wide.contains("people in the frame"), wide)
         XCTAssertTrue(StoryboardSubjects.mentions("Noor's hand", name: "Noor Haddad"))
         XCTAssertFalse(StoryboardSubjects.mentions("a meteor", name: "Teo"))
 
@@ -349,8 +353,16 @@ final class LocalImageEngineTests: XCTestCase {
         XCTAssertTrue(wallSubject.contains("One person in the frame: Teo"), wallSubject)
         XCTAssertFalse(wallSubject.contains("Noor") || wallSubject.contains("Idris"), wallSubject)
         let unnamed = Shot(shotId: 11, description: "Three figures in single file on the cliff path")
-        XCTAssertEqual(StoryboardSubjects.cast(for: unnamed, in: dawn, characters: cast).map(\.name), ["Noor", "Idris"],
-                       "a shot that names nobody shows the scene's cast, in project order")
+        XCTAssertTrue(StoryboardSubjects.cast(for: unnamed, in: dawn, characters: cast).isEmpty,
+                      "a shot that names nobody shows nobody — the scene's speakers never fill in (owner rule 2026-08-29)")
+
+        // The director's explicit cast comes first, in the order added; names
+        // in the description follow; the scene's speakers no longer fill in.
+        let castShot = Shot(shotId: 13, description: "Noor turns from the window", characters: ["idris", "Teo"])
+        XCTAssertEqual(StoryboardSubjects.cast(for: castShot, in: dawn, characters: cast).map(\.name),
+                       ["Idris", "Teo", "Noor"], "explicit cast (case-insensitive) first, then the description's names")
+        let onlyCast = Shot(shotId: 14, description: "A figure in the doorway", characters: ["Teo"])
+        XCTAssertEqual(StoryboardSubjects.cast(for: onlyCast, in: dawn, characters: cast).map(\.name), ["Teo"])
     }
 
     func testGenerateWithoutCoreFailsHonestlyWhenReady() async throws {
@@ -374,6 +386,22 @@ final class LocalImageEngineTests: XCTestCase {
 }
 
 final class ScriptedStoryboardEngineTests: XCTestCase {
+
+    // Owner 2026-08-29: characters the scene puts on a shot can be taken off —
+    // once the cast is hand-edited it is the whole cast, even when empty.
+    func testExplicitCastIsTheWholeCastEvenWhenEmpty() {
+        let alex = Character(name: "Alex")
+        let susan = Character(name: "Susan")
+        var scene = Scene(name: "Van")
+        scene.dialogues = [Dialogue(character: "Alex", text: "Hi")]
+        var shot = Shot(shotId: 1, description: "@Alex talks to @Susan")
+        XCTAssertEqual(StoryboardSubjects.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Alex", "Susan"])
+        shot.castIsExplicit = true
+        shot.characters = ["Susan"]
+        XCTAssertEqual(StoryboardSubjects.cast(for: shot, in: scene, characters: [alex, susan]).map(\.name), ["Susan"])
+        shot.characters = []
+        XCTAssertTrue(StoryboardSubjects.cast(for: shot, in: scene, characters: [alex, susan]).isEmpty)
+    }
 
     func testScriptedEngineRecordsSpecsAndHonorsAvailability() async throws {
         let engine = ScriptedStoryboardEngine(

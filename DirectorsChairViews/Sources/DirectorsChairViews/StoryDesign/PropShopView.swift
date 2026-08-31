@@ -20,6 +20,12 @@ import DirectorsChairServices
 struct PropShopView: View {
     @Binding var project: Project
     let projectBasePath: URL?
+    /// Owner 2026-08-29: "Where it's used" rows jump to the scene / shot.
+    /// DC-0095/0092: the prop to open (a mention's double-click, or last time's).
+    var initialPropId: String? = nil
+    var onOpenScene: ((DCScene) -> Void)? = nil
+    var onOpenShot: ((Shot, DCScene) -> Void)? = nil
+    var onPropSelected: ((String) -> Void)? = nil
 
     @State private var selectedPropId: String?
     @State private var statusFilter: String = "All"
@@ -27,6 +33,13 @@ struct PropShopView: View {
     @State private var referenceURLText = ""
     @State private var feedback: String?
     @State private var imageRefresh = UUID()
+    // Owner 2026-08-29: the prop picture is a hero with the same tools as
+    // every other picture (view, download, annotate, regenerate, prompt, upload).
+    @State private var isHoveringHero = false
+    @State private var showingPropFullScreen = false
+    @State private var showingPropAnnotationEditor = false
+    @State private var showingPropPromptEditor = false
+    @State private var propCustomPrompt = ""
     // New-prop creation sheet
     @State private var showingNewPropSheet = false
     @State private var newPropName = ""
@@ -49,6 +62,20 @@ struct PropShopView: View {
         scenes.filter { scene in
             scene.props.contains { $0.caseInsensitiveCompare(propName) == .orderedSame }
         }
+    }
+
+    /// Shots that carry a prop: every shot of a scene the prop is placed in,
+    /// plus any shot elsewhere whose description names it. Pure — tested.
+    static func shotsUsing(_ propName: String, in scenes: [DCScene]) -> [(scene: DCScene, shot: Shot)] {
+        let placed = Set(scenesUsing(propName, in: scenes).map(\.id))
+        var rows: [(scene: DCScene, shot: Shot)] = []
+        for scene in scenes {
+            for shot in scene.shots
+            where placed.contains(scene.id) || StoryboardSubjects.mentionsProp(shot.description, name: propName) {
+                rows.append((scene, shot))
+            }
+        }
+        return rows
     }
 
     /// Registered props matching a scene's prop-name list (case-insensitive),
@@ -87,7 +114,18 @@ struct PropShopView: View {
             detailPane
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear { if selectedPropId == nil { selectedPropId = project.props.first?.id } }
+        .onAppear {
+            if let initialPropId, project.props.contains(where: { $0.id == initialPropId }) {
+                selectedPropId = initialPropId
+            }
+            if selectedPropId == nil { selectedPropId = project.props.first?.id }
+        }
+        .onChange(of: initialPropId) { _, newValue in
+            if let newValue, project.props.contains(where: { $0.id == newValue }) { selectedPropId = newValue }
+        }
+        .onChange(of: selectedPropId) { _, newValue in
+            if let newValue { onPropSelected?(newValue) }
+        }
         .sheet(isPresented: $showingNewPropSheet) { newPropSheet }
     }
 
@@ -464,9 +502,12 @@ struct PropShopView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Identity
-                TextField("Prop name", text: prop.name)
-                    .font(.system(size: 18, weight: .semibold))
-                    .textFieldStyle(.plain)
+                HStack(spacing: 10) {
+                    TextField("Prop name", text: prop.name)
+                        .font(.system(size: 18, weight: .semibold))
+                        .textFieldStyle(.plain)
+                    CopyReferenceButton(reference: .prop(prop.wrappedValue))   // DC-0100
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -508,25 +549,14 @@ struct PropShopView: View {
                     }
                 }
 
-                // Concept image + AI generation
+                // Concept image — the hero — then the words that drive it
+                propHero(prop)
+                    .id(imageRefresh)
+
                 HStack(alignment: .top, spacing: 14) {
-                    VStack(spacing: 6) {
-                        propThumbnail(prop.wrappedValue, size: 180)
-                            .id(imageRefresh)
-                        if isGenerating {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button(action: { generateConceptImage(prop) }) {
-                                Label("Generate with AI", systemImage: "wand.and.stars")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .help("Generate a concept image from the name, category, description, and reference images")
-                            .requiresTier(.creator, feature: "AI prop concepts")
-                        }
-                    }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("DESCRIPTION (drives the AI concept)").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
-                        TextEditor(text: prop.description)
+                        CharacterMentionTextEditor(text: prop.description, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 11), foregroundColor: .primary)
                             .font(.system(size: 11))
                             .frame(height: 70)
                             .scrollContentBackground(.hidden)
@@ -534,7 +564,7 @@ struct PropShopView: View {
                             .background(Color(hex: "#1A1A1A"))
                             .cornerRadius(6)
                         Text("MAKER SPECS / SOURCING NOTES").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
-                        TextEditor(text: prop.detailedSpecs)
+                        CharacterMentionTextEditor(text: prop.detailedSpecs, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 11), foregroundColor: .primary)
                             .font(.system(size: 11))
                             .frame(height: 50)
                             .scrollContentBackground(.hidden)
@@ -635,10 +665,13 @@ struct PropShopView: View {
                     }
                 }
 
+                // Where it's used — scenes and shots, each a jump (owner 2026-08-29)
+                whereUsedSection(prop.wrappedValue)
+
                 // Notes + delete
                 VStack(alignment: .leading, spacing: 6) {
                     Text("HANDLING / CONTINUITY NOTES").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
-                    TextEditor(text: prop.notes)
+                    CharacterMentionTextEditor(text: prop.notes, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 11), foregroundColor: .primary)
                         .font(.system(size: 11))
                         .frame(height: 46)
                         .scrollContentBackground(.hidden)
@@ -708,17 +741,167 @@ struct PropShopView: View {
         }
     }
 
-    /// AI concept generation: prompt from the prop's identity + references.
-    private func generateConceptImage(_ prop: Binding<Prop>) {
-        isGenerating = true
-        feedback = nil
-        let snapshot = prop.wrappedValue
+    /// The concept prompt from the prop's identity — shown in "Edit prompt".
+    private func conceptPrompt(for snapshot: Prop) -> String {
         var parts = ["Professional film-production prop concept image: \(snapshot.name)."]
         if !snapshot.description.isEmpty { parts.append(snapshot.description) }
         if !snapshot.category.isEmpty { parts.append("Prop category: \(snapshot.category).") }
         if !snapshot.detailedSpecs.isEmpty { parts.append("Specifications: \(snapshot.detailedSpecs)") }
         parts.append("Studio product photography on a neutral dark background, high detail, realistic materials, no people, no text.")
-        let prompt = parts.joined(separator: " ")
+        return parts.joined(separator: " ")
+    }
+
+    private func propImageURL(_ prop: Prop) -> URL? {
+        guard let basePath = projectBasePath, let path = prop.thumbnail, !path.isEmpty else { return nil }
+        return basePath.appendingPathComponent(path)
+    }
+
+    /// The prop's picture as the page's hero: the whole picture, large, with
+    /// the same tools every other picture surface has.
+    private func propHero(_ prop: Binding<Prop>) -> some View {
+        let snapshot = prop.wrappedValue
+        let url = propImageURL(snapshot)
+        return ZStack {
+            RoundedRectangle(cornerRadius: 12).fill(Color(hex: "#1A1A1A"))
+            if let url, let image = NSImage(contentsOf: url) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "shippingbox")
+                        .font(.system(size: 36))
+                        .foregroundColor(.orange.opacity(0.4))
+                    Text(isGenerating ? "Drawing the concept…" : "No concept picture yet")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    if !isGenerating {
+                        HStack(spacing: 8) {
+                            Button(action: { generateConceptImage(prop) }) {
+                                Label("Generate with AI", systemImage: "wand.and.stars")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .requiresTier(.creator, feature: "AI prop concepts")
+                            Button(action: { uploadPropPicture(prop) }) {
+                                Label("Upload", systemImage: "square.and.arrow.up")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                        }
+                    }
+                }
+            }
+            if isGenerating {
+                Color.black.opacity(0.45)
+                ProgressView().scaleEffect(1.2).progressViewStyle(CircularProgressViewStyle(tint: .white))
+            }
+            // Hover tools — the same set as the shot, location and poster pictures.
+            if isHoveringHero && !isGenerating && url != nil {
+                VStack {
+                    HStack(spacing: 8) {
+                        Spacer()
+                        heroTool("eye", help: "View full screen") { showingPropFullScreen = true }
+                        heroTool("arrow.down", help: "Download") { downloadPropPicture(snapshot) }
+                        heroTool("pencil.tip.crop.circle", help: "Annotate — mark what to change") { showingPropAnnotationEditor = true }
+                        heroTool("doc.text", help: "Edit the prompt, then generate") {
+                            propCustomPrompt = conceptPrompt(for: snapshot)
+                            showingPropPromptEditor = true
+                        }
+                        heroTool("square.and.arrow.up", help: "Upload a picture") { uploadPropPicture(prop) }
+                        heroTool("arrow.triangle.2.circlepath", help: "Regenerate", prominent: true) { generateConceptImage(prop) }
+                    }
+                    .padding(12)
+                    Spacer()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: url == nil ? 200 : 360)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "#3A3A3A"), lineWidth: 1))
+        .onHover { isHoveringHero = $0 }
+        .sheet(isPresented: $showingPropFullScreen) {
+            LocationFullScreenViewer(imageURL: propImageURL(prop.wrappedValue),
+                                     title: "\(prop.wrappedValue.name) — Concept",
+                                     onDownload: { downloadPropPicture(prop.wrappedValue) })
+        }
+        .sheet(isPresented: $showingPropAnnotationEditor) {
+            if let url = propImageURL(prop.wrappedValue), let image = NSImage(contentsOf: url) {
+                ImageAnnotationEditor(
+                    image: image,
+                    title: "Annotate \(prop.wrappedValue.name)",
+                    subtitle: "Mark what to change and describe it — the rest of the picture is kept.",
+                    isPresented: $showingPropAnnotationEditor,
+                    onApplyEdits: { annotations in applyPropAnnotations(annotations, prop: prop) }
+                )
+            }
+        }
+        .sheet(isPresented: $showingPropPromptEditor) {
+            PropPromptEditor(prompt: $propCustomPrompt, isPresented: $showingPropPromptEditor) { edited in
+                generateConceptImage(prop, prompt: edited)
+            }
+        }
+    }
+
+    private func heroTool(_ symbol: String, help: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(prominent ? Color.accentColor.opacity(0.85) : Color.black.opacity(0.55)))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func downloadPropPicture(_ prop: Prop) {
+        guard let url = propImageURL(prop), let data = try? Data(contentsOf: url) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "\(prop.name)_concept.png"
+        panel.title = "Save Prop Picture"
+        panel.begin { response in
+            if response == .OK, let target = panel.url { try? data.write(to: target) }
+        }
+    }
+
+    private func uploadPropPicture(_ prop: Binding<Prop>) {
+        guard let data = UploadedImage.pickData(message: "Choose a picture for \(prop.wrappedValue.name)"),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+        saveImageData(png, prop: prop, prefix: "upload", asPrimary: true)
+    }
+
+    /// DC-0073 edit path: the marked picture itself is edited.
+    private func applyPropAnnotations(_ annotations: [KeyframeAnnotation], prop: Binding<Prop>) {
+        guard let url = propImageURL(prop.wrappedValue), let source = try? Data(contentsOf: url) else { return }
+        let edit = AnnotationEdit(source: source, annotations: annotations, context: "prop concept",
+                                  originalPrompt: conceptPrompt(for: prop.wrappedValue), aspectRatio: "1:1")
+        isGenerating = true
+        feedback = nil
+        Task {
+            do {
+                let edited = try await AIServiceClient.shared.editImage(edit)
+                await MainActor.run {
+                    isGenerating = false
+                    saveImageData(edited, prop: prop, prefix: "concept", asPrimary: true)
+                }
+            } catch {
+                await MainActor.run {
+                    isGenerating = false
+                    feedback = "Edit failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// AI concept generation: prompt from the prop's identity + references
+    /// (or the user's edited prompt).
+    private func generateConceptImage(_ prop: Binding<Prop>, prompt customPrompt: String? = nil) {
+        isGenerating = true
+        feedback = nil
+        let snapshot = prop.wrappedValue
+        let prompt = customPrompt ?? conceptPrompt(for: snapshot)
 
         // Reference photos guide the generation when present.
         let refs: [ReferenceImage] = snapshot.referencePhotos.compactMap { path in
@@ -827,6 +1010,91 @@ struct PropShopView: View {
         }
     }
 
+    private func whereUsedSection(_ prop: Prop) -> some View {
+        let scenes = Self.scenesUsing(prop.name, in: allScenes)
+        let shotRows = Self.shotsUsing(prop.name, in: allScenes)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("WHERE IT'S USED").font(.system(size: 8, weight: .bold)).foregroundColor(.gray)
+            if scenes.isEmpty && shotRows.isEmpty {
+                Text("No scene or shot uses this prop yet. Place it in a scene above, or mention it in a shot's description with $\(prop.name).")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray.opacity(0.6))
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(scenes) { scene in
+                        Button(action: { onOpenScene?(scene) }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "film")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.accentColor)
+                                    .frame(width: 14)
+                                Text(scene.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                if let location = scene.location, !location.isEmpty {
+                                    Text("@ \(location)")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.green.opacity(0.9))
+                                }
+                                Spacer()
+                                Text("\(shotRows.filter { $0.scene.id == scene.id }.count) shots")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.gray.opacity(0.5))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(hex: "#1A1A1A"))
+                            .cornerRadius(6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open this scene")
+                        .accessibilityIdentifier("prop-used-scene-\(scene.name)")
+                    }
+                    ForEach(Array(shotRows.enumerated()), id: \.element.shot.id) { _, row in
+                        Button(action: { onOpenShot?(row.shot, row.scene) }) {
+                            HStack(spacing: 8) {
+                                if let basePath = projectBasePath, let path = row.shot.previewImage, !path.isEmpty {
+                                    AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 48) {
+                                        Color.gray.opacity(0.25)
+                                    }
+                                    .frame(width: 48, height: 27)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                } else {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 4).fill(Color.gray.opacity(0.15))
+                                        Image(systemName: "camera").font(.system(size: 9)).foregroundColor(.gray)
+                                    }
+                                    .frame(width: 48, height: 27)
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Shot #\(row.shot.shotId) · \(row.scene.name)")
+                                        .font(.system(size: 10, weight: .medium))
+                                    Text(row.shot.description.isEmpty ? row.shot.shotType : String(row.shot.description.prefix(90)))
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.gray.opacity(0.5))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open this shot")
+                        .accessibilityIdentifier("prop-used-shot-\(row.shot.shotId)")
+                    }
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func propThumbnail(_ prop: Prop, size: CGFloat) -> some View {
         if let basePath = projectBasePath, let path = prop.thumbnail {
@@ -858,5 +1126,49 @@ struct PropShopView: View {
         case "On Set": return .blue
         default: return .gray
         }
+    }
+}
+
+// MARK: - Prop prompt editor
+
+/// See and change the concept prompt before it is sent.
+private struct PropPromptEditor: View {
+    @Binding var prompt: String
+    @Binding var isPresented: Bool
+    let onGenerate: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Prop concept prompt")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Cancel") { isPresented = false }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                    .keyboardShortcut(.cancelAction)
+                Button(action: { isPresented = false; onGenerate(prompt) }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "wand.and.stars").font(.system(size: 11))
+                        Text("Generate").font(.system(size: 12, weight: .semibold))
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
+                    .foregroundColor(.white)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+            Divider()
+            TextEditor(text: $prompt)
+                .font(.system(size: 12, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .background(Color(nsColor: .quaternarySystemFill))
+                .cornerRadius(6)
+                .padding(16)
+        }
+        .frame(width: 560, height: 360)
     }
 }

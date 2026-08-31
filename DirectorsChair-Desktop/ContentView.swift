@@ -606,3 +606,33 @@ struct ContentView: View {
         .environmentObject(OnboardingState())
         .environmentObject(GuidedTourManager())
 }
+
+// MARK: - Session hooks (DC-0092 navigation memory, DC-0093 prompt review)
+
+/// Restores the per-project "where was I" memory whenever a project opens,
+/// installs the one prompt reviewer on the image client, and presents its
+/// review sheet. Kept out of ContentView.body so that chain stays
+/// type-checkable.
+/// Applied from the App scene (DirectorsChair_DesktopApp), NOT inside
+/// ContentView.body — that chain is already at the type-checker's limit.
+struct SessionHooks: ViewModifier {
+    @EnvironmentObject var coordinator: AppCoordinator
+    @EnvironmentObject var projectViewModel: ProjectViewModel
+    @ObservedObject var reviewCenter: ImagePromptReviewCenter
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                let center = reviewCenter
+                Task { await AIServiceClient.shared.setPromptReviewer(center) }
+            }
+            .sheet(item: $reviewCenter.pending) { review in
+                ImagePromptReviewSheet(review: review, center: reviewCenter)
+            }
+            .onChange(of: projectViewModel.project.uuid, initial: true) { _, _ in
+                if projectViewModel.hasProject {
+                    coordinator.restoreSurfaceMemory(for: projectViewModel.project)
+                }
+            }
+    }
+}

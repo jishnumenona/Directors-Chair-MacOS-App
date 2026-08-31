@@ -15,7 +15,7 @@ extension TimelineView {
 
     /// Extracted to reduce body expression complexity for the Swift type-checker
     func makeHeaderCanvas(geometry: GeometryProxy) -> TimelineHeaderCanvas {
-        TimelineHeaderCanvas(
+        var header = TimelineHeaderCanvas(
             segments: viewModel.visibleSegments,
             sceneBoundaries: viewModel.sceneBoundaries,
             sequenceBoundaries: viewModel.sequenceBoundaries,
@@ -208,6 +208,16 @@ extension TimelineView {
                 viewModel.addUserMarker(at: time, label: label, icon: icon, color: color)
             }
         )
+        header.shotLaneHeight = shotLaneHeight
+        header.selectedShotLabelId = viewModel.selectedShotLabelId
+        header.onShotLaneHeightChanged = { newHeight in
+            shotsTrackHeight = Double(TimelineLayoutConstants.clampedShotLaneHeight(newHeight))
+        }
+        header.onShotLabelTrimmed = { shotId, sceneName, newTime, newDuration in
+            viewModel.trimShotLabel(shotId: shotId, sceneName: sceneName, newTime: newTime, newDuration: newDuration)
+            onShotLabelResized?(shotId, sceneName, newDuration)
+        }
+        return header
     }
 
     /// Extracted to reduce body expression complexity for the Swift type-checker
@@ -268,6 +278,10 @@ extension TimelineView {
         canvas.onEmptySpaceClicked = { x in
             viewModel.seekPlayheadFromX(x)
         }
+        canvas.onSegmentTrimmed = { segment, newStart, newDuration in
+            viewModel.trimSegment(id: segment.id, newStart: newStart, newDuration: newDuration)
+            onSegmentTrimmed?(segment, newStart, newDuration)
+        }
         canvas.onSegmentRightClicked = { segment, point, nsView in
             let menu = NSMenu()
 
@@ -322,6 +336,30 @@ extension TimelineView {
                     genItem.representedObject = genHandler
                     menu.addItem(genItem)
                 }
+
+                // Reset to spoken length (owner 2026-08-29): the line at its
+                // speaker's pace — the character's voice pace scaled onto the
+                // timeline WPM, or the timeline WPM alone — stored the way a
+                // trim is, with the block flowing back into place.
+                menu.addItem(NSMenuItem.separator())
+                let spoken = viewModel.spokenLength(for: segment)
+                let resetItem = NSMenuItem(
+                    title: "Reset to spoken length (\(TimelineTrim.label(for: spoken)))",
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                resetItem.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
+                resetItem.toolTip = "Makes the block as long as the line takes to say at "
+                    + "\(viewModel.spokenWordsPerMinute(for: segment)) words per minute and lets it flow back into place"
+                let resetHandler = TrackMenuHandler {
+                    if let placement = viewModel.resetToSpokenLength(id: segment.id) {
+                        self.onSegmentTrimmed?(segment, placement.start, placement.duration)
+                    }
+                }
+                resetItem.target = resetHandler
+                resetItem.action = #selector(TrackMenuHandler.execute)
+                resetItem.representedObject = resetHandler
+                menu.addItem(resetItem)
 
                 menu.addItem(NSMenuItem.separator())
             }

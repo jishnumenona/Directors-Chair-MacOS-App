@@ -429,6 +429,58 @@ extension ProjectSettingsView {
 
     // MARK: - Cinematography Defaults Section
 
+    /// DC-0090: the size every generated shot, scene and location preview
+    /// is delivered at — the owner's "one HD standard" for a project.
+    var previewResolutionSection: some View {
+        SettingsCard(title: "GENERATED PREVIEWS", icon: "photo.on.rectangle.angled") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 10))
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                    Text("Shot, scene and location previews are generated as 16:9 frames at this size. Character, costume and prop studies keep their own square format.")
+                        .font(.system(size: 10))
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                }
+                HStack(spacing: 8) {
+                    ForEach(PreviewResolution.allCases, id: \.self) { option in
+                        Button {
+                            previewResolution = option
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(option.displayName)
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text(option.dimensionsLabel)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(previewResolution == option
+                                          ? Color.accentColor.opacity(0.18)
+                                          : Color(nsColor: .quaternarySystemFill))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(previewResolution == option ? Color.accentColor : Color.clear, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("preview-resolution-\(option.rawValue)")
+                    }
+                }
+                if previewResolution == .uhd4k {
+                    Text("4K previews are large files (about 15 MB each) and take longer to generate and sync.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
+            }
+        }
+    }
+
     var cinematographyDefaultsSection: some View {
         SettingsCard(title: "NEW SHOT DEFAULTS", icon: "camera.badge.ellipsis") {
             VStack(alignment: .leading, spacing: 16) {

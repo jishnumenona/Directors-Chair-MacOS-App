@@ -25,6 +25,9 @@ struct SceneDetailView: View {
     var onSceneAboutChanged: ((String) -> Void)? = nil
     var onSceneDescriptionChanged: ((String) -> Void)? = nil
     var onSceneNotesChanged: ((String) -> Void)? = nil
+    /// DC-0100: a pasted reference changed the scene (location / props / wardrobe).
+    var onSceneUpdated: ((DirectorsChairCore.Scene) -> Void)? = nil
+    @State var pendingLocationReplace: StoryReference?
 
     /// The board is read straight from the project so the links stay
     /// right as elements are pinned and unpinned.

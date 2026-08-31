@@ -245,7 +245,8 @@ public struct SceneConnectionView: View {
                         .font(.system(size: 12, weight: .semibold))
                     Label("Drag from a port dot onto a shot — anywhere on the card works", systemImage: "hand.draw")
                     Label("Or right-click an item → Connect to Shot", systemImage: "contextualmenu.and.cursorarrow")
-                    Label("Click a line to select it; ⌫ removes it", systemImage: "scissors")
+                    Label("Hover a line and click its ×, or click the line and press ⌫", systemImage: "scissors")
+                    Label("Right-click a line, a port dot, or a card → Remove Connection", systemImage: "xmark.circle")
                     Label("⌘Z undoes any link change", systemImage: "arrow.uturn.backward")
                     Label("Click an item to light up the shots covering it", systemImage: "rays")
                 }
@@ -373,6 +374,11 @@ public struct SceneConnectionView: View {
                                     onToggleConnect: { target in
                                         viewModel.toggleConnection(scriptItemId: group.dialogue.id,
                                                                    shotId: target.id, itemType: .dialogue)
+                                    },
+                                    removeTargetsProvider: { shotRemoveTargets(for: group.dialogue.id) },
+                                    onRemoveConnection: { target in
+                                        viewModel.removeConnection(scriptItemId: group.dialogue.id,
+                                                                   shotId: target.id, itemType: .dialogue)
                                     }
                                 )
                                 .id("item-\(group.dialogue.id)")
@@ -402,6 +408,11 @@ public struct SceneConnectionView: View {
                                     connectTargetsProvider: { shotConnectTargets(for: item.id, itemType: item.itemType) },
                                     onToggleConnect: { target in
                                         viewModel.toggleConnection(scriptItemId: item.id,
+                                                                   shotId: target.id, itemType: item.itemType)
+                                    },
+                                    removeTargetsProvider: { shotRemoveTargets(for: item.id) },
+                                    onRemoveConnection: { target in
+                                        viewModel.removeConnection(scriptItemId: item.id,
                                                                    shotId: target.id, itemType: item.itemType)
                                     }
                                 )
@@ -523,6 +534,14 @@ public struct SceneConnectionView: View {
                                     guard let itemType = target.itemType else { return }
                                     viewModel.toggleConnection(scriptItemId: target.id,
                                                                shotId: shot.id, itemType: itemType)
+                                },
+                                removeTargetsProvider: { itemType in
+                                    scriptRemoveTargets(forShot: shot.id, itemType: itemType)
+                                },
+                                onRemoveConnection: { target in
+                                    guard let itemType = target.itemType else { return }
+                                    viewModel.removeConnection(scriptItemId: target.id,
+                                                               shotId: shot.id, itemType: itemType)
                                 }
                             )
                             .id("shot-\(shot.id)")
@@ -573,13 +592,24 @@ public struct SceneConnectionView: View {
         characters.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
 
+    /// Menu title for a shot: "Shot 3 — Close-up on Hero's face"
+    private func shotTitle(_ shot: Shot) -> String {
+        "Shot \(shot.shotId)" + (shot.description.isEmpty ? "" : " — \(shot.description.prefix(30))")
+    }
+
+    /// Menu title for a script item: "#2 HERO: I've been waiting for this."
+    private func scriptItemTitle(_ item: ScriptItem) -> String {
+        let prefix = item.subtitle.map { "\($0): " } ?? ""
+        return "#\(item.chronologyNumber) \(prefix)\(String(item.displayText.prefix(36)))"
+    }
+
     /// Menu targets for "Connect to Shot" on a script item — computed lazily
     /// when the context menu opens, not per render.
     private func shotConnectTargets(for scriptItemId: String, itemType: ScriptItemType) -> [ConnectionMenuTarget] {
         viewModel.shots.map { shot in
             ConnectionMenuTarget(
                 id: shot.id,
-                title: "Shot \(shot.shotId)" + (shot.description.isEmpty ? "" : " — \(shot.description.prefix(30))"),
+                title: shotTitle(shot),
                 isConnected: viewModel.connectionExists(scriptItemId: scriptItemId,
                                                         shotId: shot.id, itemType: itemType)
             )
@@ -589,13 +619,42 @@ public struct SceneConnectionView: View {
     /// Menu targets for "Connect Script Item" on a shot — lazy, menu-open only.
     private func scriptConnectTargets(forShot shotId: String) -> [ConnectionMenuTarget] {
         viewModel.scriptItems.map { item in
-            let prefix = item.subtitle.map { "\($0): " } ?? ""
-            return ConnectionMenuTarget(
+            ConnectionMenuTarget(
                 id: item.id,
-                title: "#\(item.chronologyNumber) \(prefix)\(String(item.displayText.prefix(36)))",
+                title: scriptItemTitle(item),
                 isConnected: viewModel.connectionExists(scriptItemId: item.id,
                                                         shotId: shotId, itemType: item.itemType),
                 itemType: item.itemType
+            )
+        }
+    }
+
+    /// Menu targets for "Remove connection to …" on a script item's dot —
+    /// one per linked shot, lazy, menu-open only.
+    private func shotRemoveTargets(for scriptItemId: String) -> [ConnectionMenuTarget] {
+        viewModel.connections(forScriptItem: scriptItemId).compactMap { connection in
+            guard let shot = viewModel.shot(withId: connection.shotId) else { return nil }
+            return ConnectionMenuTarget(
+                id: shot.id,
+                title: shotTitle(shot),
+                isConnected: true,
+                itemType: connection.itemType,
+                connectionId: connection.id
+            )
+        }
+    }
+
+    /// Menu targets for "Remove connection to …" on one of a shot's typed
+    /// dots — one per linked script item of that type, lazy, menu-open only.
+    private func scriptRemoveTargets(forShot shotId: String, itemType: ScriptItemType) -> [ConnectionMenuTarget] {
+        viewModel.connections(forShot: shotId, itemType: itemType).compactMap { connection in
+            guard let item = viewModel.scriptItem(withId: connection.scriptItemId) else { return nil }
+            return ConnectionMenuTarget(
+                id: item.id,
+                title: scriptItemTitle(item),
+                isConnected: true,
+                itemType: item.itemType,
+                connectionId: connection.id
             )
         }
     }
@@ -620,11 +679,17 @@ public struct SceneConnectionView: View {
 
     @ViewBuilder
     private var connectionLinesOverlay: some View {
-        // Drawing canvas only — fully non-interactive so scrolling works in columns
+        // Drawing canvas only — fully non-interactive so scrolling works in
+        // columns; SceneConnectionCanvas owns the hit bands underneath.
         Canvas { context, size in
             // Draw existing connections
             for connection in viewModel.connections {
                 drawConnection(connection, context: context)
+            }
+
+            // × glyphs sit above every line so a crossing line can't cover them
+            for connection in viewModel.connections where showsRemoveGlyph(for: connection) {
+                drawRemoveGlyph(for: connection, context: context)
             }
 
             // Draw drag preview line
@@ -664,20 +729,27 @@ public struct SceneConnectionView: View {
         }
 
         let isSelected = viewModel.selectedConnection?.id == connection.id
-        let isActive = isConnectionActive(connection)
+        let isHovered = viewModel.hoveredConnectionId == connection.id
+        let isActive = isConnectionActive(connection) || isHovered
 
-        let path = bezierPath(from: sourcePoint, to: targetPoint)
+        let path = ConnectionGeometry.path(from: sourcePoint, to: targetPoint)
 
-        let lineWidth: CGFloat = isSelected ? SceneConnectionConstants.connectionLineWidthSelected :
-                                              SceneConnectionConstants.connectionLineWidth
+        let lineWidth: CGFloat
+        if isSelected {
+            lineWidth = SceneConnectionConstants.connectionLineWidthSelected
+        } else if isHovered {
+            lineWidth = SceneConnectionConstants.connectionLineWidthHovered
+        } else {
+            lineWidth = SceneConnectionConstants.connectionLineWidth
+        }
         let opacity: Double = isActive ? SceneConnectionConstants.connectionOpacityHighlight :
                                                         SceneConnectionConstants.connectionOpacity * 0.6
 
-        // Draw glow for selected connections
-        if isSelected {
+        // Glow: strong for the selected connection, soft for the hovered one
+        if isSelected || isHovered {
             context.stroke(
                 path,
-                with: .color(connection.itemType.color.opacity(0.3)),
+                with: .color(connection.itemType.color.opacity(isSelected ? 0.3 : 0.18)),
                 lineWidth: lineWidth + 4
             )
         }
@@ -705,7 +777,7 @@ public struct SceneConnectionView: View {
 
         let targetPoint = viewModel.dragCurrentPosition
 
-        let path = bezierPath(from: sourcePoint, to: targetPoint)
+        let path = ConnectionGeometry.path(from: sourcePoint, to: targetPoint)
 
         // Draw dashed preview line
         context.stroke(
@@ -729,21 +801,51 @@ public struct SceneConnectionView: View {
         context.stroke(endCircle, with: .color(sourceType.color), lineWidth: 2)
     }
 
-    // MARK: - Bezier Path
+    // MARK: - Remove Glyph
 
-    private func bezierPath(from start: CGPoint, to end: CGPoint) -> Path {
-        Path { path in
-            path.move(to: start)
+    /// A connection shows its × while hovered or selected.
+    private func showsRemoveGlyph(for connection: ScriptConnection) -> Bool {
+        viewModel.hoveredConnectionId == connection.id
+            || viewModel.selectedConnection?.id == connection.id
+    }
 
-            let distance = abs(end.x - start.x)
-            let controlOffset = min(SceneConnectionConstants.maxControlOffset,
-                                    max(50, distance * SceneConnectionConstants.bezierControlFactor))
+    /// The × at a line's midpoint: a small disc in the line's colour that
+    /// fills in when the pointer is on it. Drawn after every line so a
+    /// crossing line can't cover it; the canvas's hit band makes it clickable.
+    private func drawRemoveGlyph(for connection: ScriptConnection, context: GraphicsContext) {
+        let sourceKey = "script-\(connection.scriptItemId)"
+        let targetKey = "shot-\(connection.itemType.rawValue.lowercased())-\(connection.shotId)"
 
-            let control1 = CGPoint(x: start.x + controlOffset, y: start.y)
-            let control2 = CGPoint(x: end.x - controlOffset, y: end.y)
-
-            path.addCurve(to: end, control1: control1, control2: control2)
+        guard let sourcePoint = viewModel.portPositions[sourceKey],
+              let targetPoint = viewModel.portPositions[targetKey] else {
+            return
         }
+
+        let center = ConnectionGeometry.midpoint(from: sourcePoint, to: targetPoint)
+        let armed = viewModel.hoveredConnectionId == connection.id && viewModel.isPointerOnRemoveGlyph
+        let color = connection.itemType.color
+        let diameter = SceneConnectionConstants.connectionRemoveGlyphSize
+
+        let disc = Path(ellipseIn: CGRect(
+            x: center.x - diameter / 2,
+            y: center.y - diameter / 2,
+            width: diameter,
+            height: diameter
+        ))
+        context.fill(disc, with: .color(armed ? color : SceneConnectionColors.cardBackground))
+        context.stroke(disc, with: .color(color), lineWidth: armed ? 2 : 1.5)
+
+        let arm = diameter * 0.2
+        var cross = Path()
+        cross.move(to: CGPoint(x: center.x - arm, y: center.y - arm))
+        cross.addLine(to: CGPoint(x: center.x + arm, y: center.y + arm))
+        cross.move(to: CGPoint(x: center.x - arm, y: center.y + arm))
+        cross.addLine(to: CGPoint(x: center.x + arm, y: center.y - arm))
+        context.stroke(
+            cross,
+            with: .color(armed ? Color.white : color),
+            style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+        )
     }
 
     // MARK: - Public Methods

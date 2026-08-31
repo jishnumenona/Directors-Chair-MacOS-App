@@ -9,6 +9,9 @@ public struct NarrationBubbleCard: View {
     let narration: Narration
     let isSelected: Bool
     let characters: [Character]
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
     let globalIndex: Int?
 
     var onTap: (() -> Void)?
@@ -28,6 +31,9 @@ public struct NarrationBubbleCard: View {
     @FocusState private var textFieldFocused: Bool
     @FocusState private var indexFieldFocused: Bool
 
+    /// Width of the row this card sits in (BubbleView publishes it); the card caps itself at a share of it
+    @Environment(\.bubbleRowWidth) private var rowWidth
+
     private let accentColor = Color(red: 0.6, green: 0.4, blue: 0.8)
 
     public init(
@@ -35,6 +41,9 @@ public struct NarrationBubbleCard: View {
         isSelected: Bool = false,
         startInEditMode: Bool = false,
         characters: [Character] = [],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
         globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -47,6 +56,9 @@ public struct NarrationBubbleCard: View {
         self.isSelected = isSelected
         self.startInEditMode = startInEditMode
         self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
         self.globalIndex = globalIndex
         self.onTap = onTap
         self.onEdit = onEdit
@@ -103,6 +115,9 @@ public struct NarrationBubbleCard: View {
                     text: $editedText,
                     placeholder: "Narration text...",
                     characters: characters,
+                    locations: locations,
+                    props: props,
+                    shots: shots,
                     font: .system(size: 12).italic(),
                     foregroundColor: accentColor.opacity(0.9),
                     onSubmit: { commitEdit() }
@@ -142,8 +157,8 @@ public struct NarrationBubbleCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected || isEditing ? accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .fixedSize(horizontal: !isEditing, vertical: false)
-        .frame(minWidth: isEditing ? 200 : nil)
+        // Hug the text, in display and edit mode alike; wrap past a share of the row (owner 2026-08-29)
+        .hugWidth(max: BubbleCardSizing.maxWidth(forRowWidth: rowWidth))
         .onHover { isHovered = $0 }
         .onTapGesture { onTap?() }
         .contextMenu {
@@ -157,6 +172,9 @@ public struct NarrationBubbleCard: View {
                 onEditModeStarted?()
             }
         }
+        // The mention list is an overlay: keep an editing card above its
+        // neighbours (owner report 2026-08-29: the list looked transparent).
+        .zIndex(isEditing ? 10 : 0)
     }
 
     private func startEditing() {

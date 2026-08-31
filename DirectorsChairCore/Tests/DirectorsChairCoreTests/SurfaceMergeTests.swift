@@ -45,6 +45,30 @@ final class SurfaceMergeTests: XCTestCase {
         XCTAssertEqual(merged.sequences[0].scenes[0].shots[0].description, "Wide on the cottage, storm coming")
     }
 
+    /// Timeline trim (2026-08-29): the dragged size of every kind of block
+    /// comes back with the timeline's other edits — and nothing else does.
+    func testTimelineMergeCarriesTrimmedDurations() {
+        var live = fixture()
+        live.sequences[0].scenes[0].actions = [Action(uuid: "a-1", description: "She runs.", chronologyNumber: 2)]
+        live.sequences[0].scenes[0].narrations = [Narration(uuid: "n-1", text: "Dawn breaks.", chronologyNumber: 3)]
+        live.sequences[0].scenes[0].soundNotes = [SoundNote(uuid: "s-1", description: "Wind", chronologyNumber: 4)]
+        var timelineCopy = live
+        timelineCopy.sequences[0].scenes[0].dialogues[0].manualDuration = 4.2
+        timelineCopy.sequences[0].scenes[0].actions[0].manualDuration = 1.5
+        timelineCopy.sequences[0].scenes[0].actions[0].manualStartTime = 2.0
+        timelineCopy.sequences[0].scenes[0].narrations[0].manualDuration = 6.0
+        timelineCopy.sequences[0].scenes[0].soundNotes[0].manualDuration = 3.3
+        live.sequences[0].scenes[0].actions[0].description = "She runs, fast."   // edited elsewhere meanwhile
+
+        let scene = live.adoptingTimelineEdits(from: timelineCopy).sequences[0].scenes[0]
+        XCTAssertEqual(scene.dialogues[0].manualDuration, 4.2)
+        XCTAssertEqual(scene.actions[0].manualDuration, 1.5)
+        XCTAssertEqual(scene.actions[0].manualStartTime, 2.0)
+        XCTAssertEqual(scene.narrations[0].manualDuration, 6.0)
+        XCTAssertEqual(scene.soundNotes[0].manualDuration, 3.3)
+        XCTAssertEqual(scene.actions[0].description, "She runs, fast.", "the script edit survives")
+    }
+
     func testTimelineMergeIgnoresScenesAndRowsThatNoLongerExist() {
         let live0 = fixture()
         var timelineCopy = live0

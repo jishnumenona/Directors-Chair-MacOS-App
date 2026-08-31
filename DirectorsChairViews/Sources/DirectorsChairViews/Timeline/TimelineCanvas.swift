@@ -99,6 +99,9 @@ public struct TimelineCanvas: View {
     /// Callback when multiple segments are dragged together (segments with new start times)
     public var onSegmentsMoved: (([(TimelineSegment, CGFloat)]) -> Void)?
 
+    /// Callback when a segment is trimmed by one of its edges (segment, newStart, newDuration)
+    public var onSegmentTrimmed: ((TimelineSegment, CGFloat, CGFloat) -> Void)?
+
     /// Callback when empty space is clicked (position playhead)
     public var onEmptySpaceClicked: ((CGFloat) -> Void)?
 
@@ -125,6 +128,20 @@ public struct TimelineCanvas: View {
 
     /// Current X position during drag
     @State var dragCurrentX: CGFloat = 0
+
+    /// ID of the segment whose edge is being dragged (trim)
+    @State var trimmingSegmentId: UUID?
+
+    /// Which edge of that segment is being dragged
+    @State var trimEdge: TimelineTrim.Edge = .trailing
+
+    /// The block's on-screen duration when the trim began (bubble width ÷ pxPerSec —
+    /// the edge the user grabbed is the one they see, even when the bubble is
+    /// wider than its duration because of its text)
+    @State var trimStartDuration: CGFloat = 0
+
+    /// The shortest this block may be trimmed to (seconds): 0.5 s, or a dialogue's label width at this zoom
+    @State var trimMinimumSeconds: CGFloat = TimelineTrim.minimumDuration
 
     // MARK: - Computed Properties
 
@@ -341,8 +358,22 @@ public struct TimelineCanvas: View {
         .gesture(
             DragGesture(minimumDistance: 4)
                 .onChanged { value in
-                    if draggingSegmentId == nil {
-                        if let segment = findSegment(at: value.startLocation) {
+                    if draggingSegmentId == nil && trimmingSegmentId == nil {
+                        // An edge grab trims the block; anywhere else on it moves
+                        if let hit = findSegmentEdge(at: value.startLocation) {
+                            trimmingSegmentId = hit.segment.id
+                            trimEdge = hit.edge
+                            trimStartDuration = DurationEstimator.bubbleWidth(
+                                for: hit.segment, pxPerSec: pxPerSec, showThumbs: showThumbs
+                            ) / pxPerSec
+                            trimMinimumSeconds = TimelineTrim.minimumSeconds(
+                                for: hit.segment, pxPerSec: pxPerSec, showThumbs: showThumbs
+                            )
+                            if !selectedSegmentIds.contains(hit.segment.id) {
+                                selectedSegmentIds = [hit.segment.id]
+                            }
+                            dragStartX = value.startLocation.x
+                        } else if let segment = findSegment(at: value.startLocation) {
                             draggingSegmentId = segment.id
                             if !selectedSegmentIds.contains(segment.id) {
                                 selectedSegmentIds = [segment.id]
@@ -350,12 +381,22 @@ public struct TimelineCanvas: View {
                             dragStartX = value.startLocation.x
                         }
                     }
-                    if draggingSegmentId != nil {
+                    if draggingSegmentId != nil || trimmingSegmentId != nil {
                         dragCurrentX = value.location.x
                     }
                 }
                 .onEnded { value in
-                    if draggingSegmentId != nil {
+                    if let trimId = trimmingSegmentId,
+                       let segment = segments.first(where: { $0.id == trimId }) {
+                        let result = TimelineTrim.resolve(
+                            edge: trimEdge,
+                            start: segment.start,
+                            duration: trimStartDuration,
+                            deltaSeconds: (value.location.x - dragStartX) / pxPerSec,
+                            minimumSeconds: trimMinimumSeconds
+                        )
+                        onSegmentTrimmed?(segment, result.start, result.duration)
+                    } else if draggingSegmentId != nil {
                         let deltaX = value.location.x - dragStartX
                         let deltaTime = deltaX / pxPerSec
 
@@ -375,10 +416,26 @@ public struct TimelineCanvas: View {
                         }
                     }
                     draggingSegmentId = nil
+                    trimmingSegmentId = nil
+                    trimStartDuration = 0
+                    trimMinimumSeconds = TimelineTrim.minimumDuration
                     dragCurrentX = 0
                     dragStartX = 0
                 }
         )
+        .onContinuousHover { phase in
+            // Resize cursor over a block's edges (its trim handles)
+            switch phase {
+            case .active(let location):
+                if trimmingSegmentId != nil || findSegmentEdge(at: location) != nil {
+                    NSCursor.resizeLeftRight.set()
+                } else {
+                    NSCursor.arrow.set()
+                }
+            case .ended:
+                NSCursor.arrow.set()
+            }
+        }
         .onAppear {
             loadCharacterImages()
         }
@@ -394,6 +451,35 @@ public struct TimelineCanvas: View {
                 }
             }
         )
+        .overlay(alignment: .topLeading) {
+            // Trim handles of the selected blocks, exposed for UI automation
+            trimHandleAccessibilityOverlay.allowsHitTesting(false)
+        }
+    }
+
+    /// Invisible, non-interactive elements at the trim handles of the selected
+    /// blocks so UI automation can find them (the handles themselves are drawn
+    /// and hit-tested inside the Canvas).
+    @ViewBuilder
+    var trimHandleAccessibilityOverlay: some View {
+        let laneTops = laneTopYs()
+        ForEach(segments.filter { selectedSegmentIds.contains($0.id) }) { segment in
+            if let rect = bubbleRect(for: segment, laneTops: laneTops) {
+                let handleId = segment.sourceItemId ?? segment.id.uuidString
+                Color.clear
+                    .frame(width: TimelineLayoutConstants.trimEdgeHitWidth * 2, height: rect.height)
+                    .position(x: rect.minX, y: rect.midY)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("timeline-trim-left-\(handleId)")
+                    .accessibilityLabel("Trim start of \(segment.character) block")
+                Color.clear
+                    .frame(width: TimelineLayoutConstants.trimEdgeHitWidth * 2, height: rect.height)
+                    .position(x: rect.maxX, y: rect.midY)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("timeline-trim-right-\(handleId)")
+                    .accessibilityLabel("Trim end of \(segment.character) block")
+            }
+        }
     }
 }
 

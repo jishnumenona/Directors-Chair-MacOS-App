@@ -61,6 +61,9 @@ public struct DialogueBubbleCard: View {
     @FocusState private var textFieldFocused: Bool
     @FocusState private var indexFieldFocused: Bool
 
+    /// Width of the row this card sits in (BubbleView publishes it); the bubble caps itself at a share of it
+    @Environment(\.bubbleRowWidth) private var rowWidth
+
     public init(
         dialogue: Dialogue,
         character: Character? = nil,
@@ -165,22 +168,35 @@ public struct DialogueBubbleCard: View {
             // Header row: chronology number, character name, edit button
             headerRow
 
-            // Dialogue text - inline editable
+            // Dialogue text - inline editable. While editing, an invisible
+            // mirror of the text sets the width so the bubble hugs what is
+            // typed (a text field takes whatever width it is offered).
             if isEditing {
-                TextField("Dialogue text...", text: $editedText, axis: .vertical)
-                    .font(.body)
-                    .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF"))
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...10)
-                    .focused($textFieldFocused)
-                    .onSubmit {
-                        commitEdit()
-                    }
-                    .onChange(of: textFieldFocused) { _, focused in
-                        if !focused {
+                ZStack(alignment: .topLeading) {
+                    Text(editedText.isEmpty ? "Dialogue text..." : editedText)
+                        .font(.body)
+                        .lineLimit(1...10)
+                        .padding(.trailing, 8)
+                        .opacity(0)
+                        .accessibilityHidden(true)
+                        .allowsHitTesting(false)
+
+                    TextField("Dialogue text...", text: $editedText, axis: .vertical)
+                        .font(.body)
+                        .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF"))
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...10)
+                        .focused($textFieldFocused)
+                        .onSubmit {
                             commitEdit()
                         }
-                    }
+                        .onChange(of: textFieldFocused) { _, focused in
+                            if !focused {
+                                commitEdit()
+                            }
+                        }
+                }
+                .frame(minWidth: BubbleCardSizing.editFieldMinWidth, alignment: .leading)
             } else {
                 let plainText = htmlToPlainText(dialogue.text)
                 if plainText.isEmpty {
@@ -209,7 +225,9 @@ public struct DialogueBubbleCard: View {
                 if isDetectingEmotion {
                     ProgressView()
                         .controlSize(.mini)
-                } else if isHovered {
+                } else {
+                    // Revealed on hover but always laid out, so a bubble that
+                    // hugs its text doesn't change width under the pointer
                     Button(action: { onDetectEmotion?() }) {
                         HStack(spacing: 3) {
                             Image(systemName: "sparkles")
@@ -224,6 +242,8 @@ public struct DialogueBubbleCard: View {
                         .cornerRadius(4)
                     }
                     .buttonStyle(.plain)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
                 }
             }
         }
@@ -236,7 +256,8 @@ public struct DialogueBubbleCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(isSelected || isEditing ? Color.accentColor : Color.clear, lineWidth: 2)
         )
-        .frame(maxWidth: 500)
+        // Hug the text, in display and edit mode alike; wrap past a share of the row (owner 2026-08-29)
+        .hugWidth(max: BubbleCardSizing.maxWidth(forRowWidth: rowWidth))
         .onHover { isHovered = $0 }
         .simultaneousGesture(
             TapGesture()
@@ -332,17 +353,19 @@ public struct DialogueBubbleCard: View {
                 .buttonStyle(.plain)
                 .help("Play saved audio")
 
-                if isHovered {
-                    Button(action: { onGenerateAudio?() }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 9))
-                            .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Regenerate voice")
+                // Hover controls stay laid out while hidden, so a bubble that
+                // hugs its text doesn't change width under the pointer
+                Button(action: { onGenerateAudio?() }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 9))
+                        .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.5))
                 }
-            } else if isHovered {
-                // No audio yet — show generate button on hover
+                .buttonStyle(.plain)
+                .help("Regenerate voice")
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+            } else {
+                // No audio yet — generate button, revealed on hover
                 Button(action: { onGenerateAudio?() }) {
                     HStack(spacing: 3) {
                         Image(systemName: "waveform")
@@ -358,16 +381,20 @@ public struct DialogueBubbleCard: View {
                 }
                 .buttonStyle(.plain)
                 .help("Generate voice audio")
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
             }
 
-            // Edit button (pencil icon, shown on hover)
-            if isHovered && !isEditing {
+            // Edit button (pencil icon, revealed on hover)
+            if !isEditing {
                 Button(action: { onEdit?() }) {
                     Image(systemName: "pencil")
                         .font(.caption)
                         .foregroundColor(Color(hex: character?.textColor ?? "#FFFFFF").opacity(0.7))
                 }
                 .buttonStyle(.plain)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
             }
         }
     }

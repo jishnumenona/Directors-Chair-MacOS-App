@@ -116,7 +116,7 @@ struct SFXCueConfigPopover: View {
                     .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                     .tracking(0.5)
                 Spacer()
-                TextField("5.0", value: $duration, format: .number)
+                DecimalField("5.0", value: $duration, in: 0...3600)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, weight: .bold))
                     .padding(4)

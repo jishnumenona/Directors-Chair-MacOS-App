@@ -6,52 +6,56 @@
 
 import Foundation
 import DirectorsChairCore
+import DirectorsChairServices
 
 public enum ShotPromptBuilder {
 
     static func previewPrompt(shot: Shot, scene: DCScene?, locations: [Location], characters: [Character]) -> String {
-        var parts: [String] = []
+        PromptSections.assemble(previewSections(shot: shot, scene: scene, locations: locations, characters: characters))
+    }
 
-        // Base cinematic instruction
-        parts.append("Cinematic film still, professional cinematography")
+    /// The preview prompt as parts with their sources (owner 2026-08-29:
+    /// one long text hid how the prompt was built). `previewPrompt` is these
+    /// parts joined with ". " — the exact text the surfaces always sent.
+    static func previewSections(shot: Shot, scene: DCScene?, locations: [Location], characters: [Character]) -> [PromptSection] {
+        var sections: [PromptSection] = []
+        func add(_ id: String, _ title: String, _ source: String, _ parts: [String], fixed: Bool = false, included: Bool = true) {
+            let text = parts.filter { !$0.isEmpty }.joined(separator: ". ")
+            guard !text.isEmpty else { return }
+            sections.append(PromptSection(id: id, title: title, source: source, text: text, isIncluded: included, isFixed: fixed))
+        }
 
-        // Shot type and framing
-        parts.append("\(shot.shotType) shot")
+        add("style", "Style", "App default", ["Cinematic film still, professional cinematography"], fixed: true)
 
-        // Camera angle
-        parts.append("\(shot.cameraAngle) angle")
-
-        // Lens characteristics
+        // Framing — the camera chips
+        var framing: [String] = ["\(shot.shotType) shot", "\(shot.cameraAngle) angle"]
         if let lens = shot.lensMm {
             if lens <= 24 {
-                parts.append("wide angle lens, expansive view")
+                framing.append("wide angle lens, expansive view")
             } else if lens >= 85 {
-                parts.append("telephoto lens, compressed perspective, shallow depth of field")
+                framing.append("telephoto lens, compressed perspective, shallow depth of field")
             } else if lens >= 50 {
-                parts.append("natural perspective, cinematic depth")
+                framing.append("natural perspective, cinematic depth")
             }
         }
-
-        // Aperture / depth of field
         if shot.aperture.contains("1.") || shot.aperture.contains("2.") {
-            parts.append("shallow depth of field, bokeh background")
+            framing.append("shallow depth of field, bokeh background")
         } else if shot.aperture.contains("8") || shot.aperture.contains("11") || shot.aperture.contains("16") {
-            parts.append("deep focus, sharp throughout")
+            framing.append("deep focus, sharp throughout")
         }
-
-        // Movement hint
         if shot.movement != "Static" {
-            parts.append("sense of \(shot.movement.lowercased()) movement")
+            framing.append("sense of \(shot.movement.lowercased()) movement")
+        }
+        add("framing", "Framing", "Camera chips", framing)
+
+        let cameraWords = shot.cameraDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cameraWords.isEmpty {
+            add("camera", "Camera in your own words", "Camera section", ["camera: \(cameraWords)"])
         }
 
-        // Shot description
-        if !shot.description.isEmpty {
-            parts.append(shot.description)
-        }
+        add("description", "Description", "Shot description", [shot.description])
 
-        // Scene context
         if let scene = scene {
-            // Location — detailed description
             if let locationName = scene.location, !locationName.isEmpty {
                 if let location = locations.first(where: { $0.name.lowercased() == locationName.lowercased() }) {
                     var locDesc = "Location: \(location.name)"
@@ -61,21 +65,23 @@ public enum ShotPromptBuilder {
                     if !location.description.isEmpty {
                         locDesc += " — \(location.description.prefix(200))"
                     }
-                    parts.append(locDesc)
+                    add("location", "Location", "Location: \(location.name)", [locDesc])
                 } else {
-                    parts.append("set in \(locationName)")
+                    add("location", "Location", "Scene heading", ["set in \(locationName)"])
                 }
             }
 
-            // Scene description
             if !scene.description.isEmpty {
-                parts.append(scene.description.prefix(200).description)
+                // Owner 2026-08-29: the scene's prose is off by default — it belongs to
+                // the scene, not to this shot; switch it on in the editor when wanted.
+                add("scene", "Scene", "Scene: \(scene.name)", [scene.description.prefix(200).description], included: false)
             }
 
-            // Characters in scene — detailed descriptions for visual accuracy
-            let sceneCharacters = charactersInScene(scene, from: characters)
-            if !sceneCharacters.isEmpty {
-                let charDescriptions = sceneCharacters.prefix(3).map { char -> String in
+            // Owner rule 2026-08-29: only the shot's own people (its cast list and
+            // its description's mentions) — never the scene's speakers.
+            let shotCast = StoryboardSubjects.cast(for: shot, in: scene, characters: characters)
+            if !shotCast.isEmpty {
+                let charDescriptions = shotCast.prefix(4).map { char -> String in
                     var desc = char.name
                     let physicalDesc = characterDescription(char)
                     if !physicalDesc.isEmpty {
@@ -86,20 +92,13 @@ public enum ShotPromptBuilder {
                     }
                     return desc
                 }
-                parts.append("Characters: \(charDescriptions.joined(separator: "; "))")
-            }
-
-            // Sample dialogue for mood
-            if let firstDialogue = scene.dialogues.first, !firstDialogue.text.isEmpty {
-                parts.append("mood: \"\(firstDialogue.text.prefix(80))...\"")
+                add("characters", "Characters & wardrobe", "Shot cast", ["Characters: \(charDescriptions.joined(separator: "; "))"])
             }
         }
 
-        // Style and format
-        parts.append("Dramatic lighting, film grain, cinematic color grading, 35mm film aesthetic, photorealistic")
-        parts.append("Widescreen 16:9 landscape composition, full frame edge-to-edge, no black bars or letterboxing")
-
-        return parts.joined(separator: ". ")
+        add("look", "Look", "App default", ["Dramatic lighting, film grain, cinematic color grading, 35mm film aesthetic, photorealistic"], fixed: true)
+        add("format", "Format", "App default", ["Widescreen 16:9 landscape composition, full frame edge-to-edge, no black bars or letterboxing"], fixed: true)
+        return sections
     }
 
     static func promptSummary(shot: Shot, scene: DCScene?) -> String {

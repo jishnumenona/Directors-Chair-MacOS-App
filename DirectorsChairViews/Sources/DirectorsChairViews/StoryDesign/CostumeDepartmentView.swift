@@ -255,7 +255,7 @@ struct CostumeDepartmentView: View {
     @ViewBuilder
     private func characterAvatar(_ character: Character) -> some View {
         if let basePath = projectBasePath,
-           let path = character.imageFront ?? character.baseImage ?? character.avatar {
+           let path = character.representativeImage {
             AsyncThumbnail(url: basePath.appendingPathComponent(path), displaySize: 20) { avatarPlaceholder }
                 .frame(width: 20, height: 20)
                 .clipShape(Circle())

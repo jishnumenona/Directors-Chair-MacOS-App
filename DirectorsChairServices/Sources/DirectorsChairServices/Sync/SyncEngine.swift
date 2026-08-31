@@ -109,6 +109,24 @@ public final class SyncEngine: ObservableObject {
             let projects = (try? await client.orgProjects(orgID: org.id)) ?? []
             listings.append(CloudOrgListing(org: org, projects: projects))
         }
+        // DC-0108: projects SHARED with me live in orgs I'm not a member of —
+        // they appear only in the flat listing. Group them per owning org so
+        // the invitee can download and open them like any cloud project.
+        let mine = Set(orgs.map(\.id))
+        let shared = ((try? await client.listProjects()) ?? [])
+            .filter { project in
+                guard let orgID = project.orgID else { return false }
+                return !mine.contains(orgID) && project.archivedAt == nil
+            }
+        for (orgID, projects) in Dictionary(grouping: shared, by: { $0.orgID ?? "" })
+            .sorted(by: { $0.key < $1.key }) where !orgID.isEmpty {
+            let first = projects[0]
+            let owner = SyncOrg(id: orgID,
+                                slug: first.orgSlug ?? orgID,
+                                name: "Shared with you — \(first.orgName ?? "another user")",
+                                kind: "personal", myRole: nil)
+            listings.append(CloudOrgListing(org: owner, projects: projects))
+        }
         return listings
     }
 

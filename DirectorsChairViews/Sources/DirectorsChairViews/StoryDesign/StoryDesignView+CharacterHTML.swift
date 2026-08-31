@@ -11,29 +11,41 @@ import UniformTypeIdentifiers
 
 extension StoryDesignView {
 
+    /// DC-0092: a cross-view ask ("go to this location") first, then the
+    /// mode and tab the user was on last time, then the first items.
     func applyInitialSelection() {
         if let locId = initialLocationId,
            let loc = project.locations.first(where: { $0.id == locId }) {
-            selectedMode = .locations
             selectedLocation = loc
-        } else if let charId = initialCharacterId,
-                  let char = project.characters.first(where: { $0.id == charId }) {
-            selectedMode = .characters
-            selectedCharacter = char
-        } else if preferredMode == "locations" {
-            selectedMode = .locations
-            if selectedLocation == nil, let firstLocation = project.locations.first {
-                selectedLocation = firstLocation
-            }
-        } else {
-            // Default: select first character
-            if selectedCharacter == nil, let firstCharacter = project.characters.first {
-                selectedCharacter = firstCharacter
-            }
-            if selectedLocation == nil, let firstLocation = project.locations.first {
-                selectedLocation = firstLocation
-            }
         }
+        if let charId = initialCharacterId,
+           let char = project.characters.first(where: { $0.id == charId }) {
+            selectedCharacter = char
+        }
+        if let preferred = preferredMode.flatMap(StoryDesignMode.init(rawValue:)) {
+            selectedMode = preferred
+        } else if let rememberedMode = remembered?.mode.flatMap(StoryDesignMode.init(rawValue:)) {
+            selectedMode = rememberedMode
+        } else if initialLocationId != nil, initialCharacterId == nil {
+            selectedMode = .locations
+        }
+        if let tab = remembered?.tab.flatMap(DesignTab.init(rawValue:)) {
+            selectedTab = tab
+        }
+        if selectedCharacter == nil, let firstCharacter = project.characters.first {
+            selectedCharacter = firstCharacter
+        }
+        if selectedLocation == nil, let firstLocation = project.locations.first {
+            selectedLocation = firstLocation
+        }
+    }
+
+    func reportSelection() {
+        onSelectionChanged?(StoryDesignSelection(
+            mode: selectedMode.rawValue,
+            characterId: selectedCharacter?.id,
+            locationId: selectedLocation?.id,
+            tab: selectedTab.rawValue))
     }
 
     // MARK: - Export Character HTML

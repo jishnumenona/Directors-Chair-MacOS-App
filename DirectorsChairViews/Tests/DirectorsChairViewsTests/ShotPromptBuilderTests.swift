@@ -4,6 +4,7 @@
 // an untested private view method).
 
 import XCTest
+import DirectorsChairServices
 @testable import DirectorsChairViews
 @testable import DirectorsChairCore
 
@@ -54,8 +55,13 @@ final class ShotPromptBuilderTests: XCTestCase {
                                                      locations: [location], characters: [alex])
         XCTAssertTrue(prompt.contains("Location: Warehouse (indoor)"))
         XCTAssertTrue(prompt.contains("Abandoned dockside warehouse"))
-        XCTAssertTrue(prompt.contains("Alex (Weathered detective"), "character described from about field")
-        XCTAssertTrue(prompt.contains("We're too late."), "first dialogue sets mood")
+        // Owner rule 2026-08-29: the scene's speakers and lines stay out of a
+        // shot's prompt unless the shot itself names them.
+        XCTAssertFalse(prompt.contains("Alex (Weathered detective"), "a character the shot never names is left out")
+        XCTAssertFalse(prompt.contains("We're too late."), "no mood line from the dialogue")
+        var castShot = makeShot(); castShot.characters = ["Alex"]
+        let castPrompt = ShotPromptBuilder.previewPrompt(shot: castShot, scene: scene, locations: [location], characters: [alex])
+        XCTAssertTrue(castPrompt.contains("Alex (Weathered detective"), "the shot's own cast is described")
     }
 
     func testUnknownLocationFallsBack() {
@@ -141,7 +147,7 @@ final class ShotPromptBuilderTests: XCTestCase {
                                                    cameraMotion: "Static", duration: 5.0)
         XCTAssertTrue(prompt.contains("Location: Warehouse (indoor)"), "location record missing")
         XCTAssertTrue(prompt.contains("Abandoned dockside warehouse"), "location description missing")
-        XCTAssertTrue(prompt.contains("Scene: Dust hangs in the light"), "scene description missing")
+        XCTAssertTrue(prompt.contains("Scene: Dust hangs in the light"), "the video prompt keeps the scene context")
         XCTAssertTrue(prompt.contains("Props: crowbar, shipping crate"), "props missing")
         XCTAssertTrue(prompt.contains("Alex (Weathered detective"), "character appearance missing")
         XCTAssertTrue(prompt.contains("Maya"), "action-only character missing")
@@ -353,4 +359,61 @@ final class ShotPromptBuilderTests: XCTestCase {
         XCTAssertTrue(without.contains("turnaround sheet"))
     }
 
+
+    // MARK: - Location prompts (DC-0090 owner report: a film crew in every location)
+
+    func testLocationPromptAsksForThePlaceNotTheProduction() {
+        var location = Location(name: "Outside the mini van")
+        location.description = "Wide open desert with a road going through it"
+        location.locationType = "outdoor"
+        let prompt = StoryDesignPromptBuilder.locationPrompt(location: location)
+        XCTAssertTrue(prompt.hasPrefix("Outside the mini van, Wide open desert"))
+        XCTAssertTrue(prompt.contains("outdoor location"))
+        XCTAssertFalse(prompt.lowercased().contains("film production"), prompt)
+        XCTAssertTrue(prompt.contains("empty of people, no film crew"), prompt)
+        XCTAssertTrue(StoryDesignPromptBuilder.locationVariationPrompt(location: location, override: "at night", hasPrimaryImage: true)
+                        .contains("EXACT SAME location"))
+    }
+
+    // Owner 2026-08-29: the director's own camera words join the prompt.
+    func testCameraDescriptionJoinsThePreviewPrompt() {
+        var shot = Shot(shotId: 1, description: "Van on the road")
+        shot.cameraDescription = "low on the road surface, looking up past the front wheel"
+        let prompt = ShotPromptBuilder.previewPrompt(shot: shot, scene: nil, locations: [], characters: [])
+        XCTAssertTrue(prompt.contains("camera: low on the road surface"), prompt)
+        XCTAssertTrue((StoryboardSubjects.notes(for: shot) ?? "").contains("looking up past the front wheel"))
+    }
+
+    // Owner 2026-08-29: the sectioned prompt editor — same text, now with sources.
+    func testSectionsAssembleToTheSamePromptAndCarrySources() {
+        var shot = Shot(shotId: 1, description: "Shot from outside the $Mini van")
+        shot.cameraDescription = "low on the road"
+        var scene = Scene(name: "Outside"); scene.location = "Desert road"
+        var location = Location(name: "Desert road"); location.description = "Wide open desert"
+        let sections = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: [location], characters: [])
+        XCTAssertEqual(PromptSections.assemble(sections),
+                       ShotPromptBuilder.previewPrompt(shot: shot, scene: scene, locations: [location], characters: []))
+        XCTAssertEqual(sections.map(\.id), ["style", "framing", "camera", "description", "location", "look", "format"])
+        var talky = scene; talky.description = "Dust hangs in the light."
+        let withScene = ShotPromptBuilder.previewSections(shot: shot, scene: talky, locations: [location], characters: [])
+        XCTAssertEqual(withScene.first { $0.id == "scene" }?.isIncluded, false, "the scene's prose is an optional part, off by default")
+        XCTAssertFalse(ShotPromptBuilder.previewPrompt(shot: shot, scene: talky, locations: [location], characters: []).contains("Dust hangs"))
+        XCTAssertEqual(sections.first { $0.id == "location" }?.source, "Location: Desert road")
+        XCTAssertTrue(sections.first { $0.id == "style" }?.isFixed ?? false)
+        var dropped = sections
+        dropped[dropped.firstIndex { $0.id == "look" }!].isIncluded = false
+        XCTAssertFalse(PromptSections.assemble(dropped).contains("film grain"))
+    }
+
+    func testEditPromptsNeverNest() {
+        let built = "Cinematic film still. A road"
+        let edit = "Edit this shot preview with the following changes:\n1. At (57%, 54%): faster\nKeep all other areas unchanged." + PromptSections.originalPromptMarker + built
+        XCTAssertEqual(PromptSections.baseForEdit(lastUsed: edit, built: built), built)
+        XCTAssertEqual(PromptSections.baseForEdit(lastUsed: "my own words", built: built), "my own words")
+        XCTAssertEqual(PromptSections.baseForEdit(lastUsed: "", built: built), built)
+        let split = PromptSections.splitEditPrompt(edit)
+        XCTAssertEqual(split?.original, built)
+        XCTAssertTrue(split?.changes.contains("faster") ?? false)
+        XCTAssertNil(PromptSections.splitEditPrompt(built))
+    }
 }

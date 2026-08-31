@@ -46,3 +46,6 @@ qa/runs/
 
 # Perf-measurement derived data (scripts/perf runs)
 .perfbuild/
+
+# subagent worktrees (never part of the repo)
+.claude/worktrees/

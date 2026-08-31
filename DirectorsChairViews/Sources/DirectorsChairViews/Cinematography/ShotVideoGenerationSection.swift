@@ -402,6 +402,8 @@ struct ShotVideoGenerationSection: View {
             setupInitialState()
             resumeJobIfNeeded()
         }
+        // Owner 2026-08-29: the Start frame IS the shot's picture — follow it.
+        .onChange(of: shot.previewImage) { _, _ in syncStartKeyframe() }
         // No .onDisappear cancel: the coordinator owns the job so it keeps
         // running (and persists) when this view is recreated or navigated away.
         .onChange(of: videoJobs.jobs[shot.id]) { _, state in
@@ -699,6 +701,24 @@ struct ShotVideoGenerationSection: View {
 
     // MARK: - Setup
 
+    /// The Start keyframe shows the shot's picture unless the user generated a
+    /// distinct start frame: a start frame that is empty, that already points
+    /// at the shot's picture, or whose file is gone follows `shot.previewImage`
+    /// (owner 2026-08-29: "whatever is the shot picture is the start frame").
+    private func syncStartKeyframe() {
+        guard let index = keyframes.firstIndex(where: { $0.position == 0.0 }) else { return }
+        let current = keyframes[index].imagePath
+        let picture = shot.previewImage
+        let isShotPicture = current == nil || current == picture || (current?.hasSuffix("/latest.png") ?? false)
+        let fileMissing: Bool = {
+            guard let current, let basePath = projectBasePath else { return false }
+            return !FileManager.default.fileExists(atPath: basePath.appendingPathComponent(current).path)
+        }()
+        if (isShotPicture || fileMissing), current != picture {
+            keyframes[index].imagePath = picture
+        }
+    }
+
     private func setupInitialState() {
         if let shotDuration = shot.videoDuration ?? shot.duration {
             duration = shotDuration
@@ -729,6 +749,7 @@ struct ShotVideoGenerationSection: View {
                 VideoKeyframe(position: 1.0, label: "End", timestamp: duration)
             ]
         }
+        syncStartKeyframe()
         if let videoPath = shot.videoPath, let basePath = projectBasePath {
             let fullPath = basePath.appendingPathComponent(videoPath)
             if FileManager.default.fileExists(atPath: fullPath.path) {

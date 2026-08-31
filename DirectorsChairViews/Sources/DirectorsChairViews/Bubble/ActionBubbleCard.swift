@@ -9,6 +9,9 @@ public struct ActionBubbleCard: View {
     let action: Action
     let isSelected: Bool
     let characters: [Character]
+    var locations: [Location] = []
+    var props: [Prop] = []
+    var shots: [Shot] = []
     let globalIndex: Int?
 
     var onTap: (() -> Void)?
@@ -28,11 +31,17 @@ public struct ActionBubbleCard: View {
     @FocusState private var textFieldFocused: Bool
     @FocusState private var indexFieldFocused: Bool
 
+    /// Width of the row this card sits in (BubbleView publishes it); the card caps itself at a share of it
+    @Environment(\.bubbleRowWidth) private var rowWidth
+
     public init(
         action: Action,
         isSelected: Bool = false,
         startInEditMode: Bool = false,
         characters: [Character] = [],
+        locations: [Location] = [],
+        props: [Prop] = [],
+        shots: [Shot] = [],
         globalIndex: Int? = nil,
         onTap: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -45,6 +54,9 @@ public struct ActionBubbleCard: View {
         self.isSelected = isSelected
         self.startInEditMode = startInEditMode
         self.characters = characters
+        self.locations = locations
+        self.props = props
+        self.shots = shots
         self.globalIndex = globalIndex
         self.onTap = onTap
         self.onEdit = onEdit
@@ -101,6 +113,9 @@ public struct ActionBubbleCard: View {
                     text: $editedText,
                     placeholder: "Action description...",
                     characters: characters,
+                    locations: locations,
+                    props: props,
+                    shots: shots,
                     font: .system(size: 12).italic(),
                     foregroundColor: .orange.opacity(0.9),
                     onSubmit: { commitEdit() }
@@ -140,8 +155,8 @@ public struct ActionBubbleCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected || isEditing ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
         )
-        .fixedSize(horizontal: !isEditing, vertical: false)
-        .frame(minWidth: isEditing ? 200 : nil)
+        // Hug the text, in display and edit mode alike; wrap past a share of the row (owner 2026-08-29)
+        .hugWidth(max: BubbleCardSizing.maxWidth(forRowWidth: rowWidth))
         .onHover { isHovered = $0 }
         .onTapGesture { onTap?() }
         .contextMenu {
@@ -155,6 +170,9 @@ public struct ActionBubbleCard: View {
                 onEditModeStarted?()
             }
         }
+        // The mention list is an overlay: keep an editing card above its
+        // neighbours (owner report 2026-08-29: the list looked transparent).
+        .zIndex(isEditing ? 10 : 0)
     }
 
     private func startEditing() {

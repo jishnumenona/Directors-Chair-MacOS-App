@@ -26,7 +26,9 @@ final class AnnotationEditorPromptTests: XCTestCase {
             source: png, annotations: [KeyframeAnnotation(normalizedX: 0.3, normalizedY: 0.6, text: "brighter window", number: 1)],
             context: "image", originalPrompt: "a rain-soaked neon street"))
         XCTAssertEqual(edit.baseImage, png)
-        XCTAssertEqual(edit.prompt, "Edit this image with the following changes:\n1. At (30%, 60%): brighter window\nKeep all other areas unchanged.\n\nOriginal prompt: a rain-soaked neon street")
+        // A 4-byte stand-in can't be marked, so the wording falls back to positions in words; never the original prompt.
+        XCTAssertEqual(edit.prompt, "Edit the FIRST attached picture. Make exactly these changes and nothing else:\n1. At about 30% across and 60% down from the top-left corner: brighter window\nEverything else — the other people, the place, the composition and framing, the lighting and the film look — must stay exactly as in the picture. Return the edited picture with the same framing.")
+        XCTAssertTrue(PromptSections.isEditPrompt(edit.prompt), "the next generation must not build on an edit prompt")
         XCTAssertEqual(AnnotationEditComposer.regions(for: edit.edit).count, 1, "the marks reach the on-device engine")
     }
 }

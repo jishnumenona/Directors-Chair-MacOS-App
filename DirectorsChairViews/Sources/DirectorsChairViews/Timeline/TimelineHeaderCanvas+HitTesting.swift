@@ -73,7 +73,7 @@ extension TimelineHeaderCanvas {
                     TimelineLayoutConstants.rulerHeight +
                     TimelineLayoutConstants.rulerGap
         let totalLaneHeight = shotLaneOffset
-        let singleLaneHeight = TimelineLayoutConstants.shotLaneHeight
+        let singleLaneHeight = shotLaneHeight
         let perfSize = TimelineLayoutConstants.filmPerforationSize
 
         guard point.y >= laneY && point.y <= laneY + totalLaneHeight else { return nil }
@@ -112,7 +112,7 @@ extension TimelineHeaderCanvas {
                     TimelineLayoutConstants.rulerHeight +
                     TimelineLayoutConstants.rulerGap
         let totalLaneHeight = shotLaneOffset
-        let singleLaneHeight = TimelineLayoutConstants.shotLaneHeight
+        let singleLaneHeight = shotLaneHeight
         let perfSize = TimelineLayoutConstants.filmPerforationSize
 
         guard point.y >= laneY && point.y <= laneY + totalLaneHeight else { return nil }
@@ -139,6 +139,65 @@ extension TimelineHeaderCanvas {
         }
 
         return nil
+    }
+
+    /// Frame of a shot card (the same geometry drawShotLabels / findShotLabel use)
+    func shotCardRect(for shotLabel: TimelineShotLabel) -> CGRect {
+        let laneY = TimelineLayoutConstants.topMargin +
+                    TimelineLayoutConstants.rulerHeight +
+                    TimelineLayoutConstants.rulerGap
+        let cardInset = TimelineLayoutConstants.filmPerforationSize + 6
+        let cardHeight = shotLaneHeight - cardInset * 2
+        let x = originX + shotLabel.time * pxPerSec
+        let cardWidth = shotLabel.displayWidth(pxPerSec: pxPerSec)
+        let subLane = shotSubLaneAssignments[shotLabel.id] ?? 0
+        return CGRect(
+            x: x + 2,
+            y: laneY + CGFloat(subLane) * shotLaneHeight + cardInset,
+            width: cardWidth - 4,
+            height: cardHeight
+        )
+    }
+
+    /// Find a shot label whose left edge is within the trim zone of the given point
+    func findShotLabelLeftEdge(at point: CGPoint) -> TimelineShotLabel? {
+        guard showShotLabels else { return nil }
+        let threshold = TimelineLayoutConstants.trimEdgeHitWidth
+        for shotLabel in shotLabels {
+            let rect = shotCardRect(for: shotLabel)
+            if point.y >= rect.minY && point.y <= rect.maxY && abs(point.x - rect.minX) <= threshold {
+                return shotLabel
+            }
+        }
+        return nil
+    }
+
+    /// Whether the point is on the drag strip along the bottom edge of the Shots track
+    func isOverShotLaneResizeHandle(at point: CGPoint) -> Bool {
+        guard showShotLabels, onShotLaneHeightChanged != nil else { return false }
+        return abs(point.y - shotLaneBottomY) <= TimelineLayoutConstants.shotLaneResizeHandleHeight / 2
+    }
+
+    /// Invisible, non-interactive elements at the selected shot card's trim
+    /// handles so UI automation can find them.
+    @ViewBuilder
+    var shotTrimHandleAccessibilityOverlay: some View {
+        if showShotLabels, let selectedId = selectedShotLabelId,
+           let label = shotLabels.first(where: { $0.id == selectedId }) {
+            let rect = shotCardRect(for: label)
+            Color.clear
+                .frame(width: TimelineLayoutConstants.trimEdgeHitWidth * 2, height: rect.height)
+                .position(x: rect.minX, y: rect.midY)
+                .accessibilityElement()
+                .accessibilityIdentifier("timeline-trim-left-shot-\(label.shotId)")
+                .accessibilityLabel("Trim start of \(label.shotName)")
+            Color.clear
+                .frame(width: TimelineLayoutConstants.trimEdgeHitWidth * 2, height: rect.height)
+                .position(x: rect.maxX, y: rect.midY)
+                .accessibilityElement()
+                .accessibilityIdentifier("timeline-trim-right-shot-\(label.shotId)")
+                .accessibilityLabel("Trim end of \(label.shotName)")
+        }
     }
 
     /// Check if a point hits the shot track eye toggle area

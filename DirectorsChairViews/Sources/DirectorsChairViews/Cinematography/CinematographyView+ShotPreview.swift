@@ -20,8 +20,15 @@ struct ShotPreviewSection: View {
     let locations: [Location]
     /// Prop-shop registry — the props a shot names ride along as references (DC-0079).
     var props: [Prop] = []
+    /// DC-0091: every shot in the project — the pool of continuity references.
+    var allShots: [Shot] = []
     let projectBasePath: URL?
     let onPreviewGenerated: (String) -> Void
+    /// DC-0091: the shot's chosen continuity references changed.
+    var onShotUpdated: ((Shot) -> Void)?
+    /// DC-0102: open a mentioned element's page from the annotation editor.
+    var onOpenMention: ((ResolvedMention) -> Void)?
+    @State private var showingContinuityPicker = false
 
     @State private var isGenerating = false
     @State private var previewImage: NSImage?
@@ -32,8 +39,16 @@ struct ShotPreviewSection: View {
     @State private var showingAnnotationEditor = false
     @State private var editablePrompt: String = ""
     @State private var lastUsedPrompt: String = ""
+    /// The prompt as parts with sources, for the sectioned editor.
+    @State private var promptSections: [PromptSection] = []
+    /// A generation held back because the shot has no location (owner 2026-08-29).
+    @State private var promptAwaitingLocation: String?
     @State private var allPreviewImages: [URL] = []
+    /// Which history picture is the shot's picture (latest.png) right now.
+    @State private var defaultPreviewIndex: Int?
     @State private var currentImageIndex: Int = -1
+    /// Owner 2026-08-30: the hover toolbar's icons say their names.
+    @State private var hoveredToolName: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -44,12 +59,12 @@ struct ShotPreviewSection: View {
                     .fill(Color(hex: "#1A1A1A"))
 
                 if let image = previewImage {
-                    // Display preview image
+                    // DC-0090: the WHOLE picture, never a centre crop — the
+                    // container takes the picture's own shape (below).
                     Image(nsImage: image)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(maxWidth: .infinity, maxHeight: 420)
-                        .clipped()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else if isGenerating {
                     // Loading state
@@ -130,6 +145,10 @@ struct ShotPreviewSection: View {
                             .buttonStyle(.plain)
                             .requiresTier(.creator, feature: "AI shot images")
 
+                            if !startFromOptions.isEmpty {
+                                startFromMenu
+                            }
+
                             Button(action: { uploadPreviewImage() }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "photo.badge.plus")
@@ -153,7 +172,7 @@ struct ShotPreviewSection: View {
 
                 // Overlay buttons (when image exists)
                 if previewImage != nil {
-                    VStack {
+                    VStack(alignment: .trailing, spacing: 2) {
                         HStack {
                             Spacer()
                             if !isGenerating {
@@ -168,6 +187,7 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("View full size")
+                                .onHover { hoveredToolName = $0 ? "View full size" : nil }
 
                                 // Annotate & edit button
                                 Button(action: { showingAnnotationEditor = true }) {
@@ -180,6 +200,7 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Annotate & edit image")
+                                .onHover { hoveredToolName = $0 ? "Annotate & edit" : nil }
 
                                 // Edit prompt button
                                 Button(action: { openPromptEditor() }) {
@@ -193,6 +214,7 @@ struct ShotPreviewSection: View {
                                 .buttonStyle(.plain)
                                 .help("Edit prompt")
                                 .requiresTier(.creator, feature: "AI shot images")
+                                .onHover { hoveredToolName = $0 ? "Edit prompt" : nil }
 
                                 // Download button
                                 Button(action: { downloadPreviewImage() }) {
@@ -205,6 +227,7 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Download image")
+                                .onHover { hoveredToolName = $0 ? "Download" : nil }
 
                                 // Upload custom image button
                                 Button(action: { uploadPreviewImage() }) {
@@ -217,6 +240,14 @@ struct ShotPreviewSection: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("Upload custom image")
+                                .onHover { hoveredToolName = $0 ? "Upload a picture" : nil }
+
+                                // Owner 2026-08-29: start over from an existing
+                                // picture (location / continuity shot) to annotate.
+                                if !startFromOptions.isEmpty {
+                                    startFromMenu(compact: true)
+                                        .onHover { hoveredToolName = $0 ? "Start from a picture" : nil }
+                                }
                             }
 
                             // Regenerate button (shows spinner when generating)
@@ -239,8 +270,19 @@ struct ShotPreviewSection: View {
                             .buttonStyle(.plain)
                             .disabled(isGenerating)
                             .help(isGenerating ? "Generating..." : "Regenerate preview")
+                            .onHover { hoveredToolName = $0 ? "Regenerate" : nil }
                         }
                         .padding(12)
+                        if let name = hoveredToolName {
+                            Text(name)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.black.opacity(0.75))
+                                .cornerRadius(6)
+                                .padding(.trailing, 14)
+                        }
                         Spacer()
                     }
                 }
@@ -290,6 +332,30 @@ struct ShotPreviewSection: View {
                                     .background(isFromTake ? Color.green.opacity(0.7) : Color.accentColor.opacity(0.7))
                                     .cornerRadius(4)
                             }
+
+                            // Owner 2026-08-29: any generated picture can be the shot's picture.
+                            if allPreviewImages.count > 1 {
+                                if currentImageIndex == defaultPreviewIndex {
+                                    Text("Shot picture")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.white.opacity(0.25))
+                                        .cornerRadius(4)
+                                } else {
+                                    Button("Use as shot picture") { useCurrentAsShotPicture() }
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.accentColor.opacity(0.7))
+                                        .cornerRadius(4)
+                                        .help("Make this the picture the shot shows and sends as its reference")
+                                        .accessibilityIdentifier("preview-use-as-shot-picture")
+                                }
+                            }
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -299,11 +365,27 @@ struct ShotPreviewSection: View {
                     }
                 }
             }
-            .frame(height: 420)
+            // DC-0090: a picture sets the frame's shape (a 16:9 preview is a
+            // 16:9 box, capped so the page stays scrollable); the empty and
+            // loading states keep the old 420-pt box.
+            .modifier(PreviewFrameShape(image: previewImage))
+            .alert("No location set", isPresented: Binding(get: { promptAwaitingLocation != nil },
+                                                            set: { if !$0 { promptAwaitingLocation = nil } })) {
+                Button("Generate anyway") {
+                    if let prompt = promptAwaitingLocation { generatePreview(with: prompt, locationConfirmed: true) }
+                    promptAwaitingLocation = nil
+                }
+                Button("Cancel", role: .cancel) { promptAwaitingLocation = nil }
+            } message: {
+                Text("This shot's scene has no location, so the preview won't know where it takes place. Set one in Shot Context or type #location in the description — or generate anyway.")
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
             )
+
+            // DC-0091: the frames this shot keeps continuity with.
+            continuityRow
 
             // Shot info pills and prompt info
             HStack(spacing: 8) {
@@ -354,7 +436,8 @@ struct ShotPreviewSection: View {
         }
         .sheet(isPresented: $showingPromptEditor) {
             PromptEditorSheet(
-                prompt: $editablePrompt,
+                sections: $promptSections,
+                onReset: { promptSections = builtSectionsWithPictures() },
                 isPresented: $showingPromptEditor,
                 onGenerate: { customPrompt in
                     generatePreview(with: customPrompt)
@@ -375,6 +458,12 @@ struct ShotPreviewSection: View {
                     image: image,
                     title: "EDIT SHOT PREVIEW",
                     subtitle: "Shot \(shot.shotId) — \(shot.shotType) \(shot.cameraAngle)",
+                    characters: characters,
+                    locations: locations,
+                    props: props,
+                    shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } },
+                    projectDirectory: projectBasePath?.deletingLastPathComponent(),
+                    onOpenMention: onOpenMention,
                     isPresented: $showingAnnotationEditor,
                     onApplyEdits: { annotations in
                         generatePreviewWithAnnotations(annotations)
@@ -387,8 +476,60 @@ struct ShotPreviewSection: View {
     // MARK: - Prompt Editor
 
     private func openPromptEditor() {
-        editablePrompt = lastUsedPrompt.isEmpty ? buildPrompt() : lastUsedPrompt
+        promptSections = promptSectionsForEditor()
         showingPromptEditor = true
+    }
+
+    /// What the sectioned editor opens with: the built parts; a previous
+    /// annotation edit shows its marked changes above the base parts; a
+    /// prompt the user wrote by hand shows as one part.
+    /// The reference pictures this generation will send, with their labels.
+    private func referencePictures() -> [PromptPicture] {
+        guard let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() else { return [] }
+        var refs = CharacterReferenceHelper.collectReferenceImages(
+            forShot: shot, in: scene, characters: characters, locations: locations, props: props, projectDirectory: projDir)
+        let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+        refs = ContinuityReferences.merged(continuity: continuity, others: refs,
+                                           onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)
+        return refs.compactMap { ref in
+            guard let data = Data(base64Encoded: ref.base64), let image = NSImage(data: data) else { return nil }
+            let parts = ref.label.split(separator: ":", maxSplits: 1).map(String.init)
+            let kind = parts.first ?? "reference"
+            let name = parts.count > 1 ? parts[1] : ref.label
+            return PromptPicture(label: "\(name) · \(kind)", image: image)
+        }
+    }
+
+    /// The built parts with the pictures each one sends (owner 2026-08-29).
+    private func builtSectionsWithPictures() -> [PromptSection] {
+        var sections = ShotPromptBuilder.previewSections(shot: shot, scene: scene, locations: locations, characters: characters)
+        let pictures = referencePictures()
+        guard !pictures.isEmpty else { return sections }
+        func attach(_ id: String, _ kinds: [String]) {
+            guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+            sections[index].pictures = pictures.filter { picture in kinds.contains { picture.label.hasSuffix("· \($0)") } }
+        }
+        attach("location", ["location"])
+        attach("characters", ["character", "costume"])
+        let rest = pictures.filter { picture in !["location", "character", "costume"].contains { picture.label.hasSuffix("· \($0)") } }
+        if !rest.isEmpty {
+            let references = PromptSection(id: "references", title: "Reference pictures", source: "Props · continuity shots",
+                                           text: "", isFixed: true, pictures: rest)
+            let at = sections.firstIndex { $0.id == "description" }.map { $0 + 1 } ?? sections.count
+            sections.insert(references, at: at)
+        }
+        return sections
+    }
+
+    private func promptSectionsForEditor() -> [PromptSection] {
+        let built = builtSectionsWithPictures()
+        guard !lastUsedPrompt.isEmpty, lastUsedPrompt != buildPrompt() else { return built }
+        if let edit = PromptSections.splitEditPrompt(lastUsedPrompt) {
+            let changes = PromptSection(id: "changes", title: "Changes you marked", source: "Annotation editor",
+                                        text: edit.changes.trimmingCharacters(in: .whitespacesAndNewlines))
+            return [changes] + built
+        }
+        return [PromptSection(id: "custom", title: "Your prompt", source: "Written by you", text: lastUsedPrompt)]
     }
 
     private func generateWithDefaultPrompt() {
@@ -547,6 +688,171 @@ struct ShotPreviewSection: View {
 
     // MARK: - Image History
 
+    /// The scene location's picture, if the scene has a location with one.
+    private var locationPicturePath: String? {
+        guard let name = scene?.location, !name.isEmpty,
+              let location = locations.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return nil }
+        let path = location.primaryImage ?? location.images.first
+        return (path?.isEmpty == false) ? path : nil
+    }
+
+    /// Owner 2026-08-29: a shot's preview can start from a picture that already
+    /// exists — the scene location's picture or a continuity shot's preview —
+    /// and be annotated into this shot from there.
+    fileprivate struct StartFromOption: Identifiable {
+        let id: String
+        let title: String
+        let subtitle: String
+        let systemImage: String
+        let path: String
+        let accessibilityId: String
+    }
+
+    private var startFromOptions: [StartFromOption] {
+        var options: [StartFromOption] = []
+        if let path = locationPicturePath {
+            let name = scene?.location.flatMap { $0.isEmpty ? nil : $0 } ?? "the scene location"
+            options.append(StartFromOption(id: "location", title: "Location picture",
+                                           subtitle: name,
+                                           systemImage: "mappin.and.ellipse", path: path,
+                                           accessibilityId: "preview-use-location"))
+        }
+        for other in referencedShots {
+            guard let path = other.previewImage, !path.isEmpty else { continue }
+            options.append(StartFromOption(id: other.id, title: "Shot #\(other.shotId) preview",
+                                           subtitle: "kept for continuity",
+                                           systemImage: "film.stack", path: path,
+                                           accessibilityId: "preview-use-shot-\(other.shotId)"))
+        }
+        return options
+    }
+
+    private var startFromMenu: some View {
+        StartFromButton(options: startFromOptions, compact: false,
+                        projectRoot: projectBasePath?.deletingLastPathComponent(),
+                        onPick: { usePictureAsPreview(relativePath: $0.path) })
+    }
+
+    private func startFromMenu(compact: Bool) -> some View {
+        StartFromButton(options: startFromOptions, compact: compact,
+                        projectRoot: projectBasePath?.deletingLastPathComponent(),
+                        onPick: { usePictureAsPreview(relativePath: $0.path) })
+    }
+
+    /// The "Start from" picker (owner 2026-08-30: the menu was bare text —
+    /// options now show their pictures, like the continuity picker; the icon
+    /// is a stack of photos, no longer a twin of Upload's).
+    fileprivate struct StartFromButton: View {
+        let options: [StartFromOption]
+        let compact: Bool
+        let projectRoot: URL?
+        let onPick: (StartFromOption) -> Void
+        @State private var showingPicker = false
+
+        var body: some View {
+            Button { showingPicker = true } label: {
+                if compact {
+                    // Owner 2026-08-30 (second pass): a layers glyph — the filled
+                    // BOTTOM layer is the base picture — nothing like Upload's photo.
+                    Image(systemName: "square.3.layers.3d.bottom.filled")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(Color.black.opacity(0.6))
+                        .clipShape(Circle())
+                } else {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.3.layers.3d.bottom.filled")
+                            .font(.system(size: 12))
+                        Text("Start from")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.18))
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Start from an existing picture — the location's picture or a continuity shot's preview — and annotate it into this shot's preview")
+            .accessibilityIdentifier(compact ? "preview-start-from-hover" : "preview-start-from")
+            .popover(isPresented: $showingPicker, arrowEdge: .bottom) { picker }
+        }
+
+        private var picker: some View {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Start from an existing picture")
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                Divider()
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(options) { option in
+                            Button {
+                                showingPicker = false
+                                onPick(option)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    if let root = projectRoot {
+                                        AsyncThumbnail(url: root.appendingPathComponent(option.path), displaySize: 64) {
+                                            Color.gray.opacity(0.3)
+                                        }
+                                        .frame(width: 64, height: 36)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(option.title)
+                                            .font(.system(size: 11, weight: .medium))
+                                        Text(option.subtitle)
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: option.systemImage)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier(option.accessibilityId)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(maxHeight: 240)
+            }
+            .frame(width: 300)
+        }
+    }
+
+    /// DC-0102 / owner 2026-08-29: an existing picture (the location's, or a
+    /// continuity shot's preview) becomes this shot's preview (history +
+    /// latest, like an upload), ready to be annotated into the shot.
+    private func usePictureAsPreview(relativePath path: String) {
+        guard let basePath = projectBasePath,
+              let data = try? Data(contentsOf: basePath.deletingLastPathComponent().appendingPathComponent(path)),
+              let png = UploadedImage.normalizedPNG(from: data) else { return }
+        do {
+            let shotDir = "assets/shots/shot_\(shot.shotId)"
+            try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                       filename: "preview_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                                          filename: "latest.png")
+            if let image = NSImage(data: png) { previewImage = image }
+            onPreviewGenerated(relativePath)
+            discoverPreviewImages()
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
+    }
+
     private func uploadPreviewImage() {
         guard let basePath = projectBasePath,
               let data = UploadedImage.pickData(message: "Choose a preview image for this shot"),
@@ -592,8 +898,33 @@ struct ShotPreviewSection: View {
             if !images.isEmpty {
                 currentImageIndex = images.count - 1
             }
+            // The shot's picture is latest.png — find which history file it is.
+            let latest = shotDir.appendingPathComponent("latest.png")
+            if let latestData = try? Data(contentsOf: latest) {
+                defaultPreviewIndex = images.firstIndex { (try? Data(contentsOf: $0)) == latestData }
+            } else {
+                defaultPreviewIndex = nil
+            }
         } catch {
             // Directory doesn't exist or can't be read
+        }
+    }
+
+    /// Copy the browsed history picture over latest.png so every consumer
+    /// (thumbnails, references, exports) uses it.
+    private func useCurrentAsShotPicture() {
+        guard let basePath = projectBasePath, currentImageIndex < allPreviewImages.count else { return }
+        let source = allPreviewImages[currentImageIndex]
+        let relativePath = "assets/shots/shot_\(shot.shotId)/latest.png"
+        let latest = basePath.deletingLastPathComponent().appendingPathComponent(relativePath)
+        do {
+            let data = try Data(contentsOf: source)
+            try data.write(to: latest, options: .atomic)
+            defaultPreviewIndex = currentImageIndex
+            onPreviewGenerated(relativePath)
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
         }
     }
 
@@ -605,9 +936,160 @@ struct ShotPreviewSection: View {
         }
     }
 
+    // MARK: - Continuity references (DC-0091)
+
+    private var sceneShotIds: [String] { scene?.shots.map(\.id) ?? [] }
+
+    private var referencedShots: [Shot] {
+        shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } }
+    }
+
+    private var continuityCandidates: [Shot] {
+        ContinuityReferences.candidates(for: shot, sceneShotIds: sceneShotIds, allShots: allShots)
+            .filter { !shot.referenceShotIds.contains($0.id) }
+    }
+
+    private var continuityRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: "film.stack")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text("Continuity")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .help("Other shots' finished previews sent along as references so this shot keeps the same place, light, cast and wardrobe")
+
+            ForEach(referencedShots, id: \.id) { other in
+                HStack(spacing: 5) {
+                    if let path = other.previewImage, let base = projectBasePath?.deletingLastPathComponent() {
+                        AsyncThumbnail(url: base.appendingPathComponent(path), displaySize: 28) {
+                            Color.gray.opacity(0.3)
+                        }
+                        .frame(width: 36, height: 20)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+                    Text("Shot #\(other.shotId)")
+                        .font(.system(size: 10, weight: .medium))
+                    if let path = other.previewImage, !path.isEmpty {
+                        Button {
+                            usePictureAsPreview(relativePath: path)
+                        } label: {
+                            Image(systemName: "photo.on.rectangle")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Use Shot #\(other.shotId)'s preview as this shot's picture, to annotate from")
+                        .accessibilityIdentifier("continuity-use-\(other.shotId)")
+                    }
+                    Button {
+                        var updated = shot
+                        updated.referenceShotIds.removeAll { $0 == other.id }
+                        onShotUpdated?(updated)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop using Shot #\(other.shotId) as a reference")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.12)))
+                .accessibilityIdentifier("continuity-ref-\(other.shotId)")
+            }
+
+            Button {
+                showingContinuityPicker = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .medium))
+                    Text(referencedShots.isEmpty ? "Use another shot as reference" : "Add")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(.accentColor.opacity(0.9))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.accentColor.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(continuityCandidates.isEmpty)
+            .help(continuityCandidates.isEmpty
+                  ? "Generate a preview on another shot first — finished previews can be used as references"
+                  : "Pick a shot whose preview this shot should keep continuity with")
+            .accessibilityIdentifier("continuity-add")
+            .popover(isPresented: $showingContinuityPicker, arrowEdge: .bottom) {
+                continuityPicker
+            }
+
+            Spacer()
+        }
+    }
+
+    private var continuityPicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Keep continuity with")
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(continuityCandidates, id: \.id) { other in
+                        Button {
+                            var updated = shot
+                            updated.referenceShotIds.append(other.id)
+                            onShotUpdated?(updated)
+                            showingContinuityPicker = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                if let path = other.previewImage, let base = projectBasePath?.deletingLastPathComponent() {
+                                    AsyncThumbnail(url: base.appendingPathComponent(path), displaySize: 64) {
+                                        Color.gray.opacity(0.3)
+                                    }
+                                    .frame(width: 64, height: 36)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Shot #\(other.shotId)\(sceneShotIds.contains(other.id) ? "" : " · other scene")")
+                                        .font(.system(size: 11, weight: .medium))
+                                    Text(other.description.isEmpty ? other.shotType : String(other.description.prefix(60)))
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("continuity-pick-\(other.shotId)")
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 260)
+        }
+        .frame(width: 320)
+    }
+
     // MARK: - Generate Preview
 
-    private func generatePreview(with prompt: String) {
+    private func generatePreview(with prompt: String, locationConfirmed: Bool = false) {
+        // Owner 2026-08-29: a shot without a location has nowhere to happen — ask first.
+        if !locationConfirmed, (scene?.location ?? "").isEmpty {
+            promptAwaitingLocation = prompt
+            return
+        }
         isGenerating = true
         errorMessage = nil
         lastUsedPrompt = prompt
@@ -637,6 +1119,15 @@ struct ShotPreviewSection: View {
                     )
                 }
 
+                // DC-0091: other shots' finished frames come first, within
+                // the provider's reference budget.
+                if let projDir = projectBasePath?.deletingLastPathComponent() {
+                    let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+                    refs = ContinuityReferences.merged(
+                        continuity: continuity, others: refs,
+                        onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)
+                }
+
                 // Prepend reference image instructions to the prompt
                 let fullPrompt: String
                 if !refs.isEmpty {
@@ -660,7 +1151,8 @@ struct ShotPreviewSection: View {
                     numberOfImages: 1,
                     referenceImages: refs.isEmpty ? nil : refs,
                     brief: VisualBrief(purpose: .shot, subject: onDeviceSubject,
-                                       framing: StoryboardSubjects.notes(for: shot))
+                                       framing: StoryboardSubjects.notes(for: shot)),
+                    targetSize: .projectPreview   // DC-0090: the project's preview size
                 )
 
                 let response = try await aiClient.generateImage(request)
@@ -741,22 +1233,40 @@ struct ShotPreviewSection: View {
               let tiffData = currentImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let source = bitmap.representation(using: .png, properties: [:]) else { return }
-        let basePrompt = lastUsedPrompt.isEmpty ? buildPrompt() : lastUsedPrompt
+        // Never nest an edit inside an edit (owner report 2026-08-29).
+        let basePrompt = PromptSections.baseForEdit(lastUsed: lastUsedPrompt, built: buildPrompt())
         // The scene's pictures ride behind the preview for likeness (cloud);
         // the on-device repaint takes the preview alone.
+        // Owner 2026-08-29: an edit carries the picture and the pictures of what
+        // the instructions mention — not the scene's whole reference bundle,
+        // which made the model start the picture over.
         var context: [ReferenceImage] = []
-        if let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() {
-            context = CharacterReferenceHelper.collectReferenceImages(
-                forShot: shot, in: scene,
-                characters: characters,
-                locations: locations,
-                props: props,
-                projectDirectory: projDir
-            )
+        // DC-0102: the pictures of everything the instructions mention ride
+        // along (cloud edits; on-device repaints take the source alone).
+        if let projDir = projectBasePath?.deletingLastPathComponent() {
+            let mentioned = MentionParser.mentions(in: annotations.map(\.text).joined(separator: "\n"),
+                                                   characters: characters, locations: locations, props: props,
+                                                   shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } })
+            for mention in mentioned {
+                guard let path = mention.imagePath, !path.isEmpty,
+                      let data = try? Data(contentsOf: projDir.appendingPathComponent(path)) else { continue }
+                let kind: String
+                switch mention.kind {
+                case .character: kind = "character"
+                case .location: kind = "location"
+                case .prop: kind = "prop"
+                case .shot: kind = "shot"
+                }
+                let label = "\(kind):\(mention.name)"
+                if !context.contains(where: { $0.label == label }) {
+                    context.append(ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png", label: label))
+                }
+            }
         }
         // DC-0073: one description of the edit; the client composes the request.
         let edit = AnnotationEdit(source: source, annotations: annotations, context: "shot preview",
-                                  originalPrompt: basePrompt, contextPictures: context, aspectRatio: "16:9")
+                                  originalPrompt: basePrompt, contextPictures: context, aspectRatio: "16:9",
+                                  targetSize: .projectPreview)
         let combinedPrompt = AnnotationEditComposer.prompt(for: edit)
 
         isGenerating = true
@@ -826,98 +1336,22 @@ struct ShotPreviewSection: View {
 // MARK: - Prompt Editor Sheet
 
 private struct PromptEditorSheet: View {
-    @Binding var prompt: String
+    @Binding var sections: [PromptSection]
+    var onReset: (() -> Void)? = nil
     @Binding var isPresented: Bool
     let onGenerate: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Shot Preview Prompt")
-                    .font(.headline)
-                    .foregroundColor(.white)
-
-                Spacer()
-
-                Button {
-                    isPresented = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(.plain)
+        StructuredPromptEditor(
+            title: "Shot preview prompt",
+            sections: $sections,
+            onReset: onReset,
+            onCancel: { isPresented = false },
+            onGenerate: { prompt in
+                isPresented = false
+                onGenerate(prompt)
             }
-            .padding()
-            .background(Color(hex: "#1E1E1E"))
-
-            Divider()
-
-            // Prompt editor
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Edit the prompt below to customize the generated image:")
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
-
-                TextEditor(text: $prompt)
-                    .font(.system(size: 13, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .padding(12)
-                    .background(Color(hex: "#1A1A1A"))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(hex: "#3A3A3A"), lineWidth: 1)
-                    )
-                    .frame(minHeight: 200)
-
-                // Tips
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Tips:")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.gray)
-
-                    Group {
-                        Label("Be specific about camera angles, lighting, and mood", systemImage: "lightbulb")
-                        Label("Include character descriptions for better results", systemImage: "person")
-                        Label("Add style keywords like 'cinematic', 'film noir', '35mm'", systemImage: "film")
-                    }
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray.opacity(0.7))
-                }
-                .padding(.top, 8)
-            }
-            .padding()
-
-            Divider()
-
-            // Footer
-            HStack {
-                Button("Cancel") {
-                    isPresented = false
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Spacer()
-
-                Button {
-                    isPresented = false
-                    onGenerate(prompt)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "wand.and.stars")
-                        Text("Generate with Prompt")
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-            }
-            .padding()
-            .background(Color(hex: "#1E1E1E"))
-        }
-        .frame(width: 600, height: 480)
-        .background(Color(hex: "#252525"))
+        )
     }
 }
 
@@ -1014,5 +1448,24 @@ struct ShotPreviewFullSizeSheet: View {
         }
         .frame(width: sheetSize.width, height: sheetSize.height)
         .background(Color(hex: "#252525"))
+    }
+}
+
+// MARK: - Preview frame shape (DC-0090)
+
+/// The hero box follows the picture: its aspect ratio, full width, height
+/// capped at 640 pt (a 1920×1080 preview in a wide column would otherwise
+/// be taller than the window). Without a picture: the fixed 420-pt box.
+private struct PreviewFrameShape: ViewModifier {
+    let image: NSImage?
+
+    func body(content: Content) -> some View {
+        if let image, image.size.height > 0 {
+            content
+                .aspectRatio(image.size.width / image.size.height, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: 640)
+        } else {
+            content.frame(height: 420)
+        }
     }
 }

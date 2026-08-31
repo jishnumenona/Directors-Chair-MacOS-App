@@ -49,6 +49,8 @@ public enum AIClientError: LocalizedError, Sendable {
     case authenticationRequired
     case quotaExceeded(String)
     case rateLimited(retryAfter: Int)
+    /// The user reviewed the prompt and chose not to send it (DC-0093).
+    case cancelled
 
     public var errorDescription: String? {
         switch self {
@@ -74,6 +76,8 @@ public enum AIClientError: LocalizedError, Sendable {
             return "Usage quota exceeded: \(detail)"
         case .rateLimited(let retryAfter):
             return "Rate limited. Please wait \(retryAfter) seconds."
+        case .cancelled:
+            return "Generation cancelled."
         }
     }
 }
@@ -194,6 +198,10 @@ public struct ImageGenerationRequest: Sendable {
     /// (set by `AnnotationEditComposer`) — no more reading the prompt's
     /// first words to find out. Not part of the cloud body.
     public var isEdit: Bool
+    /// DC-0090: the exact size the picture must be delivered at (a shot,
+    /// scene or location preview = the project's preview resolution). nil =
+    /// the provider's own size (character studies, props, posters).
+    public var targetSize: ImageTargetSize?
 
     public init(
         prompt: String,
@@ -206,7 +214,8 @@ public struct ImageGenerationRequest: Sendable {
         referenceImages: [ReferenceImage]? = nil,
         brief: VisualBrief? = nil,
         editRegions: [EditRegion] = [],
-        isEdit: Bool = false
+        isEdit: Bool = false,
+        targetSize: ImageTargetSize? = nil
     ) {
         self.prompt = prompt
         self.provider = provider
@@ -219,6 +228,7 @@ public struct ImageGenerationRequest: Sendable {
         self.brief = brief
         self.editRegions = editRegions
         self.isEdit = isEdit
+        self.targetSize = targetSize
     }
 
     /// True for "change this existing picture" asks (annotation edits,
@@ -247,6 +257,11 @@ extension AIServiceClient {
         // the server default (field omitted).
         if let model = request.model ?? preferredModel {
             body["model"] = model
+        }
+        // DC-0090: the size class for models that honour it; the shape rides
+        // in aspect_ratio as before (the gateway forwards both to Gemini).
+        if let target = request.targetSize {
+            body["image_size"] = target.cloudSizeClass
         }
         if let refs = request.referenceImages, !refs.isEmpty {
             body["reference_images"] = refs.map { ref in
@@ -525,7 +540,20 @@ public struct AIServerHealth: Sendable {
 
 /// Thread-safe AI service client
 /// Handles all communication with the AI Proxy server
+/// DC-0093: a chance to SEE (and change) every image prompt before it is
+/// sent — the app installs one reviewer; every surface goes through it.
+/// Return nil to cancel the generation.
+public protocol ImagePromptReviewing: Sendable {
+    func review(_ request: ImageGenerationRequest) async -> ImageGenerationRequest?
+}
+
 public actor AIServiceClient {
+    /// DC-0093: installed by the app; nil = send as composed.
+    public var promptReviewer: (any ImagePromptReviewing)?
+
+    public func setPromptReviewer(_ reviewer: (any ImagePromptReviewing)?) {
+        promptReviewer = reviewer
+    }
     
     // MARK: - Properties
     
@@ -567,6 +595,20 @@ public actor AIServiceClient {
     /// The frame sizes the on-device sketch engine draws per requested
     /// aspect ratio (multiples of 16 for the latent grid; 512–768-class,
     /// where the 8-step model is fastest).
+    /// DC-0090: the picture at the request's target size. A local repaint
+    /// of a marked-up source keeps the source's untouched pixels exactly
+    /// (DC-0069) by merging the repaint into the source inside the marks;
+    /// everything else is resampled to the target. No target = untouched.
+    static func delivered(_ picture: Data, for request: ImageGenerationRequest, source: Data?) -> Data {
+        guard let target = request.targetSize else { return picture }
+        if request.provider == .onDevice, request.isEditOfExistingImage,
+           !request.editRegions.isEmpty, let source,
+           let merged = ImageResampler.merge(edited: picture, ontoSource: source, regions: request.editRegions) {
+            return ImageResampler.resample(merged, to: target) ?? merged
+        }
+        return ImageResampler.resample(picture, to: target) ?? picture
+    }
+
     static func onDeviceImageSize(for aspectRatio: String) -> (width: Int, height: Int) {
         switch aspectRatio {
         case "9:16": return (432, 768)
@@ -883,6 +925,13 @@ public actor AIServiceClient {
     
     /// Generate images using AI
     public func generateImage(_ request: ImageGenerationRequest) async throws -> ImageGenerationResponse {
+        // DC-0093: the reviewer sees the final composed ask — prompt,
+        // references, size — and may change or cancel it.
+        var request = request
+        if let reviewer = promptReviewer {
+            guard let approved = await reviewer.review(request) else { throw AIClientError.cancelled }
+            request = approved
+        }
         // DC-0065: the on-device sketch engine never touches the network —
         // route it BEFORE the availability guard (the text-generation
         // precedent). One frame per call: the engine draws sequentially,
@@ -893,7 +942,10 @@ public actor AIServiceClient {
             // a place) rides along in order — the first is "the reference
             // picture" in prompt language. klein's practical limit is four.
             let (references, labels) = Self.onDeviceReferences(for: request)
-            let size = Self.onDeviceImageSize(for: request.aspectRatio)
+            // DC-0090: a target size draws the same shape at a RAM-safe
+            // scale and is resampled to the exact target below.
+            let size = request.targetSize.map { $0.onDeviceFrame(maxArea: ImageTargetSize.onDeviceMaxArea) }
+                ?? Self.onDeviceImageSize(for: request.aspectRatio)
             let brief: VisualBrief
             if request.isEditOfExistingImage {
                 // DC-0073: an edit is an edit whatever brief a surface
@@ -918,7 +970,8 @@ public actor AIServiceClient {
                                     references: references, editRegions: request.editRegions,
                                     referenceLabels: brief.purpose == .edit ? [] : labels))
             return ImageGenerationResponse(
-                images: [frame], provider: .onDevice,
+                images: [Self.delivered(frame, for: request, source: references.first)],
+                provider: .onDevice,
                 model: LocalImageEngine.model.id)   // on-device = $0
         }
         let url = baseURL.appendingPathComponent("generate/image")
@@ -962,7 +1015,7 @@ public actor AIServiceClient {
         var images: [Data] = []
         for base64String in imagesBase64 {
             if let imageData = Data(base64Encoded: base64String) {
-                images.append(imageData)
+                images.append(Self.delivered(imageData, for: request, source: nil))
             }
         }
         

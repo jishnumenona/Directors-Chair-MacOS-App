@@ -15,8 +15,9 @@ import Foundation
 public extension Project {
 
     /// Adopt the timeline's edits from `other`: shot placement and length,
-    /// the manual start time of dialogue, action, narration and sound-note
-    /// rows, and dialogue/sound-note audio takes. Everything else — script
+    /// the manual start time and trimmed (manual) duration of dialogue,
+    /// action, narration and sound-note rows, and dialogue/sound-note audio
+    /// takes. Everything else — script
     /// text, production data, characters, boards — stays as it is here.
     /// Scenes or rows that no longer exist here are ignored.
     func adoptingTimelineEdits(from other: Project) -> Project {
@@ -36,22 +37,26 @@ public extension Project {
                 for i in merged.sequences[s].scenes[c].dialogues.indices {
                     guard let t = dialogues[merged.sequences[s].scenes[c].dialogues[i].uuid] else { continue }
                     merged.sequences[s].scenes[c].dialogues[i].manualStartTime = t.manualStartTime
+                    merged.sequences[s].scenes[c].dialogues[i].manualDuration = t.manualDuration
                     merged.sequences[s].scenes[c].dialogues[i].audioFilePath = t.audioFilePath
                 }
                 let actions = Dictionary(theirs.actions.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
                 for i in merged.sequences[s].scenes[c].actions.indices {
                     guard let t = actions[merged.sequences[s].scenes[c].actions[i].uuid] else { continue }
                     merged.sequences[s].scenes[c].actions[i].manualStartTime = t.manualStartTime
+                    merged.sequences[s].scenes[c].actions[i].manualDuration = t.manualDuration
                 }
                 let narrations = Dictionary(theirs.narrations.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
                 for i in merged.sequences[s].scenes[c].narrations.indices {
                     guard let t = narrations[merged.sequences[s].scenes[c].narrations[i].uuid] else { continue }
                     merged.sequences[s].scenes[c].narrations[i].manualStartTime = t.manualStartTime
+                    merged.sequences[s].scenes[c].narrations[i].manualDuration = t.manualDuration
                 }
                 let notes = Dictionary(theirs.soundNotes.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
                 for i in merged.sequences[s].scenes[c].soundNotes.indices {
                     guard let t = notes[merged.sequences[s].scenes[c].soundNotes[i].uuid] else { continue }
                     merged.sequences[s].scenes[c].soundNotes[i].manualStartTime = t.manualStartTime
+                    merged.sequences[s].scenes[c].soundNotes[i].manualDuration = t.manualDuration
                     merged.sequences[s].scenes[c].soundNotes[i].audioFilePath = t.audioFilePath
                 }
             }

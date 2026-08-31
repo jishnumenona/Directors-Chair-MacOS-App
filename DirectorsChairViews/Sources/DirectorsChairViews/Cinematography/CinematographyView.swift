@@ -48,6 +48,8 @@ public struct CinematographyView: View {
 
     /// Callback to jump to a script element (itemId, itemType)
     public var onJumpToScriptElement: ((String, String) -> Void)?
+    /// DC-0092: the user picked a shot in the list (shot.id).
+    var onShotSelected: ((String) -> Void)?
 
     /// Callback when a shot is Option+clicked (jump to script for shot)
     public var onOptionClickShot: ((Shot) -> Void)?
@@ -55,6 +57,10 @@ public struct CinematographyView: View {
     /// Navigation callbacks for shot context
     public var onNavigateToCharacter: ((Character) -> Void)?
     public var onNavigateToLocation: ((Location) -> Void)?
+    /// DC-0095: open a prop's page (double-click on an inline $ mention).
+    public var onNavigateToProp: ((Prop) -> Void)?
+    /// The user reordered shots in the list — the host renumbers them.
+    public var onShotsReordered: (() -> Void)?
     public var onNavigateToStoryDesign: (() -> Void)?
     public var onNavigateToCuration: ((Shot) -> Void)?
 
@@ -100,9 +106,12 @@ public struct CinematographyView: View {
         scrollToShotSection: Binding<String?> = .constant(nil),
         onShotsChanged: (([Shot]) -> Void)? = nil,
         onJumpToScriptElement: ((String, String) -> Void)? = nil,
+        onShotSelected: ((String) -> Void)? = nil,
         onOptionClickShot: ((Shot) -> Void)? = nil,
         onNavigateToCharacter: ((Character) -> Void)? = nil,
         onNavigateToLocation: ((Location) -> Void)? = nil,
+        onNavigateToProp: ((Prop) -> Void)? = nil,
+        onShotsReordered: (() -> Void)? = nil,
         onNavigateToStoryDesign: (() -> Void)? = nil,
         onNavigateToCuration: ((Shot) -> Void)? = nil,
         onOpenConnections: ((Shot, String?) -> Void)? = nil,
@@ -122,9 +131,12 @@ public struct CinematographyView: View {
         self._scrollToShotSection = scrollToShotSection
         self.onShotsChanged = onShotsChanged
         self.onJumpToScriptElement = onJumpToScriptElement
+        self.onShotSelected = onShotSelected
         self.onOptionClickShot = onOptionClickShot
         self.onNavigateToCharacter = onNavigateToCharacter
         self.onNavigateToLocation = onNavigateToLocation
+        self.onNavigateToProp = onNavigateToProp
+        self.onShotsReordered = onShotsReordered
         self.onNavigateToStoryDesign = onNavigateToStoryDesign
         self.onNavigateToCuration = onNavigateToCuration
         self.onSceneUpdated = onSceneUpdated
@@ -201,6 +213,9 @@ public struct CinematographyView: View {
         }
         .onChange(of: initialSelectedShotId) { _, newValue in
             applyInitialSelection()
+        }
+        .onChange(of: viewModel.selectedShotId) { _, newValue in
+            if let newValue { onShotSelected?(newValue) }
         }
     }
 
@@ -357,6 +372,7 @@ public struct CinematographyView: View {
                         }
                         .onMove { source, destination in
                             viewModel.moveShot(from: source, to: destination)
+                            onShotsReordered?()
                         }
                     }
                 }
@@ -564,27 +580,39 @@ public struct CinematographyView: View {
                         characters: characters,
                         locations: locations,
                         props: props,
+                        allShots: viewModel.shots,
                         projectBasePath: projectBasePath,
                         onPreviewGenerated: { imagePath in
                             updateShotField(shot) { $0.previewImage = imagePath }
-                        }
+                        },
+                        onShotUpdated: { updated in viewModel.updateShot(updated) },
+                        onOpenMention: { mention in openMention(mention) }
                     )
 
                     // Description (Click to edit)
                     InlineDescriptionEditor(
                         description: shot.description,
                         characters: characters,
+                        locations: locations,
+                        props: props,
+                        continuityShots: shot.referenceShotIds.compactMap { id in viewModel.shots.first { $0.id == id } },
+                        projectDirectory: projectBasePath?.deletingLastPathComponent(),
+                        onJumpToCamera: { scrollToShotSection = "camera" },
+                        onOpenMention: { mention in openMention(mention) },
                         onDescriptionChange: { newDescription in
                             updateShotField(shot) { $0.description = newDescription }
+                            syncMentions(for: shot, description: newDescription)
                         }
                     )
+                    .id("description-section")
 
                     // Notes — the user's own free text on this shot (DC-0074).
                     CollapsibleCard(icon: "note.text",
                                     title: "Notes",
                                     summary: shot.notes.isEmpty ? "Add a note" : String(shot.notes.prefix(60)),
                                     storageKey: "shotNotes") {
-                        ShotNotesEditor(notes: shot.notes) { newNotes in
+                        ShotNotesEditor(notes: shot.notes, characters: characters, locations: locations,
+                                        props: props, shots: viewModel.shots) { newNotes in
                             updateShotField(shot) { $0.notes = newNotes }
                         }
                     }
@@ -601,12 +629,16 @@ public struct CinematographyView: View {
                             scene: sceneForShot(shot),
                             characters: characters,
                             locations: locations,
+                            props: props,
                             projectBasePath: projectBasePath?.deletingLastPathComponent(),
                             showsHeader: false,
                             onNavigateToCharacter: onNavigateToCharacter,
                             onNavigateToLocation: onNavigateToLocation,
                             onNavigateToStoryDesign: onNavigateToStoryDesign,
                             onSceneUpdated: onSceneUpdated,
+                            onShotUpdated: { updatedShot in
+                                viewModel.updateShot(updatedShot)
+                            },
                             onOpenConnections: onOpenConnections.map { open in
                                 { itemId in open(shot, itemId) }
                             }
@@ -657,6 +689,7 @@ public struct CinematographyView: View {
                         shotCameraSettings(shot)
                             .padding(.top, 4)
                     }
+                    .id("camera-section")
 
                     // Reference Media — collapsed; summary shows the count
                     CollapsibleCard(icon: "photo.on.rectangle.angled",
@@ -804,9 +837,45 @@ public struct CinematographyView: View {
         }
     }
 
+    /// What the description mentions joins the shot's lists (owner 2026-08-29).
+    private func syncMentions(for shot: Shot, description: String) {
+        var current = viewModel.shots.first { $0.id == shot.id } ?? shot
+        current.description = description
+        let synced = MentionSync.apply(description: description, shot: current, scene: sceneForShot(shot),
+                                       characters: characters, locations: locations, props: props)
+        if synced.shotChanged { viewModel.updateShot(synced.shot) }
+        if synced.sceneChanged, let scene = synced.scene { onSceneUpdated?(scene) }
+    }
+
+    /// DC-0095: a double-clicked mention goes to its page (a shot stays here).
+    private func openMention(_ mention: ResolvedMention) {
+        switch mention.kind {
+        case .character:
+            if let character = characters.first(where: { $0.id == mention.id }) { onNavigateToCharacter?(character) }
+        case .location:
+            if let location = locations.first(where: { $0.id == mention.id }) { onNavigateToLocation?(location) }
+        case .prop:
+            if let prop = props.first(where: { $0.id == mention.id }) { onNavigateToProp?(prop) }
+        case .shot:
+            viewModel.selectedShotId = mention.id
+            viewModel.revealSection(containing: mention.id, scenes: scenes)
+        }
+    }
+
     @ViewBuilder
     private func shotCameraSettings(_ shot: Shot) -> some View {
         VStack(alignment: .leading, spacing: 20) {
+            // Owner 2026-08-29: the camera in plain English, in the prompt too.
+            CameraDescriptionEditor(
+                text: shot.cameraDescription,
+                shot: shot,
+                scene: sceneForShot(shot),
+                locations: locations,
+                characters: characters,
+                onJumpToDescription: { scrollToShotSection = "description" },
+                onChange: { words in updateShotField(shot) { $0.cameraDescription = words } }
+            )
+
             // Camera Angle
             ChipSelector(
                 icon: "camera.viewfinder",
@@ -955,13 +1024,19 @@ public struct CinematographyView: View {
         Task {
             defer { Task { @MainActor in generatingStoryboardShotIds.remove(shot.uuid) } }
             do {
+                // DC-0090: the project's preview shape at a RAM-safe scale,
+                // delivered at the exact project size.
+                let target = ImageTargetSize.projectPreview
+                let frame = target.onDeviceFrame(maxArea: ImageTargetSize.onDeviceMaxArea)
                 let spec = StoryboardFrameSpec(
                     subject: StoryboardSubjects.subject(for: shot, in: scene,
                                                         locations: locations,
                                                         characters: characters),
                     notes: StoryboardSubjects.notes(for: shot),
+                    width: frame.width, height: frame.height,
                     purpose: .shot)
-                let png = try await LocalImageEngine.shared.generateFrame(spec)
+                let drawn = try await LocalImageEngine.shared.generateFrame(spec)
+                let png = ImageResampler.resample(drawn, to: target) ?? drawn
                 guard let base = projectBasePath?.deletingLastPathComponent() else {
                     throw StoryboardEngineError.generationFailed("No project path")
                 }

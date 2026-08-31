@@ -20,6 +20,7 @@ public struct Action: Codable, Identifiable, Hashable, Sendable {
     public var characters: [String]  // Characters involved in this action
     public var parentDialogueId: String?  // ID of parent dialogue if connected as sub-bubble
     public var manualStartTime: Double?  // User-specified timeline position override (seconds)
+    public var manualDuration: Double?  // User-specified duration override (seconds) — set by trimming the block on the timeline
 
     public init(
         uuid: String = UUID().uuidString,
@@ -33,7 +34,8 @@ public struct Action: Codable, Identifiable, Hashable, Sendable {
         globalChronologyNumber: Int = 0,
         characters: [String] = [],
         parentDialogueId: String? = nil,
-        manualStartTime: Double? = nil
+        manualStartTime: Double? = nil,
+        manualDuration: Double? = nil
     ) {
         self.uuid = uuid
         self.description = description
@@ -47,6 +49,7 @@ public struct Action: Codable, Identifiable, Hashable, Sendable {
         self.characters = characters
         self.parentDialogueId = parentDialogueId
         self.manualStartTime = manualStartTime
+        self.manualDuration = manualDuration
     }
 
     enum CodingKeys: String, CodingKey {
@@ -62,6 +65,7 @@ public struct Action: Codable, Identifiable, Hashable, Sendable {
         case characters
         case parentDialogueId = "parent_dialogue_id"
         case manualStartTime = "manual_start_time"
+        case manualDuration = "manual_duration"
     }
 
     // MARK: - Custom Decoder (Python Compatibility)
@@ -91,5 +95,7 @@ public struct Action: Codable, Identifiable, Hashable, Sendable {
         // Parent dialogue connection
         parentDialogueId = try container.decodeIfPresent(String.self, forKey: .parentDialogueId)
         manualStartTime = try container.decodeIfPresent(Double.self, forKey: .manualStartTime)
+        // Additive (timeline trim, 2026-08-29): absent or malformed → no override.
+        manualDuration = (try? container.decodeIfPresent(Double.self, forKey: .manualDuration)) ?? nil
     }
 }
