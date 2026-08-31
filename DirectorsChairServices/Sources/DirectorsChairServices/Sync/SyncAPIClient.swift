@@ -24,6 +24,11 @@ public struct SyncProject: Codable, Sendable, Equatable {
     public let orgID: String?
     /// "owner" / "editor" / "viewer"; nil = unknown (or list-only access).
     public let myRole: String?
+    /// The owning org's identity (DC-0108) — set on the flat /projects rows
+    /// so a project shared from an org the viewer isn't in can still be
+    /// grouped and opened.
+    public let orgSlug: String?
+    public let orgName: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name
@@ -33,6 +38,8 @@ public struct SyncProject: Codable, Sendable, Equatable {
         case updatedAt = "updated_at"
         case orgID = "org_id"
         case myRole = "my_role"
+        case orgSlug = "org_slug"
+        case orgName = "org_name"
     }
 }
 
