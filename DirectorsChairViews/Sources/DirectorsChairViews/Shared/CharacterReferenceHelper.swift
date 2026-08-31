@@ -162,6 +162,9 @@ public enum CharacterReferenceHelper {
                 lines.append("- Image \(i + 1) is the costume \"\(costName)\" worn by \(charName). Match the clothing, colors, textures, and style exactly.")
             case "prop":
                 lines.append("- Image \(i + 1) is the prop \"\(name)\". Match its exact design, shape, colors, and materials.")
+            case "sketch":
+                // DC-0109: the user's composition plan — layout only, no ink.
+                lines.append(SketchRender.promptClause(imageNumber: i + 1))
             case "shot":
                 // DC-0091: a finished frame of the same scene — continuity, not a copy.
                 lines.append("- Image \(i + 1) is the finished preview of \(name) from the same scene. Keep continuity with it: the same place, lighting, time of day, cast, wardrobe and props — this shot is a new angle of the same moment, not a copy of that frame.")

@@ -44,6 +44,9 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var referenceMedia: [ReferenceMedia]  // Reference images and videos
     public var previewImage: String?  // AI-generated shot preview image path
     public var storyboardImage: String?  // On-device ink-sketch storyboard frame path (DC-0064)
+    /// DC-0109: the user's own hand-drawn composition sketch (relative path) —
+    /// rides FIRST with preview generation as a layout reference.
+    public var sketchImage: String?
     public var linkedDialogueIds: [String]  // IDs of dialogues connected to this shot
     public var linkedActionIds: [String]  // IDs of actions connected to this shot
     public var linkedNarrationIds: [String]  // IDs of narrations connected to this shot
@@ -84,6 +87,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         referenceMedia: [ReferenceMedia] = [],
         previewImage: String? = nil,
         storyboardImage: String? = nil,
+        sketchImage: String? = nil,
         linkedDialogueIds: [String] = [],
         linkedActionIds: [String] = [],
         linkedNarrationIds: [String] = [],
@@ -119,6 +123,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.referenceMedia = referenceMedia
         self.previewImage = previewImage
         self.storyboardImage = storyboardImage
+        self.sketchImage = sketchImage
         self.linkedDialogueIds = linkedDialogueIds
         self.linkedActionIds = linkedActionIds
         self.linkedNarrationIds = linkedNarrationIds
@@ -156,6 +161,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case referenceMedia = "reference_media"
         case previewImage = "preview_image"
         case storyboardImage = "storyboard_image"
+        case sketchImage = "sketch_image"
         case linkedDialogueIds = "linked_dialogue_ids"
         case linkedActionIds = "linked_action_ids"
         case linkedNarrationIds = "linked_narration_ids"
@@ -252,6 +258,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         referenceMedia = try container.decodeIfPresent([ReferenceMedia].self, forKey: .referenceMedia) ?? []
         previewImage = try container.decodeIfPresent(String.self, forKey: .previewImage)
         storyboardImage = try container.decodeIfPresent(String.self, forKey: .storyboardImage)
+        sketchImage = (try? container.decodeIfPresent(String.self, forKey: .sketchImage)) ?? nil
         linkedDialogueIds = try container.decodeIfPresent([String].self, forKey: .linkedDialogueIds) ?? []
         linkedActionIds = try container.decodeIfPresent([String].self, forKey: .linkedActionIds) ?? []
         linkedNarrationIds = try container.decodeIfPresent([String].self, forKey: .linkedNarrationIds) ?? []

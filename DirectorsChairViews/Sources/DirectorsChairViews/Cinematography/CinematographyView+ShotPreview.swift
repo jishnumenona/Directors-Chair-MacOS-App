@@ -37,6 +37,8 @@ struct ShotPreviewSection: View {
     @State private var showingPromptEditor = false
     @State private var showingFullSizePreview = false
     @State private var showingAnnotationEditor = false
+    /// DC-0109: the hand-drawn composition sketch sheet.
+    @State private var showingSketchSheet = false
     @State private var editablePrompt: String = ""
     @State private var lastUsedPrompt: String = ""
     /// The prompt as parts with sources, for the sectioned editor.
@@ -149,6 +151,8 @@ struct ShotPreviewSection: View {
                                 startFromMenu
                             }
 
+                            sketchButton(compact: false)
+
                             Button(action: { uploadPreviewImage() }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "photo.badge.plus")
@@ -248,6 +252,8 @@ struct ShotPreviewSection: View {
                                     startFromMenu(compact: true)
                                         .onHover { hoveredToolName = $0 ? "Start from a picture" : nil }
                                 }
+                                sketchButton(compact: true)
+                                    .onHover { hoveredToolName = $0 ? "Sketch the shot" : nil }
                             }
 
                             // Regenerate button (shows spinner when generating)
@@ -452,6 +458,11 @@ struct ShotPreviewSection: View {
                 onDownload: { downloadPreviewImage() }
             )
         }
+        .sheet(isPresented: $showingSketchSheet) {
+            ShotSketchSheet(currentPreview: previewImage) { png in
+                applySketch(png)
+            }
+        }
         .sheet(isPresented: $showingAnnotationEditor) {
             if let image = previewImage {
                 ImageAnnotationEditor(
@@ -488,7 +499,9 @@ struct ShotPreviewSection: View {
         guard let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() else { return [] }
         var refs = CharacterReferenceHelper.collectReferenceImages(
             forShot: shot, in: scene, characters: characters, locations: locations, props: props, projectDirectory: projDir)
-        let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+        // DC-0109: the sketch leads — composition first, then continuity.
+        let continuity = (sketchReference().map { [$0] } ?? [])
+            + ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
         refs = ContinuityReferences.merged(continuity: continuity, others: refs,
                                            onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)
         return refs.compactMap { ref in
@@ -694,6 +707,64 @@ struct ShotPreviewSection: View {
               let location = locations.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return nil }
         let path = location.primaryImage ?? location.images.first
         return (path?.isEmpty == false) ? path : nil
+    }
+
+    /// DC-0109: the sketch tool — full button in the empty state, a round
+    /// hover-toolbar button over an existing preview.
+    private func sketchButton(compact: Bool) -> some View {
+        Button { showingSketchSheet = true } label: {
+            if compact {
+                Image(systemName: "pencil.and.outline")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(Circle())
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "pencil.and.outline")
+                        .font(.system(size: 12))
+                    Text(shot.sketchImage == nil ? "Sketch" : "Redraw sketch")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.orange.opacity(0.18))
+                .foregroundColor(.white)
+                .cornerRadius(8)
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Draw a rough plan of the shot — stick figures are fine — and the preview follows your layout")
+        .accessibilityIdentifier(compact ? "preview-sketch-hover" : "preview-sketch")
+    }
+
+    /// The drawn sketch lands on disk and on the shot; generation picks it up.
+    private func applySketch(_ png: Data) {
+        guard let basePath = projectBasePath else { return }
+        do {
+            let shotDir = "assets/shots/shot_\(shot.shotId)"
+            try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                       filename: "sketch_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                                          filename: "sketch_latest.png")
+            var updated = shot
+            updated.sketchImage = relativePath
+            onShotUpdated?(updated)
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
+    }
+
+    /// The sketch as the FIRST reference picture (label "sketch:") — read
+    /// fresh from disk so a redraw takes effect immediately.
+    private func sketchReference() -> ReferenceImage? {
+        guard let path = shot.sketchImage, !path.isEmpty,
+              let base = projectBasePath?.deletingLastPathComponent(),
+              let data = try? Data(contentsOf: base.appendingPathComponent(path)) else { return nil }
+        return ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png",
+                              label: SketchRender.referenceLabel)
     }
 
     /// Owner 2026-08-29: a shot's preview can start from a picture that already
@@ -1002,6 +1073,34 @@ struct ShotPreviewSection: View {
                 .accessibilityIdentifier("continuity-ref-\(other.shotId)")
             }
 
+            if let sketchPath = shot.sketchImage, let base = projectBasePath?.deletingLastPathComponent() {
+                HStack(spacing: 5) {
+                    AsyncThumbnail(url: base.appendingPathComponent(sketchPath), displaySize: 28) {
+                        Color.white
+                    }
+                    .frame(width: 36, height: 20)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    Text("Sketch")
+                        .font(.system(size: 10, weight: .medium))
+                    Button {
+                        var updated = shot
+                        updated.sketchImage = nil
+                        onShotUpdated?(updated)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop using the sketch as this shot's composition guide")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.14)))
+                .help("Your hand-drawn plan — the preview follows its layout. Click Sketch to redraw.")
+                .accessibilityIdentifier("sketch-chip")
+            }
+
             Button {
                 showingContinuityPicker = true
             } label: {
@@ -1122,7 +1221,9 @@ struct ShotPreviewSection: View {
                 // DC-0091: other shots' finished frames come first, within
                 // the provider's reference budget.
                 if let projDir = projectBasePath?.deletingLastPathComponent() {
-                    let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+                    // DC-0109: the sketch leads — composition first, then continuity.
+                    let continuity = (sketchReference().map { [$0] } ?? [])
+                        + ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
                     refs = ContinuityReferences.merged(
                         continuity: continuity, others: refs,
                         onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)

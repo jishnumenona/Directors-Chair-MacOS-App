@@ -51,4 +51,16 @@ final class ShotCastTests: XCTestCase {
         legacy.removeValue(forKey: "cast_is_explicit")
         XCTAssertFalse(try JSONDecoder().decode(Shot.self, from: try JSONSerialization.data(withJSONObject: legacy)).castIsExplicit)
     }
+
+    // DC-0109: the hand-drawn sketch path persists and old projects decode.
+    func testSketchImageRoundTripsAndOldShotsDecodeWithoutIt() throws {
+        var shot = Shot(shotId: 3)
+        shot.sketchImage = "assets/shots/shot_3/sketch_latest.png"
+        let data = try JSONEncoder().encode(shot)
+        let back = try JSONDecoder().decode(Shot.self, from: data)
+        XCTAssertEqual(back.sketchImage, "assets/shots/shot_3/sketch_latest.png")
+        let legacy = try JSONDecoder().decode(Shot.self, from: Data(#"{"shotId": 1}"#.utf8))
+        XCTAssertNil(legacy.sketchImage)
+    }
 }
+
