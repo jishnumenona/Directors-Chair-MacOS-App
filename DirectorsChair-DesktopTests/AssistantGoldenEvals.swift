@@ -808,59 +808,75 @@ final class LocalModelEvals: XCTestCase {
         var failures: [String] = []
         var report: [String] = ["=== Local model eval — \(label) ==="]
         for scenario in Self.scenarios {
-            var messages: [DirectorsChairServices.ChatMessage] = [.system(Self.projectContext)]
-            var answer = ""
-            var turnSeconds: [Double] = []
-            for turn in scenario.turns {
-                messages.append(.user(turn))
-                answer = ""
-                var streamError: String?
-                let started = Date()
-                for try await event in transport.stream(ChatRequestBody(
-                    messages: messages, maxTokens: 300, temperature: 0.1)) {
-                    switch event {
-                    case .delta(let delta): answer += delta
-                    case .error(let message): streamError = message
-                    default: break
+            // Real inference is nondeterministic: an answer phrased without
+            // any accepted marker ONCE is not a capability loss — twice is
+            // (2026-08-30 release gate: "honest refusal" flaked exactly so).
+            // Engine errors retry the same way; retries are reported.
+            var lastProblems: [String] = []
+            var lastAnswer = ""
+            var lastTiming = ""
+            attempts: for attempt in 1...2 {
+                var messages: [DirectorsChairServices.ChatMessage] = [.system(Self.projectContext)]
+                var answer = ""
+                var turnSeconds: [Double] = []
+                var problems: [String] = []
+                for turn in scenario.turns {
+                    messages.append(.user(turn))
+                    answer = ""
+                    var streamError: String?
+                    let started = Date()
+                    for try await event in transport.stream(ChatRequestBody(
+                        messages: messages, maxTokens: 300, temperature: 0.1)) {
+                        switch event {
+                        case .delta(let delta): answer += delta
+                        case .error(let message): streamError = message
+                        default: break
+                        }
+                    }
+                    turnSeconds.append(Date().timeIntervalSince(started))
+                    if let streamError {
+                        problems.append("engine error — \(streamError)")
+                        answer = ""
+                        break
+                    }
+                    messages.append(.assistant(answer))
+                }
+                if problems.isEmpty {
+                    for group in scenario.mustContainAny
+                    where !group.contains(where: { answer.localizedCaseInsensitiveContains($0) }) {
+                        problems.append("missing any of \(group)")
+                    }
+                    for marker in scenario.mustNotContain
+                    where answer.localizedCaseInsensitiveContains(marker) {
+                        problems.append("forbidden marker '\(marker)'")
+                    }
+                    if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        problems.append("empty answer")
+                    }
+                    if answer.count > Self.answerCharacterCeiling {
+                        problems.append("runaway answer (\(answer.count) chars)")
+                    }
+                    if let worst = turnSeconds.max(), worst > Self.perTurnSecondsCeiling {
+                        problems.append("slow turn (\(Int(worst))s > \(Int(Self.perTurnSecondsCeiling))s)")
                     }
                 }
-                turnSeconds.append(Date().timeIntervalSince(started))
-                if let streamError {
-                    failures.append("\(scenario.name): engine error — \(streamError)")
-                    report.append("FAIL  \(scenario.name) — engine error: \(streamError)")
-                    answer = ""
-                    break
+                let timing = turnSeconds.map { String(format: "%.1fs", $0) }.joined(separator: ", ")
+                if problems.isEmpty {
+                    report.append("PASS  \(scenario.name)\(attempt > 1 ? " (retry)" : "")  [\(timing)]")
+                    lastProblems = []
+                    break attempts
                 }
-                messages.append(.assistant(answer))
+                lastProblems = problems
+                lastAnswer = answer
+                lastTiming = timing
+                if attempt == 1 {
+                    report.append("RETRY \(scenario.name)  [\(timing)] — \(problems.joined(separator: "; "))")
+                }
             }
-            if failures.last?.hasPrefix(scenario.name + ": engine error") == true {
-                continue    // rubric checks are meaningless without an answer
-            }
-            var problems: [String] = []
-            for group in scenario.mustContainAny
-            where !group.contains(where: { answer.localizedCaseInsensitiveContains($0) }) {
-                problems.append("missing any of \(group)")
-            }
-            for marker in scenario.mustNotContain
-            where answer.localizedCaseInsensitiveContains(marker) {
-                problems.append("forbidden marker '\(marker)'")
-            }
-            if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                problems.append("empty answer")
-            }
-            if answer.count > Self.answerCharacterCeiling {
-                problems.append("runaway answer (\(answer.count) chars)")
-            }
-            if let worst = turnSeconds.max(), worst > Self.perTurnSecondsCeiling {
-                problems.append("slow turn (\(Int(worst))s > \(Int(Self.perTurnSecondsCeiling))s)")
-            }
-            let timing = turnSeconds.map { String(format: "%.1fs", $0) }.joined(separator: ", ")
-            if problems.isEmpty {
-                report.append("PASS  \(scenario.name)  [\(timing)]")
-            } else {
-                report.append("FAIL  \(scenario.name)  [\(timing)] — \(problems.joined(separator: "; "))")
-                report.append("      answer: \(answer.prefix(280))")
-                failures.append("\(scenario.name): \(problems.joined(separator: "; "))")
+            if !lastProblems.isEmpty {
+                report.append("FAIL  \(scenario.name)  [\(lastTiming)] — \(lastProblems.joined(separator: "; "))")
+                report.append("      answer: \(lastAnswer.prefix(280))")
+                failures.append("\(scenario.name): \(lastProblems.joined(separator: "; "))")
             }
         }
         print(report.joined(separator: "\n"))
@@ -1188,34 +1204,43 @@ final class KleinCoreParityEvals: XCTestCase {
             print("[KleinMem] == \(label): active \(m.activeMB) MB · cache \(m.cacheMB) MB · peak \(m.peakMB) MB · footprint \(m.footprintMB) MB")
         }
         report("before load")
+        // 2026-08-30 gate finding: inside the full app suite this process
+        // already carries GBs from the ~900 tests before this one (3.2 GB
+        // observed vs 0.3 GB standalone), so the guardrail asserts DELTAS
+        // over this eval's own baseline — Klein's footprint, not the
+        // suite's. Deltas observed: edit +5.1 GB standalone / +3.8 GB
+        // in-suite; release +55 MB / −1.2 GB. Peak stays absolute.
+        let baseline = KleinCore.physicalFootprintMB()
         _ = try await core.render(OnDeviceRenderRequest(prompt: "A lighthouse on a cliff, ink sketch", width: 768, height: 432, seed: 1),
                                   weightsDirectory: weights)
         report("after 768×432 text-to-image")
-        assertBounded("after a 768×432 frame")
+        assertBounded("after a 768×432 frame", over: baseline)
         _ = try await core.render(OnDeviceRenderRequest(prompt: "Change the jacket to a tweed blazer", width: 1024, height: 1024, seed: 1, references: [big]),
                                   weightsDirectory: weights)
         report("after 1024² edit with a 1024² reference")
-        assertBounded("after a 1024² edit")
+        assertBounded("after a 1024² edit", over: baseline)
         _ = try await core.render(OnDeviceRenderRequest(prompt: "1. remove the badge\nKeep everything not mentioned exactly as it is in the picture.",
                                                         width: 0, height: 0, seed: 1, references: [big],
                                                         editRegions: [EditRegion(x: 0.5, y: 0.6)]),
                                   weightsDirectory: weights)
         report("after 1024² inpaint")
-        assertBounded("after a 1024² inpaint")
+        assertBounded("after a 1024² inpaint", over: baseline)
         try await Task.sleep(nanoseconds: 2_000_000_000)
         report("idle 2s later")
         await core.releaseModel()
         report("after releaseModel")
-        XCTAssertLessThan(KleinCore.physicalFootprintMB(), 1_500, "released model must give the memory back")
+        XCTAssertLessThan(KleinCore.physicalFootprintMB(), baseline + 700,
+                          "released model must give the memory back (baseline \(baseline) MB)")
         XCTAssertEqual(GPU.snapshot().cacheMemory, 0)
     }
 
     /// The owner's release bar (DC-0070): between jobs the process holds
     /// the weights and nothing else — no MLX cache, footprint bounded.
-    private func assertBounded(_ when: String) {
+    private func assertBounded(_ when: String, over baseline: Int) {
         let m = KleinCore.memorySample(when)
         XCTAssertEqual(m.cacheMB, 0, "\(when): MLX cache must be empty between jobs")
-        XCTAssertLessThan(m.footprintMB, 7_000, "\(when): footprint must stay near the ~4 GB of weights")
+        XCTAssertLessThan(m.footprintMB, baseline + 6_000,
+                          "\(when): footprint must stay near the ~4 GB of weights over the \(baseline) MB baseline")
         XCTAssertLessThan(m.peakMB, 12_000, "\(when): transient peak on a 36 GB Mac")
     }
 
