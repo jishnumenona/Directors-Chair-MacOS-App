@@ -467,7 +467,8 @@ struct ShotPreviewSection: View {
                 currentPreviewPath: shot.previewImage,
                 documentURL: sketchDocumentURL(),
                 onKeep: { data in keepStudioResult(data) },
-                onSketchSaved: { png in applySketch(png) })
+                onSketchSaved: { png in applySketch(png) },
+                onOpenElement: { kind, id in openStudioElement(kind: kind, id: id) })
         }
         .sheet(isPresented: $showingAnnotationEditor) {
             if let image = previewImage {
@@ -759,6 +760,37 @@ struct ShotPreviewSection: View {
             errorMessage = error.localizedDescription
             showingError = true
         }
+    }
+
+    /// DC-0110: a double-clicked library element opens its Story Design
+    /// page through the same route mentions use (⌘[ walks back).
+    private func openStudioElement(kind: String, id: String) {
+        let resolved: ResolvedMention?
+        switch kind {
+        case "character":
+            resolved = characters.first { $0.id == id }.map {
+                ResolvedMention(kind: .character, id: $0.id, name: $0.name,
+                                imagePath: $0.representativeImage, symbol: "person.fill", color: .blue)
+            }
+        case "location":
+            resolved = locations.first { $0.id == id }.map {
+                ResolvedMention(kind: .location, id: $0.id, name: $0.name,
+                                imagePath: $0.primaryImage, symbol: "mappin", color: .green)
+            }
+        case "prop":
+            resolved = props.first { $0.id == id }.map {
+                ResolvedMention(kind: .prop, id: $0.id, name: $0.name,
+                                imagePath: $0.thumbnail, symbol: "cube", color: .orange)
+            }
+        case "shot":
+            resolved = allShots.first { $0.id == id }.map {
+                ResolvedMention(kind: .shot, id: $0.id, name: "Shot #\($0.shotId)",
+                                imagePath: $0.previewImage, symbol: "film", color: .purple)
+            }
+        default:
+            resolved = nil
+        }
+        if let resolved { onOpenMention?(resolved) }
     }
 
     /// DC-0110: the studio's seed prompt — the shot's OWN words only,

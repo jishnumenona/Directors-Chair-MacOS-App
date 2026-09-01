@@ -179,6 +179,9 @@ public struct ShotSketchStudio: View {
     let documentURL: URL?
     let onKeep: (Data) -> Void
     let onSketchSaved: (Data) -> Void
+    /// Double-click on a library element: (kind, id) — the shot page routes
+    /// it to the element's Story Design page (⌘[ comes back).
+    let onOpenElement: ((String, String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -201,13 +204,21 @@ public struct ShotSketchStudio: View {
     @State private var resultImage: NSImage?
     @State private var errorText: String?
     @State private var librarySearch = ""
+    @State private var studioSize: CGSize = ShotSketchStudio.hostSize()
+    @State private var hoveredRow: LibraryRow?
+    @State private var hoverTask: Task<Void, Never>?
+    // Owner 2026-08-31: see and edit the exact prompt before it is sent.
+    @State private var showingPromptReview = false
+    @State private var reviewInput: SketchStudioInput?
+    @State private var reviewPrompt: String = ""
 
     public init(characters: [DirectorsChairCore.Character], locations: [Location],
                 props: [Prop], shots: [Shot], currentShotId: Int,
                 projectDirectory: URL?, seedPrompt: String,
                 currentPreviewPath: String?, documentURL: URL?,
                 onKeep: @escaping (Data) -> Void,
-                onSketchSaved: @escaping (Data) -> Void) {
+                onSketchSaved: @escaping (Data) -> Void,
+                onOpenElement: ((String, String) -> Void)? = nil) {
         self.characters = characters
         self.locations = locations
         self.props = props
@@ -219,6 +230,15 @@ public struct ShotSketchStudio: View {
         self.documentURL = documentURL
         self.onKeep = onKeep
         self.onSketchSaved = onSketchSaved
+        self.onOpenElement = onOpenElement
+    }
+
+    /// Nearly the host window — the studio is a workspace, not a dialog.
+    static func hostSize() -> CGSize {
+        let host = (NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && !$0.isSheet })?.frame.size
+            ?? NSScreen.main?.visibleFrame.size
+            ?? CGSize(width: 1500, height: 940)
+        return CGSize(width: max(1120, host.width * 0.94), height: max(720, host.height * 0.92))
     }
 
     private var mode: SketchStudioInput.Mode { base == nil ? .create : .edit }
@@ -234,15 +254,18 @@ public struct ShotSketchStudio: View {
                 canvasColumn
                 Divider().opacity(0.3)
                 libraryColumn
-                    .frame(width: 250)
+                    .frame(width: 320)
             }
             Divider().opacity(0.3)
             footer
         }
-        .frame(width: 1120, height: 720)
+        // Owner 2026-08-31: use the screen — the studio is a workspace.
+        .frame(width: studioSize.width, height: studioSize.height)
         .background(Color(hex: "#252525"))
         .onAppear(perform: restore)
         .onDisappear(perform: persist)
+        .overlay(alignment: .topTrailing) { hoverPreviewPanel }
+        .sheet(isPresented: $showingPromptReview) { promptReviewSheet }
     }
 
     // MARK: Header
@@ -461,6 +484,19 @@ public struct ShotSketchStudio: View {
                 .lineLimit(2...3)
                 .font(.system(size: 12))
                 .accessibilityIdentifier("studio-prompt")
+            Button {
+                guard let input = prepareInput() else { return }
+                reviewInput = input
+                reviewPrompt = SketchStudioComposer.prompt(for: input)
+                showingPromptReview = true
+            } label: {
+                Label("Prompt", systemImage: "text.quote")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 8).padding(.vertical, 7)
+            }
+            .disabled(isGenerating)
+            .help("See and edit the exact prompt before it is sent")
+            .accessibilityIdentifier("studio-review-prompt")
             Button { generate() } label: {
                 HStack(spacing: 6) {
                     if isGenerating { ProgressView().controlSize(.small) }
@@ -486,12 +522,15 @@ public struct ShotSketchStudio: View {
 
     // MARK: Library
 
-    private struct LibraryRow: Identifiable {
+    struct LibraryRow: Identifiable, Equatable {
         let id: String
         let kind: String
         let name: String
         let imagePath: String
         let canBeBase: Bool
+        /// Where a double-click goes (a costume opens its character).
+        let navKind: String
+        let navId: String
     }
 
     private var libraryRows: [(section: String, rows: [LibraryRow])] {
@@ -501,34 +540,35 @@ public struct ShotSketchStudio: View {
         let cast = characters.compactMap { c -> LibraryRow? in
             guard let img = c.representativeImage, hit(c.name) else { return nil }
             return LibraryRow(id: "character-\(c.name)", kind: "character", name: c.name,
-                              imagePath: img, canBeBase: false)
+                              imagePath: img, canBeBase: false, navKind: "character", navId: c.id)
         }
         if !cast.isEmpty { sections.append(("CHARACTERS", cast)) }
         let wardrobe = characters.flatMap { c in
             (c.costumes ?? []).compactMap { costume -> LibraryRow? in
                 guard let img = costume.imageFront, hit("\(c.name) \(costume.name)") else { return nil }
                 return LibraryRow(id: "costume-\(c.name)-\(costume.name)", kind: "costume",
-                                  name: "\(c.name) — \(costume.name)", imagePath: img, canBeBase: false)
+                                  name: "\(c.name) — \(costume.name)", imagePath: img, canBeBase: false,
+                                  navKind: "character", navId: c.id)
             }
         }
         if !wardrobe.isEmpty { sections.append(("COSTUMES", wardrobe)) }
         let places = locations.compactMap { l -> LibraryRow? in
             guard let img = l.primaryImage ?? l.images.first, !img.isEmpty, hit(l.name) else { return nil }
             return LibraryRow(id: "location-\(l.name)", kind: "location", name: l.name,
-                              imagePath: img, canBeBase: true)
+                              imagePath: img, canBeBase: true, navKind: "location", navId: l.id)
         }
         if !places.isEmpty { sections.append(("LOCATIONS", places)) }
         let objects = props.compactMap { p -> LibraryRow? in
             guard let img = p.thumbnail, !img.isEmpty, hit(p.name) else { return nil }
             return LibraryRow(id: "prop-\(p.name)", kind: "prop", name: p.name,
-                              imagePath: img, canBeBase: false)
+                              imagePath: img, canBeBase: false, navKind: "prop", navId: p.id)
         }
         if !objects.isEmpty { sections.append(("PROPS", objects)) }
         let frames = shots.compactMap { s -> LibraryRow? in
             guard let img = s.previewImage, !img.isEmpty, s.shotId != currentShotId,
                   hit("shot #\(s.shotId)") else { return nil }
             return LibraryRow(id: "shot-\(s.shotId)", kind: "shot", name: "Shot #\(s.shotId)",
-                              imagePath: img, canBeBase: true)
+                              imagePath: img, canBeBase: true, navKind: "shot", navId: s.id)
         }
         if !frames.isEmpty { sections.append(("SHOT PREVIEWS", frames)) }
         return sections
@@ -593,15 +633,15 @@ public struct ShotSketchStudio: View {
     }
 
     private func libraryRow(_ row: LibraryRow) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             if let dir = projectDirectory {
-                AsyncThumbnail(url: dir.appendingPathComponent(row.imagePath), displaySize: 56) {
+                AsyncThumbnail(url: dir.appendingPathComponent(row.imagePath), displaySize: 120) {
                     Color.gray.opacity(0.3)
                 }
-                .frame(width: row.kind == "character" ? 28 : 44, height: 28)
-                .clipShape(RoundedRectangle(cornerRadius: row.kind == "character" ? 14 : 4))
+                .frame(width: row.kind == "character" ? 44 : 76, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: row.kind == "character" ? 22 : 5))
             }
-            Text(row.name).font(.system(size: 11)).lineLimit(1)
+            Text(row.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
             Spacer()
             Button {
                 elements.append(StudioElement(kind: row.kind, name: row.name, imagePath: row.imagePath))
@@ -611,9 +651,33 @@ public struct ShotSketchStudio: View {
             .buttonStyle(.plain)
             .help("Attach as a plain reference (no position)")
         }
-        .padding(.horizontal, 12).padding(.vertical, 4)
+        .padding(.horizontal, 12).padding(.vertical, 5)
         .contentShape(Rectangle())
-        .onDrag { NSItemProvider(object: "\(row.kind)|\(row.name)|\(row.imagePath)" as NSString) }
+        .background(hoveredRow == row ? Color.white.opacity(0.06) : Color.clear)
+        // Owner 2026-08-31: the small thumbnails are hard to read — hovering
+        // shows the picture big (top-right panel), double-click opens the
+        // element's Story Design page (⌘[ returns).
+        .onHover { inside in
+            hoverTask?.cancel()
+            if inside {
+                hoverTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    guard !Task.isCancelled else { return }
+                    hoveredRow = row
+                }
+            } else if hoveredRow == row {
+                hoveredRow = nil
+            }
+        }
+        .onTapGesture(count: 2) {
+            hoveredRow = nil
+            dismiss()
+            onOpenElement?(row.navKind, row.navId)
+        }
+        .onDrag {
+            hoveredRow = nil
+            return NSItemProvider(object: "\(row.kind)|\(row.name)|\(row.imagePath)" as NSString)
+        }
         .contextMenu {
             if row.canBeBase {
                 Button("Use as base — draw changes on it") { setBase(row.imagePath) }
@@ -623,6 +687,88 @@ public struct ShotSketchStudio: View {
             }
         }
         .accessibilityIdentifier("library-\(row.id)")
+    }
+
+    /// The big look at whatever library row the pointer rests on.
+    @ViewBuilder
+    private var hoverPreviewPanel: some View {
+        if let row = hoveredRow, let dir = projectDirectory {
+            VStack(alignment: .leading, spacing: 6) {
+                AsyncThumbnail(url: dir.appendingPathComponent(row.imagePath), displaySize: 560) {
+                    Color.gray.opacity(0.3)
+                }
+                .frame(width: 360, height: row.kind == "character" ? 360 : 202)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                Text(row.name).font(.system(size: 12, weight: .semibold))
+                Text(row.kind.capitalized).font(.system(size: 10)).foregroundColor(.gray)
+            }
+            .padding(10)
+            .background(Color(hex: "#1A1A1A").opacity(0.97))
+            .cornerRadius(10)
+            .shadow(color: .black.opacity(0.5), radius: 10, y: 3)
+            .padding(.top, 54)
+            .padding(.trailing, 332)
+            .transition(.opacity)
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// See and change the exact words before anything is sent (owner
+    /// 2026-08-31 — same right as the shot page's prompt editor).
+    private var promptReviewSheet: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Label("THE PROMPT, AS IT WILL BE SENT", systemImage: "text.quote")
+                    .font(.system(size: 11, weight: .bold)).tracking(1.0)
+                Spacer()
+                if let input = reviewInput {
+                    Text("\(SketchStudioComposer.referenceImages(for: input).count) pictures attached")
+                        .font(.system(size: 10)).foregroundColor(.gray)
+                }
+            }
+            .padding(12)
+            .background(Color(hex: "#1E1E1E"))
+            Divider().opacity(0.3)
+            TextEditor(text: $reviewPrompt)
+                .font(.system(size: 12, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .background(Color(hex: "#141414"))
+            if let input = reviewInput {
+                Divider().opacity(0.3)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(SketchStudioComposer.referenceImages(for: input).enumerated()),
+                                id: \.offset) { index, ref in
+                            VStack(spacing: 2) {
+                                Text("Image \(index + 1)").font(.system(size: 9, weight: .bold))
+                                Text(ref.label).font(.system(size: 9)).foregroundColor(.gray)
+                            }
+                            .padding(6).background(Color.white.opacity(0.06)).cornerRadius(5)
+                        }
+                    }
+                    .padding(10)
+                }
+            }
+            Divider().opacity(0.3)
+            HStack {
+                Button("Cancel") { showingPromptReview = false }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button {
+                    showingPromptReview = false
+                    if let input = reviewInput { run(input, promptOverride: reviewPrompt) }
+                } label: {
+                    Label("Generate with this prompt", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+            }
+            .padding(12)
+            .background(Color(hex: "#1E1E1E"))
+        }
+        .frame(width: 720, height: 560)
+        .background(Color(hex: "#252525"))
     }
 
     // MARK: Footer
@@ -700,22 +846,26 @@ public struct ShotSketchStudio: View {
         return try? Data(contentsOf: dir.appendingPathComponent(element.imagePath))
     }
 
-    private func generate() {
+    /// Everything a generation needs, or nil with the reason on screen.
+    private func prepareInput() -> SketchStudioInput? {
         errorText = nil
         let renderSize = CGSize(width: 1344, height: 756)
         let baseData = loadBaseData()
         guard let sketchPNG = SketchRender.composedPNG(
             strokes: strokes,
             tags: placed.map { (x: $0.x ?? 0.5, y: $0.y ?? 0.5) },
-            size: renderSize, base: baseData, firstTagNumber: firstTag) else {
+            size: renderSize, base: baseData, firstTagNumber: firstTag),
+        let cleanPNG = SketchRender.composedPNG(
+            strokes: strokes, tags: [], size: renderSize, base: baseData,
+            firstTagNumber: firstTag) else {
             errorText = "Couldn't render the sketch."
-            return
+            return nil
         }
         var placements: [SketchPlacement] = []
         for element in placed {
             guard let data = elementData(element) else {
                 errorText = "Couldn't read the picture for \(element.name)."
-                return
+                return nil
             }
             placements.append(SketchPlacement(
                 element: SketchElement(kind: element.kind, name: element.name, imageData: data),
@@ -725,23 +875,36 @@ public struct ShotSketchStudio: View {
         for element in generals {
             guard let data = elementData(element) else {
                 errorText = "Couldn't read the picture for \(element.name)."
-                return
+                return nil
             }
             references.append(SketchElement(kind: element.kind, name: element.name, imageData: data))
         }
-        let input = SketchStudioInput(
+        return SketchStudioInput(
             mode: mode, sceneText: promptText,
-            taggedSketchPNG: sketchPNG, basePNG: baseData,
+            taggedSketchPNG: sketchPNG,
+            cleanSketchPNG: mode == .create ? cleanPNG : nil,
+            basePNG: baseData,
             placements: placements, generalReferences: references,
             aspectRatio: "16:9", targetSize: .projectPreview)
+    }
+
+    private func generate() {
+        guard let input = prepareInput() else { return }
+        run(input, promptOverride: nil)
+    }
+
+    private func run(_ input: SketchStudioInput, promptOverride: String?) {
         isGenerating = true
         persist()
-        onSketchSaved(sketchPNG)
+        onSketchSaved(input.taggedSketchPNG)
         Task { @MainActor in
             defer { isGenerating = false }
             do {
-                let response = try await AIServiceClient.shared.generateImage(
-                    SketchStudioComposer.request(for: input))
+                var request = SketchStudioComposer.request(for: input)
+                if let promptOverride, !promptOverride.trimmingCharacters(in: .whitespaces).isEmpty {
+                    request.prompt = promptOverride
+                }
+                let response = try await AIServiceClient.shared.generateImage(request)
                 guard let data = response.images.first else {
                     errorText = "No image came back."
                     return

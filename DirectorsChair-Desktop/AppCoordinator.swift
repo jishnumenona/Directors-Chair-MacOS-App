@@ -486,7 +486,68 @@ class AppCoordinator: ObservableObject {
     }
 
     /// Select a character and navigate to story design if needed
+    // MARK: - Navigation trail (DC-0110: ⌘[ back / ⌘] forward)
+
+    /// One place the user stood: enough to put them back there.
+    struct TrailStop: Equatable {
+        var view: AppView
+        var character: Character?
+        var location: Location?
+        var prop: Prop?
+    }
+    @Published private(set) var canGoBack = false
+    @Published private(set) var canGoForward = false
+    private var backTrail: [TrailStop] = []
+    private var forwardTrail: [TrailStop] = []
+    private var isWalkingTrail = false
+    /// selectProp stores only ids in surface memory — keep the object so a
+    /// trail stop can restore the prop page.
+    private var lastSelectedProp: Prop?
+
+    private func currentTrailStop() -> TrailStop {
+        TrailStop(view: selectedView,
+                  character: surfaceMemory.storyDesignMode == "characters" ? selectedCharacter : nil,
+                  location: surfaceMemory.storyDesignMode == "locations" ? selectedLocation : nil,
+                  prop: surfaceMemory.storyDesignMode == "props" ? lastSelectedProp : nil)
+    }
+
+    /// Called at the top of every element jump: where we are becomes a
+    /// place ⌘[ returns to.
+    private func recordTrailStop() {
+        guard !isWalkingTrail else { return }
+        let stop = currentTrailStop()
+        if backTrail.last != stop { backTrail.append(stop) }
+        if backTrail.count > 50 { backTrail.removeFirst() }
+        forwardTrail.removeAll()
+        canGoBack = !backTrail.isEmpty
+        canGoForward = false
+    }
+
+    private func walk(to stop: TrailStop) {
+        isWalkingTrail = true
+        defer { isWalkingTrail = false }
+        if let character = stop.character { selectCharacter(character) }
+        else if let location = stop.location { selectLocation(location) }
+        else if let prop = stop.prop { selectProp(prop) }
+        else if selectedView != stop.view { navigateTo(stop.view) }
+        canGoBack = !backTrail.isEmpty
+        canGoForward = !forwardTrail.isEmpty
+    }
+
+    func goBack() {
+        guard let stop = backTrail.popLast() else { return }
+        forwardTrail.append(currentTrailStop())
+        walk(to: stop)
+    }
+
+    func goForward() {
+        guard let stop = forwardTrail.popLast() else { return }
+        backTrail.append(currentTrailStop())
+        walk(to: stop)
+    }
+
     func selectCharacter(_ character: Character) {
+        recordTrailStop()
         surfaceMemory.storyDesignMode = "characters"
         selectedCharacter = character
         if selectedView != .storyDesign {
@@ -496,6 +557,8 @@ class AppCoordinator: ObservableObject {
 
     /// Open a prop's page in Story Design (DC-0095).
     func selectProp(_ prop: Prop) {
+        recordTrailStop()
+        lastSelectedProp = prop
         surfaceMemory.storyDesignMode = "props"
         surfaceMemory.propId = prop.id
         if selectedView != .storyDesign {
@@ -505,6 +568,7 @@ class AppCoordinator: ObservableObject {
 
     /// Select a location and navigate to story design if needed
     func selectLocation(_ location: Location) {
+        recordTrailStop()
         surfaceMemory.storyDesignMode = "locations"
         selectedLocation = location
         if selectedView != .storyDesign {

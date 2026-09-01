@@ -57,6 +57,10 @@ public struct SketchStudioInput: Equatable, Sendable {
     /// The user's own words for the shot (seeded from the shot's style/
     /// framing/camera/description — never the scene bundle).
     public var sceneText: String
+    /// Create mode: the sketch WITHOUT tags — the clean geometry the model
+    /// anchors on (dark-scene probes: badges only stay out when the tagged
+    /// copy is a separate, second picture).
+    public var cleanSketchPNG: Data?
     /// The sketch as the model sees it: strokes (over the base in edit
     /// mode) with the numbered badges baked in.
     public var taggedSketchPNG: Data
@@ -70,12 +74,14 @@ public struct SketchStudioInput: Equatable, Sendable {
     public var targetSize: ImageTargetSize?
 
     public init(mode: Mode, sceneText: String, taggedSketchPNG: Data,
+                cleanSketchPNG: Data? = nil,
                 basePNG: Data? = nil, placements: [SketchPlacement] = [],
                 generalReferences: [SketchElement] = [],
                 aspectRatio: String = "16:9", targetSize: ImageTargetSize? = nil) {
         self.mode = mode
         self.sceneText = sceneText
         self.taggedSketchPNG = taggedSketchPNG
+        self.cleanSketchPNG = cleanSketchPNG
         self.basePNG = basePNG
         self.placements = placements
         self.generalReferences = generalReferences
@@ -89,7 +95,11 @@ public enum SketchStudioComposer {
     /// The badge number of the first placement — equal to the attached-image
     /// number of its element picture, which is what makes the mapping work.
     public static func firstTagNumber(for mode: SketchStudioInput.Mode) -> Int {
-        mode == .create ? 2 : 3     // create: [sketch, elements…]; edit: [base, marked sketch, elements…]
+        // Both modes: [clean picture, tagged copy, elements…] — the clean
+        // first picture is what keeps badges out of the result (probes
+        // 2026-08-31: a lone tagged sketch leaked its badges on dark scenes).
+        _ = mode
+        return 3
     }
 
     // MARK: Wording
@@ -99,11 +109,11 @@ public enum SketchStudioComposer {
     static func placedClause(_ element: SketchElement, tag: Int) -> String {
         switch element.kind {
         case "character":
-            return "- The figure at tag \(tag) is the character \(element.name): render the person from Image \(tag) there — same face, hair and skin — at the size and position the shape suggests."
+            return "- The figure at tag \(tag) is the character \(element.name): render the person from Image \(tag) there — same face, hair and skin — at the size and position the shape suggests. Re-light them entirely to THIS shot's light — its direction, colour temperature, shadows and reflections on skin and clothing — never the lighting of their reference picture."
         case "costume":
-            return "- At tag \(tag): the figure there wears the costume \"\(element.name)\" — match the garments, colors and style of Image \(tag) exactly."
+            return "- At tag \(tag): the figure there wears the costume \"\(element.name)\" — match the garments, colors and style of Image \(tag) exactly, re-lit by the scene's own light."
         case "prop":
-            return "- The shape at tag \(tag) is the prop \"\(element.name)\": render the object from Image \(tag) there — same design, shape, colors and materials."
+            return "- The shape at tag \(tag) is the prop \"\(element.name)\": render the object from Image \(tag) there — same design, shape, colors and materials — re-lit by the scene's own light."
         case "location":
             return "- Tag \(tag) marks where the place in Image \(tag) (\(element.name)) is seen: render those exact surroundings there."
         case "shot":
@@ -139,7 +149,7 @@ public enum SketchStudioComposer {
         switch input.mode {
         case .create:
             if !scene.isEmpty { lines.append(scene); lines.append("") }
-            lines.append("Image 1 is a rough hand-drawn PLANNING sketch of this shot's composition — only a map: each crude shape stands for a real thing, and the red numbered tags say what each shape is. A tag's number is the number of the attached image that shows the real thing.")
+            lines.append("Image 1 is a rough hand-drawn PLANNING sketch of this shot's composition — only a map: each crude shape stands for a real thing. Image 2 is the same sketch with red numbered tags saying what each shape is; the tags exist ONLY on that annotated copy. Shapes WITHOUT a tag are loose scenery guides — horizon, ground, roads, walls, masses of the scene described above — read them as the scene's own terrain and architecture, never as new free-standing objects. A tag's number is the number of the attached image that shows the real thing.")
         case .edit:
             lines.append("Edit the FIRST attached picture. Image 2 is the same picture with rough hand-drawn pencil marks and red numbered tags showing what to change or add and where — the marks are only a plan: none of the pencil ink or tags may appear in the result.")
             lines.append("Make exactly these changes and nothing else:")
@@ -155,10 +165,16 @@ public enum SketchStudioComposer {
         }
         switch input.mode {
         case .create:
-            lines.append("Place each real subject where its tagged shape sits and match the sketched framing. Do NOT copy, trace or overlay the sketch's ink or the red tags — none of them may appear in the photograph.")
+            lines.append("Place each real subject where its shape sits in Image 1 and match the sketched framing.")
+            lines.append("One physically consistent light binds the whole frame: every person and object sits in the scene's own light — same direction, colour temperature, softness, shadows and reflections — as if photographed together in one exposure. Nothing may keep the flat or studio lighting of its reference picture.")
+            // Dark-scene probe 2026-08-31: this ban must come LAST and name
+            // the marks — earlier placement let ink and badges leak through.
+            lines.append("The sketch's markings are instructions, never content: the finished photograph must contain NO black pencil lines, NO red circles and NO numbers anywhere. Where a line or tag sat, paint only what belongs in the scene.")
             lines.append("Render one photorealistic cinematic frame.")
         case .edit:
-            lines.append("Everything else — the people, place, composition, framing, lighting and film look — must stay exactly as in the first picture. Return the edited first picture with the same framing, without any pencil marks or tags.")
+            lines.append("Anything added or changed must be lit by the FIRST picture's existing light — the same direction, colour temperature, shadows and reflections, including light spilling onto skin and clothing — so it looks photographed in place, never pasted in.")
+            lines.append("Everything else — the people, place, composition, framing, lighting and film look — must stay exactly as in the first picture. Return the edited first picture with the same framing.")
+            lines.append("The pencil marks and tags are instructions, never content: the result must contain NO pencil lines, NO red circles and NO numbers anywhere.")
         }
         return lines.joined(separator: "\n")
     }
@@ -172,7 +188,8 @@ public enum SketchStudioComposer {
         }
         switch input.mode {
         case .create:
-            add(input.taggedSketchPNG, label: "sketch:plan")
+            if let clean = input.cleanSketchPNG { add(clean, label: "sketch:plan") }
+            add(input.taggedSketchPNG, label: "sketch:tagged copy")
         case .edit:
             if let base = input.basePNG { add(base, label: "base:picture to edit") }
             add(input.taggedSketchPNG, label: "sketch:marked plan")
