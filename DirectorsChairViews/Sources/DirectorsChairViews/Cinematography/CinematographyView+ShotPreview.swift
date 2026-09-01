@@ -459,9 +459,15 @@ struct ShotPreviewSection: View {
             )
         }
         .sheet(isPresented: $showingSketchSheet) {
-            ShotSketchSheet(currentPreview: previewImage) { png in
-                applySketch(png)
-            }
+            ShotSketchStudio(
+                characters: characters, locations: locations, props: props,
+                shots: allShots, currentShotId: shot.shotId,
+                projectDirectory: projectBasePath?.deletingLastPathComponent(),
+                seedPrompt: sketchSeedPrompt(),
+                currentPreviewPath: shot.previewImage,
+                documentURL: sketchDocumentURL(),
+                onKeep: { data in keepStudioResult(data) },
+                onSketchSaved: { png in applySketch(png) })
         }
         .sheet(isPresented: $showingAnnotationEditor) {
             if let image = previewImage {
@@ -499,9 +505,7 @@ struct ShotPreviewSection: View {
         guard let scene = scene, let projDir = projectBasePath?.deletingLastPathComponent() else { return [] }
         var refs = CharacterReferenceHelper.collectReferenceImages(
             forShot: shot, in: scene, characters: characters, locations: locations, props: props, projectDirectory: projDir)
-        // DC-0109: the sketch leads — composition first, then continuity.
-        let continuity = (sketchReference().map { [$0] } ?? [])
-            + ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+        let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
         refs = ContinuityReferences.merged(continuity: continuity, others: refs,
                                            onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)
         return refs.compactMap { ref in
@@ -757,14 +761,37 @@ struct ShotPreviewSection: View {
         }
     }
 
-    /// The sketch as the FIRST reference picture (label "sketch:") — read
-    /// fresh from disk so a redraw takes effect immediately.
-    private func sketchReference() -> ReferenceImage? {
-        guard let path = shot.sketchImage, !path.isEmpty,
-              let base = projectBasePath?.deletingLastPathComponent(),
-              let data = try? Data(contentsOf: base.appendingPathComponent(path)) else { return nil }
-        return ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png",
-                              label: SketchRender.referenceLabel)
+    /// DC-0110: the studio's seed prompt — the shot's OWN words only,
+    /// never the scene bundle (the studio decides its references itself).
+    private func sketchSeedPrompt() -> String {
+        let parts = [shot.description, shot.cameraDescription]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? "Cinematic film still." : parts.joined(separator: ". ")
+    }
+
+    /// Where the studio's drawing/tags/prompt survive between openings.
+    private func sketchDocumentURL() -> URL? {
+        projectBasePath?.deletingLastPathComponent()
+            .appendingPathComponent("assets/shots/shot_\(shot.shotId)/sketch_studio.json")
+    }
+
+    /// A kept studio result becomes this shot's preview like any generation.
+    private func keepStudioResult(_ data: Data) {
+        guard let basePath = projectBasePath else { return }
+        do {
+            let shotDir = "assets/shots/shot_\(shot.shotId)"
+            try UploadedImage.writePNG(data, projectBasePath: basePath, relativeDirectory: shotDir,
+                                       filename: "preview_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(data, projectBasePath: basePath, relativeDirectory: shotDir,
+                                                          filename: "latest.png")
+            if let image = NSImage(data: data) { previewImage = image }
+            onPreviewGenerated(relativePath)
+            discoverPreviewImages()
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
     }
 
     /// Owner 2026-08-29: a shot's preview can start from a picture that already
@@ -1075,13 +1102,18 @@ struct ShotPreviewSection: View {
 
             if let sketchPath = shot.sketchImage, let base = projectBasePath?.deletingLastPathComponent() {
                 HStack(spacing: 5) {
-                    AsyncThumbnail(url: base.appendingPathComponent(sketchPath), displaySize: 28) {
-                        Color.white
+                    Button { showingSketchSheet = true } label: {
+                        HStack(spacing: 5) {
+                            AsyncThumbnail(url: base.appendingPathComponent(sketchPath), displaySize: 28) {
+                                Color.white
+                            }
+                            .frame(width: 36, height: 20)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                            Text("Sketch")
+                                .font(.system(size: 10, weight: .medium))
+                        }
                     }
-                    .frame(width: 36, height: 20)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                    Text("Sketch")
-                        .font(.system(size: 10, weight: .medium))
+                    .buttonStyle(.plain)
                     Button {
                         var updated = shot
                         updated.sketchImage = nil
@@ -1097,7 +1129,7 @@ struct ShotPreviewSection: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.14)))
-                .help("Your hand-drawn plan — the preview follows its layout. Click Sketch to redraw.")
+                .help("Your sketch-studio plan — click to reopen the studio")
                 .accessibilityIdentifier("sketch-chip")
             }
 
@@ -1221,9 +1253,7 @@ struct ShotPreviewSection: View {
                 // DC-0091: other shots' finished frames come first, within
                 // the provider's reference budget.
                 if let projDir = projectBasePath?.deletingLastPathComponent() {
-                    // DC-0109: the sketch leads — composition first, then continuity.
-                    let continuity = (sketchReference().map { [$0] } ?? [])
-                        + ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
+                    let continuity = ContinuityReferences.referenceImages(for: shot, allShots: allShots, projectDirectory: projDir)
                     refs = ContinuityReferences.merged(
                         continuity: continuity, others: refs,
                         onDevice: AIProviderSelection.shared.provider(for: .image) == .onDevice)

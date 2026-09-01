@@ -82,4 +82,24 @@ final class ContinuityReferencesTests: XCTestCase {
         XCTAssertTrue(prefix.contains("none of its ink may appear"), prefix)
         XCTAssertTrue(prefix.contains("Image 2 is the finished preview of Shot #2"), prefix)
     }
+
+    func testComposedPNGBakesARedBadgeAtTheTagWithItsImageNumber() throws {
+        let png = try XCTUnwrap(SketchRender.composedPNG(
+            strokes: [], tags: [(x: 0.5, y: 0.5)],
+            size: CGSize(width: 320, height: 180), base: nil, firstTagNumber: 2))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(png as CFData, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let context = CGContext(data: nil, width: image.width, height: image.height,
+                                bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let pixels = context.data!.bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
+        func channel(_ x: Int, _ y: Int, _ o: Int) -> UInt8 { pixels[(y * image.width + x) * 4 + o] }
+        // Badge centre: strongly red (allow the white numeral by sampling the rim).
+        XCTAssertGreaterThan(channel(160 + 8, 90, 0), 200, "badge is red")
+        XCTAssertLessThan(channel(160 + 8, 90, 1), 90, "badge is red, not white paper")
+        XCTAssertGreaterThan(channel(6, 6, 1), 240, "corner stays paper")
+    }
 }
+
