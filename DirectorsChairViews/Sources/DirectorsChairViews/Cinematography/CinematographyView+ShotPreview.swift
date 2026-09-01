@@ -193,32 +193,8 @@ struct ShotPreviewSection: View {
                                 .help("View full size")
                                 .onHover { hoveredToolName = $0 ? "View full size" : nil }
 
-                                // Annotate & edit button
-                                Button(action: { showingAnnotationEditor = true }) {
-                                    Image(systemName: "pencil.and.outline")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.white)
-                                        .padding(8)
-                                        .background(Color.black.opacity(0.6))
-                                        .clipShape(Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .help("Annotate & edit image")
-                                .onHover { hoveredToolName = $0 ? "Annotate & edit" : nil }
-
-                                // Edit prompt button
-                                Button(action: { openPromptEditor() }) {
-                                    Image(systemName: "text.badge.plus")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.white)
-                                        .padding(8)
-                                        .background(Color.black.opacity(0.6))
-                                        .clipShape(Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .help("Edit prompt")
-                                .requiresTier(.creator, feature: "AI shot images")
-                                .onHover { hoveredToolName = $0 ? "Edit prompt" : nil }
+                                // DC-0111: annotating, prompt editing and
+                                // sketching are ONE tool now — the Studio.
 
                                 // Download button
                                 Button(action: { downloadPreviewImage() }) {
@@ -253,7 +229,7 @@ struct ShotPreviewSection: View {
                                         .onHover { hoveredToolName = $0 ? "Start from a picture" : nil }
                                 }
                                 sketchButton(compact: true)
-                                    .onHover { hoveredToolName = $0 ? "Sketch the shot" : nil }
+                                    .onHover { hoveredToolName = $0 ? "Studio — sketch, note, edit, generate" : nil }
                             }
 
                             // Regenerate button (shows spinner when generating)
@@ -719,7 +695,7 @@ struct ShotPreviewSection: View {
     private func sketchButton(compact: Bool) -> some View {
         Button { showingSketchSheet = true } label: {
             if compact {
-                Image(systemName: "pencil.and.outline")
+                Image(systemName: "sparkles.rectangle.stack")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
                     .padding(8)
@@ -727,9 +703,9 @@ struct ShotPreviewSection: View {
                     .clipShape(Circle())
             } else {
                 HStack(spacing: 6) {
-                    Image(systemName: "pencil.and.outline")
+                    Image(systemName: "sparkles.rectangle.stack")
                         .font(.system(size: 12))
-                    Text(shot.sketchImage == nil ? "Sketch" : "Redraw sketch")
+                    Text("Studio")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .padding(.horizontal, 16)
@@ -740,7 +716,7 @@ struct ShotPreviewSection: View {
             }
         }
         .buttonStyle(.plain)
-        .help("Draw a rough plan of the shot — stick figures are fine — and the preview follows your layout")
+        .help("The Studio: sketch the shot, pin notes, place story elements, edit the prompt and generate — all in one place")
         .accessibilityIdentifier(compact ? "preview-sketch-hover" : "preview-sketch")
     }
 

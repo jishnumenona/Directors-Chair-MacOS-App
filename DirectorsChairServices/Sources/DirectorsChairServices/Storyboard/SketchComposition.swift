@@ -30,6 +30,20 @@ public struct SketchElement: Equatable, Sendable {
     }
 }
 
+/// A written instruction pinned to a spot (the annotation pins, unified
+/// into the studio's tag numbering — DC-0111).
+public struct SketchNote: Equatable, Sendable {
+    public var text: String
+    public var x: Double
+    public var y: Double
+
+    public init(text: String, x: Double, y: Double) {
+        self.text = text
+        self.x = x
+        self.y = y
+    }
+}
+
 /// An element mapped to a drawn shape: where its tag sits on the sketch.
 public struct SketchPlacement: Equatable, Sendable {
     public var element: SketchElement
@@ -68,6 +82,8 @@ public struct SketchStudioInput: Equatable, Sendable {
     public var basePNG: Data?
     /// Tagged elements, in badge-number order.
     public var placements: [SketchPlacement]
+    /// Spot instructions — their badges CONTINUE the placement numbering.
+    public var notes: [SketchNote]
     /// Untagged references ("this exists in the shot/world, match it").
     public var generalReferences: [SketchElement]
     public var aspectRatio: String
@@ -76,6 +92,7 @@ public struct SketchStudioInput: Equatable, Sendable {
     public init(mode: Mode, sceneText: String, taggedSketchPNG: Data,
                 cleanSketchPNG: Data? = nil,
                 basePNG: Data? = nil, placements: [SketchPlacement] = [],
+                notes: [SketchNote] = [],
                 generalReferences: [SketchElement] = [],
                 aspectRatio: String = "16:9", targetSize: ImageTargetSize? = nil) {
         self.mode = mode
@@ -84,6 +101,7 @@ public struct SketchStudioInput: Equatable, Sendable {
         self.cleanSketchPNG = cleanSketchPNG
         self.basePNG = basePNG
         self.placements = placements
+        self.notes = notes
         self.generalReferences = generalReferences
         self.aspectRatio = aspectRatio
         self.targetSize = targetSize
@@ -159,6 +177,13 @@ public enum SketchStudioComposer {
             lines.append(placedClause(placement.element, tag: image))
             image += 1
         }
+        for note in input.notes {
+            let text = stripMentions(note.text)
+            lines.append(input.mode == .create
+                ? "- Tag \(image) marks a spot instruction: \(text)"
+                : "- At tag \(image): \(text)")
+            image += 1
+        }
         for reference in input.generalReferences {
             lines.append(generalClause(reference, image: image))
             image += 1
@@ -177,6 +202,14 @@ public enum SketchStudioComposer {
             lines.append("The pencil marks and tags are instructions, never content: the result must contain NO pencil lines, NO red circles and NO numbers anywhere.")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// "@Alex" / "#Pier" / "$Lantern" / "&Shot #2" as plain names — a
+    /// note's mentions read naturally in prose.
+    static func stripMentions(_ text: String) -> String {
+        text.replacingOccurrences(of: "(^|[\\s(])[@#$&](?=[A-Za-z0-9])",
+                                  with: "$1", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
     }
 
     /// The ordered picture list — order IS the numbering the prompt uses.

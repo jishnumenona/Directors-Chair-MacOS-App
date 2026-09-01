@@ -17,6 +17,7 @@ final class SketchCompositionTests: XCTestCase {
             taggedSketchPNG: png, cleanSketchPNG: clean,
             placements: [SketchPlacement(element: alex, x: 0.3, y: 0.6),
                          SketchPlacement(element: van, x: 0.7, y: 0.5)],
+            notes: [SketchNote(text: "rain streaks across @Alex's shoulder", x: 0.32, y: 0.4)],
             generalReferences: [desert])
         let prompt = SketchStudioComposer.prompt(for: input)
         XCTAssertTrue(prompt.hasPrefix("A dawn highway, 35mm film look.\n\nImage 1 is a rough hand-drawn PLANNING sketch"), prompt)
@@ -25,7 +26,10 @@ final class SketchCompositionTests: XCTestCase {
         XCTAssertTrue(prompt.contains("never as new free-standing objects"), prompt)
         XCTAssertTrue(prompt.contains("- The figure at tag 3 is the character Alex: render the person from Image 3 there — same identity: face, features, hair"), prompt)
         XCTAssertTrue(prompt.contains("- The shape at tag 4 is the prop \"Mini van\": render the object from Image 4 there"), prompt)
-        XCTAssertTrue(prompt.contains("- Image 5 is the LOCATION (Desert road): the whole shot takes place in this exact environment"), prompt)
+        // Notes continue the tag numbering after placements (3, 4 → note 5),
+        // and their mentions read as plain names.
+        XCTAssertTrue(prompt.contains("- Tag 5 marks a spot instruction: rain streaks across Alex's shoulder"), prompt)
+        XCTAssertTrue(prompt.contains("- Image 6 is the LOCATION (Desert road): the whole shot takes place in this exact environment"), prompt)
         XCTAssertTrue(prompt.contains("NO black pencil lines, NO red circles and NO numbers anywhere"), prompt)
         // The ink ban is the LAST constraint before the render line (dark-
         // scene probe: earlier placement leaked ink and badges).
@@ -52,13 +56,17 @@ final class SketchCompositionTests: XCTestCase {
         let input = SketchStudioInput(
             mode: .edit, sceneText: "Make it night.",
             taggedSketchPNG: png, basePNG: base,
-            placements: [SketchPlacement(element: alex, x: 0.4, y: 0.4)])
+            placements: [SketchPlacement(element: alex, x: 0.4, y: 0.4)],
+            notes: [SketchNote(text: "make the hood down", x: 0.41, y: 0.3)])
         let prompt = SketchStudioComposer.prompt(for: input)
         XCTAssertTrue(prompt.hasPrefix("Edit the FIRST attached picture. Image 2 is the same picture with rough hand-drawn pencil marks"), prompt)
         XCTAssertTrue(prompt.contains("Make exactly these changes and nothing else:\n- Make it night.\n- The figure at tag 3 is the character Alex: render the person from Image 3 there"), prompt)
         XCTAssertTrue(prompt.contains("must stay exactly as in the first picture"), prompt)
         XCTAssertTrue(prompt.hasSuffix("The pencil marks and tags are instructions, never content: the result must contain NO pencil lines, NO red circles and NO numbers anywhere."), prompt)
+        XCTAssertTrue(prompt.contains("- At tag 4: make the hood down"), prompt)
         XCTAssertTrue(prompt.contains("lit AND colour-graded by the FIRST picture's existing light and grade"), prompt)
+        XCTAssertEqual(SketchStudioComposer.stripMentions("put $Lantern by #Pier near @Alex"),
+                       "put Lantern by Pier near Alex")
         XCTAssertTrue(prompt.contains("photographed in place, never pasted in"), prompt)
         let refs = SketchStudioComposer.referenceImages(for: input)
         XCTAssertEqual(refs.map(\.label), ["base:picture to edit", "sketch:marked plan", "character:Alex"])

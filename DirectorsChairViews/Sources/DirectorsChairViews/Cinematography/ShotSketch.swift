@@ -1,19 +1,17 @@
 // DirectorsChairViews/Cinematography/ShotSketch.swift
 //
-// DC-0109/DC-0110 — the SKETCH STUDIO (owner 2026-08-31): a self-contained
-// authoring surface for shot previews. Draw the composition, drag story
-// elements from the project's library onto the drawn shapes to say what
-// they are, generate RIGHT HERE, then sketch corrections on the result and
-// go again. The studio decides its own references — it never drags the
-// shot page's reference bundle in (that inversion was the owner's core
-// complaint about v1).
-//
-// Every prompt mechanism is live-proven (scratchpad/sketchprobe):
-//  • planning-sketch wording → composition followed, zero ink in the result;
-//  • red numbered tags where TAG NUMBER == ATTACHED IMAGE NUMBER → the
-//    character portrait rendered at the tagged shape with exact likeness;
-//  • edit mode = the marked-copy + edit-guard wording from annotation edits.
-// The composition itself lives in Services (SketchStudioComposer, tested).
+// DC-0109/0110/0111 — the STUDIO: the one surface for authoring a shot
+// preview. It unifies what used to be three tools (owner 2026-09-01:
+// "combine annotate, edit prompt and sketch into one"):
+//   • SKETCH — pen and a wide translucent MARKER for areas;
+//   • NOTES — numbered spot instructions (the annotation pins), with
+//     @ # $ & mentions;
+//   • ELEMENTS — the story library, dragged onto shapes as numbered tags;
+//   • PROMPT — the exact composed text lives in the right panel, always
+//     visible, customizable before sending.
+// One canvas, a left tool rail, a Library|Prompt panel, generate in place,
+// iterate on the result. The prompt contract is probe-proven — see
+// SketchStudioComposer and the sketch-studio-prompt-contract memory.
 
 import DirectorsChairCore
 import DirectorsChairServices
@@ -25,19 +23,39 @@ import UniformTypeIdentifiers
 
 /// One drawn stroke, points normalised (0…1, top-left origin).
 public struct SketchStroke: Equatable, Sendable, Codable {
+    public enum Style: String, Codable, Sendable {
+        /// Opaque ink — outlines and shapes.
+        case pen
+        /// Wide translucent ink — shading and highlighting whole areas.
+        case marker
+    }
     public var points: [CGPoint]
     /// Line width as a fraction of the canvas HEIGHT.
     public var width: CGFloat
     public var isEraser: Bool
+    public var style: Style
 
-    public init(points: [CGPoint] = [], width: CGFloat, isEraser: Bool = false) {
+    public init(points: [CGPoint] = [], width: CGFloat,
+                isEraser: Bool = false, style: Style = .pen) {
         self.points = points
         self.width = width
         self.isEraser = isEraser
+        self.style = style
     }
+
+    enum CodingKeys: String, CodingKey { case points, width, isEraser, style }
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        points = try container.decode([CGPoint].self, forKey: .points)
+        width = try container.decode(CGFloat.self, forKey: .width)
+        isEraser = (try? container.decodeIfPresent(Bool.self, forKey: .isEraser)) ?? false
+        style = (try? container.decodeIfPresent(Style.self, forKey: .style)) ?? .pen
+    }
+
+    var inkAlpha: CGFloat { style == .marker ? 0.45 : 1.0 }
 }
 
-// MARK: - Placed tags & library elements
+// MARK: - Placed tags, notes & library elements
 
 /// A story element the user placed on (or attached to) the sketch.
 public struct StudioElement: Equatable, Codable, Identifiable, Sendable {
@@ -64,14 +82,48 @@ public struct StudioElement: Equatable, Codable, Identifiable, Sendable {
     var isPlaced: Bool { x != nil && y != nil }
 }
 
+/// A written instruction pinned to a spot (the annotation pins, unified).
+public struct StudioNote: Equatable, Codable, Identifiable, Sendable {
+    public var id: UUID
+    public var text: String
+    public var x: Double
+    public var y: Double
+
+    public init(id: UUID = UUID(), text: String, x: Double, y: Double) {
+        self.id = id
+        self.text = text
+        self.x = x
+        self.y = y
+    }
+}
+
 /// The studio's saved state — reopening the sketch restores everything.
 struct SketchStudioDocument: Codable {
     var strokes: [SketchStroke] = []
     var elements: [StudioElement] = []
+    var notes: [StudioNote] = []
     /// nil = blank canvas; "preview" = the shot's current preview;
     /// otherwise a project-relative picture path.
     var base: String?
     var prompt: String = ""
+
+    enum CodingKeys: String, CodingKey { case strokes, elements, notes, base, prompt }
+    init(strokes: [SketchStroke], elements: [StudioElement], notes: [StudioNote],
+         base: String?, prompt: String) {
+        self.strokes = strokes
+        self.elements = elements
+        self.notes = notes
+        self.base = base
+        self.prompt = prompt
+    }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        strokes = (try? container.decodeIfPresent([SketchStroke].self, forKey: .strokes)) ?? []
+        elements = (try? container.decodeIfPresent([StudioElement].self, forKey: .elements)) ?? []
+        notes = (try? container.decodeIfPresent([StudioNote].self, forKey: .notes)) ?? []
+        base = try? container.decodeIfPresent(String.self, forKey: .base)
+        prompt = (try? container.decodeIfPresent(String.self, forKey: .prompt)) ?? ""
+    }
 }
 
 // MARK: - Pure renderer (tested)
@@ -83,8 +135,9 @@ public enum SketchRender {
     }
 
     /// What the model sees: the base picture (edit mode) or paper, the
-    /// strokes, and a red numbered badge at every tag — numbering starts
-    /// at `firstTagNumber` so TAG NUMBER == ATTACHED IMAGE NUMBER.
+    /// strokes (marker strokes translucent), and a red numbered badge at
+    /// every tag — numbering starts at `firstTagNumber` so TAG NUMBER ==
+    /// ATTACHED IMAGE NUMBER (notes continue the same sequence).
     public static func composedPNG(strokes: [SketchStroke],
                                    tags: [(x: Double, y: Double)],
                                    size: CGSize,
@@ -109,7 +162,7 @@ public enum SketchRender {
         for stroke in strokes where stroke.points.count > 1 {
             context.setStrokeColor(stroke.isEraser
                 ? CGColor(red: 1, green: 1, blue: 1, alpha: 1)
-                : CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+                : CGColor(red: 0, green: 0, blue: 0, alpha: stroke.inkAlpha))
             context.setLineWidth(max(1, stroke.width * size.height))
             let mapped = stroke.points.map {
                 CGPoint(x: $0.x * size.width, y: (1 - $0.y) * size.height)
@@ -167,6 +220,26 @@ public enum SketchRender {
 // MARK: - The studio
 
 public struct ShotSketchStudio: View {
+    enum Tool: String, CaseIterable {
+        case pen, marker, note, eraser
+        var symbol: String {
+            switch self {
+            case .pen: return "pencil"
+            case .marker: return "highlighter"
+            case .note: return "text.bubble"
+            case .eraser: return "eraser"
+            }
+        }
+        var title: String {
+            switch self {
+            case .pen: return "Pen — outlines and shapes"
+            case .marker: return "Marker — shade or highlight a whole area"
+            case .note: return "Note — click a spot and say what happens there"
+            case .eraser: return "Eraser"
+            }
+        }
+    }
+
     // Project data for the library.
     let characters: [DirectorsChairCore.Character]
     let locations: [Location]
@@ -188,10 +261,13 @@ public struct ShotSketchStudio: View {
     // Drawing state.
     @State private var strokes: [SketchStroke] = []
     @State private var current: SketchStroke?
-    @State private var isEraser = false
+    @State private var tool: Tool = .pen
     @State private var penWidth: CGFloat = 0.008
-    // Elements.
+    @State private var showingSizePopover = false
+    // Elements & notes.
     @State private var elements: [StudioElement] = []
+    @State private var notes: [StudioNote] = []
+    @State private var editingNoteId: UUID?
     @State private var dragOffsets: [UUID: CGSize] = [:]
     // Base.
     @State private var base: String?           // nil | "preview" | relative path
@@ -199,18 +275,18 @@ public struct ShotSketchStudio: View {
     @State private var dimBase = false
     // Prompt & generation.
     @State private var promptText: String = ""
+    @State private var customPrompt: String = ""
+    @State private var useCustomPrompt = false
     @State private var isGenerating = false
     @State private var resultData: Data?
     @State private var resultImage: NSImage?
     @State private var errorText: String?
+    // Panels.
+    @State private var rightTab = "library"
     @State private var librarySearch = ""
     @State private var studioSize: CGSize = ShotSketchStudio.hostSize()
     @State private var hoveredRow: LibraryRow?
     @State private var hoverTask: Task<Void, Never>?
-    // Owner 2026-08-31: see and edit the exact prompt before it is sent.
-    @State private var showingPromptReview = false
-    @State private var reviewInput: SketchStudioInput?
-    @State private var reviewPrompt: String = ""
 
     public init(characters: [DirectorsChairCore.Character], locations: [Location],
                 props: [Prop], shots: [Shot], currentShotId: Int,
@@ -245,85 +321,124 @@ public struct ShotSketchStudio: View {
     private var placed: [StudioElement] { elements.filter(\.isPlaced) }
     private var generals: [StudioElement] { elements.filter { !$0.isPlaced } }
     private var firstTag: Int { SketchStudioComposer.firstTagNumber(for: mode) }
+    /// Notes' badge numbers CONTINUE after the placed elements'.
+    private var firstNoteTag: Int { firstTag + placed.count }
 
     public var body: some View {
         VStack(spacing: 0) {
             header
             Divider().opacity(0.3)
             HStack(spacing: 0) {
+                toolRail
+                Divider().opacity(0.3)
                 canvasColumn
                 Divider().opacity(0.3)
-                libraryColumn
-                    .frame(width: 320)
+                rightPanel
+                    .frame(width: 330)
             }
             Divider().opacity(0.3)
             footer
         }
-        // Owner 2026-08-31: use the screen — the studio is a workspace.
         .frame(width: studioSize.width, height: studioSize.height)
-        .background(Color(hex: "#252525"))
+        .background(Color(hex: "#232323"))
         .onAppear(perform: restore)
         .onDisappear(perform: persist)
         .overlay(alignment: .topTrailing) { hoverPreviewPanel }
-        .sheet(isPresented: $showingPromptReview) { promptReviewSheet }
     }
 
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "pencil.and.outline").foregroundColor(.accentColor)
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles.rectangle.stack").foregroundColor(.accentColor)
             VStack(alignment: .leading, spacing: 1) {
-                Text("SKETCH STUDIO").font(.system(size: 11, weight: .bold)).tracking(1.2)
+                Text("STUDIO").font(.system(size: 11, weight: .bold)).tracking(1.6)
                     .foregroundColor(.white.opacity(0.9))
                 Text(mode == .create
-                     ? "Draw the shot, drop story elements onto your shapes, generate — all right here."
-                     : "Draw your changes on the picture, drop elements where they belong, generate.")
+                     ? "New picture — sketch it, note it, place your story elements, generate."
+                     : "Editing the picture — everything you don't mark stays exactly as it is.")
                     .font(.system(size: 10)).foregroundColor(.gray)
             }
             Spacer()
-            Picker("", selection: $isEraser) {
-                Label("Draw", systemImage: "pencil").tag(false)
-                Label("Erase", systemImage: "eraser").tag(true)
+            // What the work sits on.
+            Picker("", selection: Binding(
+                get: { base == nil ? 0 : 1 },
+                set: { setBase($0 == 0 ? nil : (currentPreviewPath != nil ? "preview" : base)) }
+            )) {
+                Label("New picture", systemImage: "plus.square.on.square").tag(0)
+                Label("Edit picture", systemImage: "photo").tag(1)
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 140)
-            Picker("", selection: $penWidth) {
-                Text("Fine").tag(CGFloat(0.004))
-                Text("Medium").tag(CGFloat(0.008))
-                Text("Thick").tag(CGFloat(0.016))
-            }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 160)
-            baseMenu
+            .pickerStyle(.segmented).labelsHidden().frame(width: 250)
+            .disabled(currentPreviewPath == nil && base == nil)
+            .help("New picture generates from scratch; Edit changes the base picture (right-click a shot or location in the library for other bases)")
+            .accessibilityIdentifier("studio-base")
             Button { _ = strokes.popLast() } label: { Image(systemName: "arrow.uturn.backward") }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(strokes.isEmpty)
                 .help("Undo the last stroke (⌘Z)")
-            Button("Clear") { strokes.removeAll() }
+            Button("Clear ink") { strokes.removeAll() }
                 .disabled(strokes.isEmpty)
+                .help("Remove every stroke (notes and elements stay)")
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
-        .background(Color(hex: "#1E1E1E"))
+        .background(Color(hex: "#1C1C1C"))
     }
 
-    /// What the sketch sits on: a fresh frame, or a picture being changed.
-    private var baseMenu: some View {
-        Menu {
-            Button("Blank canvas — new picture") { setBase(nil) }
-            if currentPreviewPath != nil {
-                Button("Current preview — change it") { setBase("preview") }
+    // MARK: Tool rail
+
+    private var toolRail: some View {
+        VStack(spacing: 6) {
+            ForEach(Tool.allCases, id: \.self) { candidate in
+                Button { tool = candidate } label: {
+                    Image(systemName: candidate.symbol)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(tool == candidate ? .white : .gray)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(tool == candidate ? Color.accentColor.opacity(0.85) : Color.white.opacity(0.04))
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(candidate.title)
+                .accessibilityIdentifier("studio-tool-\(candidate.rawValue)")
             }
-            if !shots.filter({ $0.shotId != currentShotId && $0.previewImage != nil }).isEmpty
-                || !locations.isEmpty {
-                Divider()
-                Text("Or right-click a shot or location in the library → “Use as base”.")
+            Divider().frame(width: 30).opacity(0.3).padding(.vertical, 4)
+            // Brush size — a live dot plus a slider.
+            Button { showingSizePopover = true } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.04))
+                    Circle().fill(Color.white.opacity(0.85))
+                        .frame(width: min(26, max(4, penWidth * 700)),
+                               height: min(26, max(4, penWidth * 700)))
+                }
+                .frame(width: 40, height: 40)
             }
-        } label: {
-            Label(mode == .create ? "Blank" : "Editing", systemImage: mode == .create ? "doc" : "photo")
-                .font(.system(size: 11, weight: .medium))
+            .buttonStyle(.plain)
+            .help("Brush size")
+            .popover(isPresented: $showingSizePopover, arrowEdge: .trailing) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Brush size").font(.system(size: 11, weight: .semibold))
+                    Slider(value: $penWidth, in: 0.002...0.06)
+                        .frame(width: 180)
+                    HStack {
+                        ForEach([0.004, 0.010, 0.024, 0.045], id: \.self) { preset in
+                            Button { penWidth = preset } label: {
+                                Circle().fill(Color.primary.opacity(0.8))
+                                    .frame(width: max(4, preset * 500), height: max(4, preset * 500))
+                                    .frame(width: 30, height: 30)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(12)
+            }
+            Spacer()
         }
-        .menuStyle(.borderlessButton).fixedSize()
-        .help("Blank canvas generates a fresh picture; a base picture makes this an edit of it")
-        .accessibilityIdentifier("studio-base")
+        .padding(.vertical, 10)
+        .frame(width: 56)
+        .background(Color(hex: "#1C1C1C"))
     }
 
     // MARK: Canvas
@@ -363,7 +478,9 @@ public struct ShotSketchStudio: View {
                         path.move(to: pts[0])
                         for point in pts.dropFirst() { path.addLine(to: point) }
                         context.stroke(path,
-                                       with: .color(stroke.isEraser ? .white : .black),
+                                       with: .color(stroke.isEraser
+                                                    ? .white
+                                                    : .black.opacity(stroke.inkAlpha)),
                                        style: StrokeStyle(lineWidth: max(1, stroke.width * size.height),
                                                           lineCap: .round, lineJoin: .round))
                     }
@@ -374,27 +491,32 @@ public struct ShotSketchStudio: View {
                                     + (dragOffsets[element.id]?.width ?? 0),
                                   y: (element.y ?? 0) * geo.size.height
                                     + (dragOffsets[element.id]?.height ?? 0))
-                        .gesture(
-                            DragGesture()
-                                .onChanged { dragOffsets[element.id] = $0.translation }
-                                .onEnded { value in
-                                    move(element,
-                                         to: CGPoint(x: (element.x ?? 0) + value.translation.width / geo.size.width,
-                                                     y: (element.y ?? 0) + value.translation.height / geo.size.height))
-                                    dragOffsets[element.id] = nil
-                                }
-                        )
+                        .gesture(chipDrag(id: element.id, in: geo.size) { delta in
+                            move(element, by: delta)
+                        })
+                }
+                ForEach(Array(notes.enumerated()), id: \.element.id) { index, note in
+                    noteChip(note, number: index + firstNoteTag)
+                        .position(x: note.x * geo.size.width
+                                    + (dragOffsets[note.id]?.width ?? 0),
+                                  y: note.y * geo.size.height
+                                    + (dragOffsets[note.id]?.height ?? 0))
+                        .gesture(chipDrag(id: note.id, in: geo.size) { delta in
+                            moveNote(note, by: delta)
+                        })
                 }
             }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 2)
                     .onChanged { value in
+                        guard tool != .note else { return }
                         let point = normalised(value.location, in: geo.size)
                         if current == nil {
                             current = SketchStroke(points: [point],
-                                                   width: isEraser ? penWidth * 3 : penWidth,
-                                                   isEraser: isEraser)
+                                                   width: tool == .pen ? penWidth : penWidth * 3,
+                                                   isEraser: tool == .eraser,
+                                                   style: tool == .marker ? .marker : .pen)
                         } else {
                             current?.points.append(point)
                         }
@@ -404,13 +526,20 @@ public struct ShotSketchStudio: View {
                         current = nil
                     }
             )
+            .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                guard tool == .note else { return }
+                let point = normalised(location, in: geo.size)
+                let note = StudioNote(text: "", x: point.x, y: point.y)
+                notes.append(note)
+                editingNoteId = note.id
+            }
             .onDrop(of: [.plainText], isTargeted: nil) { providers, location in
                 drop(providers: providers, at: normalised(location, in: geo.size))
             }
             .accessibilityIdentifier("studio-canvas")
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: "#3A3A3A"), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: "#3A3A3A"), lineWidth: 1))
         .overlay(alignment: .bottomLeading) {
             if baseImage != nil {
                 Toggle("Dim picture while drawing", isOn: $dimBase)
@@ -422,8 +551,18 @@ public struct ShotSketchStudio: View {
         }
     }
 
-    /// A placed element: numbered badge + thumbnail + name; drag to move,
-    /// × or right-click to remove. Several can share a region.
+    private func chipDrag(id: UUID, in size: CGSize,
+                          onEnd: @escaping (CGPoint) -> Void) -> some Gesture {
+        DragGesture()
+            .onChanged { dragOffsets[id] = $0.translation }
+            .onEnded { value in
+                onEnd(CGPoint(x: value.translation.width / size.width,
+                              y: value.translation.height / size.height))
+                dragOffsets[id] = nil
+            }
+    }
+
+    /// A placed element: numbered badge + thumbnail + name.
     private func tagChip(_ element: StudioElement, number: Int) -> some View {
         HStack(spacing: 5) {
             ZStack {
@@ -453,6 +592,57 @@ public struct ShotSketchStudio: View {
         .accessibilityIdentifier("studio-tag-\(element.name)")
     }
 
+    /// A spot instruction: amber badge + the words; click to edit.
+    private func noteChip(_ note: StudioNote, number: Int) -> some View {
+        HStack(spacing: 5) {
+            ZStack {
+                Circle().fill(Color.orange)
+                Text("\(number)").font(.system(size: 10, weight: .bold)).foregroundColor(.white)
+            }
+            .frame(width: 18, height: 18)
+            Text(note.text.isEmpty ? "say what happens here…" : note.text)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(note.text.isEmpty ? .gray : .white)
+                .lineLimit(1)
+                .frame(maxWidth: 170, alignment: .leading)
+            Button { notes.removeAll { $0.id == note.id } } label: {
+                Image(systemName: "xmark").font(.system(size: 7, weight: .bold))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Capsule().fill(Color(hex: "#1E1E1E").opacity(0.92)))
+        .overlay(Capsule().stroke(Color.orange.opacity(0.7), lineWidth: 1))
+        .foregroundColor(.white)
+        .onTapGesture { editingNoteId = note.id }
+        .contextMenu { Button("Remove", role: .destructive) { notes.removeAll { $0.id == note.id } } }
+        .popover(isPresented: Binding(get: { editingNoteId == note.id },
+                                      set: { if !$0 { editingNoteId = nil } }),
+                 arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("What happens at this spot?").font(.system(size: 10, weight: .semibold))
+                MentionTextView(text: Binding(
+                        get: { notes.first(where: { $0.id == note.id })?.text ?? "" },
+                        set: { text in
+                            if let i = notes.firstIndex(where: { $0.id == note.id }) { notes[i].text = text }
+                        }),
+                    characters: characters, locations: locations, props: props,
+                    continuityShots: shots, projectDirectory: projectDirectory,
+                    placeholder: "e.g. @Alex leans on the $Mini van, hood down",
+                    onOpenMention: nil,
+                    submitsOnReturn: true, onSubmit: { editingNoteId = nil })
+                    .frame(width: 300, height: 54)
+                HStack {
+                    Spacer()
+                    Button("Done") { editingNoteId = nil }.keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(10)
+        }
+        .help("A numbered instruction for this exact spot — drag to move, click to edit")
+        .accessibilityIdentifier("studio-note-\(number)")
+    }
+
     private func resultPane(_ image: NSImage) -> some View {
         ZStack(alignment: .bottom) {
             Image(nsImage: image).resizable().scaledToFit()
@@ -464,16 +654,16 @@ public struct ShotSketchStudio: View {
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("studio-keep")
                 Button { continueOnResult() } label: {
-                    Label("Sketch on this", systemImage: "pencil.and.outline")
+                    Label("Refine this", systemImage: "pencil.and.outline")
                 }
-                .help("Make this picture the base and draw the next round of changes on it")
+                .help("Make this picture the base and mark the next round of changes on it")
                 Button("Discard", role: .destructive) { resultData = nil; resultImage = nil }
             }
             .padding(10)
             .background(Color.black.opacity(0.65)).cornerRadius(10)
             .padding(.bottom, 12)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var promptRow: some View {
@@ -484,19 +674,6 @@ public struct ShotSketchStudio: View {
                 .lineLimit(2...3)
                 .font(.system(size: 12))
                 .accessibilityIdentifier("studio-prompt")
-            Button {
-                guard let input = prepareInput() else { return }
-                reviewInput = input
-                reviewPrompt = SketchStudioComposer.prompt(for: input)
-                showingPromptReview = true
-            } label: {
-                Label("Prompt", systemImage: "text.quote")
-                    .font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 8).padding(.vertical, 7)
-            }
-            .disabled(isGenerating)
-            .help("See and edit the exact prompt before it is sent")
-            .accessibilityIdentifier("studio-review-prompt")
             Button { generate() } label: {
                 HStack(spacing: 6) {
                     if isGenerating { ProgressView().controlSize(.small) }
@@ -507,7 +684,8 @@ public struct ShotSketchStudio: View {
                 .padding(.horizontal, 14).padding(.vertical, 7)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isGenerating || (strokes.isEmpty && placed.isEmpty && promptText.trimmingCharacters(in: .whitespaces).isEmpty))
+            .disabled(isGenerating || (strokes.isEmpty && placed.isEmpty && notes.isEmpty
+                                       && promptText.trimmingCharacters(in: .whitespaces).isEmpty))
             .keyboardShortcut(.return, modifiers: .command)
             .accessibilityIdentifier("studio-generate")
         }
@@ -520,7 +698,81 @@ public struct ShotSketchStudio: View {
         }
     }
 
-    // MARK: Library
+    // MARK: Right panel — Library | Prompt
+
+    private var rightPanel: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $rightTab) {
+                Text("Library").tag("library")
+                Text("Prompt").tag("prompt")
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            Divider().opacity(0.3)
+            if rightTab == "library" { libraryColumn } else { promptPanel }
+        }
+        .background(Color(hex: "#1F1F1F"))
+    }
+
+    /// The exact words that will be sent — live, and customizable
+    /// (owner 2026-09-01: the prompt belongs IN the tool).
+    private var promptPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Toggle("Customize before sending", isOn: $useCustomPrompt)
+                .toggleStyle(.switch).controlSize(.small)
+                .font(.system(size: 11))
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .onChange(of: useCustomPrompt) { _, on in
+                    if on, customPrompt.isEmpty { customPrompt = livePrompt }
+                }
+                .accessibilityIdentifier("studio-custom-prompt")
+            Divider().opacity(0.3)
+            if useCustomPrompt {
+                TextEditor(text: $customPrompt)
+                    .font(.system(size: 11, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(Color(hex: "#141414"))
+                Text("Sent exactly as written. Switch off to go back to the composed prompt.")
+                    .font(.system(size: 9)).foregroundColor(.gray)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+            } else {
+                ScrollView {
+                    Text(livePrompt)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
+                Divider().opacity(0.3)
+                Text("Updates as you work: pictures are numbered in the order they attach — tags carry the same numbers.")
+                    .font(.system(size: 9)).foregroundColor(.gray)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+            }
+        }
+    }
+
+    /// The composed prompt from the CURRENT state — picture bytes aren't
+    /// needed to preview the words, so this stays cheap.
+    private var livePrompt: String {
+        let placements = placed.map {
+            SketchPlacement(element: SketchElement(kind: $0.kind, name: $0.name, imageData: Data()),
+                            x: $0.x ?? 0.5, y: $0.y ?? 0.5)
+        }
+        let references = generals.map {
+            SketchElement(kind: $0.kind, name: $0.name, imageData: Data())
+        }
+        let input = SketchStudioInput(
+            mode: mode, sceneText: promptText,
+            taggedSketchPNG: Data(), cleanSketchPNG: nil, basePNG: nil,
+            placements: placements,
+            notes: notes.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+                        .map { SketchNote(text: $0.text, x: $0.x, y: $0.y) },
+            generalReferences: references,
+            aspectRatio: "16:9", targetSize: .projectPreview)
+        return SketchStudioComposer.prompt(for: input)
+    }
 
     struct LibraryRow: Identifiable, Equatable {
         let id: String
@@ -576,16 +828,9 @@ public struct ShotSketchStudio: View {
 
     private var libraryColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "books.vertical").font(.system(size: 11)).foregroundColor(.secondary)
-                Text("STORY LIBRARY").font(.system(size: 9, weight: .bold)).tracking(1.0)
-                    .foregroundColor(.gray)
-                Spacer()
-            }
-            .padding(.horizontal, 12).padding(.top, 10)
-            Text("Drag onto your sketch to say what a shape is. ＋ attaches it as a plain reference.")
+            Text("Drag onto your sketch to say what a shape is. ＋ attaches it as a plain reference. Double-click opens its page.")
                 .font(.system(size: 9)).foregroundColor(.gray.opacity(0.8))
-                .padding(.horizontal, 12).padding(.top, 2)
+                .padding(.horizontal, 12).padding(.top, 8)
             TextField("Search elements…", text: $librarySearch)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -629,7 +874,6 @@ public struct ShotSketchStudio: View {
                 .padding(.bottom, 6)
             }
         }
-        .background(Color(hex: "#202020"))
     }
 
     private func libraryRow(_ row: LibraryRow) -> some View {
@@ -654,9 +898,6 @@ public struct ShotSketchStudio: View {
         .padding(.horizontal, 12).padding(.vertical, 5)
         .contentShape(Rectangle())
         .background(hoveredRow == row ? Color.white.opacity(0.06) : Color.clear)
-        // Owner 2026-08-31: the small thumbnails are hard to read — hovering
-        // shows the picture big (top-right panel), double-click opens the
-        // element's Story Design page (⌘[ returns).
         .onHover { inside in
             hoverTask?.cancel()
             if inside {
@@ -685,6 +926,10 @@ public struct ShotSketchStudio: View {
             Button("Attach as plain reference") {
                 elements.append(StudioElement(kind: row.kind, name: row.name, imagePath: row.imagePath))
             }
+            Button("Open in Story Design") {
+                dismiss()
+                onOpenElement?(row.navKind, row.navId)
+            }
         }
         .accessibilityIdentifier("library-\(row.id)")
     }
@@ -692,7 +937,7 @@ public struct ShotSketchStudio: View {
     /// The big look at whatever library row the pointer rests on.
     @ViewBuilder
     private var hoverPreviewPanel: some View {
-        if let row = hoveredRow, let dir = projectDirectory {
+        if let row = hoveredRow, let dir = projectDirectory, rightTab == "library" {
             VStack(alignment: .leading, spacing: 6) {
                 AsyncThumbnail(url: dir.appendingPathComponent(row.imagePath), displaySize: 560) {
                     Color.gray.opacity(0.3)
@@ -707,68 +952,10 @@ public struct ShotSketchStudio: View {
             .cornerRadius(10)
             .shadow(color: .black.opacity(0.5), radius: 10, y: 3)
             .padding(.top, 54)
-            .padding(.trailing, 332)
+            .padding(.trailing, 342)
             .transition(.opacity)
             .allowsHitTesting(false)
         }
-    }
-
-    /// See and change the exact words before anything is sent (owner
-    /// 2026-08-31 — same right as the shot page's prompt editor).
-    private var promptReviewSheet: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Label("THE PROMPT, AS IT WILL BE SENT", systemImage: "text.quote")
-                    .font(.system(size: 11, weight: .bold)).tracking(1.0)
-                Spacer()
-                if let input = reviewInput {
-                    Text("\(SketchStudioComposer.referenceImages(for: input).count) pictures attached")
-                        .font(.system(size: 10)).foregroundColor(.gray)
-                }
-            }
-            .padding(12)
-            .background(Color(hex: "#1E1E1E"))
-            Divider().opacity(0.3)
-            TextEditor(text: $reviewPrompt)
-                .font(.system(size: 12, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(Color(hex: "#141414"))
-            if let input = reviewInput {
-                Divider().opacity(0.3)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(SketchStudioComposer.referenceImages(for: input).enumerated()),
-                                id: \.offset) { index, ref in
-                            VStack(spacing: 2) {
-                                Text("Image \(index + 1)").font(.system(size: 9, weight: .bold))
-                                Text(ref.label).font(.system(size: 9)).foregroundColor(.gray)
-                            }
-                            .padding(6).background(Color.white.opacity(0.06)).cornerRadius(5)
-                        }
-                    }
-                    .padding(10)
-                }
-            }
-            Divider().opacity(0.3)
-            HStack {
-                Button("Cancel") { showingPromptReview = false }
-                    .keyboardShortcut(.cancelAction)
-                Spacer()
-                Button {
-                    showingPromptReview = false
-                    if let input = reviewInput { run(input, promptOverride: reviewPrompt) }
-                } label: {
-                    Label("Generate with this prompt", systemImage: "wand.and.stars")
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return, modifiers: .command)
-            }
-            .padding(12)
-            .background(Color(hex: "#1E1E1E"))
-        }
-        .frame(width: 720, height: 560)
-        .background(Color(hex: "#252525"))
     }
 
     // MARK: Footer
@@ -776,7 +963,7 @@ public struct ShotSketchStudio: View {
     private var footer: some View {
         HStack(spacing: 10) {
             Label(mode == .create
-                  ? "New picture from your sketch"
+                  ? "New picture from your sketch, notes and elements"
                   : "Editing the base picture — everything you don't mark stays",
                   systemImage: mode == .create ? "sparkles" : "lock")
                 .font(.system(size: 10)).foregroundColor(.gray)
@@ -784,7 +971,7 @@ public struct ShotSketchStudio: View {
             Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
-        .background(Color(hex: "#1E1E1E"))
+        .background(Color(hex: "#1C1C1C"))
     }
 
     // MARK: Actions
@@ -794,10 +981,16 @@ public struct ShotSketchStudio: View {
                 y: min(max(point.y / size.height, 0), 1))
     }
 
-    private func move(_ element: StudioElement, to point: CGPoint) {
+    private func move(_ element: StudioElement, by delta: CGPoint) {
         guard let index = elements.firstIndex(where: { $0.id == element.id }) else { return }
-        elements[index].x = min(max(point.x, 0), 1)
-        elements[index].y = min(max(point.y, 0), 1)
+        elements[index].x = min(max((element.x ?? 0) + delta.x, 0), 1)
+        elements[index].y = min(max((element.y ?? 0) + delta.y, 0), 1)
+    }
+
+    private func moveNote(_ note: StudioNote, by delta: CGPoint) {
+        guard let index = notes.firstIndex(where: { $0.id == note.id }) else { return }
+        notes[index].x = min(max(note.x + delta.x, 0), 1)
+        notes[index].y = min(max(note.y + delta.y, 0), 1)
     }
 
     private func remove(_ element: StudioElement) {
@@ -851,9 +1044,12 @@ public struct ShotSketchStudio: View {
         errorText = nil
         let renderSize = CGSize(width: 1344, height: 756)
         let baseData = loadBaseData()
+        let liveNotes = notes.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+        // Badge order MUST match the composer's numbering: placements, then notes.
+        let tagPoints = placed.map { (x: $0.x ?? 0.5, y: $0.y ?? 0.5) }
+                      + liveNotes.map { (x: $0.x, y: $0.y) }
         guard let sketchPNG = SketchRender.composedPNG(
-            strokes: strokes,
-            tags: placed.map { (x: $0.x ?? 0.5, y: $0.y ?? 0.5) },
+            strokes: strokes, tags: tagPoints,
             size: renderSize, base: baseData, firstTagNumber: firstTag),
         let cleanPNG = SketchRender.composedPNG(
             strokes: strokes, tags: [], size: renderSize, base: baseData,
@@ -884,13 +1080,15 @@ public struct ShotSketchStudio: View {
             taggedSketchPNG: sketchPNG,
             cleanSketchPNG: mode == .create ? cleanPNG : nil,
             basePNG: baseData,
-            placements: placements, generalReferences: references,
+            placements: placements,
+            notes: liveNotes.map { SketchNote(text: $0.text, x: $0.x, y: $0.y) },
+            generalReferences: references,
             aspectRatio: "16:9", targetSize: .projectPreview)
     }
 
     private func generate() {
         guard let input = prepareInput() else { return }
-        run(input, promptOverride: nil)
+        run(input, promptOverride: useCustomPrompt ? customPrompt : nil)
     }
 
     private func run(_ input: SketchStudioInput, promptOverride: String?) {
@@ -932,6 +1130,7 @@ public struct ShotSketchStudio: View {
         base = roundURL.path.replacingOccurrences(of: dir.path + "/", with: "")
         baseImage = NSImage(data: data)
         strokes.removeAll()
+        notes.removeAll()
         elements.removeAll { $0.isPlaced }   // keep plain references for the next round
         resultData = nil
         resultImage = nil
@@ -944,6 +1143,7 @@ public struct ShotSketchStudio: View {
            let doc = try? JSONDecoder().decode(SketchStudioDocument.self, from: data) {
             strokes = doc.strokes
             elements = doc.elements
+            notes = doc.notes
             base = doc.base
             promptText = doc.prompt.isEmpty ? seedPrompt : doc.prompt
         } else {
@@ -956,7 +1156,7 @@ public struct ShotSketchStudio: View {
     private func persist() {
         guard let documentURL else { return }
         let doc = SketchStudioDocument(strokes: strokes, elements: elements,
-                                       base: base, prompt: promptText)
+                                       notes: notes, base: base, prompt: promptText)
         try? FileManager.default.createDirectory(at: documentURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(doc) {
