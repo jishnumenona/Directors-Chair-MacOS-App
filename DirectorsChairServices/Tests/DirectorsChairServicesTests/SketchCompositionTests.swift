@@ -23,7 +23,7 @@ final class SketchCompositionTests: XCTestCase {
         XCTAssertTrue(prompt.contains("A tag's number is the number of the attached image that shows the real thing."), prompt)
         XCTAssertTrue(prompt.contains("Image 2 is the same sketch with red numbered tags"), prompt)
         XCTAssertTrue(prompt.contains("never as new free-standing objects"), prompt)
-        XCTAssertTrue(prompt.contains("- The figure at tag 3 is the character Alex: render the person from Image 3 there — same face, hair and skin"), prompt)
+        XCTAssertTrue(prompt.contains("- The figure at tag 3 is the character Alex: render the person from Image 3 there — same identity: face, features, hair"), prompt)
         XCTAssertTrue(prompt.contains("- The shape at tag 4 is the prop \"Mini van\": render the object from Image 4 there"), prompt)
         XCTAssertTrue(prompt.contains("- Image 5 is the LOCATION (Desert road): the whole shot takes place in this exact environment"), prompt)
         XCTAssertTrue(prompt.contains("NO black pencil lines, NO red circles and NO numbers anywhere"), prompt)
@@ -32,8 +32,12 @@ final class SketchCompositionTests: XCTestCase {
         XCTAssertTrue(prompt.hasSuffix("Where a line or tag sat, paint only what belongs in the scene.\nRender one photorealistic cinematic frame."), prompt)
         // The relighting contract (owner 2026-08-31: pasted-in look) — one
         // exposure, no reference lighting carried over.
-        XCTAssertTrue(prompt.contains("as if photographed together in one exposure"), prompt)
-        XCTAssertTrue(prompt.contains("Re-light them entirely to THIS shot's light"), prompt)
+        XCTAssertTrue(prompt.contains("as if photographed together in one exposure and graded as one frame"), prompt)
+        XCTAssertTrue(prompt.contains("Re-light and RE-GRADE them entirely to this shot"), prompt)
+        // Owner 2026-08-31 (screenshot: suit kept its fresh neutral whites in
+        // a teal night): identity comes from the reference, colour-as-seen
+        // comes from the scene — pinned for costumes and the frame line.
+        XCTAssertTrue(prompt.contains("Anything whose colours or cleanliness look untouched by the scene is wrong"), prompt)
         let refs = SketchStudioComposer.referenceImages(for: input)
         XCTAssertEqual(refs.map(\.label), ["sketch:plan", "sketch:tagged copy", "character:Alex", "prop:Mini van", "location:Desert road"])
         XCTAssertEqual(refs[0].base64, clean.base64EncodedString())
@@ -54,6 +58,7 @@ final class SketchCompositionTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Make exactly these changes and nothing else:\n- Make it night.\n- The figure at tag 3 is the character Alex: render the person from Image 3 there"), prompt)
         XCTAssertTrue(prompt.contains("must stay exactly as in the first picture"), prompt)
         XCTAssertTrue(prompt.hasSuffix("The pencil marks and tags are instructions, never content: the result must contain NO pencil lines, NO red circles and NO numbers anywhere."), prompt)
+        XCTAssertTrue(prompt.contains("lit AND colour-graded by the FIRST picture's existing light and grade"), prompt)
         XCTAssertTrue(prompt.contains("photographed in place, never pasted in"), prompt)
         let refs = SketchStudioComposer.referenceImages(for: input)
         XCTAssertEqual(refs.map(\.label), ["base:picture to edit", "sketch:marked plan", "character:Alex"])
@@ -70,6 +75,10 @@ final class SketchCompositionTests: XCTestCase {
         for kind in ["character", "costume", "prop", "location", "shot"] {
             let element = SketchElement(kind: kind, name: "X", imageData: Data([1]))
             XCTAssertTrue(SketchStudioComposer.placedClause(element, tag: 5).contains("5"), kind)
+            if ["character", "costume", "prop"].contains(kind) {
+                XCTAssertTrue(SketchStudioComposer.placedClause(element, tag: 5).lowercased().contains("grade"),
+                              "\(kind) must re-grade to the scene")
+            }
             XCTAssertTrue(SketchStudioComposer.generalClause(element, image: 6).contains("Image 6"), kind)
         }
     }
