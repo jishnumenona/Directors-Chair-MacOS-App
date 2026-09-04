@@ -1495,13 +1495,34 @@ public struct ShotSketchStudio: View {
             strokes = doc.strokes
             elements = doc.elements
             notes = doc.notes
-            base = doc.base
+            base = openingBase(saved: doc.base)
             promptText = doc.prompt.isEmpty ? seedPrompt : doc.prompt
         } else {
             base = currentPreviewPath != nil ? "preview" : nil
             promptText = base == nil ? seedPrompt : ""
         }
+        // A description is a starting point for a NEW picture; on an existing
+        // one the words are a change, so the seed must not masquerade as one.
+        if base != nil, promptText == seedPrompt { promptText = "" }
         baseImage = loadBaseImage()
+    }
+
+    /// What the studio opens on (owner 2026-09-04: "if an image was already
+    /// generated, the studio should already have it to work on"): the
+    /// shot's preview whenever there is one, unless a deliberately chosen
+    /// other picture (a library asset, an unkept round) still exists.
+    private func openingBase(saved: String?) -> String? {
+        let hasPreview = currentPreviewPath != nil
+        switch saved {
+        case nil, "preview":
+            return hasPreview ? "preview" : nil
+        case let path?:
+            if let dir = projectDirectory,
+               FileManager.default.fileExists(atPath: dir.appendingPathComponent(path).path) {
+                return path
+            }
+            return hasPreview ? "preview" : nil
+        }
     }
 
     private func persist() {
