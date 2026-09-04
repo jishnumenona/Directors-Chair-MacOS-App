@@ -85,6 +85,7 @@ public struct LocationDetailView: View {
                         descriptionCard
                         atmosphereCard
                         cinematographyCard
+                        anglesCard
                         scriptContextCard
 
                         HStack(alignment: .top, spacing: 16) {
