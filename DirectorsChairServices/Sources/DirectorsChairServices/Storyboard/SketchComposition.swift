@@ -206,7 +206,7 @@ public enum SketchStudioComposer {
 
     /// "@Alex" / "#Pier" / "$Lantern" / "&Shot #2" as plain names — a
     /// note's mentions read naturally in prose.
-    static func stripMentions(_ text: String) -> String {
+    public static func stripMentions(_ text: String) -> String {
         text.replacingOccurrences(of: "(^|[\\s(])[@#$&](?=[A-Za-z0-9])",
                                   with: "$1", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)

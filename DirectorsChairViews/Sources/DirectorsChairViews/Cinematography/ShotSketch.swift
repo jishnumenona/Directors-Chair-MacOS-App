@@ -293,6 +293,8 @@ public struct ShotSketchStudio: View {
     @State private var studioSize: CGSize = ShotSketchStudio.hostSize()
     @State private var hoveredRow: LibraryRow?
     @State private var hoverTask: Task<Void, Never>?
+    @State private var hoveredTool: Tool?
+    @State private var hoveringBrushSize = false
 
     public init(characters: [DirectorsChairCore.Character], locations: [Location],
                 props: [Prop], shots: [Shot], currentShotId: Int,
@@ -326,6 +328,32 @@ public struct ShotSketchStudio: View {
     private var mode: SketchStudioInput.Mode { base == nil ? .create : .edit }
     private var placed: [StudioElement] { elements.filter(\.isPlaced) }
     private var generals: [StudioElement] { elements.filter { !$0.isPlaced } }
+    /// Story elements the scene text or a note MENTIONS (@ character,
+    /// # location, $ prop, & shot) that aren't placed or attached already —
+    /// their pictures ride along as plain references, exactly like the shot
+    /// description's mentions do (owner 2026-09-04).
+    private var mentioned: [StudioElement] {
+        var out: [StudioElement] = []
+        for text in [promptText] + notes.map(\.text) {
+            for mention in MentionParser.mentions(in: text, characters: characters,
+                                                  locations: locations, props: props, shots: shots) {
+                guard let path = mention.imagePath, !path.isEmpty else { continue }
+                let kind: String
+                switch mention.kind {
+                case .character: kind = "character"
+                case .location: kind = "location"
+                case .prop: kind = "prop"
+                case .shot: kind = "shot"
+                }
+                if kind == "shot", mention.name == "Shot #\(currentShotId)" { continue }
+                if elements.contains(where: { $0.kind == kind && $0.name == mention.name }) { continue }
+                if out.contains(where: { $0.kind == kind && $0.name == mention.name }) { continue }
+                out.append(StudioElement(kind: kind, name: mention.name, imagePath: path))
+            }
+        }
+        return out
+    }
+    static let mentionLegend = "@ character · # location · $ prop · & shot preview"
     private var firstTag: Int { SketchStudioComposer.firstTagNumber(for: mode) }
     /// Notes' badge numbers CONTINUE after the placed elements'.
     private var firstNoteTag: Int { firstTag + placed.count }
@@ -406,6 +434,7 @@ public struct ShotSketchStudio: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .onHover { hoveredTool = $0 ? candidate : nil }
                 .help(candidate.title)
                 .accessibilityIdentifier("studio-tool-\(candidate.rawValue)")
             }
@@ -421,6 +450,7 @@ public struct ShotSketchStudio: View {
                 .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
+            .onHover { hoveringBrushSize = $0 }
             .help("Brush size")
             .popover(isPresented: $showingSizePopover, arrowEdge: .trailing) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -445,6 +475,30 @@ public struct ShotSketchStudio: View {
         .padding(.vertical, 10)
         .frame(width: 56)
         .background(Color(hex: "#1C1C1C"))
+        .overlay(alignment: .topLeading) { railHoverLabel }
+    }
+
+    /// The tool's name, instantly, beside whichever rail button the
+    /// pointer is on (system tooltips take a second to appear).
+    @ViewBuilder
+    private var railHoverLabel: some View {
+        let toolIndex = hoveredTool.flatMap { Tool.allCases.firstIndex(of: $0) }
+        let title = hoveredTool?.title ?? (hoveringBrushSize ? "Brush size" : nil)
+        if let title {
+            // Rail geometry: 10pt top padding, 40pt buttons at a 6pt pitch,
+            // then the divider block before the size button.
+            let row = toolIndex.map(Double.init) ?? Double(Tool.allCases.count) + 0.4
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(Capsule().fill(Color(hex: "#111111").opacity(0.96)))
+                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                .fixedSize()
+                .offset(x: 60, y: 10 + row * 46 + 8)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
     }
 
     // MARK: Canvas
@@ -634,7 +688,7 @@ public struct ShotSketchStudio: View {
                         }),
                     characters: characters, locations: locations, props: props,
                     continuityShots: shots, projectDirectory: projectDirectory,
-                    placeholder: "e.g. @Alex leans on the $Mini van, hood down",
+                    placeholder: "What happens here? (\(Self.mentionLegend))",
                     onOpenMention: nil,
                     submitsOnReturn: true, onSubmit: { editingNoteId = nil })
                     .frame(width: 300, height: 54)
@@ -737,12 +791,25 @@ public struct ShotSketchStudio: View {
 
     private var promptRow: some View {
         HStack(alignment: .top, spacing: 10) {
-            TextField("What is this shot? (style, place, moment — your words)",
-                      text: $promptText, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(2...3)
-                .font(.system(size: 12))
-                .accessibilityIdentifier("studio-prompt")
+            VStack(alignment: .leading, spacing: 3) {
+                // The shot description's shortcuts work here too — a mention
+                // attaches that element's picture automatically.
+                MentionTextView(text: $promptText,
+                                characters: characters, locations: locations, props: props,
+                                continuityShots: shots, projectDirectory: projectDirectory,
+                                placeholder: "What is this shot? (\(Self.mentionLegend))",
+                                onOpenMention: nil,
+                                onCommandReturn: { generate() })
+                    .frame(height: 50)
+                    .accessibilityIdentifier("studio-prompt")
+                HStack(spacing: 6) {
+                    Image(systemName: "at").font(.system(size: 8, weight: .bold))
+                    Text("Mention story elements with \(Self.mentionLegend) — their pictures attach automatically")
+                        .font(.system(size: 9))
+                }
+                .foregroundColor(.gray.opacity(0.85))
+                .padding(.leading, 2)
+            }
             Button { generate() } label: {
                 HStack(spacing: 6) {
                     if isGenerating { ProgressView().controlSize(.small) }
@@ -829,11 +896,11 @@ public struct ShotSketchStudio: View {
             SketchPlacement(element: SketchElement(kind: $0.kind, name: $0.name, imageData: Data()),
                             x: $0.x ?? 0.5, y: $0.y ?? 0.5)
         }
-        let references = generals.map {
+        let references = (generals + mentioned).map {
             SketchElement(kind: $0.kind, name: $0.name, imageData: Data())
         }
         let input = SketchStudioInput(
-            mode: mode, sceneText: promptText,
+            mode: mode, sceneText: SketchStudioComposer.stripMentions(promptText),
             taggedSketchPNG: Data(), cleanSketchPNG: nil, basePNG: nil,
             placements: placements,
             notes: notes.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -920,12 +987,21 @@ public struct ShotSketchStudio: View {
                 }
                 .padding(.bottom, 8)
             }
-            if !generals.isEmpty {
+            if !generals.isEmpty || !mentioned.isEmpty {
                 Divider().opacity(0.3)
                 Text("ATTACHED AS REFERENCES").font(.system(size: 8, weight: .bold)).tracking(0.8)
                     .foregroundColor(.gray).padding(.horizontal, 12).padding(.top, 6)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 3) {
+                        ForEach(mentioned, id: \.name) { element in
+                            HStack(spacing: 6) {
+                                Text(element.name).font(.system(size: 10)).lineLimit(1)
+                                Text("mentioned").font(.system(size: 8)).foregroundColor(.gray)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .help("Attached because your words mention it — edit the words to remove it")
+                        }
                         ForEach(generals) { element in
                             HStack(spacing: 6) {
                                 Text(element.name).font(.system(size: 10)).lineLimit(1)
@@ -1136,7 +1212,7 @@ public struct ShotSketchStudio: View {
                 x: element.x ?? 0.5, y: element.y ?? 0.5))
         }
         var references: [SketchElement] = []
-        for element in generals {
+        for element in generals + mentioned {
             guard let data = elementData(element) else {
                 errorText = "Couldn't read the picture for \(element.name)."
                 return nil
@@ -1144,7 +1220,7 @@ public struct ShotSketchStudio: View {
             references.append(SketchElement(kind: element.kind, name: element.name, imageData: data))
         }
         return SketchStudioInput(
-            mode: mode, sceneText: promptText,
+            mode: mode, sceneText: SketchStudioComposer.stripMentions(promptText),
             taggedSketchPNG: sketchPNG,
             cleanSketchPNG: mode == .create ? cleanPNG : nil,
             basePNG: baseData,
