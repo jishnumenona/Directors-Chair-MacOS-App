@@ -511,6 +511,58 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(SyncCheckpoint.load(projectDir: projectDir)?.lastRevision, 2)
     }
 
+    /// DC-0114: a cloud object that does not match its hash must not stop
+    /// the whole project from arriving — the asset is skipped and reported.
+    func testPullSkipsAnAssetWhoseStoredBytesDoNotMatchAndReportsIt() async throws {
+        _ = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        let project = Data(#"{"uuid":"p-1","name":"Film"}"#.utf8)
+        let good = Data("good".utf8)
+        let badPromised = Data("what the manifest hashed".utf8)
+        let badPromisedSHA = SyncHashing.sha256Hex(badPromised)
+        server.blobs[SyncHashing.sha256Hex(project)] = project
+        server.blobs[SyncHashing.sha256Hex(good)] = good
+        server.blobs[badPromisedSHA] = Data("what was actually stored".utf8)   // damaged object
+        server.headRevision = 2
+        server.revisions[2] = [
+            "revision": 2, "parent_revision": 1, "merged_from": NSNull(),
+            "manifest": ["schema": 1,
+                         "project_blob": ["sha256": SyncHashing.sha256Hex(project), "size": project.count],
+                         "assets": [["path": "assets/good.png", "sha256": SyncHashing.sha256Hex(good), "size": good.count],
+                                    ["path": "assets/bad.png", "sha256": badPromisedSHA, "size": badPromised.count]],
+                         "deleted": []],
+            "device_name": "other-mac", "created_at": "2026-07-19T00:00:00Z",
+        ]
+        let applied = await engine.pull(projectDir: projectDir)
+        XCTAssertTrue(applied)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: projectDir.appendingPathComponent("assets/good.png").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: projectDir.appendingPathComponent("assets/bad.png").path),
+                       "bytes that fail verification must never land on disk")
+        XCTAssertEqual(engine.lastPullProblems, ["assets/bad.png"])
+        XCTAssertEqual(SyncCheckpoint.load(projectDir: projectDir)?.lastRevision, 2)
+        guard case .synced = engine.state else { return XCTFail("state \(engine.state)") }
+    }
+
+    /// DC-0114: a file rewritten between hashing and upload (a generation
+    /// finishing mid-sync) must not be stored under the old hash — that is
+    /// how three unreadable objects reached the cloud on 2026-08-29.
+    func testPushRefusesToStoreBytesThatNoLongerMatchTheirHash() async throws {
+        try write("assets/a.png", "aaa")
+        let staleSHA = SyncHashing.sha256Hex(Data("aaa".utf8))
+        // The lookup for missing blobs runs after hashing and before upload:
+        // rewrite the file right there.
+        let inner = MockURLProtocol.handler!
+        MockURLProtocol.handler = { [weak self] request in
+            if request.url?.path.hasSuffix("/blobs/lookup") == true { try self?.write("assets/a.png", "changed!") }
+            return try inner(request)
+        }
+        let pushed = await engine.push(projectDir: projectDir, projectID: "p-1", name: "Film")
+        XCTAssertFalse(pushed)
+        XCTAssertFalse(server.committedBlobs.contains(staleSHA), "stale bytes must not be committed under the old hash")
+        XCTAssertEqual(server.headRevision, 0, "no revision may point at bytes that were never stored")
+        guard case .error(let text) = engine.state else { return XCTFail("state \(engine.state)") }
+        XCTAssertTrue(text.contains("changed while syncing"), text)
+    }
+
     /// A path deleted in one revision and re-added in a later one is kept:
     /// the tombstone must not erase what the target revision carries.
     func testPullKeepsAPathDeletedThenReadded() async throws {
