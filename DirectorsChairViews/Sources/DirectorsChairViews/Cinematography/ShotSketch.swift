@@ -279,6 +279,12 @@ public struct ShotSketchStudio: View {
     @State private var useCustomPrompt = false
     @State private var isGenerating = false
     @State private var resultData: Data?
+    /// What the result is compared against: the untouched base (edit
+    /// mode) or the marked sketch (create mode).
+    @State private var beforeImage: NSImage?
+    @State private var showingBefore = false
+    @State private var beforePinned = false
+    @State private var beforePressStart: Date?
     @State private var resultImage: NSImage?
     @State private var errorText: String?
     // Panels.
@@ -645,8 +651,20 @@ public struct ShotSketchStudio: View {
 
     private func resultPane(_ image: NSImage) -> some View {
         ZStack(alignment: .bottom) {
-            Image(nsImage: image).resizable().scaledToFit()
+            Image(nsImage: (showingBefore ? beforeImage : nil) ?? image)
+                .resizable().scaledToFit()
+                .overlay(alignment: .topLeading) {
+                    Text(showingBefore ? "BEFORE" : "AFTER")
+                        .font(.system(size: 10, weight: .bold)).tracking(1.2)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(showingBefore ? Color.orange.opacity(0.85)
+                                                                 : Color.black.opacity(0.55)))
+                        .padding(10)
+                }
             HStack(spacing: 10) {
+                beforeAfterControl
+                Divider().frame(height: 18).opacity(0.4)
                 Button {
                     if let data = resultData { onKeep(data) }
                     continueOnResult()
@@ -657,13 +675,64 @@ public struct ShotSketchStudio: View {
                     Label("Refine this", systemImage: "pencil.and.outline")
                 }
                 .help("Make this picture the base and mark the next round of changes on it")
-                Button("Discard", role: .destructive) { resultData = nil; resultImage = nil }
+                Button("Discard", role: .destructive) { clearResult() }
             }
             .padding(10)
             .background(Color.black.opacity(0.65)).cornerRadius(10)
             .padding(.bottom, 12)
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background {
+            // ⌘B toggles the comparison from the keyboard.
+            Button("") { setBeforePinned(!beforePinned) }
+                .keyboardShortcut("b", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+        }
+    }
+
+    /// Hold to peek at the picture before this change, click to pin the
+    /// comparison, click again (or ⌘B) to return.
+    private var beforeAfterControl: some View {
+        HStack(spacing: 6) {
+            Image(systemName: showingBefore ? "eye.fill" : "eye")
+                .font(.system(size: 11, weight: .semibold))
+            Text(beforePinned ? "Showing before" : "Before")
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(Capsule().fill(showingBefore ? Color.orange.opacity(0.7) : Color.white.opacity(0.14)))
+        .contentShape(Capsule())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard beforePressStart == nil else { return }
+                    beforePressStart = Date()
+                    showingBefore = true
+                }
+                .onEnded { _ in
+                    let held = Date().timeIntervalSince(beforePressStart ?? Date()) > 0.3
+                    beforePressStart = nil
+                    if held { showingBefore = beforePinned }       // a peek — snap back
+                    else { setBeforePinned(!beforePinned) }        // a click — toggle
+                }
+        )
+        .opacity(beforeImage == nil ? 0.4 : 1)
+        .help("Hold to peek at the picture before this change; click to pin the comparison (⌘B)")
+        .accessibilityIdentifier("studio-before")
+    }
+
+    private func setBeforePinned(_ pinned: Bool) {
+        beforePinned = pinned
+        showingBefore = pinned
+    }
+
+    private func clearResult() {
+        resultData = nil
+        resultImage = nil
+        beforeImage = nil
+        beforePinned = false
+        showingBefore = false
     }
 
     private var promptRow: some View {
@@ -1014,8 +1083,7 @@ public struct ShotSketchStudio: View {
     private func setBase(_ newBase: String?) {
         base = newBase
         baseImage = loadBaseImage()
-        resultData = nil
-        resultImage = nil
+        clearResult()
     }
 
     private func loadBaseData() -> Data? {
@@ -1109,6 +1177,10 @@ public struct ShotSketchStudio: View {
                 }
                 resultData = data
                 resultImage = NSImage(data: data)
+                // Edit: compare against the untouched picture; create: the marked sketch.
+                beforeImage = input.mode == .edit ? baseImage : NSImage(data: input.taggedSketchPNG)
+                beforePinned = false
+                showingBefore = false
             } catch let error as AIClientError where error.isCancellation {
                 // The user cancelled in the prompt review — no error banner.
             } catch {
@@ -1120,7 +1192,7 @@ public struct ShotSketchStudio: View {
     /// The result becomes the base for the next round of changes.
     private func continueOnResult() {
         guard let data = resultData, let dir = projectDirectory, let documentURL else {
-            resultImage = nil; resultData = nil
+            clearResult()
             return
         }
         // Keep the round on disk so "base" survives reopening.
@@ -1132,8 +1204,7 @@ public struct ShotSketchStudio: View {
         strokes.removeAll()
         notes.removeAll()
         elements.removeAll { $0.isPlaced }   // keep plain references for the next round
-        resultData = nil
-        resultImage = nil
+        clearResult()
     }
 
     // MARK: Persistence
