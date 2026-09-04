@@ -828,7 +828,8 @@ public struct ShotSketchStudio: View {
                 MentionTextView(text: $promptText,
                                 characters: characters, locations: locations, props: props,
                                 continuityShots: shots, projectDirectory: projectDirectory,
-                                placeholder: "What is this shot? (\(Self.mentionLegend))",
+                                placeholder: (mode == .edit ? "What should change? (" : "What is this shot? (")
+                                    + Self.mentionLegend + ")",
                                 onOpenMention: nil,
                                 onCommandReturn: { generate() })
                     .frame(height: 50)
@@ -844,8 +845,9 @@ public struct ShotSketchStudio: View {
             Button { generate() } label: {
                 HStack(spacing: 6) {
                     if isGenerating { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "wand.and.stars") }
-                    Text(isGenerating ? "Generating…" : "Generate")
+                    else { Image(systemName: isUpdate ? "arrow.triangle.2.circlepath" : "wand.and.stars") }
+                    Text(isGenerating ? (isUpdate ? "Updating…" : "Generating…")
+                                      : (isUpdate ? "Update" : "Generate"))
                         .font(.system(size: 12, weight: .semibold))
                 }
                 .padding(.horizontal, 14).padding(.vertical, 7)
@@ -1187,7 +1189,10 @@ public struct ShotSketchStudio: View {
     }
 
     private func setBase(_ newBase: String?) {
+        let wasCreate = base == nil
         base = newBase
+        if wasCreate, newBase != nil, promptText == seedPrompt { promptText = "" }
+        if !wasCreate, newBase == nil, promptText.trimmingCharacters(in: .whitespaces).isEmpty { promptText = seedPrompt }
         baseImage = loadBaseImage()
         clearResult()
     }
@@ -1260,14 +1265,23 @@ public struct ShotSketchStudio: View {
             aspectRatio: "16:9", targetSize: .projectPreview)
     }
 
+    /// "Update" whenever a picture already exists — the base being edited
+    /// or a result on screen (owner 2026-09-04); "Generate" for a new one.
+    private var isUpdate: Bool { resultImage != nil || mode == .edit }
+
     private var canGenerate: Bool {
-        !isGenerating && resultImage == nil
-            && !(strokes.isEmpty && placed.isEmpty && notes.isEmpty
-                 && promptText.trimmingCharacters(in: .whitespaces).isEmpty)
+        if isGenerating { return false }
+        let hasWords = !promptText.trimmingCharacters(in: .whitespaces).isEmpty
+        // With a result on screen the marks are spent — only new words can update it.
+        if resultImage != nil { return hasWords }
+        return hasWords || !strokes.isEmpty || !placed.isEmpty || !notes.isEmpty
     }
 
     private func generate() {
-        guard canGenerate, let input = prepareInput() else { return }
+        guard canGenerate else { return }
+        // Updating a result: it becomes the base and the words become the change.
+        if resultImage != nil { continueOnResult() }
+        guard let input = prepareInput() else { return }
         run(input, promptOverride: useCustomPrompt ? customPrompt : nil)
     }
 
@@ -1330,8 +1344,8 @@ public struct ShotSketchStudio: View {
             base = doc.base
             promptText = doc.prompt.isEmpty ? seedPrompt : doc.prompt
         } else {
-            promptText = seedPrompt
             base = currentPreviewPath != nil ? "preview" : nil
+            promptText = base == nil ? seedPrompt : ""
         }
         baseImage = loadBaseImage()
     }
