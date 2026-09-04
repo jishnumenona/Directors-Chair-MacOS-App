@@ -381,7 +381,15 @@ public struct ShotSketchStudio: View {
         .background(Color(hex: "#232323"))
         .onAppear {
             restore()
-            commandReturnMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            commandReturnMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+                // Shift held = peek at "before" while a result is on screen
+                // (owner 2026-09-04); release snaps back unless pinned.
+                if event.type == .flagsChanged {
+                    if resultImage != nil, beforeImage != nil {
+                        showingBefore = beforePinned || event.modifierFlags.contains(.shift)
+                    }
+                    return event
+                }
                 guard event.modifierFlags.contains(.command),
                       event.keyCode == 36 || event.keyCode == 76 else { return event }
                 if canGenerate { generate() }
@@ -770,6 +778,11 @@ public struct ShotSketchStudio: View {
                 .font(.system(size: 11, weight: .semibold))
             Text(beforePinned ? "Showing before" : "Before")
                 .font(.system(size: 12, weight: .semibold))
+            Text("⇧")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.white.opacity(0.6))
+                .padding(.horizontal, 4).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.12)))
         }
         .foregroundColor(.white)
         .padding(.horizontal, 12).padding(.vertical, 6)
@@ -790,7 +803,7 @@ public struct ShotSketchStudio: View {
                 }
         )
         .opacity(beforeImage == nil ? 0.4 : 1)
-        .help("Hold to peek at the picture before this change; click to pin the comparison (⌘B)")
+        .help("Hold Shift (or hold this button) to peek at the picture before this change; click to pin the comparison (⌘B)")
         .accessibilityIdentifier("studio-before")
     }
 
