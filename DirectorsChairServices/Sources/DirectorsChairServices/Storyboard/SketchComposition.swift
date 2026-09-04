@@ -169,7 +169,7 @@ public enum SketchStudioComposer {
             if !scene.isEmpty { lines.append(scene); lines.append("") }
             lines.append("Image 1 is a rough hand-drawn PLANNING sketch of this shot's composition — only a map: each crude shape stands for a real thing. Image 2 is the same sketch with red numbered tags saying what each shape is; the tags exist ONLY on that annotated copy. Shapes WITHOUT a tag are loose scenery guides — horizon, ground, roads, walls, masses of the scene described above — read them as the scene's own terrain and architecture, never as new free-standing objects; a line that matches nothing in the scene leaves NO object behind — plain ground or sky continues through it. A tag's number is the number of the attached image that shows the real thing.")
         case .edit:
-            lines.append("Edit the FIRST attached picture. Image 2 is the same picture with rough hand-drawn pencil marks and red numbered tags showing what to change or add and where — the marks are only a plan: none of the pencil ink or tags may appear in the result.")
+            lines.append("Edit the FIRST attached picture. This is an EDIT of an existing photograph, not a new picture: keep its composition, framing, people, place, lighting and film look, and change only what the marks below call for. Image 2 is the same picture with rough hand-drawn pencil marks and red numbered tags showing what to change or add and where — the marks are only a plan: none of the pencil ink or tags may appear in the result.")
             lines.append("Make exactly these changes and nothing else:")
             if !scene.isEmpty { lines.append("- \(scene)") }
         }
@@ -183,6 +183,12 @@ public enum SketchStudioComposer {
                 ? "- Tag \(image) marks a spot instruction: \(text)"
                 : "- At tag \(image): \(text)")
             image += 1
+        }
+        if input.mode == .edit {
+            // Owner 2026-09-04: the marks alone are a complete instruction —
+            // a bare pencil shape means "put/reshape this here". After the
+            // specific bullets so the numbered ones keep their order.
+            lines.append("- Where a pencil shape carries no tag and no note, it shows what to add or reshape at that exact spot: render what the shape depicts, at that size and place, photographed in place. A shaded (marker) area marks the region the change applies to.")
         }
         for reference in input.generalReferences {
             lines.append(generalClause(reference, image: image))

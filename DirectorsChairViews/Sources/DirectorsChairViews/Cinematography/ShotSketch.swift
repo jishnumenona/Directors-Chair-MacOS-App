@@ -1037,7 +1037,7 @@ public struct ShotSketchStudio: View {
                 .font(.system(size: 11))
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .onChange(of: useCustomPrompt) { _, on in
-                    if on, customPrompt.isEmpty { customPrompt = livePrompt }
+                    if on { customPrompt = livePrompt }
                 }
                 .accessibilityIdentifier("studio-custom-prompt")
             Divider().opacity(0.3)
@@ -1345,7 +1345,9 @@ public struct ShotSketchStudio: View {
     private func setBase(_ newBase: String?) {
         let wasCreate = base == nil
         base = newBase
-        if wasCreate, newBase != nil, promptText == seedPrompt { promptText = "" }
+        if wasCreate, newBase != nil { promptText = "" }
+        useCustomPrompt = false
+        customPrompt = ""
         if !wasCreate, newBase == nil, promptText.trimmingCharacters(in: .whitespaces).isEmpty { promptText = seedPrompt }
         baseImage = loadBaseImage()
         clearResult()
@@ -1484,6 +1486,9 @@ public struct ShotSketchStudio: View {
         strokes.removeAll()
         notes.removeAll()
         elements.removeAll { $0.isPlaced }   // keep plain references for the next round
+        promptText = ""                       // the change has been applied — words are spent
+        useCustomPrompt = false
+        customPrompt = ""
         clearResult()
     }
 
@@ -1501,9 +1506,10 @@ public struct ShotSketchStudio: View {
             base = currentPreviewPath != nil ? "preview" : nil
             promptText = base == nil ? seedPrompt : ""
         }
-        // A description is a starting point for a NEW picture; on an existing
-        // one the words are a change, so the seed must not masquerade as one.
-        if base != nil, promptText == seedPrompt { promptText = "" }
+        // Words belong to a NEW picture. On an existing picture the field is a
+        // change instruction and starts EMPTY — an edit inherits no old prompt
+        // (owner 2026-09-04): the base, the marks and the references are all.
+        if base != nil { promptText = "" }
         baseImage = loadBaseImage()
     }
 

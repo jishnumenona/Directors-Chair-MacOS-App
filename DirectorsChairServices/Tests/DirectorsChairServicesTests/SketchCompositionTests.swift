@@ -59,7 +59,10 @@ final class SketchCompositionTests: XCTestCase {
             placements: [SketchPlacement(element: alex, x: 0.4, y: 0.4)],
             notes: [SketchNote(text: "make the hood down", x: 0.41, y: 0.3)])
         let prompt = SketchStudioComposer.prompt(for: input)
-        XCTAssertTrue(prompt.hasPrefix("Edit the FIRST attached picture. Image 2 is the same picture with rough hand-drawn pencil marks"), prompt)
+        XCTAssertTrue(prompt.hasPrefix("Edit the FIRST attached picture. This is an EDIT of an existing photograph, not a new picture"), prompt)
+        XCTAssertTrue(prompt.contains("Image 2 is the same picture with rough hand-drawn pencil marks"), prompt)
+        // Bare strokes are a complete instruction on their own (owner 2026-09-04).
+        XCTAssertTrue(prompt.contains("- Where a pencil shape carries no tag and no note, it shows what to add or reshape at that exact spot"), prompt)
         XCTAssertTrue(prompt.contains("Make exactly these changes and nothing else:\n- Make it night.\n- The figure at tag 3 is the character Alex: render the person from Image 3 there"), prompt)
         XCTAssertTrue(prompt.contains("must stay exactly as in the first picture"), prompt)
         XCTAssertTrue(prompt.hasSuffix("The pencil marks and tags are instructions, never content: the result must contain NO pencil lines, NO red circles and NO numbers anywhere."), prompt)
@@ -77,6 +80,17 @@ final class SketchCompositionTests: XCTestCase {
         XCTAssertEqual(request.brief?.purpose, .edit)
         XCTAssertEqual(request.referenceImages?.count, 3)
         XCTAssertEqual(request.prompt, prompt)
+    }
+
+    /// Annotating a picture never inherits words: with no scene text the
+    /// edit prompt is built from the base, the marks and the references only.
+    func testEditModeWithNoWordsIsStillACompleteInstruction() {
+        let input = SketchStudioInput(mode: .edit, sceneText: "", taggedSketchPNG: png, basePNG: Data([9]))
+        let prompt = SketchStudioComposer.prompt(for: input)
+        XCTAssertTrue(prompt.contains("Make exactly these changes and nothing else:\n- Where a pencil shape carries no tag and no note"), prompt)
+        XCTAssertFalse(prompt.contains("- \n"), "an empty change bullet must never be emitted")
+        XCTAssertEqual(SketchStudioComposer.referenceImages(for: input).map(\.label),
+                       ["base:picture to edit", "sketch:marked plan"])
     }
 
     func testEveryKindHasAPlacedAndAGeneralClause() {
