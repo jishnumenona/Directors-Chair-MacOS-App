@@ -29,6 +29,9 @@ public struct SyncProject: Codable, Sendable, Equatable {
     /// grouped and opened.
     public let orgSlug: String?
     public let orgName: String?
+    /// The poster blob's sha (DC-0113): a client that doesn't have the
+    /// project yet can still show its face via …/blobs/{sha}/raw.
+    public let posterSha: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name
@@ -40,6 +43,7 @@ public struct SyncProject: Codable, Sendable, Equatable {
         case myRole = "my_role"
         case orgSlug = "org_slug"
         case orgName = "org_name"
+        case posterSha = "poster_sha"
     }
 }
 
