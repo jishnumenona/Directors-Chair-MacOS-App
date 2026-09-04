@@ -916,14 +916,110 @@ public struct ShotSketchStudio: View {
         VStack(spacing: 0) {
             Picker("", selection: $rightTab) {
                 Text("Library").tag("library")
+                Text(notes.isEmpty && placed.isEmpty ? "Notes" : "Notes (\(notes.count + placed.count))").tag("notes")
                 Text("Prompt").tag("prompt")
             }
             .pickerStyle(.segmented).labelsHidden()
             .padding(.horizontal, 12).padding(.vertical, 8)
             Divider().opacity(0.3)
-            if rightTab == "library" { libraryColumn } else { promptPanel }
+            switch rightTab {
+            case "library": libraryColumn
+            case "notes": notesPanel
+            default: promptPanel
+            }
         }
         .background(Color(hex: "#1F1F1F"))
+    }
+
+    /// Every mark on the picture, as a list: notes editable in place and
+    /// deletable, placed elements deletable (owner 2026-09-04).
+    private var notesPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("NOTES").font(.system(size: 8, weight: .bold)).tracking(0.8).foregroundColor(.gray)
+                    Spacer()
+                    Button {
+                        let note = StudioNote(text: "", x: 0.5, y: 0.5)
+                        notes.append(note)
+                    } label: { Label("Add", systemImage: "plus").font(.system(size: 10)) }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                    .help("Add a note at the centre of the picture — drag its badge into place")
+                    .accessibilityIdentifier("studio-notes-add")
+                }
+                if notes.isEmpty {
+                    Text("Pick the Note tool and click a spot on the picture to say what happens there — or press Add.")
+                        .font(.system(size: 10)).foregroundColor(.gray)
+                }
+                ForEach(Array(notes.enumerated()), id: \.element.id) { index, note in
+                    HStack(alignment: .top, spacing: 8) {
+                        ZStack {
+                            Circle().fill(Color.orange)
+                            Text("\(index + firstNoteTag)").font(.system(size: 10, weight: .bold)).foregroundColor(.white)
+                        }
+                        .frame(width: 20, height: 20)
+                        .padding(.top, 4)
+                        MentionTextView(text: Binding(
+                                get: { notes.first(where: { $0.id == note.id })?.text ?? "" },
+                                set: { text in
+                                    if let i = notes.firstIndex(where: { $0.id == note.id }) { notes[i].text = text }
+                                }),
+                            characters: characters, locations: locations, props: props,
+                            continuityShots: shots, projectDirectory: projectDirectory,
+                            placeholder: "What happens here?",
+                            onOpenMention: nil,
+                            submitsOnReturn: true, onSubmit: {},
+                            onDropElement: attachDroppedCostume)
+                            .frame(minHeight: 44, maxHeight: 88)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: "#141414")))
+                        Button { notes.removeAll { $0.id == note.id } } label: {
+                            Image(systemName: "trash").font(.system(size: 11))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.gray)
+                        .padding(.top, 6)
+                        .help("Delete this note")
+                        .accessibilityIdentifier("studio-notes-delete-\(index + firstNoteTag)")
+                    }
+                }
+                if !placed.isEmpty {
+                    Text("PLACED ELEMENTS").font(.system(size: 8, weight: .bold)).tracking(0.8)
+                        .foregroundColor(.gray).padding(.top, 8)
+                    ForEach(Array(placed.enumerated()), id: \.element.id) { index, element in
+                        HStack(spacing: 8) {
+                            ZStack {
+                                Circle().fill(Color.red)
+                                Text("\(index + firstTag)").font(.system(size: 10, weight: .bold)).foregroundColor(.white)
+                            }
+                            .frame(width: 20, height: 20)
+                            if let dir = projectDirectory {
+                                AsyncThumbnail(url: dir.appendingPathComponent(element.imagePath), displaySize: 60) {
+                                    Color.gray.opacity(0.3)
+                                }
+                                .frame(width: 30, height: 30)
+                                .clipShape(RoundedRectangle(cornerRadius: 5))
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(element.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                                Text(element.kind.capitalized).font(.system(size: 9)).foregroundColor(.gray)
+                            }
+                            Spacer()
+                            Button { remove(element) } label: {
+                                Image(systemName: "trash").font(.system(size: 11))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.gray)
+                            .help("Remove this element from the picture")
+                        }
+                    }
+                }
+                Text("Badge numbers match the tags on the picture and the pictures in the prompt.")
+                    .font(.system(size: 9)).foregroundColor(.gray.opacity(0.8))
+                    .padding(.top, 6)
+            }
+            .padding(12)
+        }
     }
 
     /// The exact words that will be sent — live, and customizable
