@@ -6,6 +6,7 @@
 
 import Combine
 import XCTest
+import DirectorsChairCore
 @testable import DirectorsChairServices
 
 // MARK: - Scripted sync server
@@ -234,6 +235,45 @@ final class SyncEngineTests: XCTestCase {
             at: projectDir.appendingPathComponent("assets/a.png"))
         let second = try SyncManifestBuilder.build(projectDir: projectDir, previous: first)
         XCTAssertEqual(second.deleted, ["assets/a.png"])
+    }
+
+    /// D8 §12A.2a: the manifest carries the project's face — title, logline
+    /// and the poster's sha — so cloud cards and the web deck can show it.
+    /// The server has read this block since the portal parity work; the
+    /// desktop never sent it, so every card and deck hero stayed blank
+    /// (owner, 2026-09-04: "The overview page on the webapp is missing the poster").
+    func testManifestCarriesTheDisplayBlockWithThePosterSha() throws {
+        var project = Project(name: "  Nutovia Ad ")
+        project.overviewLogline = "An ad for a nutritional app.\n"
+        project.overviewPosterPaths = ["assets/posters/hero.png"]
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(project).write(to: projectDir.appendingPathComponent("project.json"))
+        try write("assets/posters/hero.png", "hero-bytes")
+
+        let manifest = try SyncManifestBuilder.build(projectDir: projectDir, previous: nil)
+        XCTAssertEqual(manifest.display?.title, "Nutovia Ad")
+        XCTAssertEqual(manifest.display?.logline, "An ad for a nutritional app.")
+        XCTAssertEqual(manifest.display?.poster, SyncHashing.sha256Hex(Data("hero-bytes".utf8)),
+                       "the poster's sha is the sha of that asset in this same manifest")
+
+        // A poster outside the project is never in the manifest — no sha is promised.
+        project.overviewPosterPaths = ["/Volumes/elsewhere/hero.png"]
+        try encoder.encode(project).write(to: projectDir.appendingPathComponent("project.json"))
+        let elsewhere = try SyncManifestBuilder.build(projectDir: projectDir, previous: nil)
+        XCTAssertEqual(elsewhere.display?.title, "Nutovia Ad")
+        XCTAssertNil(elsewhere.display?.poster)
+
+        // Wire shape: the keys the server reads; a manifest without the block
+        // encodes exactly as before (old checkpoints and revisions decode too).
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as! [String: Any]
+        XCTAssertEqual((json["display"] as? [String: Any])?["poster"] as? String, manifest.display?.poster)
+        XCTAssertEqual((json["display"] as? [String: Any])?["title"] as? String, "Nutovia Ad")
+        let bare = SyncManifest(projectBlob: manifest.projectBlob, assets: [], deleted: [])
+        let bareJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(bare)) as! [String: Any]
+        XCTAssertNil(bareJSON["display"])
+        let decoded = try JSONDecoder().decode(SyncManifest.self, from: JSONEncoder().encode(bare))
+        XCTAssertEqual(decoded, bare)
     }
 
     // MARK: Push

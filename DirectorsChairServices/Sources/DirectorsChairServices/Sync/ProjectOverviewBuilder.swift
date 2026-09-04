@@ -14,6 +14,18 @@ import DirectorsChairCore
 
 public enum ProjectOverviewBuilder {
 
+    /// The picture that fronts a project everywhere — the desktop's hero
+    /// banner, the web deck's hero, the cloud project cards: the first
+    /// entry of the poster list the hero banner writes, then the single
+    /// pre-list field, then the project icon — the order the banner shows
+    /// them. (The deck read only the pre-list field, so every poster set
+    /// through the banner was missing on the web.)
+    public static func posterPath(for project: Project) -> String? {
+        let candidates = project.overviewPosterPaths
+            + [project.overviewPosterPath ?? "", project.projectIcon]
+        return candidates.first { !$0.isEmpty }
+    }
+
     /// Builds the deck payload. Images that can't be resolved/hashed are
     /// simply omitted — the portal renders initials/placeholders.
     public static func deck(project: Project, projectDir: URL,
@@ -50,7 +62,7 @@ public enum ProjectOverviewBuilder {
         put("production_company", project.productionCompany)
         put("project_type", project.projectType)
         put("runtime", project.targetDuration)
-        put("poster", blobURL(project.overviewPosterPath))
+        put("poster", blobURL(posterPath(for: project)))
 
         deck["characters"] = project.characters.map {
             characterCard($0, project: project, blobURL: blobURL)

@@ -85,22 +85,45 @@ public struct SyncBlobRef: Codable, Sendable, Equatable {
     }
 }
 
+/// The manifest's optional `display` block (server D8 §12A.2a): the server
+/// denormalizes it into read-only columns — title, logline, poster_sha —
+/// so project lists, the iPad's cloud directory and the web deck can show
+/// a project's face without opening project.json. Text or nil only; the
+/// server drops anything else. `poster` is the sha of an asset in the
+/// same manifest, so the blob is guaranteed to exist once the commit lands.
+public struct SyncManifestDisplay: Codable, Sendable, Equatable {
+    public let title: String?
+    public let logline: String?
+    public let poster: String?
+
+    public init(title: String?, logline: String?, poster: String?) {
+        self.title = title
+        self.logline = logline
+        self.poster = poster
+    }
+}
+
 public struct SyncManifest: Codable, Sendable, Equatable {
     public let schema: Int
     public let projectBlob: SyncBlobRef
     public let assets: [SyncManifestAsset]
     public let deleted: [String]
+    /// Absent on manifests written before the block existed (checkpoints,
+    /// old revisions) — the encoder omits it when nil.
+    public let display: SyncManifestDisplay?
 
     public init(schema: Int = 1, projectBlob: SyncBlobRef,
-                assets: [SyncManifestAsset], deleted: [String]) {
+                assets: [SyncManifestAsset], deleted: [String],
+                display: SyncManifestDisplay? = nil) {
         self.schema = schema
         self.projectBlob = projectBlob
         self.assets = assets
         self.deleted = deleted
+        self.display = display
     }
 
     enum CodingKeys: String, CodingKey {
-        case schema, assets, deleted
+        case schema, assets, deleted, display
         case projectBlob = "project_blob"
     }
 }

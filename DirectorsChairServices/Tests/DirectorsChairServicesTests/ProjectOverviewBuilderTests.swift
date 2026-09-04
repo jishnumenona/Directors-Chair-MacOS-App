@@ -69,6 +69,49 @@ final class ProjectOverviewBuilderTests: XCTestCase {
                       "the deck must serialize for the PUT body")
     }
 
+    /// The hero banner writes `overviewPosterPaths`; the deck used to read
+    /// only the pre-list `overviewPosterPath`, so every poster set through
+    /// the banner was missing on the web (owner, 2026-09-04: "The overview
+    /// page on the webapp is missing the poster").
+    func testDeckPosterFollowsTheHeroBannerPosterList() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overview-poster-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("assets/icons"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let posterData = Data("poster-bytes".utf8)
+        let iconData = Data("icon-bytes".utf8)
+        try posterData.write(to: dir.appendingPathComponent("assets/poster.png"))
+        try iconData.write(to: dir.appendingPathComponent("assets/icons/icon.png"))
+        let posterURL = "/api/v1/projects/p-1/blobs/\(SyncHashing.sha256Hex(posterData))/raw"
+        let iconURL = "/api/v1/projects/p-1/blobs/\(SyncHashing.sha256Hex(iconData))/raw"
+
+        var banner = Project(name: "Banner")
+        banner.overviewPosterPaths = ["", "assets/poster.png"]   // blanks are skipped
+        banner.overviewPosterPath = "assets/never-written.png"   // the pre-list field must not win
+        banner.projectIcon = "assets/icons/icon.png"
+        XCTAssertEqual(ProjectOverviewBuilder.deck(project: banner, projectDir: dir,
+                                                   projectID: "p-1")["poster"] as? String,
+                       posterURL, "the banner's first poster fronts the deck")
+
+        var legacy = Project(name: "Legacy")
+        legacy.overviewPosterPath = "assets/poster.png"
+        legacy.projectIcon = "assets/icons/icon.png"
+        XCTAssertEqual(ProjectOverviewBuilder.deck(project: legacy, projectDir: dir,
+                                                   projectID: "p-1")["poster"] as? String,
+                       posterURL, "projects saved before the list still resolve")
+
+        var iconOnly = Project(name: "Icon")
+        iconOnly.projectIcon = "assets/icons/icon.png"
+        XCTAssertEqual(ProjectOverviewBuilder.deck(project: iconOnly, projectDir: dir,
+                                                   projectID: "p-1")["poster"] as? String,
+                       iconURL, "the icon fronts a project with no poster, as the banner does")
+
+        XCTAssertNil(ProjectOverviewBuilder.deck(project: Project(name: "Bare"), projectDir: dir,
+                                                 projectID: "p-1")["poster"])
+    }
+
     func testShotBoardUsesPreviewImageWithReferenceMediaFallback() throws {
         // The owner's field report (2026-08-02): every synced shot rendered
         // imageless in the portal. AI-generated shot images live in
