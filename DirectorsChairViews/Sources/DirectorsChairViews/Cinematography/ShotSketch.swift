@@ -432,8 +432,14 @@ public struct ShotSketchStudio: View {
                     }
                     return event
                 }
-                guard event.modifierFlags.contains(.command),
-                      event.keyCode == 36 || event.keyCode == 76 else { return event }
+                guard event.modifierFlags.contains(.command) else { return event }
+                // ⌘V with a picture on the clipboard pastes it as the base
+                // (owner 2026-09-04); text pastes fall through untouched.
+                if event.keyCode == 9, Self.clipboardImage() != nil {
+                    pasteBaseFromClipboard()
+                    return nil
+                }
+                guard event.keyCode == 36 || event.keyCode == 76 else { return event }
                 if canGenerate { generate() }
                 return nil
             }
@@ -474,6 +480,9 @@ public struct ShotSketchStudio: View {
             .disabled(currentPreviewPath == nil && base == nil)
             .help("New picture generates from scratch; Edit changes the base picture (right-click any library asset → Use as base picture)")
             .accessibilityIdentifier("studio-base")
+            Button { pasteBaseFromClipboard() } label: { Image(systemName: "doc.on.clipboard") }
+                .help("Paste a picture from the clipboard as the base to work on (⌘V)")
+                .accessibilityIdentifier("studio-paste-base")
             Button { _ = strokes.popLast() } label: { Image(systemName: "arrow.uturn.backward") }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(strokes.isEmpty)
@@ -1340,6 +1349,50 @@ public struct ShotSketchStudio: View {
             }
         }
         return true
+    }
+
+    /// A picture on the general pasteboard — image data, or a copied image
+    /// file (Finder) — as an NSImage.
+    static func clipboardImage() -> NSImage? {
+        let pasteboard = NSPasteboard.general
+        if let image = pasteboard.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage {
+            return image
+        }
+        if let url = pasteboard.readObjects(forClasses: [NSURL.self],
+                                            options: [.urlReadingFileURLsOnly: true])?.first as? URL,
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+        return nil
+    }
+
+    /// Clipboard picture → saved beside the sketch → the base to work on.
+    private func pasteBaseFromClipboard() {
+        errorText = nil
+        guard let image = Self.clipboardImage() else {
+            errorText = "No picture on the clipboard — copy an image first, then paste."
+            return
+        }
+        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else {
+            errorText = "Couldn't read the pasted picture."
+            return
+        }
+        guard let dir = projectDirectory, let documentURL else {
+            errorText = "Save the project first, then paste."
+            return
+        }
+        let folder = documentURL.deletingLastPathComponent()
+        let url = folder.appendingPathComponent("pasted_base_\(Int(Date().timeIntervalSince1970)).png")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try png.write(to: url)
+        } catch {
+            errorText = "Couldn't save the pasted picture: \(error.localizedDescription)"
+            return
+        }
+        setBase(url.path.replacingOccurrences(of: dir.path + "/", with: ""))
+        rightTab = "library"
     }
 
     private func setBase(_ newBase: String?) {
