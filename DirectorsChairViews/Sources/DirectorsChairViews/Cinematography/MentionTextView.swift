@@ -66,6 +66,10 @@ struct MentionTextView: NSViewRepresentable {
     /// A surface can give command+Return its own meaning (the annotation
     /// editor's Apply, owner 2026-08-30); without one it falls back to submit.
     var onCommandReturn: (() -> Void)?
+    /// A library element dropped INTO the words (owner 2026-09-04): the
+    /// matching mention is inserted at the drop point; this hook lets the
+    /// surface react (the studio attaches a dropped costume's picture).
+    var onDropElement: ((_ kind: String, _ name: String, _ imagePath: String) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -96,6 +100,11 @@ struct MentionTextView: NSViewRepresentable {
         textView.onCommandReturn = { [weak coordinator = context.coordinator] in
             guard let parent = coordinator?.parent else { return }
             (parent.onCommandReturn ?? parent.onSubmit)?()
+        }
+        textView.onDropToken = { [weak coordinator = context.coordinator] raw in
+            guard let element = StudioDragToken.decode(raw) else { return nil }
+            coordinator?.parent.onDropElement?(element.kind, element.name, element.imagePath)
+            return StudioDragToken.mentionText(raw)
         }
         let scroll = NSScrollView()
         scroll.documentView = textView
@@ -423,6 +432,29 @@ final class MentionNSTextView: NSTextView {
     var placeholderText: String = "" { didSet { needsDisplay = true } }
     var onDoubleClickToken: ((String) -> Void)?
     var onCommandReturn: (() -> Void)?
+    /// A studio library token dropped on the text → the words to insert
+    /// (nil = not ours; the drop falls through to normal text handling).
+    var onDropToken: ((String) -> String?)?
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if let raw = sender.draggingPasteboard.string(forType: .string),
+           raw.hasPrefix(StudioDragToken.prefix) {
+            guard let mention = onDropToken?(raw) ?? StudioDragToken.mentionText(raw) else { return false }
+            let point = convert(sender.draggingLocation, from: nil)
+            let index = max(0, min(characterIndexForInsertion(at: point), (string as NSString).length))
+            let current = string as NSString
+            func isSpace(_ at: Int) -> Bool {
+                guard at >= 0, at < current.length else { return true }
+                return current.substring(with: NSRange(location: at, length: 1))
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            let insert = (isSpace(index - 1) ? "" : " ") + mention + (isSpace(index) ? (index == current.length ? " " : "") : " ")
+            window?.makeFirstResponder(self)
+            insertText(insert, replacementRange: NSRange(location: index, length: 0))
+            return true
+        }
+        return super.performDragOperation(sender)
+    }
 
     override func keyDown(with event: NSEvent) {
         // Return (36) or keypad Enter (76) with ⌘ = submit.

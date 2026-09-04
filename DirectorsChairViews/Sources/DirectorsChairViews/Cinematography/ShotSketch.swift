@@ -82,6 +82,42 @@ public struct StudioElement: Equatable, Codable, Identifiable, Sendable {
     var isPlaced: Bool { x != nil && y != nil }
 }
 
+/// What a library row carries while being dragged — onto the canvas (a
+/// placed tag) or into the words (a mention).
+enum StudioDragToken {
+    static let prefix = "dcstudio:"
+
+    static func encode(kind: String, name: String, imagePath: String) -> String {
+        "\(prefix)\(kind)|\(name)|\(imagePath)"
+    }
+
+    static func decode(_ raw: String) -> (kind: String, name: String, imagePath: String)? {
+        guard raw.hasPrefix(prefix) else { return nil }
+        let parts = raw.dropFirst(prefix.count).split(separator: "|", maxSplits: 2).map(String.init)
+        guard parts.count == 3 else { return nil }
+        return (parts[0], parts[1], parts[2])
+    }
+
+    /// The mention the words use for a dropped element — "@Alex",
+    /// "#Pier 9", "$Mini van", "&Shot #2"; a costume mentions its character
+    /// ("@Alex wearing Costume 1") and the studio attaches its picture.
+    static func mentionText(_ raw: String) -> String? {
+        guard let element = decode(raw) else { return nil }
+        switch element.kind {
+        case "character": return "@" + element.name
+        case "location": return "#" + element.name
+        case "prop": return "$" + element.name
+        case "shot": return "&" + element.name
+        case "costume":
+            let parts = element.name.components(separatedBy: " — ")
+            let character = parts.first ?? element.name
+            let costume = parts.dropFirst().joined(separator: " — ")
+            return costume.isEmpty ? "@\(character)" : "@\(character) wearing \(costume)"
+        default: return nil
+        }
+    }
+}
+
 /// A written instruction pinned to a spot (the annotation pins, unified).
 public struct StudioNote: Equatable, Codable, Identifiable, Sendable {
     public var id: UUID
@@ -680,21 +716,27 @@ public struct ShotSketchStudio: View {
 
     /// A spot instruction: amber badge + the words; click to edit.
     private func noteChip(_ note: StudioNote, number: Int) -> some View {
-        HStack(spacing: 5) {
+        // While the note is being edited only the badge stays — the popover
+        // holds the words (owner 2026-09-04: not both fields with the same
+        // text at once); the chip shows them again after Done.
+        let editing = editingNoteId == note.id
+        return HStack(spacing: 5) {
             ZStack {
                 Circle().fill(Color.orange)
                 Text("\(number)").font(.system(size: 10, weight: .bold)).foregroundColor(.white)
             }
             .frame(width: 18, height: 18)
-            Text(note.text.isEmpty ? "say what happens here…" : note.text)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundColor(note.text.isEmpty ? .gray : .white)
-                .lineLimit(1)
-                .frame(maxWidth: 170, alignment: .leading)
-            Button { notes.removeAll { $0.id == note.id } } label: {
-                Image(systemName: "xmark").font(.system(size: 7, weight: .bold))
+            if !editing {
+                Text(note.text.isEmpty ? "say what happens here…" : note.text)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(note.text.isEmpty ? .gray : .white)
+                    .lineLimit(1)
+                    .frame(maxWidth: 170, alignment: .leading)
+                Button { notes.removeAll { $0.id == note.id } } label: {
+                    Image(systemName: "xmark").font(.system(size: 7, weight: .bold))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 6).padding(.vertical, 3)
         .background(Capsule().fill(Color(hex: "#1E1E1E").opacity(0.92)))
@@ -716,7 +758,8 @@ public struct ShotSketchStudio: View {
                     continuityShots: shots, projectDirectory: projectDirectory,
                     placeholder: "What happens here? (\(Self.mentionLegend))",
                     onOpenMention: nil,
-                    submitsOnReturn: true, onSubmit: { editingNoteId = nil })
+                    submitsOnReturn: true, onSubmit: { editingNoteId = nil },
+                    onDropElement: attachDroppedCostume)
                     .frame(width: 300, height: 54)
                 HStack {
                     Spacer()
@@ -831,12 +874,13 @@ public struct ShotSketchStudio: View {
                                 placeholder: (mode == .edit ? "What should change? (" : "What is this shot? (")
                                     + Self.mentionLegend + ")",
                                 onOpenMention: nil,
-                                onCommandReturn: { generate() })
+                                onCommandReturn: { generate() },
+                                onDropElement: attachDroppedCostume)
                     .frame(height: 50)
                     .accessibilityIdentifier("studio-prompt")
                 HStack(spacing: 6) {
                     Image(systemName: "at").font(.system(size: 8, weight: .bold))
-                    Text("Mention story elements with \(Self.mentionLegend) — their pictures attach automatically")
+                    Text("Mention story elements with \(Self.mentionLegend), or drop them here from the Library — their pictures attach automatically")
                         .font(.system(size: 9))
                 }
                 .foregroundColor(.gray.opacity(0.85))
@@ -1094,7 +1138,8 @@ public struct ShotSketchStudio: View {
         }
         .onDrag {
             hoveredRow = nil
-            return NSItemProvider(object: "\(row.kind)|\(row.name)|\(row.imagePath)" as NSString)
+            return NSItemProvider(object: StudioDragToken.encode(kind: row.kind, name: row.name,
+                                                                 imagePath: row.imagePath) as NSString)
         }
         .contextMenu {
             if row.canBeBase {
@@ -1174,15 +1219,21 @@ public struct ShotSketchStudio: View {
         elements.removeAll { $0.id == element.id }
     }
 
+    /// A costume has no mention sigil of its own — dropped into the words
+    /// it reads "@Alex wearing Costume 1" and its picture attaches here.
+    private func attachDroppedCostume(kind: String, name: String, imagePath: String) {
+        guard kind == "costume",
+              !elements.contains(where: { $0.kind == kind && $0.name == name }) else { return }
+        elements.append(StudioElement(kind: kind, name: name, imagePath: imagePath))
+    }
+
     private func drop(providers: [NSItemProvider], at point: CGPoint) -> Bool {
         guard let provider = providers.first else { return false }
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let token = object as? String else { return }
-            let parts = token.split(separator: "|", maxSplits: 2).map(String.init)
-            guard parts.count == 3 else { return }
+            guard let token = object as? String, let element = StudioDragToken.decode(token) else { return }
             DispatchQueue.main.async {
-                elements.append(StudioElement(kind: parts[0], name: parts[1], imagePath: parts[2],
-                                              x: point.x, y: point.y))
+                elements.append(StudioElement(kind: element.kind, name: element.name,
+                                              imagePath: element.imagePath, x: point.x, y: point.y))
             }
         }
         return true
