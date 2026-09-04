@@ -756,9 +756,14 @@ struct ShotPreviewSection: View {
     /// DC-0110: the studio's seed prompt — the shot's OWN words only,
     /// never the scene bundle (the studio decides its references itself).
     private func sketchSeedPrompt() -> String {
-        let parts = [shot.description, shot.cameraDescription]
+        var parts = [shot.description, shot.cameraDescription]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        // DC-0125: the chosen location angle rides along as a mention, so the
+        // studio attaches its picture the way it attaches any other mention.
+        if let hit = LocationAngles.resolve(shot: shot, scene: scene, locations: locations) {
+            parts.append("Framed from #\(LocationAngles.mention(location: hit.location, angle: hit.angle))")
+        }
         return parts.isEmpty ? "Cinematic film still." : parts.joined(separator: ". ")
     }
 

@@ -996,6 +996,47 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(decoded.locationType, "mixed")
         XCTAssertTrue(decoded.images.isEmpty)
         XCTAssertNil(decoded.parentLocation)
+        XCTAssertTrue(decoded.angles.isEmpty, "files written before angles existed load with none")
+    }
+
+    /// DC-0125: named camera angles ride inside the location, in definition
+    /// order, with the kept preview path and a stable id.
+    func testLocationAnglesRoundTripSnakeCaseAndTolerantDecode() throws {
+        var location = Location(name: "Harbour")
+        location.angles = [
+            LocationAngle(id: "a-1", name: "Wide from the gate",
+                          description: "Cranes behind, water left.", image: "assets/locations/harbour/angles/a-1/latest.png"),
+            LocationAngle(id: "a-2", name: "Reverse toward the bar"),
+        ]
+        let decoded = try roundTrip(location)
+        XCTAssertEqual(decoded.angles.map(\.id), ["a-1", "a-2"])
+        XCTAssertEqual(decoded.angles[0].name, "Wide from the gate")
+        XCTAssertEqual(decoded.angles[0].description, "Cranes behind, water left.")
+        XCTAssertEqual(decoded.angles[0].image, "assets/locations/harbour/angles/a-1/latest.png")
+        XCTAssertNil(decoded.angles[1].image, "an angle without a kept preview stays without one")
+        XCTAssertEqual(decoded.angles[0].createdAt.timeIntervalSince1970,
+                       location.angles[0].createdAt.timeIntervalSince1970, accuracy: 0.001)
+
+        let json = try String(data: encoder.encode(location), encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"angles\":[{"), "angles are a list under the location")
+        XCTAssertTrue(json.contains("\"created_at\":"), "snake_case like every other key")
+
+        let sparse: Location = try decodeJSON(#"{"name":"Pier","angles":[{"name":"Low from the water"},{}]}"#)
+        XCTAssertEqual(sparse.angles.count, 2)
+        XCTAssertEqual(sparse.angles[0].name, "Low from the water")
+        XCTAssertFalse(sparse.angles[0].id.isEmpty, "a missing id is minted, not rejected")
+        XCTAssertEqual(sparse.angles[1].name, "")
+    }
+
+    /// DC-0125: a shot remembers the location angle it chose; older shots have none.
+    func testShotLocationAngleIdRoundTripsAndDefaultsNil() throws {
+        var shot = Shot(shotId: 7)
+        shot.locationAngleId = "a-wide"
+        XCTAssertEqual(try roundTrip(shot).locationAngleId, "a-wide")
+        let json = try String(data: encoder.encode(shot), encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"location_angle_id\":\"a-wide\""), "snake_case on the wire")
+        let legacy: Shot = try decodeJSON(#"{"shot_id":3}"#)
+        XCTAssertNil(legacy.locationAngleId)
     }
 
     // =========================================================================

@@ -53,6 +53,10 @@ public struct LocationDetailView: View {
     @State var studioVariation: String = ""
     @State var studioTitle: String = ""
 
+    // DC-0125: the Studio for one of this location's angles.
+    @State var showingAngleStudio = false
+    @State var studioAngleId: String?
+
     public init(
         location: Binding<Location>,
         project: Project,

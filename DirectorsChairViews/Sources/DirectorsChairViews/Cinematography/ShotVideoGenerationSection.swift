@@ -811,9 +811,13 @@ struct ShotVideoGenerationSection: View {
 
             // Location + the scene's props that have prop-shop imagery
             var locationImages: [NSImage] = []
-            if let locationImage = CharacterReferenceHelper.loadLocationImage(forScene: currentScene,
-                                                                              locations: locations,
-                                                                              projectDirectory: basePath) {
+            // DC-0125: the shot's chosen location angle stands in for the place.
+            if let angle = LocationAngles.reference(for: shot, scene: currentScene, locations: locations),
+               let angleImage = NSImage(contentsOf: basePath.appendingPathComponent(angle.path)) {
+                locationImages.append(angleImage)
+            } else if let locationImage = CharacterReferenceHelper.loadLocationImage(forScene: currentScene,
+                                                                                     locations: locations,
+                                                                                     projectDirectory: basePath) {
                 locationImages.append(locationImage)
             }
             var propNamesInCollage: [String] = []

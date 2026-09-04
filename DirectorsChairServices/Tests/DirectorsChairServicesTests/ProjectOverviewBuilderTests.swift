@@ -378,6 +378,9 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         estate.cinematographyDefaults = ["lighting_style": "Window key, no fill",
                                          "time_of_day": "Day"]
         estate.notes = "Ask about the parlor."
+        estate.angles = [LocationAngle(name: "Wide from the gate", description: "Cranes behind.",
+                                       image: "assets/alt.png"),
+                         LocationAngle(name: "Reverse toward the bar")]
         var swatched = Location(name: "Darkroom")
         swatched.styleAttributes = ["palette": "#331111, #886644"]
 
@@ -406,6 +409,12 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         let variations = cards?[0]["variations"] as? [[String: Any]]
         XCTAssertEqual(variations?.count, 1, "non-primary gallery images")
         XCTAssertEqual(variations?.first?["label"] as? String, "View 1")
+        // DC-0125: named angles travel with the card, pictured or not.
+        let angles = cards?[0]["angles"] as? [[String: Any]]
+        XCTAssertEqual(angles?.map { $0["name"] as? String }, ["Wide from the gate", "Reverse toward the bar"])
+        XCTAssertEqual(angles?.first?["description"] as? String, "Cranes behind.")
+        XCTAssertNotNil(angles?.first?["image"], "a kept angle picture is a blob URL")
+        XCTAssertNil(angles?.last?["image"], "an angle without a picture has none")
         XCTAssertNil(cards?[0]["color_palette"],
                      "descriptive palettes are not CSS colors — dropped")
         XCTAssertEqual(cards?[1]["color_palette"] as? [String],

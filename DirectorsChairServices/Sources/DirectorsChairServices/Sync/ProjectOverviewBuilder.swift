@@ -207,6 +207,14 @@ public enum ProjectOverviewBuilder {
                 return ["label": "View \(index + 1)", "src": src]
             }
         if !variations.isEmpty { entry["variations"] = variations }
+        // DC-0125: the location's named angles, pictured or not, in order.
+        let angles = location.angles.map { angle -> [String: Any] in
+            var row: [String: Any] = ["id": angle.id, "name": angle.name]
+            if !angle.description.isEmpty { row["description"] = angle.description }
+            if let src = blobURL(angle.image) { row["image"] = src }
+            return row
+        }
+        if !angles.isEmpty { entry["angles"] = angles }
         let style = location.styleAttributes
         let attrs = location.attributes
         put("mood", style["mood"] ?? attrs["mood"])

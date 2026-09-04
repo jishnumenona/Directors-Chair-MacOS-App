@@ -182,6 +182,7 @@ struct ShotContextCard: View {
                         VideoContextFlowLayout(spacing: 8) {
                             if let loc = currentScene.location, !loc.isEmpty {
                                 deletableLocationChip(locationName: loc)
+                                angleChip(locationName: loc)
                             } else if showingLocationInput {
                                 locationInputField
                             } else {
@@ -317,6 +318,58 @@ struct ShotContextCard: View {
                 }
             }
         )
+    }
+
+    // MARK: - Location angle (DC-0125)
+
+    /// The location's named angle this shot frames from — a menu beside the
+    /// place, shown only when the location has angles; "Any angle" clears it.
+    @ViewBuilder
+    private func angleChip(locationName: String) -> some View {
+        if let location = locations.first(where: { $0.name.caseInsensitiveCompare(locationName) == .orderedSame }),
+           !location.angles.isEmpty {
+            let current = location.angle(withId: shot.locationAngleId)
+            Menu {
+                Button("Any angle") { setLocationAngle(nil) }
+                Divider()
+                ForEach(location.angles) { angle in
+                    Button {
+                        setLocationAngle(angle.id)
+                    } label: {
+                        if angle.id == current?.id {
+                            Label(angle.name, systemImage: "checkmark")
+                        } else {
+                            Text(angle.name)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "camera.viewfinder")
+                        .font(.system(size: 9))
+                    Text(current?.name ?? "Any angle")
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7))
+                }
+                .foregroundColor(current == nil ? .gray.opacity(0.7) : .white.opacity(0.9))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.teal.opacity(current == nil ? 0.08 : 0.18)))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("The location angle this shot frames from")
+            .accessibilityIdentifier("shot-location-angle")
+        }
+    }
+
+    private func setLocationAngle(_ id: String?) {
+        var updated = shot
+        updated.locationAngleId = id
+        onShotUpdated?(updated)
     }
 
     // MARK: - Scene Mutation Helpers

@@ -94,7 +94,7 @@ final class SketchCompositionTests: XCTestCase {
     }
 
     func testEveryKindHasAPlacedAndAGeneralClause() {
-        for kind in ["character", "costume", "prop", "location", "shot"] {
+        for kind in ["character", "costume", "prop", "location", "shot", "angle", "scene"] {
             let element = SketchElement(kind: kind, name: "X", imageData: Data([1]))
             XCTAssertTrue(SketchStudioComposer.placedClause(element, tag: 5).contains("5"), kind)
             if ["character", "costume", "prop"].contains(kind) {

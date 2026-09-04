@@ -28,6 +28,11 @@ enum MentionTokenizer {
                                                                  imagePath: $0.representativeImage, symbol: "person.fill", color: .blue)) }
         names += locations.map { ("#" + $0.name, ResolvedMention(kind: .location, id: $0.id, name: $0.name,
                                                                 imagePath: $0.primaryImage ?? $0.images.first, symbol: "mappin.and.ellipse", color: .green)) }
+        // DC-0125: "#Place / Angle" — longer than the place, so it wins the sort below.
+        names += locations.flatMap { l in l.angles.map { a in
+            ("#" + LocationAngles.mention(location: l, angle: a),
+             ResolvedMention(kind: .angle, id: a.id, name: LocationAngles.mention(location: l, angle: a),
+                             imagePath: a.image, symbol: "camera.viewfinder", color: .teal)) } }
         names += props.map { ("$" + $0.name, ResolvedMention(kind: .prop, id: $0.id, name: $0.name,
                                                             imagePath: $0.thumbnail ?? $0.referencePhotos.first, symbol: "shippingbox.fill", color: .orange)) }
         names += shots.map { ("&" + MentionNames.shot($0), ResolvedMention(kind: .shot, id: $0.id, name: MentionNames.shot($0),

@@ -44,6 +44,20 @@ enum MentionSync {
                     result.scene = updated
                     result.sceneChanged = true
                 }
+            case .angle:
+                // DC-0125: naming "#Place / Angle" picks that angle for the shot
+                // — and the place for a scene that has none yet.
+                guard let location = locations.first(where: { $0.angles.contains { $0.id == token.mention.id } })
+                else { continue }
+                if result.shot.locationAngleId != token.mention.id {
+                    result.shot.locationAngleId = token.mention.id
+                    result.shotChanged = true
+                }
+                if var updated = result.scene, (updated.location ?? "").isEmpty {
+                    updated.location = location.name
+                    result.scene = updated
+                    result.sceneChanged = true
+                }
             case .shot:
                 continue
             }
