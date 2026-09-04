@@ -295,6 +295,10 @@ public struct ShotSketchStudio: View {
     @State private var hoverTask: Task<Void, Never>?
     @State private var hoveredTool: Tool?
     @State private var hoveringBrushSize = false
+    /// ⌘↩ generates from ANY focus — a focused NSTextView (scene field,
+    /// note, custom prompt, search) swallows SwiftUI shortcuts, the same
+    /// bug the annotation editor's Apply hit (owner 2026-08-30, 2026-09-04).
+    @State private var commandReturnMonitor: Any?
 
     public init(characters: [DirectorsChairCore.Character], locations: [Location],
                 props: [Prop], shots: [Shot], currentShotId: Int,
@@ -375,8 +379,22 @@ public struct ShotSketchStudio: View {
         }
         .frame(width: studioSize.width, height: studioSize.height)
         .background(Color(hex: "#232323"))
-        .onAppear(perform: restore)
-        .onDisappear(perform: persist)
+        .onAppear {
+            restore()
+            commandReturnMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.modifierFlags.contains(.command),
+                      event.keyCode == 36 || event.keyCode == 76 else { return event }
+                if canGenerate { generate() }
+                return nil
+            }
+        }
+        .onDisappear {
+            persist()
+            if let monitor = commandReturnMonitor {
+                NSEvent.removeMonitor(monitor)
+                commandReturnMonitor = nil
+            }
+        }
         .overlay(alignment: .topTrailing) { hoverPreviewPanel }
     }
 
@@ -820,9 +838,8 @@ public struct ShotSketchStudio: View {
                 .padding(.horizontal, 14).padding(.vertical, 7)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isGenerating || (strokes.isEmpty && placed.isEmpty && notes.isEmpty
-                                       && promptText.trimmingCharacters(in: .whitespaces).isEmpty))
-            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(!canGenerate)
+            .help("Generate (⌘↩ — from anywhere in the studio)")
             .accessibilityIdentifier("studio-generate")
         }
         .padding(.horizontal, 12)
@@ -1230,8 +1247,14 @@ public struct ShotSketchStudio: View {
             aspectRatio: "16:9", targetSize: .projectPreview)
     }
 
+    private var canGenerate: Bool {
+        !isGenerating && resultImage == nil
+            && !(strokes.isEmpty && placed.isEmpty && notes.isEmpty
+                 && promptText.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
     private func generate() {
-        guard let input = prepareInput() else { return }
+        guard canGenerate, let input = prepareInput() else { return }
         run(input, promptOverride: useCustomPrompt ? customPrompt : nil)
     }
 
