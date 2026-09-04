@@ -83,8 +83,8 @@ extension SceneDetailView {
     /// Writes a new overview picture the way every overview is written —
     /// timestamped copy, latest, the prompt and its history — and, for an
     /// annotation edit, the record of what it was made from.
-    private func saveOverview(_ imageData: Data, prompt: String, basePath: URL,
-                              edit: AnnotationEdit? = nil) async throws {
+    func saveOverview(_ imageData: Data, prompt: String, basePath: URL,
+                      edit: AnnotationEdit? = nil) async throws {
         let sanitizedName = SceneCardHelpers.sanitizeFilename(scene.name)
         let sceneDir = basePath
             .appendingPathComponent("assets")
@@ -133,58 +133,31 @@ extension SceneDetailView {
         }
     }
 
-    // MARK: - Generate With Annotations
+    // MARK: - Studio
 
-    func generateOverviewWithAnnotations(_ annotations: [KeyframeAnnotation]) {
+    /// The scene's latest overview picture, project-relative, if it exists.
+    func currentOverviewRelativePath() -> String? {
+        guard let basePath = projectBasePath else { return nil }
+        let relative = "assets/scenes/\(SceneCardHelpers.sanitizeFilename(scene.name))/overview_latest.png"
+        return FileManager.default.fileExists(atPath: basePath.appendingPathComponent(relative).path) ? relative : nil
+    }
+
+    /// A Studio result becomes the scene preview through the one overview
+    /// writer (timestamped copy, latest, prompt history).
+    func keepStudioResult(_ data: Data) {
         guard let basePath = projectBasePath else { return }
-        // DC-0073: the picture on screen is edited through the one edit path —
-        // never quietly replaced by a fresh scene when a precondition fails.
-        guard let source = currentHeroPNG(basePath: basePath) else {
-            projectViewModel.errorAlert = ErrorAlert(
-                title: "Nothing to edit yet",
-                message: "Generate a scene preview first, then mark it up.")
-            return
-        }
-        let basePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
-        // The scene's likeness — place, people, props — rides behind the
-        // picture for the cloud model (DC-0082); on-device repaints the
-        // picture alone.
-        let likeness = CharacterReferenceHelper.collectReferenceImages(
-            forScene: scene, characters: characters,
-            locations: projectViewModel.project.locations, props: projectViewModel.project.props,
-            projectDirectory: basePath)
-        let edit = AnnotationEdit(source: source, annotations: annotations, context: "scene preview",
-                                  originalPrompt: basePrompt, contextPictures: likeness, aspectRatio: "16:9",
-                                  targetSize: .projectPreview)
-        let prompt = AnnotationEditComposer.prompt(for: edit)
-        lastUsedPrompt = prompt
+        let prompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt
         isGeneratingImage = true
         Task {
             do {
-                let imageData = try await AIServiceClient.shared.editImage(edit)
-                try await saveOverview(imageData, prompt: prompt, basePath: basePath, edit: edit)
+                try await saveOverview(data, prompt: prompt, basePath: basePath)
             } catch {
                 await MainActor.run {
                     isGeneratingImage = false
-                    projectViewModel.errorAlert = ErrorAlert(error: error, title: "Could not edit the scene preview")
+                    projectViewModel.errorAlert = ErrorAlert(error: error, title: "Could not keep the picture")
                 }
             }
         }
-    }
-
-    /// The picture currently on screen as PNG bytes — the hero image if
-    /// loaded, else the scene's latest overview file.
-    private func currentHeroPNG(basePath: URL) -> Data? {
-        if let image = heroImage, let tiff = image.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiff),
-           let png = bitmap.representation(using: .png, properties: [:]) {
-            return png
-        }
-        let latest = basePath
-            .appendingPathComponent("assets/scenes")
-            .appendingPathComponent(SceneCardHelpers.sanitizeFilename(scene.name))
-            .appendingPathComponent("overview_latest.png")
-        return try? Data(contentsOf: latest)
     }
 
     // MARK: - Download

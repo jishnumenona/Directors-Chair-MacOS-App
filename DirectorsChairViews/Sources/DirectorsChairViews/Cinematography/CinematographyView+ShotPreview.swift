@@ -36,7 +36,6 @@ struct ShotPreviewSection: View {
     @State private var showingError = false
     @State private var showingPromptEditor = false
     @State private var showingFullSizePreview = false
-    @State private var showingAnnotationEditor = false
     /// DC-0109: the hand-drawn composition sketch sheet.
     @State private var showingSketchSheet = false
     @State private var editablePrompt: String = ""
@@ -449,25 +448,6 @@ struct ShotPreviewSection: View {
                 onKeep: { data in keepStudioResult(data) },
                 onSketchSaved: { png in applySketch(png) },
                 onOpenElement: { kind, id in openStudioElement(kind: kind, id: id) })
-        }
-        .sheet(isPresented: $showingAnnotationEditor) {
-            if let image = previewImage {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "EDIT SHOT PREVIEW",
-                    subtitle: "Shot \(shot.shotId) — \(shot.shotType) \(shot.cameraAngle)",
-                    characters: characters,
-                    locations: locations,
-                    props: props,
-                    shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } },
-                    projectDirectory: projectBasePath?.deletingLastPathComponent(),
-                    onOpenMention: onOpenMention,
-                    isPresented: $showingAnnotationEditor,
-                    onApplyEdits: { annotations in
-                        generatePreviewWithAnnotations(annotations)
-                    }
-                )
-            }
         }
     }
 
@@ -1359,101 +1339,6 @@ struct ShotPreviewSection: View {
                     discoverPreviewImages()
                 }
 
-            } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingError = true
-                    isGenerating = false
-                }
-            }
-        }
-    }
-
-    // MARK: - Generate Preview With Annotations
-
-    private func generatePreviewWithAnnotations(_ annotations: [KeyframeAnnotation]) {
-        guard let currentImage = previewImage,
-              let tiffData = currentImage.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let source = bitmap.representation(using: .png, properties: [:]) else { return }
-        // Never nest an edit inside an edit (owner report 2026-08-29).
-        let basePrompt = PromptSections.baseForEdit(lastUsed: lastUsedPrompt, built: buildPrompt())
-        // The scene's pictures ride behind the preview for likeness (cloud);
-        // the on-device repaint takes the preview alone.
-        // Owner 2026-08-29: an edit carries the picture and the pictures of what
-        // the instructions mention — not the scene's whole reference bundle,
-        // which made the model start the picture over.
-        var context: [ReferenceImage] = []
-        // DC-0102: the pictures of everything the instructions mention ride
-        // along (cloud edits; on-device repaints take the source alone).
-        if let projDir = projectBasePath?.deletingLastPathComponent() {
-            let mentioned = MentionParser.mentions(in: annotations.map(\.text).joined(separator: "\n"),
-                                                   characters: characters, locations: locations, props: props,
-                                                   shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } })
-            for mention in mentioned {
-                guard let path = mention.imagePath, !path.isEmpty,
-                      let data = try? Data(contentsOf: projDir.appendingPathComponent(path)) else { continue }
-                let kind: String
-                switch mention.kind {
-                case .character: kind = "character"
-                case .location: kind = "location"
-                case .prop: kind = "prop"
-                case .shot: kind = "shot"
-                }
-                let label = "\(kind):\(mention.name)"
-                if !context.contains(where: { $0.label == label }) {
-                    context.append(ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png", label: label))
-                }
-            }
-        }
-        // DC-0073: one description of the edit; the client composes the request.
-        let edit = AnnotationEdit(source: source, annotations: annotations, context: "shot preview",
-                                  originalPrompt: basePrompt, contextPictures: context, aspectRatio: "16:9",
-                                  targetSize: .projectPreview)
-        let combinedPrompt = AnnotationEditComposer.prompt(for: edit)
-
-        isGenerating = true
-        errorMessage = nil
-
-        Task {
-            do {
-                let imageData = try await AIServiceClient.shared.editImage(edit)
-                guard let basePath = projectBasePath else {
-                    throw AIClientError.invalidResponse("No project path")
-                }
-                let projectDir = basePath.deletingLastPathComponent()
-                let shotDir = projectDir
-                    .appendingPathComponent("assets")
-                    .appendingPathComponent("shots")
-                    .appendingPathComponent("shot_\(shot.shotId)")
-                if !FileManager.default.fileExists(atPath: shotDir.path) {
-                    try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
-                }
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
-                let timestamp = dateFormatter.string(from: Date())
-                let imageFilename = "preview_\(timestamp).png"
-                let imagePath = shotDir.appendingPathComponent(imageFilename)
-                try imageData.write(to: imagePath)
-                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: imagePath)
-                // Save the edit prompt
-                let promptPath = shotDir.appendingPathComponent("prompt.txt")
-                try combinedPrompt.write(to: promptPath, atomically: true, encoding: .utf8)
-                let latestPath = shotDir.appendingPathComponent("latest.png")
-                if FileManager.default.fileExists(atPath: latestPath.path) {
-                    try FileManager.default.removeItem(at: latestPath)
-                }
-                try imageData.write(to: latestPath)
-                let relativePath = "assets/shots/shot_\(shot.shotId)/latest.png"
-                await MainActor.run {
-                    if let image = NSImage(data: imageData) {
-                        previewImage = image
-                    }
-                    lastUsedPrompt = combinedPrompt
-                    onPreviewGenerated(relativePath)
-                    isGenerating = false
-                    discoverPreviewImages()
-                }
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription

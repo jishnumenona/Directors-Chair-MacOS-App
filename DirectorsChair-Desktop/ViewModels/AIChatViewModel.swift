@@ -656,7 +656,7 @@ class AIChatViewModel: ObservableObject {
         - AI Chat Assistant: Double-Shift or Cmd+Shift+Space to open. Ask questions about the project, get suggestions, search the web
         - AI Image Generation: Generate keyframe images for shots using Google Imagen. Found in Shot List > select a shot > Video Generation > Keyframes > Generate
         - AI Video Generation: Generate videos from keyframes using Veo 3, Sora 2, or Kling. Found in Shot List > select a shot > Video Generation section
-        - Keyframe Annotation & Edit: Click the pencil icon on a generated keyframe to open the annotation overlay. Place pins on the image, describe changes, and regenerate with spatial edit instructions
+        - The Studio: every AI picture (shot previews, keyframes, scene previews, character/costume/prop pictures, locations, the poster, vision-board pictures) opens in the Studio — sketch on it, drop numbered notes, place story elements from the library, see and edit the prompt, generate, compare before/after
         - AI Character Analysis: Generate character biographies, personality insights, and profile images
         - AI Screenplay Import: Import screenplays from text/PDF with AI-powered 5-pass parsing (metadata, characters, props/locations, scene list, scene contents)
         - AI-powered scene generation and project creation from scratch
@@ -665,7 +665,7 @@ class AIChatViewModel: ObservableObject {
         1. Go to Shot List (Cmd+6) and select a shot
         2. In the Video Generation section, configure keyframes (Start/End frames)
         3. Click "Generate" on a keyframe to create an AI-generated image for that frame
-        4. Optionally use the annotation editor (pencil icon) to refine keyframe images with point-and-click edits
+        4. Optionally open a keyframe in the Studio (sparkles icon) to refine it — sketch, notes, story elements, Update
         5. Choose a video provider (Veo 3, Sora 2, Kling), set duration, quality, aspect ratio, camera motion
         6. Click "Generate Video" to create the video from keyframes
         7. Multiple takes are saved and can be compared in the Video Takes section

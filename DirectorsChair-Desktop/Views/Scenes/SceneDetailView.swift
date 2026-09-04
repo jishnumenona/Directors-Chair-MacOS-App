@@ -38,7 +38,7 @@ struct SceneDetailView: View {
     @State var isHoveringHero = false
     @State var showingFullSize = false
     @State var showingPromptEditor = false
-    @State var showingAnnotationEditor = false
+    @State var showingStudio = false
     @State var editablePrompt = ""
     @State var lastUsedPrompt = ""
     @State var allOverviewImages: [URL] = []
@@ -110,18 +110,24 @@ struct SceneDetailView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingAnnotationEditor) {
-            if let image = heroImage {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "EDIT SCENE PREVIEW",
-                    subtitle: scene.name,
-                    isPresented: $showingAnnotationEditor,
-                    onApplyEdits: { annotations in
-                        generateOverviewWithAnnotations(annotations)
-                    }
-                )
-            }
+        .sheet(isPresented: $showingStudio) {
+            // DC-0112: the Studio is the one picture tool on every surface.
+            ShotSketchStudio(
+                characters: characters,
+                locations: projectViewModel.project.locations,
+                props: projectViewModel.project.props,
+                shots: projectViewModel.allShots,
+                title: "\(scene.name) preview",
+                keepLabel: "scene preview",
+                targetSize: .projectPreview,
+                projectDirectory: projectBasePath,
+                seedPrompt: lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt,
+                currentPreviewPath: currentOverviewRelativePath(),
+                documentURL: ShotSketchStudio.documentURL(
+                    projectDirectory: projectBasePath,
+                    subject: "scene-\(SceneCardHelpers.sanitizeFilename(scene.name))"),
+                onKeep: { data in keepStudioResult(data) },
+                onSketchSaved: { _ in })
         }
     }
 }

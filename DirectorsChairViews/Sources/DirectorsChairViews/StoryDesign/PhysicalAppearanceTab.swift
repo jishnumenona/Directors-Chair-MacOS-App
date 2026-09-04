@@ -20,6 +20,8 @@ import UniformTypeIdentifiers
 public struct PhysicalAppearanceTab: View {
     @Binding var character: Character
     let projectBasePath: URL?
+    /// DC-0112: the Studio's library (nil = only this character's own pictures).
+    var project: Project? = nil
 
     // Callbacks for AI operations
     var onGenerateImage: ((String, String, @escaping @MainActor (Double) -> Void) -> Void)?  // (angle, prompt, progressHandler)
@@ -46,22 +48,23 @@ public struct PhysicalAppearanceTab: View {
     @State var isAnalyzingUpload = false
     @State var analysisProgress: Double = 0
 
-    // Annotation editor state
-    @State var showingAnnotationEditor = false
-    @State var annotationEditorImage: NSImage?
-    @State var annotationEditorAngle: String = ""
-    @State var annotationEditorTitle: String = ""
-    @State var annotationEditorImageType: ImageType = .base
+    // DC-0112: the Studio replaces the annotation editor.
+    @State var showingStudio = false
+    @State var studioAngle: String = ""
+    @State var studioTitle: String = ""
+    @State var studioImageType: ImageType = .base
 
     public init(
         character: Binding<Character>,
         projectBasePath: URL? = nil,
+        project: Project? = nil,
         onGenerateImage: ((String, String, @escaping @MainActor (Double) -> Void) -> Void)? = nil,
         onAnalyzeTraits: (() -> Void)? = nil,
         onUploadReferenceImage: ((Data, @escaping @MainActor (Double) -> Void) -> Void)? = nil
     ) {
         self._character = character
         self.projectBasePath = projectBasePath
+        self.project = project
         self.onGenerateImage = onGenerateImage
         self.onAnalyzeTraits = onAnalyzeTraits
         self.onUploadReferenceImage = onUploadReferenceImage
@@ -147,18 +150,24 @@ public struct PhysicalAppearanceTab: View {
                 }
             )
         }
-        .sheet(isPresented: $showingAnnotationEditor) {
-            if let image = annotationEditorImage {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "EDIT CHARACTER — \(annotationEditorTitle.uppercased())",
-                    subtitle: character.name,
-                    isPresented: $showingAnnotationEditor,
-                    onApplyEdits: { annotations in
-                        generateAngleWithAnnotations(angle: annotationEditorAngle, annotations: annotations)
-                    }
-                )
-            }
+        .sheet(isPresented: $showingStudio) {
+            ShotSketchStudio(
+                characters: project?.characters ?? [character],
+                locations: project?.locations ?? [],
+                props: project?.props ?? [],
+                shots: project?.studioShots ?? [],
+                subjectLibraryId: "character-\(character.name)",
+                title: "\(character.name) — \(studioTitle)",
+                keepLabel: "character picture",
+                targetSize: ImageTargetSize(width: 1024, height: 1024),
+                projectDirectory: projectBasePath,
+                seedPrompt: "",
+                currentPreviewPath: effectiveImagePath(for: studioImageType),
+                documentURL: ShotSketchStudio.documentURL(
+                    projectDirectory: projectBasePath,
+                    subject: "character-\(character.name)-\(studioAngle)"),
+                onKeep: { data in keepStudioResult(data, angle: studioAngle, imageType: studioImageType) },
+                onSketchSaved: { _ in })
         }
     }
 }

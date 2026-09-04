@@ -325,14 +325,14 @@ struct AngleThumbnail: View {
                                 Button {
                                     onEditAnnotate?()
                                 } label: {
-                                    Image(systemName: "pencil.and.outline")
+                                    Image(systemName: "sparkles.rectangle.stack")
                                         .font(.system(size: 11))
                                         .foregroundColor(.white)
                                         .frame(width: 22, height: 22)
                                         .background(Circle().fill(Color.white.opacity(0.2)))
                                 }
                                 .buttonStyle(.plain)
-                                .help("Annotate & edit image")
+                                .help("Studio — sketch, note, edit, generate")
                                 // Annotate exists to REGENERATE — Creator.
                                 .requiresTier(.creator, feature: "AI character images")
 

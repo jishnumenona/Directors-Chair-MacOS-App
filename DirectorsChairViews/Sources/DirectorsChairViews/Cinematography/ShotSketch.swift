@@ -1433,15 +1433,21 @@ public struct ShotSketchStudio: View {
         clearResult()
     }
 
+    /// Project-relative or absolute — both resolve.
+    private func fileURL(_ path: String) -> URL? {
+        if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
+        return projectDirectory?.appendingPathComponent(path)
+    }
+
     private func loadBaseData() -> Data? {
-        guard let dir = projectDirectory else { return nil }
         switch base {
         case nil: return nil
         case "preview":
-            guard let path = currentPreviewPath else { return nil }
-            return try? Data(contentsOf: dir.appendingPathComponent(path))
+            guard let path = currentPreviewPath, let url = fileURL(path) else { return nil }
+            return try? Data(contentsOf: url)
         case let path?:
-            return try? Data(contentsOf: dir.appendingPathComponent(path))
+            guard let url = fileURL(path) else { return nil }
+            return try? Data(contentsOf: url)
         }
     }
 
@@ -1450,8 +1456,8 @@ public struct ShotSketchStudio: View {
     }
 
     private func elementData(_ element: StudioElement) -> Data? {
-        guard let dir = projectDirectory else { return nil }
-        return try? Data(contentsOf: dir.appendingPathComponent(element.imagePath))
+        guard let url = fileURL(element.imagePath) else { return nil }
+        return try? Data(contentsOf: url)
     }
 
     /// Everything a generation needs, or nil with the reason on screen.
@@ -1602,8 +1608,7 @@ public struct ShotSketchStudio: View {
         case nil, "preview":
             return hasPreview ? "preview" : nil
         case let path?:
-            if let dir = projectDirectory,
-               FileManager.default.fileExists(atPath: dir.appendingPathComponent(path).path) {
+            if let url = fileURL(path), FileManager.default.fileExists(atPath: url.path) {
                 return path
             }
             return hasPreview ? "preview" : nil
@@ -1620,6 +1625,31 @@ public struct ShotSketchStudio: View {
             try? data.write(to: documentURL)
         }
     }
+}
+
+public extension ShotSketchStudio {
+    /// Where a surface keeps its studio work — one folder per subject:
+    /// assets/studio/<subject>/sketch_studio.json (rounds and pasted bases
+    /// live beside it).
+    static func documentURL(projectDirectory: URL?, subject: String) -> URL? {
+        guard let projectDirectory else { return nil }
+        let safe = String(subject.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" })
+        return projectDirectory.appendingPathComponent("assets/studio/\(safe)/sketch_studio.json")
+    }
+
+    /// The shape of an existing picture as a target size (a vision-board
+    /// scrap keeps its own proportions), or the project preview size.
+    static func targetSize(matching data: Data?) -> ImageTargetSize {
+        if let data, let dims = ImageResampler.dimensions(of: data), dims.width > 0, dims.height > 0 {
+            return ImageTargetSize(width: dims.width, height: dims.height)
+        }
+        return .projectPreview
+    }
+}
+
+public extension Project {
+    /// Every shot in the project, for the studio's library.
+    var studioShots: [Shot] { sequences.flatMap { $0.scenes }.flatMap { $0.shots } }
 }
 
 private extension AIClientError {

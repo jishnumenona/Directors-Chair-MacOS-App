@@ -37,7 +37,7 @@ struct PropShopView: View {
     // every other picture (view, download, annotate, regenerate, prompt, upload).
     @State private var isHoveringHero = false
     @State private var showingPropFullScreen = false
-    @State private var showingPropAnnotationEditor = false
+    @State private var showingPropStudio = false
     @State private var showingPropPromptEditor = false
     @State private var propCustomPrompt = ""
     // New-prop creation sheet
@@ -803,7 +803,7 @@ struct PropShopView: View {
                         Spacer()
                         heroTool("eye", help: "View full screen") { showingPropFullScreen = true }
                         heroTool("arrow.down", help: "Download") { downloadPropPicture(snapshot) }
-                        heroTool("pencil.tip.crop.circle", help: "Annotate — mark what to change") { showingPropAnnotationEditor = true }
+                        heroTool("sparkles.rectangle.stack", help: "Studio — sketch, note, edit, generate") { showingPropStudio = true }
                         heroTool("doc.text", help: "Edit the prompt, then generate") {
                             propCustomPrompt = conceptPrompt(for: snapshot)
                             showingPropPromptEditor = true
@@ -825,16 +825,22 @@ struct PropShopView: View {
                                      title: "\(prop.wrappedValue.name) — Concept",
                                      onDownload: { downloadPropPicture(prop.wrappedValue) })
         }
-        .sheet(isPresented: $showingPropAnnotationEditor) {
-            if let url = propImageURL(prop.wrappedValue), let image = NSImage(contentsOf: url) {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "Annotate \(prop.wrappedValue.name)",
-                    subtitle: "Mark what to change and describe it — the rest of the picture is kept.",
-                    isPresented: $showingPropAnnotationEditor,
-                    onApplyEdits: { annotations in applyPropAnnotations(annotations, prop: prop) }
-                )
-            }
+        .sheet(isPresented: $showingPropStudio) {
+            ShotSketchStudio(
+                characters: project.characters, locations: project.locations,
+                props: project.props, shots: project.studioShots,
+                subjectLibraryId: "prop-\(prop.wrappedValue.name)",
+                title: "\(prop.wrappedValue.name) — concept",
+                keepLabel: "prop picture",
+                targetSize: ImageTargetSize(width: 1024, height: 1024),
+                projectDirectory: projectBasePath,
+                seedPrompt: conceptPrompt(for: prop.wrappedValue),
+                currentPreviewPath: prop.wrappedValue.thumbnail,
+                documentURL: ShotSketchStudio.documentURL(
+                    projectDirectory: projectBasePath,
+                    subject: "prop-\(prop.wrappedValue.id)"),
+                onKeep: { data in saveImageData(data, prop: prop, prefix: "concept", asPrimary: true) },
+                onSketchSaved: { _ in })
         }
         .sheet(isPresented: $showingPropPromptEditor) {
             PropPromptEditor(prompt: $propCustomPrompt, isPresented: $showingPropPromptEditor) { edited in
@@ -870,29 +876,6 @@ struct PropShopView: View {
         guard let data = UploadedImage.pickData(message: "Choose a picture for \(prop.wrappedValue.name)"),
               let png = UploadedImage.normalizedPNG(from: data) else { return }
         saveImageData(png, prop: prop, prefix: "upload", asPrimary: true)
-    }
-
-    /// DC-0073 edit path: the marked picture itself is edited.
-    private func applyPropAnnotations(_ annotations: [KeyframeAnnotation], prop: Binding<Prop>) {
-        guard let url = propImageURL(prop.wrappedValue), let source = try? Data(contentsOf: url) else { return }
-        let edit = AnnotationEdit(source: source, annotations: annotations, context: "prop concept",
-                                  originalPrompt: conceptPrompt(for: prop.wrappedValue), aspectRatio: "1:1")
-        isGenerating = true
-        feedback = nil
-        Task {
-            do {
-                let edited = try await AIServiceClient.shared.editImage(edit)
-                await MainActor.run {
-                    isGenerating = false
-                    saveImageData(edited, prop: prop, prefix: "concept", asPrimary: true)
-                }
-            } catch {
-                await MainActor.run {
-                    isGenerating = false
-                    feedback = "Edit failed: \(error.localizedDescription)"
-                }
-            }
-        }
     }
 
     /// AI concept generation: prompt from the prop's identity + references

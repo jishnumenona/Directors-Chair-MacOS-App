@@ -173,8 +173,8 @@ extension SceneDetailView {
                 heroControlButton(icon: "arrow.up.left.and.arrow.down.right", help: "View full size") {
                     showingFullSize = true
                 }
-                heroControlButton(icon: "pencil.and.outline", help: "Annotate & edit image") {
-                    showingAnnotationEditor = true
+                heroControlButton(icon: "sparkles.rectangle.stack", help: "Studio — sketch, note, edit, generate") {
+                    showingStudio = true
                 }
                 heroControlButton(icon: "text.badge.plus", help: "Edit prompt") {
                     editablePrompt = lastUsedPrompt.isEmpty ? SceneCardHelpers.buildSceneOverviewPrompt(scene: scene) : lastUsedPrompt

@@ -32,8 +32,8 @@ struct OverviewHeroBanner: View {
 
     // Prompt editor
     @State private var showingPromptEditor = false
-    /// Owner 2026-08-29: the poster takes annotation edits like every picture.
-    @State private var showingPosterAnnotationEditor = false
+    /// DC-0112: the poster opens in the Studio like every picture.
+    @State private var showingPosterStudio = false
     @State private var customPrompt = ""
     @State private var allPosterImages: [URL] = []
     @State private var currentImageIndex: Int = -1
@@ -157,24 +157,22 @@ struct OverviewHeroBanner: View {
                             .buttonStyle(.plain)
                             .help("Regenerate poster")
 
-                            // Annotate button — mark what to change on the poster
-                            if heroImage != nil {
-                                Button { showingPosterAnnotationEditor = true } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "pencil.tip.crop.circle")
-                                            .font(.system(size: 9))
-                                        Text("Annotate")
-                                            .font(.system(size: 10, weight: .medium))
-                                    }
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(Capsule().fill(Color.white.opacity(0.2)))
+                            // Studio — sketch, note, edit and generate the poster
+                            Button { showingPosterStudio = true } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "sparkles.rectangle.stack")
+                                        .font(.system(size: 9))
+                                    Text("Studio")
+                                        .font(.system(size: 10, weight: .medium))
                                 }
-                                .buttonStyle(.plain)
-                                .help("Mark spots on the poster and say what to change there")
-                                .accessibilityIdentifier("poster-annotate")
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.white.opacity(0.2)))
                             }
+                            .buttonStyle(.plain)
+                            .help("Open the poster in the Studio — sketch, note, place story elements, generate")
+                            .accessibilityIdentifier("poster-studio")
 
                             // Edit Prompt button
                             Button {
@@ -303,16 +301,19 @@ struct OverviewHeroBanner: View {
                 onDownload: { downloadPoster() }
             )
         }
-        .sheet(isPresented: $showingPosterAnnotationEditor) {
-            if let image = heroImage {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "Annotate the poster",
-                    subtitle: "Mark what to change and describe it — the rest of the poster is kept.",
-                    isPresented: $showingPosterAnnotationEditor,
-                    onApplyEdits: { annotations in applyPosterAnnotations(annotations) }
-                )
-            }
+        .sheet(isPresented: $showingPosterStudio) {
+            ShotSketchStudio(
+                characters: project.characters, locations: project.locations,
+                props: project.props, shots: project.studioShots,
+                title: "Poster",
+                keepLabel: "poster",
+                targetSize: ImageTargetSize(width: 1024, height: 1365),
+                projectDirectory: projectDir,
+                seedPrompt: buildPosterPrompt(),
+                currentPreviewPath: currentPosterRelativePath(),
+                documentURL: ShotSketchStudio.documentURL(projectDirectory: projectDir, subject: "poster"),
+                onKeep: { data in keepStudioPoster(data) },
+                onSketchSaved: { _ in })
         }
         .sheet(isPresented: $showingPromptEditor) {
             PosterPromptEditor(
@@ -331,6 +332,14 @@ struct OverviewHeroBanner: View {
         // Prioritize poster paths over icon.
         let imagePaths = project.overviewPosterPaths + [project.projectIcon]
         OverviewImageCache.shared.loadAsync(paths: imagePaths, base: projectDir) { heroImage = $0 }
+    }
+
+    private func currentPosterRelativePath() -> String? {
+        guard let projectDir else { return nil }
+        for path in project.overviewPosterPaths + [project.projectIcon] where !path.isEmpty {
+            if FileManager.default.fileExists(atPath: projectDir.appendingPathComponent(path).path) { return path }
+        }
+        return nil
     }
 
     private func currentPosterURL() -> URL? {
@@ -550,21 +559,17 @@ struct OverviewHeroBanner: View {
         }
     }
 
-    /// DC-0073 edit path for the poster: the marked picture itself is edited.
-    private func applyPosterAnnotations(_ annotations: [KeyframeAnnotation]) {
-        guard let projectPath = projectPath, let url = currentPosterURL(),
-              let source = try? Data(contentsOf: url) else {
-            posterError = "There is no poster to edit yet — generate one first."
+    /// A Studio result becomes the poster through the one poster writer.
+    private func keepStudioPoster(_ data: Data) {
+        guard let projectPath else {
+            posterError = "Save the project first, then keep the poster."
             showingPosterError = true
             return
         }
-        let edit = AnnotationEdit(source: source, annotations: annotations, context: "movie poster",
-                                  originalPrompt: buildPosterPrompt(), aspectRatio: "3:4")
         isGeneratingPoster = true
         Task {
             do {
-                let edited = try await AIServiceClient.shared.editImage(edit)
-                try await storePoster(edited, projectPath: projectPath)
+                try await storePoster(data, projectPath: projectPath)
             } catch {
                 await MainActor.run {
                     posterError = error.localizedDescription

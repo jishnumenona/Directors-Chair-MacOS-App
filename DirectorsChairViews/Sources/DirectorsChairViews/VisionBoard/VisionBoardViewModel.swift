@@ -1429,6 +1429,28 @@ public class VisionBoardViewModel: ObservableObject {
         notifyChange()
     }
 
+    /// DC-0112: a picture the Studio made replaces the scrap's picture in
+    /// place; the words that made it stay the scrap's own.
+    public func replacePicture(of cardId: String, with data: Data) async {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        guard let store = assetStore else {
+            lastWorkProblem = "Save the project first — there's nowhere to keep the new picture yet."
+            return
+        }
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vision-studio-\(cardId.prefix(8))-\(Int(Date().timeIntervalSince1970)).png")
+        do { try data.write(to: staging) } catch {
+            lastWorkProblem = "The new picture couldn't be written."
+            return
+        }
+        guard let stored = await store.normalizedForSave(staging.path) else {
+            lastWorkProblem = "The new picture couldn't be saved into the project."
+            return
+        }
+        cards[index].imagePath = stored
+        notifyChange()
+    }
+
     /// A link pinned to the wall. YouTube and Vimeo become video scraps;
     /// a YouTube still is fetched as the scrap's face so the wall shows
     /// the frame, not a URL.
