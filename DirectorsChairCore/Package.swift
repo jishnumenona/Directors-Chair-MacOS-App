@@ -6,7 +6,9 @@ import PackageDescription
 let package = Package(
     name: "DirectorsChairCore",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v14),
+        // DC-0113: the iPad companion shares the models and persistence.
+        .iOS(.v17)
     ],
     products: [
         .library(

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 //
 //  ThumbnailImageCache.swift
 //  DirectorsChairCore
@@ -109,3 +110,4 @@ public final class ThumbnailImageCache: @unchecked Sendable {
         return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
 }
+#endif
