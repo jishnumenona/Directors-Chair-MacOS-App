@@ -191,7 +191,13 @@ public enum SketchRender {
         if let base,
            let source = CGImageSourceCreateWithData(base as CFData, nil),
            let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            // Aspect-fill, centred — the same crop the canvas shows, so the
+            // marks land where the user put them on any picture shape.
+            let scale = max(size.width / CGFloat(image.width), size.height / CGFloat(image.height))
+            let drawn = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+            context.draw(image, in: CGRect(x: (size.width - drawn.width) / 2,
+                                           y: (size.height - drawn.height) / 2,
+                                           width: drawn.width, height: drawn.height))
         }
         context.setLineCap(.round)
         context.setLineJoin(.round)
@@ -466,7 +472,7 @@ public struct ShotSketchStudio: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 250)
             .disabled(currentPreviewPath == nil && base == nil)
-            .help("New picture generates from scratch; Edit changes the base picture (right-click a shot or location in the library for other bases)")
+            .help("New picture generates from scratch; Edit changes the base picture (right-click any library asset → Use as base picture)")
             .accessibilityIdentifier("studio-base")
             Button { _ = strokes.popLast() } label: { Image(systemName: "arrow.uturn.backward") }
                 .keyboardShortcut("z", modifiers: .command)
@@ -1238,8 +1244,9 @@ public struct ShotSketchStudio: View {
                                                                  imagePath: row.imagePath) as NSString)
         }
         .contextMenu {
-            if row.canBeBase {
-                Button("Use as base — draw changes on it") { setBase(row.imagePath) }
+            Button("Use as base picture — draw and annotate on it") {
+                setBase(row.imagePath)
+                rightTab = "library"
             }
             Button("Attach as plain reference") {
                 elements.append(StudioElement(kind: row.kind, name: row.name, imagePath: row.imagePath))
