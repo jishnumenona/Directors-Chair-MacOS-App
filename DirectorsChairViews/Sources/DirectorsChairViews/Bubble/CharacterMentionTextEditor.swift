@@ -46,7 +46,14 @@ public struct CharacterMentionTextEditor: View {
     let placeholder: String
     let font: Font
     let foregroundColor: Color
+    /// The field's minimum height, owned here so the text starts at the
+    /// top-left and a click anywhere in the field focuses it. A caller's
+    /// own `.frame(minHeight:)` centred the content-sized editor instead —
+    /// the text floated mid-field and clicks near the top missed it
+    /// (owner, 2026-09-04, location description).
+    let minHeight: CGFloat?
 
+    @FocusState private var isFocused: Bool
     @State private var showMentionPopup = false
     @State private var mentionKind: MentionKind = .character
     @State private var mentionQuery = ""
@@ -63,7 +70,8 @@ public struct CharacterMentionTextEditor: View {
         continuityShots: [Shot] = [],
         placeholder: String = "Write a description...",
         font: Font = .system(size: 14),
-        foregroundColor: Color = .white.opacity(0.9)
+        foregroundColor: Color = .white.opacity(0.9),
+        minHeight: CGFloat? = nil
     ) {
         self._text = text
         self.characters = characters
@@ -73,6 +81,7 @@ public struct CharacterMentionTextEditor: View {
         self.placeholder = placeholder
         self.font = font
         self.foregroundColor = foregroundColor
+        self.minHeight = minHeight
     }
 
     private var candidates: [MentionCandidate] {
@@ -125,6 +134,7 @@ public struct CharacterMentionTextEditor: View {
                 .lineSpacing(3)
                 .frame(minHeight: 20)
                 .fixedSize(horizontal: false, vertical: true)
+                .focused($isFocused)
                 .onChange(of: text) { oldValue, newValue in
                     handleTextChange(oldValue: oldValue, newValue: newValue)
                 }
@@ -158,6 +168,11 @@ public struct CharacterMentionTextEditor: View {
                     return .ignored
                 }
         }
+        // The editor is content-sized; the field below the text is still the
+        // field — it fills the caller's height from the top and focuses on click.
+        .frame(minHeight: minHeight, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .onTapGesture { isFocused = true }
         .overlay(alignment: .topLeading) {
             if showMentionPopup && !filteredCandidates.isEmpty {
                 mentionPopup

@@ -29,8 +29,7 @@ struct ShotNotesEditor: View {
                     .padding(.leading, 5)
                     .allowsHitTesting(false)
             }
-            CharacterMentionTextEditor(text: $editText, characters: characters, locations: locations, props: props, continuityShots: shots, placeholder: "", font: .system(size: 12), foregroundColor: .primary)
-                .frame(minHeight: 64)
+            CharacterMentionTextEditor(text: $editText, characters: characters, locations: locations, props: props, continuityShots: shots, placeholder: "", font: .system(size: 12), foregroundColor: .primary, minHeight: 64)
                 .accessibilityLabel("Shot notes")
         }
         .padding(4)

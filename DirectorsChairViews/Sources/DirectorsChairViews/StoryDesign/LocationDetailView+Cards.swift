@@ -106,9 +106,8 @@ extension LocationDetailView {
 
     var descriptionCard: some View {
         LocationAttributeCard(title: "DESCRIPTION", icon: "text.alignleft") {
-            CharacterMentionTextEditor(text: $location.description, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 12), foregroundColor: .primary)
+            CharacterMentionTextEditor(text: $location.description, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 12), foregroundColor: .primary, minHeight: 80)
                 .font(.system(size: 12))
-                .frame(minHeight: 80)
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .background(Color(nsColor: .quaternarySystemFill))
@@ -393,9 +392,8 @@ extension LocationDetailView {
 
     var directorsNotesCard: some View {
         LocationAttributeCard(title: "NOTES", icon: "note.text") {
-            CharacterMentionTextEditor(text: $location.notes, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 12), foregroundColor: .primary)
+            CharacterMentionTextEditor(text: $location.notes, characters: project.characters, locations: project.locations, props: project.props, continuityShots: [], placeholder: "", font: .system(size: 12), foregroundColor: .primary, minHeight: 72)
                 .font(.system(size: 12))
-                .frame(minHeight: 72)
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .background(Color(nsColor: .quaternarySystemFill))
