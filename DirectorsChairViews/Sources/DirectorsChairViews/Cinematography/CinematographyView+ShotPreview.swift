@@ -437,7 +437,11 @@ struct ShotPreviewSection: View {
         .sheet(isPresented: $showingSketchSheet) {
             ShotSketchStudio(
                 characters: characters, locations: locations, props: props,
-                shots: allShots, currentShotId: shot.shotId,
+                shots: allShots,
+                subjectLibraryId: "shot-\(shot.shotId)",
+                title: "Shot #\(shot.shotId) preview",
+                keepLabel: "shot preview",
+                targetSize: .projectPreview,
                 projectDirectory: projectBasePath?.deletingLastPathComponent(),
                 seedPrompt: sketchSeedPrompt(),
                 currentPreviewPath: shot.previewImage,

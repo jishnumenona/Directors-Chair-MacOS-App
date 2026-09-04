@@ -287,7 +287,15 @@ public struct ShotSketchStudio: View {
     let locations: [Location]
     let props: [Prop]
     let shots: [Shot]
-    let currentShotId: Int
+    /// The library row that IS the subject (e.g. "shot-3", "character-Alex")
+    /// — hidden from the library and never self-mentioned.
+    let subjectLibraryId: String?
+    /// What the surface calls this picture — "Shot #3 preview", "Alex — portrait".
+    let title: String
+    /// The noun on the Keep button: "shot preview", "portrait", "location picture".
+    let keepLabel: String
+    /// The picture size the surface delivers — its shape is the canvas shape.
+    let targetSize: ImageTargetSize
     let projectDirectory: URL?
     let seedPrompt: String
     let currentPreviewPath: String?
@@ -343,7 +351,11 @@ public struct ShotSketchStudio: View {
     @State private var commandReturnMonitor: Any?
 
     public init(characters: [DirectorsChairCore.Character], locations: [Location],
-                props: [Prop], shots: [Shot], currentShotId: Int,
+                props: [Prop], shots: [Shot],
+                subjectLibraryId: String? = nil,
+                title: String = "Shot preview",
+                keepLabel: String = "shot preview",
+                targetSize: ImageTargetSize = .projectPreview,
                 projectDirectory: URL?, seedPrompt: String,
                 currentPreviewPath: String?, documentURL: URL?,
                 onKeep: @escaping (Data) -> Void,
@@ -353,7 +365,10 @@ public struct ShotSketchStudio: View {
         self.locations = locations
         self.props = props
         self.shots = shots
-        self.currentShotId = currentShotId
+        self.subjectLibraryId = subjectLibraryId
+        self.title = title
+        self.keepLabel = keepLabel
+        self.targetSize = targetSize
         self.projectDirectory = projectDirectory
         self.seedPrompt = seedPrompt
         self.currentPreviewPath = currentPreviewPath
@@ -372,6 +387,13 @@ public struct ShotSketchStudio: View {
     }
 
     private var mode: SketchStudioInput.Mode { base == nil ? .create : .edit }
+    private var canvasAspect: CGFloat { CGFloat(targetSize.width) / CGFloat(targetSize.height) }
+    /// The sketch the model sees: the target's shape, long side 1344.
+    private var renderSize: CGSize {
+        canvasAspect >= 1
+            ? CGSize(width: 1344, height: (1344 / canvasAspect).rounded())
+            : CGSize(width: (1344 * canvasAspect).rounded(), height: 1344)
+    }
     private var placed: [StudioElement] { elements.filter(\.isPlaced) }
     private var generals: [StudioElement] { elements.filter { !$0.isPlaced } }
     /// Story elements the scene text or a note MENTIONS (@ character,
@@ -391,7 +413,10 @@ public struct ShotSketchStudio: View {
                 case .prop: kind = "prop"
                 case .shot: kind = "shot"
                 }
-                if kind == "shot", mention.name == "Shot #\(currentShotId)" { continue }
+                let rowId = kind == "shot"
+                    ? "shot-" + mention.name.replacingOccurrences(of: "Shot #", with: "")
+                    : "\(kind)-\(mention.name)"
+                if rowId == subjectLibraryId { continue }
                 if elements.contains(where: { $0.kind == kind && $0.name == mention.name }) { continue }
                 if out.contains(where: { $0.kind == kind && $0.name == mention.name }) { continue }
                 out.append(StudioElement(kind: kind, name: mention.name, imagePath: path))
@@ -460,7 +485,7 @@ public struct ShotSketchStudio: View {
         HStack(spacing: 12) {
             Image(systemName: "sparkles.rectangle.stack").foregroundColor(.accentColor)
             VStack(alignment: .leading, spacing: 1) {
-                Text("STUDIO").font(.system(size: 11, weight: .bold)).tracking(1.6)
+                Text("STUDIO · \(title.uppercased())").font(.system(size: 11, weight: .bold)).tracking(1.6)
                     .foregroundColor(.white.opacity(0.9))
                 Text(mode == .create
                      ? "New picture — sketch it, note it, place your story elements, generate."
@@ -589,7 +614,7 @@ public struct ShotSketchStudio: View {
                     drawingCanvas
                 }
             }
-            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .aspectRatio(canvasAspect, contentMode: .fit)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 12).padding(.top, 12)
             promptRow
@@ -806,7 +831,7 @@ public struct ShotSketchStudio: View {
                 Button {
                     if let data = resultData { onKeep(data) }
                     continueOnResult()
-                } label: { Label("Keep as shot preview", systemImage: "checkmark.circle.fill") }
+                } label: { Label("Keep as \(keepLabel)", systemImage: "checkmark.circle.fill") }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("studio-keep")
                 Button { continueOnResult() } label: {
@@ -1093,7 +1118,7 @@ public struct ShotSketchStudio: View {
             notes: notes.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
                         .map { SketchNote(text: $0.text, x: $0.x, y: $0.y) },
             generalReferences: references,
-            aspectRatio: "16:9", targetSize: .projectPreview)
+            aspectRatio: targetSize.aspectRatio, targetSize: targetSize)
         return SketchStudioComposer.prompt(for: input)
     }
 
@@ -1113,14 +1138,15 @@ public struct ShotSketchStudio: View {
         func hit(_ name: String) -> Bool { q.isEmpty || name.lowercased().contains(q) }
         var sections: [(String, [LibraryRow])] = []
         let cast = characters.compactMap { c -> LibraryRow? in
-            guard let img = c.representativeImage, hit(c.name) else { return nil }
+            guard let img = c.representativeImage, hit(c.name), "character-\(c.name)" != subjectLibraryId else { return nil }
             return LibraryRow(id: "character-\(c.name)", kind: "character", name: c.name,
                               imagePath: img, canBeBase: false, navKind: "character", navId: c.id)
         }
         if !cast.isEmpty { sections.append(("CHARACTERS", cast)) }
         let wardrobe = characters.flatMap { c in
             (c.costumes ?? []).compactMap { costume -> LibraryRow? in
-                guard let img = costume.imageFront, hit("\(c.name) \(costume.name)") else { return nil }
+                guard let img = costume.imageFront, hit("\(c.name) \(costume.name)"),
+                      "costume-\(c.name)-\(costume.name)" != subjectLibraryId else { return nil }
                 return LibraryRow(id: "costume-\(c.name)-\(costume.name)", kind: "costume",
                                   name: "\(c.name) — \(costume.name)", imagePath: img, canBeBase: false,
                                   navKind: "character", navId: c.id)
@@ -1128,19 +1154,20 @@ public struct ShotSketchStudio: View {
         }
         if !wardrobe.isEmpty { sections.append(("COSTUMES", wardrobe)) }
         let places = locations.compactMap { l -> LibraryRow? in
-            guard let img = l.primaryImage ?? l.images.first, !img.isEmpty, hit(l.name) else { return nil }
+            guard let img = l.primaryImage ?? l.images.first, !img.isEmpty, hit(l.name),
+                  "location-\(l.name)" != subjectLibraryId else { return nil }
             return LibraryRow(id: "location-\(l.name)", kind: "location", name: l.name,
                               imagePath: img, canBeBase: true, navKind: "location", navId: l.id)
         }
         if !places.isEmpty { sections.append(("LOCATIONS", places)) }
         let objects = props.compactMap { p -> LibraryRow? in
-            guard let img = p.thumbnail, !img.isEmpty, hit(p.name) else { return nil }
+            guard let img = p.thumbnail, !img.isEmpty, hit(p.name), "prop-\(p.name)" != subjectLibraryId else { return nil }
             return LibraryRow(id: "prop-\(p.name)", kind: "prop", name: p.name,
                               imagePath: img, canBeBase: false, navKind: "prop", navId: p.id)
         }
         if !objects.isEmpty { sections.append(("PROPS", objects)) }
         let frames = shots.compactMap { s -> LibraryRow? in
-            guard let img = s.previewImage, !img.isEmpty, s.shotId != currentShotId,
+            guard let img = s.previewImage, !img.isEmpty, "shot-\(s.shotId)" != subjectLibraryId,
                   hit("shot #\(s.shotId)") else { return nil }
             return LibraryRow(id: "shot-\(s.shotId)", kind: "shot", name: "Shot #\(s.shotId)",
                               imagePath: img, canBeBase: true, navKind: "shot", navId: s.id)
@@ -1430,7 +1457,6 @@ public struct ShotSketchStudio: View {
     /// Everything a generation needs, or nil with the reason on screen.
     private func prepareInput() -> SketchStudioInput? {
         errorText = nil
-        let renderSize = CGSize(width: 1344, height: 756)
         let baseData = loadBaseData()
         let liveNotes = notes.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
         // Badge order MUST match the composer's numbering: placements, then notes.
@@ -1471,7 +1497,7 @@ public struct ShotSketchStudio: View {
             placements: placements,
             notes: liveNotes.map { SketchNote(text: $0.text, x: $0.x, y: $0.y) },
             generalReferences: references,
-            aspectRatio: "16:9", targetSize: .projectPreview)
+            aspectRatio: targetSize.aspectRatio, targetSize: targetSize)
     }
 
     /// "Update" whenever a picture already exists — the base being edited
