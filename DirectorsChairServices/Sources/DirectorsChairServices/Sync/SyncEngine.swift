@@ -601,7 +601,15 @@ public final class SyncEngine: ObservableObject {
                      + "or upgrade to Creator (coming soon)"
             case .uncommittedBlobs: return "Upload incomplete — try again"
             case .server(let status): return "Sync failed (server \(status))"
-            case .transport(let message): return "Network problem: \(message)"
+            case .transport(let message):
+                // A verification failure is the cloud copy, not the wire —
+                // "Network problem" sent a collaborator chasing her Wi-Fi
+                // (owner report 2026-09-04).
+                if message.localizedCaseInsensitiveContains("hash mismatch") {
+                    return "A file in the cloud copy is damaged (\(message)) — "
+                         + "ask the project's owner to sync it again, then retry"
+                }
+                return "Network problem: \(message)"
             case .malformedResponse: return "Unexpected server response"
             }
         }

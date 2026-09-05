@@ -14,7 +14,8 @@ enum MentionNames {
 
 /// One thing a description mentions, resolved against the project.
 public struct ResolvedMention: Identifiable, Equatable {
-    public enum Kind: Equatable { case character, location, prop, shot }
+    /// `angle`: a location's named camera angle — "#Pier 9 / Wide from the gate" (DC-0125).
+    public enum Kind: Equatable { case character, location, prop, shot, angle }
     public let kind: Kind
     public let id: String
     public let name: String
@@ -54,6 +55,12 @@ enum MentionParser {
         scan(trigger: "@", names: characters.map { ($0.name, ResolvedMention(
             kind: .character, id: $0.id, name: $0.name, imagePath: $0.representativeImage,
             symbol: "person.fill", color: .blue)) })
+        // DC-0125: a location's named angle, "#Pier 9 / Wide from the gate" —
+        // scanned before the bare place so the longer form claims its text.
+        scan(trigger: "#", names: locations.flatMap { l in l.angles.map { a in
+            (LocationAngles.mention(location: l, angle: a), ResolvedMention(
+                kind: .angle, id: a.id, name: LocationAngles.mention(location: l, angle: a),
+                imagePath: a.image, symbol: "camera.viewfinder", color: .teal)) } })
         scan(trigger: "#", names: locations.map { ($0.name, ResolvedMention(
             kind: .location, id: $0.id, name: $0.name, imagePath: $0.primaryImage ?? $0.images.first,
             symbol: "mappin.and.ellipse", color: .green)) })

@@ -65,6 +65,7 @@ public enum ShotPromptBuilder {
                     if !location.description.isEmpty {
                         locDesc += " — \(location.description.prefix(200))"
                     }
+                    locDesc += LocationAngles.promptClause(for: shot, location: location)
                     add("location", "Location", "Location: \(location.name)", [locDesc])
                 } else {
                     add("location", "Location", "Scene heading", ["set in \(locationName)"])
@@ -275,6 +276,7 @@ public enum ShotPromptBuilder {
                     var locDesc = "Location: \(location.name)"
                     if !location.locationType.isEmpty { locDesc += " (\(location.locationType))" }
                     if !location.description.isEmpty { locDesc += " — \(location.description.prefix(200))" }
+                    locDesc += LocationAngles.promptClause(for: shot, location: location)
                     parts.append(locDesc)
                 } else {
                     parts.append("Location: \(loc)")
@@ -363,6 +365,7 @@ public enum ShotPromptBuilder {
                     var locDesc = "Location: \(location.name)"
                     if !location.locationType.isEmpty { locDesc += " (\(location.locationType))" }
                     if !location.description.isEmpty { locDesc += " — \(location.description.prefix(200))" }
+                    locDesc += LocationAngles.promptClause(for: shot, location: location)
                     parts.append(locDesc)
                 } else {
                     parts.append("Location: \(loc)")

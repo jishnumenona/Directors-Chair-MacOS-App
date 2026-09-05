@@ -65,6 +65,9 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
     public var videoQuality: String?                 // Standard/High/Ultra
     public var videoResolution: String?              // "720p"/"1080p"
     public var lightingStyle: String?                // Key-light mood ("Soft key", "Low-key", ...)
+    /// The id of one of the scene's location's named angles (DC-0125): the
+    /// angle's picture frames the place for this shot's previews and video.
+    public var locationAngleId: String?
 
     public init(
         uuid: String = UUID().uuidString,
@@ -101,7 +104,8 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoProvider: String? = nil,
         videoQuality: String? = nil,
         videoResolution: String? = nil,
-        lightingStyle: String? = nil
+        lightingStyle: String? = nil,
+        locationAngleId: String? = nil
     ) {
         self.uuid = uuid
         self.shotId = shotId
@@ -138,6 +142,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         self.videoQuality = videoQuality
         self.videoResolution = videoResolution
         self.lightingStyle = lightingStyle
+        self.locationAngleId = locationAngleId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -176,6 +181,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         case videoQuality = "video_quality"
         case videoResolution = "video_resolution"
         case lightingStyle = "lighting_style"
+        case locationAngleId = "location_angle_id"
     }
 
     enum AlternativeCodingKeys: String, CodingKey {
@@ -275,6 +281,7 @@ public struct Shot: Codable, Identifiable, Hashable, Sendable {
         videoQuality = try container.decodeIfPresent(String.self, forKey: .videoQuality)
         videoResolution = try container.decodeIfPresent(String.self, forKey: .videoResolution)
         lightingStyle = try container.decodeIfPresent(String.self, forKey: .lightingStyle)
+        locationAngleId = try container.decodeIfPresent(String.self, forKey: .locationAngleId)
     }
 
     // MARK: - Take Helpers

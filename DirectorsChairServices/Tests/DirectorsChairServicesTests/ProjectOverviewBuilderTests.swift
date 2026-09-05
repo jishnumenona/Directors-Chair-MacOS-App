@@ -69,6 +69,49 @@ final class ProjectOverviewBuilderTests: XCTestCase {
                       "the deck must serialize for the PUT body")
     }
 
+    /// The hero banner writes `overviewPosterPaths`; the deck used to read
+    /// only the pre-list `overviewPosterPath`, so every poster set through
+    /// the banner was missing on the web (owner, 2026-09-04: "The overview
+    /// page on the webapp is missing the poster").
+    func testDeckPosterFollowsTheHeroBannerPosterList() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overview-poster-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("assets/icons"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let posterData = Data("poster-bytes".utf8)
+        let iconData = Data("icon-bytes".utf8)
+        try posterData.write(to: dir.appendingPathComponent("assets/poster.png"))
+        try iconData.write(to: dir.appendingPathComponent("assets/icons/icon.png"))
+        let posterURL = "/api/v1/projects/p-1/blobs/\(SyncHashing.sha256Hex(posterData))/raw"
+        let iconURL = "/api/v1/projects/p-1/blobs/\(SyncHashing.sha256Hex(iconData))/raw"
+
+        var banner = Project(name: "Banner")
+        banner.overviewPosterPaths = ["", "assets/poster.png"]   // blanks are skipped
+        banner.overviewPosterPath = "assets/never-written.png"   // the pre-list field must not win
+        banner.projectIcon = "assets/icons/icon.png"
+        XCTAssertEqual(ProjectOverviewBuilder.deck(project: banner, projectDir: dir,
+                                                   projectID: "p-1")["poster"] as? String,
+                       posterURL, "the banner's first poster fronts the deck")
+
+        var legacy = Project(name: "Legacy")
+        legacy.overviewPosterPath = "assets/poster.png"
+        legacy.projectIcon = "assets/icons/icon.png"
+        XCTAssertEqual(ProjectOverviewBuilder.deck(project: legacy, projectDir: dir,
+                                                   projectID: "p-1")["poster"] as? String,
+                       posterURL, "projects saved before the list still resolve")
+
+        var iconOnly = Project(name: "Icon")
+        iconOnly.projectIcon = "assets/icons/icon.png"
+        XCTAssertEqual(ProjectOverviewBuilder.deck(project: iconOnly, projectDir: dir,
+                                                   projectID: "p-1")["poster"] as? String,
+                       iconURL, "the icon fronts a project with no poster, as the banner does")
+
+        XCTAssertNil(ProjectOverviewBuilder.deck(project: Project(name: "Bare"), projectDir: dir,
+                                                 projectID: "p-1")["poster"])
+    }
+
     func testShotBoardUsesPreviewImageWithReferenceMediaFallback() throws {
         // The owner's field report (2026-08-02): every synced shot rendered
         // imageless in the portal. AI-generated shot images live in
@@ -335,6 +378,9 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         estate.cinematographyDefaults = ["lighting_style": "Window key, no fill",
                                          "time_of_day": "Day"]
         estate.notes = "Ask about the parlor."
+        estate.angles = [LocationAngle(name: "Wide from the gate", description: "Cranes behind.",
+                                       image: "assets/alt.png"),
+                         LocationAngle(name: "Reverse toward the bar")]
         var swatched = Location(name: "Darkroom")
         swatched.styleAttributes = ["palette": "#331111, #886644"]
 
@@ -363,6 +409,12 @@ final class ProjectOverviewBuilderTests: XCTestCase {
         let variations = cards?[0]["variations"] as? [[String: Any]]
         XCTAssertEqual(variations?.count, 1, "non-primary gallery images")
         XCTAssertEqual(variations?.first?["label"] as? String, "View 1")
+        // DC-0125: named angles travel with the card, pictured or not.
+        let angles = cards?[0]["angles"] as? [[String: Any]]
+        XCTAssertEqual(angles?.map { $0["name"] as? String }, ["Wide from the gate", "Reverse toward the bar"])
+        XCTAssertEqual(angles?.first?["description"] as? String, "Cranes behind.")
+        XCTAssertNotNil(angles?.first?["image"], "a kept angle picture is a blob URL")
+        XCTAssertNil(angles?.last?["image"], "an angle without a picture has none")
         XCTAssertNil(cards?[0]["color_palette"],
                      "descriptive palettes are not CSS colors — dropped")
         XCTAssertEqual(cards?[1]["color_palette"] as? [String],

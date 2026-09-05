@@ -108,6 +108,7 @@ enum StudioDragToken {
         case "location": return "#" + element.name
         case "prop": return "$" + element.name
         case "shot": return "&" + element.name
+        case "angle": return "#" + element.name   // "#Pier 9 / Wide from the gate"
         case "costume":
             let parts = element.name.components(separatedBy: " — ")
             let character = parts.first ?? element.name
@@ -287,6 +288,8 @@ public struct ShotSketchStudio: View {
     let locations: [Location]
     let props: [Prop]
     let shots: [Shot]
+    /// Scenes, for their previews in the library (DC-0125).
+    let scenes: [DirectorsChairCore.Scene]
     /// The library row that IS the subject (e.g. "shot-3", "character-Alex")
     /// — hidden from the library and never self-mentioned.
     let subjectLibraryId: String?
@@ -352,6 +355,7 @@ public struct ShotSketchStudio: View {
 
     public init(characters: [DirectorsChairCore.Character], locations: [Location],
                 props: [Prop], shots: [Shot],
+                scenes: [DirectorsChairCore.Scene] = [],
                 subjectLibraryId: String? = nil,
                 title: String = "Shot preview",
                 keepLabel: String = "shot preview",
@@ -365,6 +369,7 @@ public struct ShotSketchStudio: View {
         self.locations = locations
         self.props = props
         self.shots = shots
+        self.scenes = scenes
         self.subjectLibraryId = subjectLibraryId
         self.title = title
         self.keepLabel = keepLabel
@@ -407,15 +412,16 @@ public struct ShotSketchStudio: View {
                                                   locations: locations, props: props, shots: shots) {
                 guard let path = mention.imagePath, !path.isEmpty else { continue }
                 let kind: String
+                let rowId: String
                 switch mention.kind {
-                case .character: kind = "character"
-                case .location: kind = "location"
-                case .prop: kind = "prop"
-                case .shot: kind = "shot"
+                case .character: kind = "character"; rowId = "character-\(mention.name)"
+                case .location: kind = "location"; rowId = "location-\(mention.name)"
+                case .prop: kind = "prop"; rowId = "prop-\(mention.name)"
+                case .shot:
+                    kind = "shot"
+                    rowId = "shot-" + mention.name.replacingOccurrences(of: "Shot #", with: "")
+                case .angle: kind = "angle"; rowId = "angle-\(mention.id)"
                 }
-                let rowId = kind == "shot"
-                    ? "shot-" + mention.name.replacingOccurrences(of: "Shot #", with: "")
-                    : "\(kind)-\(mention.name)"
                 if rowId == subjectLibraryId { continue }
                 if elements.contains(where: { $0.kind == kind && $0.name == mention.name }) { continue }
                 if out.contains(where: { $0.kind == kind && $0.name == mention.name }) { continue }
@@ -424,7 +430,7 @@ public struct ShotSketchStudio: View {
         }
         return out
     }
-    static let mentionLegend = "@ character · # location · $ prop · & shot preview"
+    static let mentionLegend = "@ character · # location · # location / angle · $ prop · & shot preview"
     private var firstTag: Int { SketchStudioComposer.firstTagNumber(for: mode) }
     /// Notes' badge numbers CONTINUE after the placed elements'.
     private var firstNoteTag: Int { firstTag + placed.count }
@@ -1160,6 +1166,18 @@ public struct ShotSketchStudio: View {
                               imagePath: img, canBeBase: true, navKind: "location", navId: l.id)
         }
         if !places.isEmpty { sections.append(("LOCATIONS", places)) }
+        // DC-0125: every named angle, grouped under its location right after
+        // the places themselves — "systematically arranged" (owner 2026-09-04).
+        for l in locations {
+            let angles = l.angles.compactMap { a -> LibraryRow? in
+                guard let img = a.image, !img.isEmpty, "angle-\(a.id)" != subjectLibraryId,
+                      hit("\(l.name) \(a.name)") else { return nil }
+                return LibraryRow(id: "angle-\(a.id)", kind: "angle",
+                                  name: LocationAngles.mention(location: l, angle: a),
+                                  imagePath: img, canBeBase: true, navKind: "location", navId: l.id)
+            }
+            if !angles.isEmpty { sections.append(("\(l.name.uppercased()) · ANGLES", angles)) }
+        }
         let objects = props.compactMap { p -> LibraryRow? in
             guard let img = p.thumbnail, !img.isEmpty, hit(p.name), "prop-\(p.name)" != subjectLibraryId else { return nil }
             return LibraryRow(id: "prop-\(p.name)", kind: "prop", name: p.name,
@@ -1173,6 +1191,15 @@ public struct ShotSketchStudio: View {
                               imagePath: img, canBeBase: true, navKind: "shot", navId: s.id)
         }
         if !frames.isEmpty { sections.append(("SHOT PREVIEWS", frames)) }
+        // DC-0125: scene previews — the emotional composite of a scene — so a
+        // location angle (or any picture) can be composed against them.
+        let previews = scenes.compactMap { s -> LibraryRow? in
+            guard let img = s.sceneOverviewImage, !img.isEmpty, "scene-\(s.id)" != subjectLibraryId,
+                  hit(s.name) else { return nil }
+            return LibraryRow(id: "scene-\(s.id)", kind: "scene", name: s.name,
+                              imagePath: img, canBeBase: true, navKind: "scene", navId: s.id)
+        }
+        if !previews.isEmpty { sections.append(("SCENE PREVIEWS", previews)) }
         return sections
     }
 

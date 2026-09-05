@@ -856,6 +856,11 @@ public struct CinematographyView: View {
             if let location = locations.first(where: { $0.id == mention.id }) { onNavigateToLocation?(location) }
         case .prop:
             if let prop = props.first(where: { $0.id == mention.id }) { onNavigateToProp?(prop) }
+        case .angle:
+            // DC-0125: an angle opens its location's page.
+            if let location = locations.first(where: { $0.angles.contains { $0.id == mention.id } }) {
+                onNavigateToLocation?(location)
+            }
         case .shot:
             viewModel.selectedShotId = mention.id
             viewModel.revealSection(containing: mention.id, scenes: scenes)

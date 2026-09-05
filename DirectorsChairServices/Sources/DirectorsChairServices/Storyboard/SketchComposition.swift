@@ -136,6 +136,11 @@ public enum SketchStudioComposer {
             return "- Tag \(tag) marks where the place in Image \(tag) (\(element.name)) is seen: render those exact surroundings there."
         case "shot":
             return "- Tag \(tag) points at what Image \(tag) — the finished frame \(element.name) — shows at that spot: keep it consistent with that frame."
+        case "angle":
+            // DC-0125: a location's named angle — the place, from that vantage.
+            return "- Tag \(tag) marks where the place in Image \(tag) — the location seen from its angle \"\(element.name)\" — is: render those exact surroundings there, from that same vantage."
+        case "scene":
+            return "- Tag \(tag) points at what Image \(tag) — the preview of the scene \(element.name) — shows at that spot: keep it consistent with that scene."
         default:
             return "- The shape at tag \(tag) stands for \(element.name): render what Image \(tag) shows there, faithfully."
         }

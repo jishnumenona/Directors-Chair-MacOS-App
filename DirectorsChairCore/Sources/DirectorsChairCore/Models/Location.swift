@@ -4,6 +4,47 @@
 
 import Foundation
 
+/// A named camera angle of a location — "Wide from the gate", "Reverse
+/// toward the bar" — with its own preview picture composed in the Studio
+/// from the location and any story-design element, shot or scene preview.
+/// Shots pick an angle so their previews and videos frame the place the
+/// same way every time, and the Studio library lists angles under their
+/// location (DC-0125).
+public struct LocationAngle: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    /// What the camera sees from here: composition, lens feel, what is in
+    /// frame — free text, mentions allowed.
+    public var description: String
+    /// The kept preview, relative to the project directory; nil until the
+    /// Studio keeps one.
+    public var image: String?
+    public var createdAt: Date
+
+    public init(id: String = UUID().uuidString, name: String, description: String = "",
+                image: String? = nil, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.image = image
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, image
+        case createdAt = "created_at"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        image = try container.decodeIfPresent(String.self, forKey: .image)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
+}
+
 /// Represents a filming location with comprehensive world-building attributes
 public struct Location: Codable, Identifiable, Hashable, Sendable {
     public var id: String { uuid }
@@ -30,6 +71,10 @@ public struct Location: Codable, Identifiable, Hashable, Sendable {
     public var images: [String]  // List of image paths relative to project
     public var primaryImage: String?  // Main background image (must be in images list)
     public var referenceImages: [String]  // Mood/style reference images
+
+    // MARK: - Angles
+    /// Named camera angles of this location, in the order they were defined.
+    public var angles: [LocationAngle]
 
     // MARK: - Floor Plan
     public var floorPlanData: [String: String]?  // Floor plan layout
@@ -63,6 +108,7 @@ public struct Location: Codable, Identifiable, Hashable, Sendable {
         images: [String] = [],
         primaryImage: String? = nil,
         referenceImages: [String] = [],
+        angles: [LocationAngle] = [],
         floorPlanData: [String: String]? = nil,
         floorPlanImage: String? = nil,
         dimensions: [String: Double]? = nil,
@@ -87,6 +133,7 @@ public struct Location: Codable, Identifiable, Hashable, Sendable {
         self.images = images
         self.primaryImage = primaryImage
         self.referenceImages = referenceImages
+        self.angles = angles
         self.floorPlanData = floorPlanData
         self.floorPlanImage = floorPlanImage
         self.dimensions = dimensions
@@ -113,6 +160,7 @@ public struct Location: Codable, Identifiable, Hashable, Sendable {
         case images
         case primaryImage = "primary_image"
         case referenceImages = "reference_images"
+        case angles
         case floorPlanData = "floor_plan_data"
         case floorPlanImage = "floor_plan_image"
         case dimensions
@@ -151,6 +199,7 @@ public struct Location: Codable, Identifiable, Hashable, Sendable {
         images = try container.decodeIfPresent([String].self, forKey: .images) ?? []
         primaryImage = try container.decodeIfPresent(String.self, forKey: .primaryImage)
         referenceImages = try container.decodeIfPresent([String].self, forKey: .referenceImages) ?? []
+        angles = try container.decodeIfPresent([LocationAngle].self, forKey: .angles) ?? []
 
         // Floor Plan
         floorPlanData = try container.decodeIfPresent([String: String].self, forKey: .floorPlanData)
@@ -170,5 +219,13 @@ public struct Location: Codable, Identifiable, Hashable, Sendable {
 
         // Legacy Support
         attributes = try container.decodeIfPresent([String: String].self, forKey: .attributes) ?? [:]
+    }
+}
+
+public extension Location {
+    /// The angle a shot chose, if it is still one of this location's.
+    func angle(withId id: String?) -> LocationAngle? {
+        guard let id, !id.isEmpty else { return nil }
+        return angles.first { $0.id == id }
     }
 }

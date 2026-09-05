@@ -108,7 +108,32 @@ public enum SyncManifestBuilder {
                 .filter { !present.contains($0) }
                 .sorted()
         }
-        return SyncManifest(projectBlob: projectBlob, assets: assets, deleted: deleted)
+        return SyncManifest(projectBlob: projectBlob, assets: assets, deleted: deleted,
+                            display: display(projectData: projectData,
+                                             projectDir: projectDir, assets: assets))
+    }
+
+    /// The `display` block: title, logline and the poster's sha, looked up
+    /// among the assets just walked so the server only ever records a blob
+    /// this commit ships. Nil when project.json isn't a decodable project
+    /// (a display block is a courtesy — it never fails a sync).
+    static func display(projectData: Data, projectDir: URL,
+                        assets: [SyncManifestAsset]) -> SyncManifestDisplay? {
+        guard let project = try? SyncEngine.decodeProject(projectData) else { return nil }
+        let shaByPath = Dictionary(assets.map { ($0.path, $0.sha256) },
+                                   uniquingKeysWith: { first, _ in first })
+        let poster = ProjectOverviewBuilder.posterPath(for: project).flatMap { path -> String? in
+            let relative = path.hasPrefix("/")
+                ? relativePath(of: URL(fileURLWithPath: path), under: projectDir)
+                : path
+            return shaByPath[relative]
+        }
+        let logline = (project.overviewLogline as String?)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = project.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SyncManifestDisplay(title: title.isEmpty ? nil : title,
+                                   logline: logline.isEmpty ? nil : logline,
+                                   poster: poster)
     }
 
     static func relativePath(of fileURL: URL, under directory: URL) -> String {

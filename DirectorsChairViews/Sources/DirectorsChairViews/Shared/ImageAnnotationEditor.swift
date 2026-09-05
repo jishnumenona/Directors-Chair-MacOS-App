@@ -575,6 +575,7 @@ public struct ImageAnnotationEditor: View {
             case .location: kind = "location"
             case .prop: kind = "prop"
             case .shot: kind = "shot"
+            case .angle: kind = "angle"
             }
             return ReferenceImage(base64: "", mimeType: "image/png", label: "\(kind):\(mention.name)")
         }
@@ -631,6 +632,7 @@ public struct ImageAnnotationEditor: View {
         case .location: return "Locations"
         case .prop: return "Props"
         case .shot: return "Shots"
+        case .angle: return "Location angles"
         }
     }
 
@@ -679,6 +681,7 @@ public struct ImageAnnotationEditor: View {
         case .location: trigger = "#"
         case .prop: trigger = "$"
         case .shot: trigger = "&"
+        case .angle: trigger = "#"
         }
         let token = trigger + mention.name
         func strip(_ text: String) -> String {

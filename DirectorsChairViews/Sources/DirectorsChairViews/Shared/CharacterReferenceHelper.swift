@@ -65,7 +65,8 @@ public enum CharacterReferenceHelper {
         return referenceImages(for: scene,
                         people: StoryboardSubjects.cast(for: shot, in: scene, characters: characters),
                         props: chosen + mentioned,
-                        locations: locations, projectDirectory: projectDirectory)
+                        locations: locations, projectDirectory: projectDirectory,
+                        locationAngle: LocationAngles.reference(for: shot, scene: scene, locations: locations))
     }
 
     private static func referenceImages(
@@ -73,13 +74,20 @@ public enum CharacterReferenceHelper {
         people: [Character],
         props: [Prop],
         locations: [Location],
-        projectDirectory: URL?
+        projectDirectory: URL?,
+        locationAngle: (path: String, label: String)? = nil
     ) -> [ReferenceImage] {
         guard let projectDir = projectDirectory else { return [] }
         var refs: [ReferenceImage] = []
 
-        // 1. Location image
-        if let locationImage = loadLocationImage(
+        // 1. Location image — a chosen angle's picture IS the location here
+        //    (DC-0125): the same place, from the vantage the shot asked for,
+        //    so it takes the location's slot rather than a second one.
+        if let locationAngle,
+           let angleImage = NSImage(contentsOf: projectDir.appendingPathComponent(locationAngle.path)),
+           let base64 = resizeAndEncodeImage(angleImage, maxDimension: 768) {
+            refs.append(ReferenceImage(base64: base64, mimeType: "image/png", label: locationAngle.label))
+        } else if let locationImage = loadLocationImage(
             forScene: scene,
             locations: locations,
             projectDirectory: projectDir
@@ -153,6 +161,9 @@ public enum CharacterReferenceHelper {
             switch type {
             case "location":
                 lines.append("- Image \(i + 1) is the LOCATION (\(name)). The generated shot MUST take place inside this exact environment. Match the room layout, architecture, furniture, decor, props, lighting, and atmosphere precisely. Do NOT change the setting.")
+            case "angle":
+                // DC-0125: the location from a named angle — the place AND the vantage.
+                lines.append("- Image \(i + 1) is the LOCATION seen from its camera angle \"\(name)\". The generated shot MUST be framed from this same vantage and take place inside this exact environment: match the perspective, layout, architecture, decor, lighting and atmosphere precisely. Do NOT change the setting or the viewpoint.")
             case "character":
                 lines.append("- Image \(i + 1) is character \(name). Match their face, skin tone, hair color/style, and overall appearance exactly.")
             case "costume":
