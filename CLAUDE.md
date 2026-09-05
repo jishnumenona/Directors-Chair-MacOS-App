@@ -41,7 +41,12 @@
   persistence) have benchmarks: `PerformanceBaselineTests` + the
   `--perf-scenario` runner. Record moved numbers in `docs/perf/`
   (protocol: `docs/perf/baseline.md`).
-- Scope: Desktop app only. The Gitea server and iOS/iPad repos are
-  deprecated; server-dependent features are deferred to the future
-  server phase. Signing + App Sandbox are parked until the owner has an
-  Apple Developer account.
+- Scope: this repo is the desktop app. The Gitea server and the OLD iOS repo
+  are deprecated. The iPad companion at `../directorschair-studio-ipad`
+  is LIVE and shares `DirectorsChairCore` as a path dependency plus verbatim
+  copies of portable Services files (Auth/Sync/SketchComposition/…) — see the
+  workspace `../CLAUDE.md` "Studio parity" section: the preview Studio must
+  stay feature-matched on both apps, and any change to a shared Services
+  file must be followed by `../directorschair-studio-ipad/scripts/sync-shared.sh`.
+  Signing + App Sandbox are parked until the owner has an Apple Developer
+  account.
