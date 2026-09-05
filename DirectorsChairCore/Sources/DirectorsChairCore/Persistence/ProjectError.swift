@@ -14,13 +14,15 @@ public enum ProjectError: LocalizedError {
     case backupFailed(URL, Error)
     case invalidProjectData(String)
     case permissionDenied(URL)
-    case unsupportedSchemaVersion(found: Int, supported: Int)
+    case unsupportedSchemaVersion(found: Int, supported: Int, savedBy: String?)
 
     public var errorDescription: String? {
         switch self {
-        case .unsupportedSchemaVersion(let found, let supported):
-            return "This project was created by a newer version of the app "
-                + "(format v\(found); this app supports up to v\(supported))."
+        case .unsupportedSchemaVersion(let found, let supported, let savedBy):
+            let writer = savedBy.map { "Director's Chair \($0)" } ?? "a newer version of Director's Chair"
+            return "This project was saved by \(writer) and uses project format v\(found). "
+                + "This app reads up to format v\(supported) and would lose newer details if it opened it. "
+                + "Update to the latest version, then open the project again."
         case .fileNotFound(let url):
             return "Project file not found at: \(url.path)"
         case .invalidJSON(let url, let error):

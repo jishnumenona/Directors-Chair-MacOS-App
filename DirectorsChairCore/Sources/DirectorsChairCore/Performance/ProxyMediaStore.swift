@@ -62,7 +62,7 @@ public struct AVProxyTranscoder: ProxyTranscoding {
         try? FileManager.default.removeItem(at: partial)
         session.shouldOptimizeForNetworkUse = true
         do {
-            if #available(macOS 15, *) {
+            if #available(macOS 15, iOS 18, *) {
                 try await session.export(to: partial, as: .mp4)
             } else {
                 session.outputURL = partial

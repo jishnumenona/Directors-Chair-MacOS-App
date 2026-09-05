@@ -304,7 +304,7 @@ struct CostumeAngleThumbnailView: View {
                                 .buttonStyle(.plain)
 
                                 Button { onEditAnnotate?() } label: {
-                                    Image(systemName: "pencil.and.outline")
+                                    Image(systemName: "sparkles.rectangle.stack")
                                         .font(.system(size: 13))
                                         .foregroundColor(.white)
                                         .frame(width: 26, height: 26)

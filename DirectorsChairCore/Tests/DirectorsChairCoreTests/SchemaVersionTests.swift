@@ -45,7 +45,7 @@ final class SchemaVersionTests: XCTestCase {
         do {
             _ = try await persistence.load(from: url)
             XCTFail("Loading a newer-version file should throw")
-        } catch let ProjectError.unsupportedSchemaVersion(found, supported) {
+        } catch let ProjectError.unsupportedSchemaVersion(found, supported, _) {
             XCTAssertEqual(found, future)
             XCTAssertEqual(supported, Project.currentSchemaVersion)
         }
@@ -84,5 +84,47 @@ final class SchemaVersionTests: XCTestCase {
         let loaded = try await persistence.load(from: url)
         XCTAssertEqual(loaded.basePath, dir.path,
                        "load must populate basePath from the file's own directory")
+    }
+
+    // DC-0116: the file names the app that wrote it, and the gate's message
+    // names it back so the user knows which version to get.
+    func testSaveStampsTheWriterAndUpgradesLegacyFilesToTheCurrentFormat() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("schema-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("project.json")
+        let persistence = ProjectPersistence(enableBackups: false, appVersion: "3.12.0", platform: "macOS")
+        var legacy = Project(name: "Old")
+        legacy.schemaVersion = 1
+        try await persistence.save(legacy, to: url)
+        let json = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(json.contains("\"schema_version\" : \(Project.currentSchemaVersion)") || json.contains("\"schema_version\":\(Project.currentSchemaVersion)"), json)
+        XCTAssertTrue(json.contains("\"saved_by_app_version\""), json)
+        XCTAssertTrue(json.contains("\"saved_by_platform\""), json)
+        let back = try await persistence.load(from: url)
+        XCTAssertEqual(back.savedByAppVersion, "3.12.0")
+        XCTAssertEqual(back.savedByPlatform, "macOS")
+        XCTAssertNotNil(back.savedAt)
+    }
+
+    func testTheGateNamesTheVersionThatWroteTheFile() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("schema-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("project.json")
+        let future = Project.currentSchemaVersion + 1
+        try "{ \"name\": \"Later\", \"schema_version\": \(future), \"saved_by_app_version\": \"9.1.0\", \"saved_by_platform\": \"macOS\" }"
+            .write(to: url, atomically: true, encoding: .utf8)
+        do {
+            _ = try await ProjectPersistence(enableBackups: false).load(from: url)
+            XCTFail("a newer-format file must not open")
+        } catch let error as ProjectError {
+            guard case .unsupportedSchemaVersion(let found, let supported, let savedBy) = error else {
+                return XCTFail("wrong error \(error)")
+            }
+            XCTAssertEqual(found, future)
+            XCTAssertEqual(supported, Project.currentSchemaVersion)
+            XCTAssertEqual(savedBy, "9.1.0 on macOS")
+            XCTAssertTrue(error.localizedDescription.contains("Director's Chair 9.1.0 on macOS"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("Update to the latest version"), error.localizedDescription)
+        }
     }
 }

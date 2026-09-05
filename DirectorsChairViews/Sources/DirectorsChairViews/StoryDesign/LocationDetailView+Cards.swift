@@ -540,9 +540,9 @@ extension LocationDetailView {
                                     .help("View full size")
 
                                     Button(action: {
-                                        openAnnotationEditor(variation: selectedPreviewVariation, label: variationDisplayName(selectedPreviewVariation))
+                                        openStudio(variation: selectedPreviewVariation, label: variationDisplayName(selectedPreviewVariation))
                                     }) {
-                                        Image(systemName: "pencil.and.outline")
+                                        Image(systemName: "sparkles.rectangle.stack")
                                             .font(.system(size: 11, weight: .medium))
                                             .foregroundColor(.white)
                                             .padding(8)
@@ -550,9 +550,8 @@ extension LocationDetailView {
                                             .clipShape(Circle())
                                     }
                                     .buttonStyle(.plain)
-                                    .help("Annotate & edit image")
-                                    // Annotate exists to REGENERATE with
-                                    // annotations — a spend, so Creator.
+                                    .help("Studio — sketch, note, edit, generate")
+                                    // The Studio generates — a spend, so Creator.
                                     .requiresTier(.creator, feature: "AI location images")
 
                                     Button(action: {
@@ -694,18 +693,22 @@ extension LocationDetailView {
                 }
             )
         }
-        .sheet(isPresented: $showingAnnotationEditor) {
-            if let image = annotationEditorImage {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "EDIT LOCATION — \(annotationEditorTitle.uppercased())",
-                    subtitle: location.name,
-                    isPresented: $showingAnnotationEditor,
-                    onApplyEdits: { annotations in
-                        generateVariationWithAnnotations(variation: annotationEditorVariation, annotations: annotations)
-                    }
-                )
-            }
+        .sheet(isPresented: $showingStudio) {
+            ShotSketchStudio(
+                characters: project.characters, locations: project.locations,
+                props: project.props, shots: project.studioShots,
+                subjectLibraryId: "location-\(location.name)",
+                title: "\(location.name) — \(studioTitle)",
+                keepLabel: "location picture",
+                targetSize: .projectPreview,
+                projectDirectory: projectBasePath,
+                seedPrompt: buildVariationPrompt(override: variationDefaultOverride(studioVariation)),
+                currentPreviewPath: effectiveImagePath(for: studioVariation),
+                documentURL: ShotSketchStudio.documentURL(
+                    projectDirectory: projectBasePath,
+                    subject: "location-\(DiscoveredLocationImages.sanitizeName(location.name))-\(studioVariation)"),
+                onKeep: { data in keepStudioResult(data, variation: studioVariation) },
+                onSketchSaved: { _ in })
         }
     }
 }

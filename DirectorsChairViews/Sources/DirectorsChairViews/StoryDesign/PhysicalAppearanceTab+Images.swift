@@ -36,54 +36,30 @@ extension PhysicalAppearanceTab {
         )
     }
 
-    // MARK: - Annotation Editor
+    // MARK: - Studio (DC-0112)
 
-    func openAnnotationEditor(angle: String, label: String, imageType: ImageType) {
-        guard let imagePath = effectiveImagePath(for: imageType),
-              let basePath = projectBasePath else { return }
-        let fullPath = basePath.appendingPathComponent(imagePath)
-        guard let image = NSImage(contentsOf: fullPath) else { return }
-        annotationEditorImage = image
-        annotationEditorAngle = angle
-        annotationEditorTitle = label
-        annotationEditorImageType = imageType
-        showingAnnotationEditor = true
+    func openStudio(angle: String, label: String, imageType: ImageType) {
+        guard effectiveImagePath(for: imageType) != nil, projectBasePath != nil else { return }
+        studioAngle = angle
+        studioTitle = label
+        studioImageType = imageType
+        showingStudio = true
     }
 
-    func generateAngleWithAnnotations(angle: String, annotations: [KeyframeAnnotation]) {
-        guard let imagePath = effectiveImagePath(for: annotationEditorImageType),
+    /// A Studio result replaces the picture in place — the file every
+    /// reader already points at.
+    func keepStudioResult(_ data: Data, angle: String, imageType: ImageType) {
+        guard let imagePath = effectiveImagePath(for: imageType),
               let basePath = projectBasePath else { return }
-        let fullPath = basePath.appendingPathComponent(imagePath)
-        guard let imageData = try? Data(contentsOf: fullPath) else { return }
-        // DC-0073: one description of the edit; the client composes the request.
-        let edit = AnnotationEdit(source: imageData, annotations: annotations, context: "character image", aspectRatio: "1:1")
-        generatingProgress[angle] = 0.0
-        Task {
-            do {
-                let newImageData = try await AIServiceClient.shared.editImage(edit)
-                _ = basePath.startAccessingSecurityScopedResource()
-                defer { basePath.stopAccessingSecurityScopedResource() }
-                try newImageData.write(to: fullPath)
-                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: fullPath)
-                await MainActor.run {
-                    imageRefreshIds[angle] = UUID()
-                    if angle == "base" {
-                        imageRefreshIds["base"] = UUID()
-                    }
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        generatingProgress.removeValue(forKey: angle)
-                    }
-                    discoveredImages = DiscoveredCharacterImages.discover(
-                        for: character.name,
-                        basePath: projectBasePath
-                    )
-                }
-            } catch {
-                await MainActor.run {
-                    generatingProgress.removeValue(forKey: angle)
-                }
-                debugLog("Character annotation edit failed: \(error.localizedDescription)")
-            }
+        do {
+            _ = basePath.startAccessingSecurityScopedResource()
+            defer { basePath.stopAccessingSecurityScopedResource() }
+            try data.write(to: basePath.appendingPathComponent(imagePath))
+            imageRefreshIds[angle] = UUID()
+            if angle == "base" { imageRefreshIds["base"] = UUID() }
+            discoveredImages = DiscoveredCharacterImages.discover(for: character.name, basePath: projectBasePath)
+        } catch {
+            debugLog("Character studio keep failed: \(error.localizedDescription)")
         }
     }
 

@@ -301,18 +301,27 @@ public struct VisionBoardCanvas: View {
             .sheet(isPresented: Binding(
                 get: { annotating != nil },
                 set: { if !$0 { annotating = nil } })) {
-                if let session = annotating {
-                    ImageAnnotationEditor(
-                        image: session.image,
-                        title: "EDIT THIS PICTURE",
-                        subtitle: "Drop a pin on what should change, and say how.",
-                        isPresented: Binding(
-                            get: { annotating != nil },
-                            set: { if !$0 { annotating = nil } }),
-                        onApplyEdits: { marks in
-                            applyMarks(marks, to: session.card,
-                                       image: session.image)
-                        })
+                if let session = annotating,
+                   let url = VisionBoardImagePath.resolveImageURL(session.card.imagePath,
+                                                                  projectBase: viewModel.projectBase) {
+                    // DC-0112: the Studio edits a scrap's picture in its own shape.
+                    ShotSketchStudio(
+                        characters: [], locations: [], props: [], shots: [],
+                        title: "This picture",
+                        keepLabel: "picture",
+                        targetSize: ShotSketchStudio.targetSize(matching: try? Data(contentsOf: url)),
+                        projectDirectory: viewModel.projectBase,
+                        seedPrompt: session.card.description,
+                        currentPreviewPath: url.path,
+                        documentURL: ShotSketchStudio.documentURL(
+                            projectDirectory: viewModel.projectBase,
+                            subject: "vision-\(session.card.id)"),
+                        onKeep: { data in
+                            let card = session.card
+                            annotating = nil
+                            Task { @MainActor in await viewModel.replacePicture(of: card.id, with: data) }
+                        },
+                        onSketchSaved: { _ in })
                 }
             }
             .overlay { dropOverlay }
@@ -564,27 +573,6 @@ public struct VisionBoardCanvas: View {
             }
             .ignoresSafeArea()
             .onExitCommand { promptFor = nil }
-        }
-    }
-
-    /// Marks become instructions, and the picture is redrawn from them
-    /// with the current image as the reference.
-    private func applyMarks(_ marks: [KeyframeAnnotation],
-                            to card: VisionCard, image: NSImage) {
-        annotating = nil
-        guard !marks.isEmpty else {
-            viewModel.lastWorkProblem = "Add a mark and say what to change there."
-            return
-        }
-        guard let tiff = image.tiffRepresentation,
-              let png = NSBitmapImageRep(data: tiff)?
-                  .representation(using: .png, properties: [:]) else {
-            viewModel.lastWorkProblem = "This picture couldn't be read for redrawing."
-            return
-        }
-        // DC-0073: the marks go with the picture — one edit path for every surface.
-        Task { @MainActor in
-            await viewModel.redraw(card.id, marks: marks, baseImage: png)
         }
     }
 

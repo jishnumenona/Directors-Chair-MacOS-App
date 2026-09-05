@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 //
 //  AsyncThumbnail.swift
 //  DirectorsChairCore
@@ -70,3 +71,4 @@ public struct AsyncThumbnail<Placeholder: View>: View {
         if !Task.isCancelled { image = loaded }
     }
 }
+#endif

@@ -14,21 +14,39 @@ struct ErrorAlert: Identifiable {
     let title: String
     let message: String
     let dismissButton: Alert.Button?
+    /// Two-choice alerts (DC-0116: "Update Now…" / "Not Now").
+    let primaryButton: Alert.Button?
+    let secondaryButton: Alert.Button?
 
     init(title: String, message: String, dismissButton: Alert.Button? = nil) {
         self.title = title
         self.message = message
         self.dismissButton = dismissButton
+        self.primaryButton = nil
+        self.secondaryButton = nil
+    }
+
+    init(title: String, message: String, primaryButton: Alert.Button, secondaryButton: Alert.Button) {
+        self.title = title
+        self.message = message
+        self.dismissButton = nil
+        self.primaryButton = primaryButton
+        self.secondaryButton = secondaryButton
     }
 
     init(error: Error, title: String = "Error") {
         self.title = title
         self.message = error.localizedDescription
         self.dismissButton = nil
+        self.primaryButton = nil
+        self.secondaryButton = nil
     }
 
     var alert: Alert {
-        if let dismissButton = dismissButton {
+        if let primaryButton, let secondaryButton {
+            return Alert(title: Text(title), message: Text(message),
+                         primaryButton: primaryButton, secondaryButton: secondaryButton)
+        } else if let dismissButton = dismissButton {
             return Alert(
                 title: Text(title),
                 message: Text(message),

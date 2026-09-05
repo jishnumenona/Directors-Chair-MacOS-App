@@ -325,6 +325,7 @@ extension StoryDesignView {
             PhysicalAppearanceTab(
                 character: character,
                 projectBasePath: projectBasePath,
+                project: project,
                 onGenerateImage: { angle, prompt, progressHandler in
                     onGenerateImage?(character.wrappedValue, angle, prompt, progressHandler)
                 },

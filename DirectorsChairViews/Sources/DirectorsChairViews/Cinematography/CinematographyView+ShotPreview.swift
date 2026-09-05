@@ -36,7 +36,8 @@ struct ShotPreviewSection: View {
     @State private var showingError = false
     @State private var showingPromptEditor = false
     @State private var showingFullSizePreview = false
-    @State private var showingAnnotationEditor = false
+    /// DC-0109: the hand-drawn composition sketch sheet.
+    @State private var showingSketchSheet = false
     @State private var editablePrompt: String = ""
     @State private var lastUsedPrompt: String = ""
     /// The prompt as parts with sources, for the sectioned editor.
@@ -149,6 +150,8 @@ struct ShotPreviewSection: View {
                                 startFromMenu
                             }
 
+                            sketchButton(compact: false)
+
                             Button(action: { uploadPreviewImage() }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "photo.badge.plus")
@@ -189,32 +192,8 @@ struct ShotPreviewSection: View {
                                 .help("View full size")
                                 .onHover { hoveredToolName = $0 ? "View full size" : nil }
 
-                                // Annotate & edit button
-                                Button(action: { showingAnnotationEditor = true }) {
-                                    Image(systemName: "pencil.and.outline")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.white)
-                                        .padding(8)
-                                        .background(Color.black.opacity(0.6))
-                                        .clipShape(Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .help("Annotate & edit image")
-                                .onHover { hoveredToolName = $0 ? "Annotate & edit" : nil }
-
-                                // Edit prompt button
-                                Button(action: { openPromptEditor() }) {
-                                    Image(systemName: "text.badge.plus")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.white)
-                                        .padding(8)
-                                        .background(Color.black.opacity(0.6))
-                                        .clipShape(Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .help("Edit prompt")
-                                .requiresTier(.creator, feature: "AI shot images")
-                                .onHover { hoveredToolName = $0 ? "Edit prompt" : nil }
+                                // DC-0111: annotating, prompt editing and
+                                // sketching are ONE tool now — the Studio.
 
                                 // Download button
                                 Button(action: { downloadPreviewImage() }) {
@@ -248,6 +227,8 @@ struct ShotPreviewSection: View {
                                     startFromMenu(compact: true)
                                         .onHover { hoveredToolName = $0 ? "Start from a picture" : nil }
                                 }
+                                sketchButton(compact: true)
+                                    .onHover { hoveredToolName = $0 ? "Studio — sketch, note, edit, generate" : nil }
                             }
 
                             // Regenerate button (shows spinner when generating)
@@ -452,24 +433,21 @@ struct ShotPreviewSection: View {
                 onDownload: { downloadPreviewImage() }
             )
         }
-        .sheet(isPresented: $showingAnnotationEditor) {
-            if let image = previewImage {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "EDIT SHOT PREVIEW",
-                    subtitle: "Shot \(shot.shotId) — \(shot.shotType) \(shot.cameraAngle)",
-                    characters: characters,
-                    locations: locations,
-                    props: props,
-                    shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } },
-                    projectDirectory: projectBasePath?.deletingLastPathComponent(),
-                    onOpenMention: onOpenMention,
-                    isPresented: $showingAnnotationEditor,
-                    onApplyEdits: { annotations in
-                        generatePreviewWithAnnotations(annotations)
-                    }
-                )
-            }
+        .sheet(isPresented: $showingSketchSheet) {
+            ShotSketchStudio(
+                characters: characters, locations: locations, props: props,
+                shots: allShots,
+                subjectLibraryId: "shot-\(shot.shotId)",
+                title: "Shot #\(shot.shotId) preview",
+                keepLabel: "shot preview",
+                targetSize: .projectPreview,
+                projectDirectory: projectBasePath?.deletingLastPathComponent(),
+                seedPrompt: sketchSeedPrompt(),
+                currentPreviewPath: shot.previewImage,
+                documentURL: sketchDocumentURL(),
+                onKeep: { data in keepStudioResult(data) },
+                onSketchSaved: { png in applySketch(png) },
+                onOpenElement: { kind, id in openStudioElement(kind: kind, id: id) })
         }
     }
 
@@ -694,6 +672,118 @@ struct ShotPreviewSection: View {
               let location = locations.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return nil }
         let path = location.primaryImage ?? location.images.first
         return (path?.isEmpty == false) ? path : nil
+    }
+
+    /// DC-0109: the sketch tool — full button in the empty state, a round
+    /// hover-toolbar button over an existing preview.
+    private func sketchButton(compact: Bool) -> some View {
+        Button { showingSketchSheet = true } label: {
+            if compact {
+                Image(systemName: "sparkles.rectangle.stack")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(Circle())
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .font(.system(size: 12))
+                    Text("Studio")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.orange.opacity(0.18))
+                .foregroundColor(.white)
+                .cornerRadius(8)
+            }
+        }
+        .buttonStyle(.plain)
+        .help("The Studio: sketch the shot, pin notes, place story elements, edit the prompt and generate — all in one place")
+        .accessibilityIdentifier(compact ? "preview-sketch-hover" : "preview-sketch")
+    }
+
+    /// The drawn sketch lands on disk and on the shot; generation picks it up.
+    private func applySketch(_ png: Data) {
+        guard let basePath = projectBasePath else { return }
+        do {
+            let shotDir = "assets/shots/shot_\(shot.shotId)"
+            try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                       filename: "sketch_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(png, projectBasePath: basePath, relativeDirectory: shotDir,
+                                                          filename: "sketch_latest.png")
+            var updated = shot
+            updated.sketchImage = relativePath
+            onShotUpdated?(updated)
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
+    }
+
+    /// DC-0110: a double-clicked library element opens its Story Design
+    /// page through the same route mentions use (⌘[ walks back).
+    private func openStudioElement(kind: String, id: String) {
+        let resolved: ResolvedMention?
+        switch kind {
+        case "character":
+            resolved = characters.first { $0.id == id }.map {
+                ResolvedMention(kind: .character, id: $0.id, name: $0.name,
+                                imagePath: $0.representativeImage, symbol: "person.fill", color: .blue)
+            }
+        case "location":
+            resolved = locations.first { $0.id == id }.map {
+                ResolvedMention(kind: .location, id: $0.id, name: $0.name,
+                                imagePath: $0.primaryImage, symbol: "mappin", color: .green)
+            }
+        case "prop":
+            resolved = props.first { $0.id == id }.map {
+                ResolvedMention(kind: .prop, id: $0.id, name: $0.name,
+                                imagePath: $0.thumbnail, symbol: "cube", color: .orange)
+            }
+        case "shot":
+            resolved = allShots.first { $0.id == id }.map {
+                ResolvedMention(kind: .shot, id: $0.id, name: "Shot #\($0.shotId)",
+                                imagePath: $0.previewImage, symbol: "film", color: .purple)
+            }
+        default:
+            resolved = nil
+        }
+        if let resolved { onOpenMention?(resolved) }
+    }
+
+    /// DC-0110: the studio's seed prompt — the shot's OWN words only,
+    /// never the scene bundle (the studio decides its references itself).
+    private func sketchSeedPrompt() -> String {
+        let parts = [shot.description, shot.cameraDescription]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? "Cinematic film still." : parts.joined(separator: ". ")
+    }
+
+    /// Where the studio's drawing/tags/prompt survive between openings.
+    private func sketchDocumentURL() -> URL? {
+        projectBasePath?.deletingLastPathComponent()
+            .appendingPathComponent("assets/shots/shot_\(shot.shotId)/sketch_studio.json")
+    }
+
+    /// A kept studio result becomes this shot's preview like any generation.
+    private func keepStudioResult(_ data: Data) {
+        guard let basePath = projectBasePath else { return }
+        do {
+            let shotDir = "assets/shots/shot_\(shot.shotId)"
+            try UploadedImage.writePNG(data, projectBasePath: basePath, relativeDirectory: shotDir,
+                                       filename: "preview_\(UploadedImage.historyTimestamp()).png")
+            let relativePath = try UploadedImage.writePNG(data, projectBasePath: basePath, relativeDirectory: shotDir,
+                                                          filename: "latest.png")
+            if let image = NSImage(data: data) { previewImage = image }
+            onPreviewGenerated(relativePath)
+            discoverPreviewImages()
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
     }
 
     /// Owner 2026-08-29: a shot's preview can start from a picture that already
@@ -1002,6 +1092,39 @@ struct ShotPreviewSection: View {
                 .accessibilityIdentifier("continuity-ref-\(other.shotId)")
             }
 
+            if let sketchPath = shot.sketchImage, let base = projectBasePath?.deletingLastPathComponent() {
+                HStack(spacing: 5) {
+                    Button { showingSketchSheet = true } label: {
+                        HStack(spacing: 5) {
+                            AsyncThumbnail(url: base.appendingPathComponent(sketchPath), displaySize: 28) {
+                                Color.white
+                            }
+                            .frame(width: 36, height: 20)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                            Text("Sketch")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        var updated = shot
+                        updated.sketchImage = nil
+                        onShotUpdated?(updated)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop using the sketch as this shot's composition guide")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.14)))
+                .help("Your sketch-studio plan — click to reopen the studio")
+                .accessibilityIdentifier("sketch-chip")
+            }
+
             Button {
                 showingContinuityPicker = true
             } label: {
@@ -1216,101 +1339,6 @@ struct ShotPreviewSection: View {
                     discoverPreviewImages()
                 }
 
-            } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingError = true
-                    isGenerating = false
-                }
-            }
-        }
-    }
-
-    // MARK: - Generate Preview With Annotations
-
-    private func generatePreviewWithAnnotations(_ annotations: [KeyframeAnnotation]) {
-        guard let currentImage = previewImage,
-              let tiffData = currentImage.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let source = bitmap.representation(using: .png, properties: [:]) else { return }
-        // Never nest an edit inside an edit (owner report 2026-08-29).
-        let basePrompt = PromptSections.baseForEdit(lastUsed: lastUsedPrompt, built: buildPrompt())
-        // The scene's pictures ride behind the preview for likeness (cloud);
-        // the on-device repaint takes the preview alone.
-        // Owner 2026-08-29: an edit carries the picture and the pictures of what
-        // the instructions mention — not the scene's whole reference bundle,
-        // which made the model start the picture over.
-        var context: [ReferenceImage] = []
-        // DC-0102: the pictures of everything the instructions mention ride
-        // along (cloud edits; on-device repaints take the source alone).
-        if let projDir = projectBasePath?.deletingLastPathComponent() {
-            let mentioned = MentionParser.mentions(in: annotations.map(\.text).joined(separator: "\n"),
-                                                   characters: characters, locations: locations, props: props,
-                                                   shots: shot.referenceShotIds.compactMap { id in allShots.first { $0.id == id } })
-            for mention in mentioned {
-                guard let path = mention.imagePath, !path.isEmpty,
-                      let data = try? Data(contentsOf: projDir.appendingPathComponent(path)) else { continue }
-                let kind: String
-                switch mention.kind {
-                case .character: kind = "character"
-                case .location: kind = "location"
-                case .prop: kind = "prop"
-                case .shot: kind = "shot"
-                }
-                let label = "\(kind):\(mention.name)"
-                if !context.contains(where: { $0.label == label }) {
-                    context.append(ReferenceImage(base64: data.base64EncodedString(), mimeType: "image/png", label: label))
-                }
-            }
-        }
-        // DC-0073: one description of the edit; the client composes the request.
-        let edit = AnnotationEdit(source: source, annotations: annotations, context: "shot preview",
-                                  originalPrompt: basePrompt, contextPictures: context, aspectRatio: "16:9",
-                                  targetSize: .projectPreview)
-        let combinedPrompt = AnnotationEditComposer.prompt(for: edit)
-
-        isGenerating = true
-        errorMessage = nil
-
-        Task {
-            do {
-                let imageData = try await AIServiceClient.shared.editImage(edit)
-                guard let basePath = projectBasePath else {
-                    throw AIClientError.invalidResponse("No project path")
-                }
-                let projectDir = basePath.deletingLastPathComponent()
-                let shotDir = projectDir
-                    .appendingPathComponent("assets")
-                    .appendingPathComponent("shots")
-                    .appendingPathComponent("shot_\(shot.shotId)")
-                if !FileManager.default.fileExists(atPath: shotDir.path) {
-                    try FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
-                }
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
-                let timestamp = dateFormatter.string(from: Date())
-                let imageFilename = "preview_\(timestamp).png"
-                let imagePath = shotDir.appendingPathComponent(imageFilename)
-                try imageData.write(to: imagePath)
-                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: imagePath)
-                // Save the edit prompt
-                let promptPath = shotDir.appendingPathComponent("prompt.txt")
-                try combinedPrompt.write(to: promptPath, atomically: true, encoding: .utf8)
-                let latestPath = shotDir.appendingPathComponent("latest.png")
-                if FileManager.default.fileExists(atPath: latestPath.path) {
-                    try FileManager.default.removeItem(at: latestPath)
-                }
-                try imageData.write(to: latestPath)
-                let relativePath = "assets/shots/shot_\(shot.shotId)/latest.png"
-                await MainActor.run {
-                    if let image = NSImage(data: imageData) {
-                        previewImage = image
-                    }
-                    lastUsedPrompt = combinedPrompt
-                    onPreviewGenerated(relativePath)
-                    isGenerating = false
-                    discoverPreviewImages()
-                }
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription

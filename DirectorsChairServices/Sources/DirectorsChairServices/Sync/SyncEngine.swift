@@ -10,6 +10,18 @@
 import Foundation
 
 @MainActor
+/// A file changed between being hashed and being read for upload.
+public enum SyncIntegrityError: LocalizedError, Equatable {
+    case fileChangedDuringSync(path: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .fileChangedDuringSync(let path):
+            return "\(path) changed while syncing — wait for generation to finish, then sync again."
+        }
+    }
+}
+
 public final class SyncEngine: ObservableObject {
 
     public struct Conflict: Equatable, Sendable {
@@ -171,6 +183,9 @@ public final class SyncEngine: ObservableObject {
     /// Why the last overview push failed, if it did (sync itself stays
     /// green — the projection is best-effort).
     public private(set) var lastOverviewPushProblem: String?
+    /// Asset paths a pull could not verify (the cloud object did not match
+    /// its hash) and therefore skipped — DC-0114. Empty after a clean pull.
+    @Published public private(set) var lastPullProblems: [String] = []
 
     /// True when the last push replaced project.json on disk (a merge took
     /// the other device's document) — the caller must reload the editor
@@ -282,8 +297,21 @@ public final class SyncEngine: ObservableObject {
             uploaded += 1
             state = .syncing("Uploading \(uploaded)/\(toUpload.count)…")
             progress = Double(sentBytes) / Double(totalBytes)
-            let data = try dataFor(sha256: ref.sha256, manifest: manifest,
+            var data = try dataFor(sha256: ref.sha256, manifest: manifest,
                                    projectDir: projectDir)
+            if SyncHashing.sha256Hex(data) != ref.sha256 {
+                // The file changed between hashing and reading (a generation
+                // finished mid-sync). Storing these bytes under the old sha
+                // would poison every later download (DC-0114: three such
+                // objects were found in a cloud project on 2026-09-04).
+                // Read once more; if it still disagrees, stop with a clear
+                // message — the next push rebuilds the manifest from disk.
+                data = try dataFor(sha256: ref.sha256, manifest: manifest, projectDir: projectDir)
+                guard SyncHashing.sha256Hex(data) == ref.sha256 else {
+                    throw SyncIntegrityError.fileChangedDuringSync(
+                        path: manifest.assets.first { $0.sha256 == ref.sha256 }?.path ?? "project.json")
+                }
+            }
             try await client.uploadBlob(projectID: projectID, sha256: ref.sha256,
                                         data: data)
             sentBytes += ref.size
@@ -483,12 +511,20 @@ public final class SyncEngine: ObservableObject {
                 progress = Double(gotBytes) / Double(totalBytes)
             }
             var fetched = 0
+            lastPullProblems = []
             for asset in changedAssets {
                 fetched += 1
                 state = .syncing("Downloading assets (\(fetched)/\(changedAssets.count))…")
-                let data = try await client.downloadBlob(projectID: syncState.projectID,
-                                                         sha256: asset.sha256)
-                try write(data: data, relativePath: asset.path, projectDir: projectDir)
+                do {
+                    let data = try await client.downloadBlob(projectID: syncState.projectID,
+                                                             sha256: asset.sha256)
+                    try write(data: data, relativePath: asset.path, projectDir: projectDir)
+                } catch SyncAPIError.transport(let text) where text.contains("hash mismatch") {
+                    // The stored object is not what the manifest promised
+                    // (DC-0114). One damaged history file must not stop the
+                    // whole project from arriving — skip it, say so.
+                    lastPullProblems.append(asset.path)
+                }
                 gotBytes += asset.size
                 progress = Double(gotBytes) / Double(totalBytes)
             }

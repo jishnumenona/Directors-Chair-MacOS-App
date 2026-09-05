@@ -121,45 +121,24 @@ extension CostumeTab {
         }
     }
 
-    func openCostumeAnnotationEditor(angleKey: String, label: String, imagePath: String) {
-        guard let basePath = projectBasePath else { return }
-        let fullPath = basePath.appendingPathComponent(imagePath)
-        guard let image = NSImage(contentsOf: fullPath) else { return }
-        annotationEditorImage = image
-        annotationEditorAngle = angleKey
-        annotationEditorTitle = label
-        showingAnnotationEditor = true
+    func openCostumeStudio(angleKey: String, label: String, imagePath: String) {
+        guard projectBasePath != nil else { return }
+        studioAngle = angleKey
+        studioTitle = label
+        showingStudio = true
     }
 
-    func generateCostumeAngleWithAnnotations(angle: String, annotations: [KeyframeAnnotation]) {
-        guard let imagePath = costumeImagePath(for: angle),
-              let basePath = projectBasePath else { return }
-        let fullPath = basePath.appendingPathComponent(imagePath)
-        guard let imageData = try? Data(contentsOf: fullPath) else { return }
-        // DC-0073: one description of the edit; the client composes the request.
-        let edit = AnnotationEdit(source: imageData, annotations: annotations, context: "costume image", aspectRatio: "1:1")
-        let progressKey = "costume_\(angle)"
-        generatingProgress[progressKey] = 0.0
-        Task {
-            do {
-                let newImageData = try await AIServiceClient.shared.editImage(edit)
-                _ = basePath.startAccessingSecurityScopedResource()
-                defer { basePath.stopAccessingSecurityScopedResource() }
-                try newImageData.write(to: fullPath)
-                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: fullPath)
-                await MainActor.run {
-                    imageRefreshIds[angle] = UUID()
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        generatingProgress.removeValue(forKey: progressKey)
-                    }
-                    refreshDiscoveredImages()
-                }
-            } catch {
-                await MainActor.run {
-                    generatingProgress.removeValue(forKey: progressKey)
-                }
-                debugLog("Costume annotation edit failed: \(error.localizedDescription)")
-            }
+    /// A Studio result replaces the angle's picture in place.
+    func keepStudioResult(_ data: Data, angle: String) {
+        guard let imagePath = costumeImagePath(for: angle), let basePath = projectBasePath else { return }
+        do {
+            _ = basePath.startAccessingSecurityScopedResource()
+            defer { basePath.stopAccessingSecurityScopedResource() }
+            try data.write(to: basePath.appendingPathComponent(imagePath))
+            imageRefreshIds[angle] = UUID()
+            refreshDiscoveredImages()
+        } catch {
+            debugLog("Costume studio keep failed: \(error.localizedDescription)")
         }
     }
 }

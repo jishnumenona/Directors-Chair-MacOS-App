@@ -37,7 +37,7 @@ final class WireContractTests: XCTestCase {
         let json = String(decoding: try encoder.encode(canonicalProject()), as: UTF8.self)
         // Identity + version present, snake_case, device-local path absent.
         XCTAssertTrue(json.contains("\"uuid\" : \"00000000-0000-0000-0000-000000000001\""))
-        XCTAssertTrue(json.contains("\"schema_version\" : 1"))
+        XCTAssertTrue(json.contains("\"schema_version\" : \(Project.currentSchemaVersion)"))
         XCTAssertTrue(json.contains("\"production_company\""))
         XCTAssertFalse(json.contains("\"base_path\""), "base_path is device-local, not part of the wire format")
     }

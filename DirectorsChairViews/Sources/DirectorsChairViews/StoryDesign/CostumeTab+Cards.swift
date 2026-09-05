@@ -113,7 +113,7 @@ extension CostumeTab {
                         showingFullScreenImage = true
                     }
                     CostumeGalleryButton(label: "Edit", icon: "pencil.and.outline", color: .orange) {
-                        openCostumeAnnotationEditor(angleKey: "front", label: "Front", imagePath: imagePath)
+                        openCostumeStudio(angleKey: "front", label: "Front", imagePath: imagePath)
                     }
                     CostumeGalleryButton(label: "Download", icon: "arrow.down.circle", color: .green) {
                         downloadImage(from: fullPath, suggestedName: "\(character.name)_\(costume.wrappedValue.name)_front.png")
@@ -740,7 +740,7 @@ extension CostumeTab {
                 generateCostumeImage(costume: costume, angle: angleKey, angleDescription: anglePrompt)
             },
             onEditAnnotate: imagePath != nil ? {
-                openCostumeAnnotationEditor(angleKey: angleKey, label: label, imagePath: imagePath!)
+                openCostumeStudio(angleKey: angleKey, label: label, imagePath: imagePath!)
             } : nil
         )
     }

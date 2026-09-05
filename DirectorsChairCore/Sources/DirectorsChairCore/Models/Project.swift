@@ -19,8 +19,20 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     /// `ProjectPersistence.load` refuses to open a file whose major version is
     /// newer than the app supports, so an older build can never silently strip
     /// fields it doesn't understand and rewrite a lossy file.
-    public static let currentSchemaVersion: Int = 1
+    ///
+    /// History — bump this whenever a release adds fields an older build
+    /// would drop on save (DC-0116):
+    ///   1  2026-07 — first versioned files
+    ///   2  2026-09 — shot sketches and studio state (sketch_image), the
+    ///                saved-by stamps, pictures kept from the iPad
+    public static let currentSchemaVersion: Int = 2
     public var schemaVersion: Int = Project.currentSchemaVersion
+    /// Which app wrote the file last (DC-0116) — persisted so an older build
+    /// can name the version the user needs: "saved by Director's Chair 3.12.0
+    /// on macOS". Stamped by ProjectPersistence.save.
+    public var savedByAppVersion: String? = nil
+    public var savedByPlatform: String? = nil
+    public var savedAt: String? = nil
 
     // MARK: - Core Identity
     public var name: String
@@ -246,6 +258,9 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case uuid
         case schemaVersion = "schema_version"
+        case savedByAppVersion = "saved_by_app_version"
+        case savedByPlatform = "saved_by_platform"
+        case savedAt = "saved_at"
         case name
         // base_path intentionally omitted — device-local, populated at load.
         case description
@@ -314,6 +329,9 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
 
         // Format version — absent in legacy (pre-versioning) files, which are v1.
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        savedByAppVersion = try container.decodeIfPresent(String.self, forKey: .savedByAppVersion)
+        savedByPlatform = try container.decodeIfPresent(String.self, forKey: .savedByPlatform)
+        savedAt = try container.decodeIfPresent(String.self, forKey: .savedAt)
 
         // Core identity (required)
         name = try container.decode(String.self, forKey: .name)

@@ -36,9 +36,33 @@ public actor ProjectPersistence {
 
     // MARK: - Initialization
 
-    public init(maxBackups: Int = 5, enableBackups: Bool = true) {
+    /// Stamped into every saved file (DC-0116) so an older build can name
+    /// the version a project needs.
+    private let appVersion: String?
+    private let platform: String
+
+    public init(maxBackups: Int = 5, enableBackups: Bool = true,
+                appVersion: String? = ProjectPersistence.defaultAppVersion,
+                platform: String = ProjectPersistence.defaultPlatform) {
         self.maxBackups = maxBackups
         self.enableBackups = enableBackups
+        self.appVersion = appVersion
+        self.platform = platform
+    }
+
+    /// The running app's marketing version, when there is a bundle.
+    public static var defaultAppVersion: String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    public static var defaultPlatform: String {
+        #if os(macOS)
+        return "macOS"
+        #elseif os(iOS)
+        return "iPadOS"
+        #else
+        return "unknown"
+        #endif
     }
 
     // MARK: - Load Operations
@@ -73,7 +97,9 @@ public actor ProjectPersistence {
         guard decoded.schemaVersion <= Project.currentSchemaVersion else {
             throw ProjectError.unsupportedSchemaVersion(
                 found: decoded.schemaVersion,
-                supported: Project.currentSchemaVersion
+                supported: Project.currentSchemaVersion,
+                savedBy: decoded.savedByAppVersion.map { v in
+                    decoded.savedByPlatform.map { "\(v) on \($0)" } ?? v }
             )
         }
 
@@ -116,8 +142,15 @@ public actor ProjectPersistence {
         }
 
         do {
+            // The file carries the CURRENT format and who wrote it — a
+            // legacy v1 document becomes v2 on its first save here.
+            var stamped = project
+            stamped.schemaVersion = Project.currentSchemaVersion
+            stamped.savedByAppVersion = appVersion
+            stamped.savedByPlatform = platform
+            stamped.savedAt = ISO8601DateFormatter().string(from: Date())
             // Encode project to JSON
-            let data = try encoder.encode(project)
+            let data = try encoder.encode(stamped)
 
             // Perform atomic write using temporary file
             try await atomicWrite(data: data, to: url)

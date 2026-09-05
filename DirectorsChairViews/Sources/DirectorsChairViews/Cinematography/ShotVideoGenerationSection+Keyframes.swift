@@ -27,7 +27,12 @@ struct KeyframeGallery: View {
     let onGenerateKeyframe: (String) -> Void
     let onRemoveKeyframe: (String) -> Void
     let onAddKeyframe: () -> Void
-    let onAnnotationsApplied: (String, [KeyframeAnnotation]) -> Void
+    /// DC-0112: a Studio result replaced the keyframe's picture (id, project-relative path).
+    let onPictureReplaced: (String, String) -> Void
+    /// The Studio's library.
+    var characters: [Character] = []
+    var locations: [Location] = []
+    var targetSize: ImageTargetSize = .projectPreview
     /// View/edit a keyframe's generation prompt without generating.
     var onEditKeyframePrompt: ((String) -> Void)? = nil
 
@@ -117,18 +122,32 @@ struct KeyframeGallery: View {
         )) {
             if let kfId = annotatingKeyframeId,
                let kfIndex = keyframes.firstIndex(where: { $0.id == kfId }) {
-                KeyframeAnnotationOverlay(
-                    keyframe: $keyframes[kfIndex],
-                    projectBasePath: projectBasePath,
-                    shotId: shot.shotId,
-                    isPresented: Binding(
-                        get: { annotatingKeyframeId != nil },
-                        set: { if !$0 { annotatingKeyframeId = nil } }
-                    ),
-                    onApplyEdits: { annotations in
-                        onAnnotationsApplied(kfId, annotations)
-                    }
-                )
+                let kf = keyframes[kfIndex]
+                ShotSketchStudio(
+                    characters: characters, locations: locations, props: [], shots: [],
+                    subjectLibraryId: "shot-\(shot.shotId)",
+                    title: "Shot #\(shot.shotId) keyframe — \(kf.label.isEmpty ? String(format: "%.1fs", kf.position * duration) : kf.label)",
+                    keepLabel: "keyframe",
+                    targetSize: targetSize,
+                    projectDirectory: projectBasePath,
+                    seedPrompt: "",
+                    currentPreviewPath: kf.imagePath,
+                    documentURL: ShotSketchStudio.documentURL(
+                        projectDirectory: projectBasePath,
+                        subject: "shot-\(shot.shotId)-keyframe-\(kfId.prefix(8))"),
+                    onKeep: { data in
+                        guard let basePath = projectBasePath else { return }
+                        let dir = basePath.appendingPathComponent("assets/shots/shot_\(shot.shotId)/keyframes")
+                        let filename = "keyframe_\(kfId.prefix(8))_studio_\(Int(Date().timeIntervalSince1970)).png"
+                        do {
+                            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                            try data.write(to: dir.appendingPathComponent(filename))
+                            onPictureReplaced(kfId, "assets/shots/shot_\(shot.shotId)/keyframes/\(filename)")
+                        } catch {
+                            debugLog("Keyframe studio keep failed: \(error.localizedDescription)")
+                        }
+                    },
+                    onSketchSaved: { _ in })
             }
         }
     }
@@ -597,48 +616,5 @@ struct KeyframePreviewSheet: View {
         }
         .frame(width: sheetSize.width, height: sheetSize.height)
         .background(Color(hex: "#252525"))
-    }
-}
-
-// MARK: - Keyframe Annotation Overlay
-
-struct KeyframeAnnotationOverlay: View {
-    @Binding var keyframe: VideoKeyframe
-    let projectBasePath: URL?
-    let shotId: Int
-    @Binding var isPresented: Bool
-    let onApplyEdits: ([KeyframeAnnotation]) -> Void
-
-    private var loadedImage: NSImage? {
-        guard let imagePath = keyframe.imagePath,
-              let basePath = projectBasePath else { return nil }
-        return NSImage(contentsOf: basePath.appendingPathComponent(imagePath))
-    }
-
-    var body: some View {
-        if let image = loadedImage {
-            ImageAnnotationEditor(
-                image: image,
-                title: "EDIT KEYFRAME",
-                subtitle: keyframe.label.isEmpty ? String(format: "%.1fs", keyframe.position) : keyframe.label,
-                initialAnnotations: keyframe.annotations ?? [],
-                isPresented: $isPresented,
-                onApplyEdits: { annotations in
-                    keyframe.annotations = annotations
-                    onApplyEdits(annotations)
-                }
-            )
-        } else {
-            VStack(spacing: 8) {
-                Image(systemName: "photo")
-                    .font(.system(size: 32))
-                    .foregroundColor(.gray.opacity(0.4))
-                Text("No keyframe image")
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray.opacity(0.5))
-            }
-            .frame(width: 900, height: 600)
-            .background(Color(hex: "#252525"))
-        }
     }
 }

@@ -29,11 +29,10 @@ public struct CostumeTab: View {
     @State var isGeneratingFromReferences = false
     @State var referenceGenProgress: Double = 0
     @State var referenceImageRefreshIds: [String: UUID] = [:]
-    // Annotation editor state
-    @State var showingAnnotationEditor = false
-    @State var annotationEditorImage: NSImage?
-    @State var annotationEditorAngle: String = ""
-    @State var annotationEditorTitle: String = ""
+    // DC-0112: the Studio replaces the annotation editor.
+    @State var showingStudio = false
+    @State var studioAngle: String = ""
+    @State var studioTitle: String = ""
     // Set as base image state
     @State var showingSetAsBaseConfirmation = false
     @State var pendingBaseImagePath: String?
@@ -148,18 +147,22 @@ public struct CostumeTab: View {
                 }
             )
         }
-        .sheet(isPresented: $showingAnnotationEditor) {
-            if let image = annotationEditorImage {
-                ImageAnnotationEditor(
-                    image: image,
-                    title: "EDIT COSTUME — \(annotationEditorTitle.uppercased())",
-                    subtitle: character.name,
-                    isPresented: $showingAnnotationEditor,
-                    onApplyEdits: { annotations in
-                        generateCostumeAngleWithAnnotations(angle: annotationEditorAngle, annotations: annotations)
-                    }
-                )
-            }
+        .sheet(isPresented: $showingStudio) {
+            ShotSketchStudio(
+                characters: project.characters, locations: project.locations,
+                props: project.props, shots: project.studioShots,
+                subjectLibraryId: "costume-\(character.name)-\(selectedCostume?.name ?? "")",
+                title: "\(character.name) — \(selectedCostume?.name ?? "costume") — \(studioTitle)",
+                keepLabel: "costume picture",
+                targetSize: ImageTargetSize(width: 1024, height: 1024),
+                projectDirectory: projectBasePath,
+                seedPrompt: "",
+                currentPreviewPath: costumeImagePath(for: studioAngle),
+                documentURL: ShotSketchStudio.documentURL(
+                    projectDirectory: projectBasePath,
+                    subject: "costume-\(character.name)-\(selectedCostume?.name ?? "")-\(studioAngle)"),
+                onKeep: { data in keepStudioResult(data, angle: studioAngle) },
+                onSketchSaved: { _ in })
         }
         .alert("Replace Base Image?", isPresented: $showingSetAsBaseConfirmation) {
             Button("Replace", role: .destructive) {

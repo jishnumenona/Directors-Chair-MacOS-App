@@ -48,10 +48,10 @@ public struct LocationDetailView: View {
     @State var showingRenamePopover = false
     @State var renameDraft = ""
 
-    @State var showingAnnotationEditor = false
-    @State var annotationEditorImage: NSImage?
-    @State var annotationEditorVariation: String = ""
-    @State var annotationEditorTitle: String = ""
+    // DC-0112: the Studio replaces the annotation editor.
+    @State var showingStudio = false
+    @State var studioVariation: String = ""
+    @State var studioTitle: String = ""
 
     public init(
         location: Binding<Location>,

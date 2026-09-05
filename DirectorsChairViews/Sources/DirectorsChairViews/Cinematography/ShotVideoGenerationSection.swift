@@ -261,14 +261,20 @@ struct ShotVideoGenerationSection: View {
                                 keyframes.removeAll { $0.id == kfId }
                             },
                             onAddKeyframe: addIntermediateKeyframe,
-                            onAnnotationsApplied: { kfId, annotations in
-                                // Set annotations and trigger regeneration with edit prompt
+                            onPictureReplaced: { kfId, relativePath in
+                                // DC-0112: the Studio made the picture; record it on the shot.
                                 if let idx = keyframes.firstIndex(where: { $0.id == kfId }) {
-                                    keyframes[idx].annotations = annotations
+                                    keyframes[idx].imagePath = relativePath
+                                    keyframes[idx].annotations = nil
                                 }
-                                activeKeyframeId = kfId
-                                generateKeyframeWithAnnotations(keyframeId: kfId, annotations: annotations)
+                                var updated = shot
+                                updated.videoKeyframes = keyframes
+                                onShotUpdated(updated)
                             },
+                            characters: characters,
+                            locations: locations,
+                            targetSize: aspectRatio == "9:16"
+                                ? ImageTargetSize(width: 1080, height: 1920) : .projectPreview,
                             onEditKeyframePrompt: { kfId in
                                 activeKeyframeId = kfId
                                 keyframePrompt = buildKeyframePrompt(for: kfId)
@@ -650,50 +656,6 @@ struct ShotVideoGenerationSection: View {
                 await MainActor.run {
                     isGeneratingKeyframe = false
                     errorMessage = "Keyframe generation failed: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    // MARK: - Annotation-Enhanced Regeneration
-
-    private func generateKeyframeWithAnnotations(keyframeId: String, annotations: [KeyframeAnnotation]) {
-        guard let kfIndex = keyframes.firstIndex(where: { $0.id == keyframeId }) else { return }
-        let kf = keyframes[kfIndex]
-        guard let imagePath = kf.imagePath, let basePath = projectBasePath,
-              let source = try? Data(contentsOf: basePath.appendingPathComponent(imagePath)) else {
-            errorMessage = "There is no keyframe picture to edit — generate one first, then mark it up."
-            return
-        }
-        isGeneratingKeyframe = true
-        // DC-0073: one description of the edit; the client composes the request.
-        let edit = AnnotationEdit(source: source, annotations: annotations, context: "keyframe",
-                                  aspectRatio: aspectRatio)
-        Task {
-            do {
-                let imageData = try await AIServiceClient.shared.editImage(edit)
-                let dir = basePath.appendingPathComponent("assets/shots/shot_\(shot.shotId)/keyframes")
-                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                let filename = "keyframe_\(keyframeId.prefix(8))_edited_\(Int(Date().timeIntervalSince1970)).png"
-                let filePath = dir.appendingPathComponent(filename)
-                try imageData.write(to: filePath)
-                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: filePath)
-                let relativePath = "assets/shots/shot_\(shot.shotId)/keyframes/\(filename)"
-                await MainActor.run {
-                    if let idx = keyframes.firstIndex(where: { $0.id == keyframeId }) {
-                        keyframes[idx].imagePath = relativePath
-                        keyframes[idx].annotations = nil  // Clear annotations after apply
-                    }
-                    isGeneratingKeyframe = false
-                    activeKeyframeId = nil
-                    var updated = shot
-                    updated.videoKeyframes = keyframes
-                    onShotUpdated(updated)
-                }
-            } catch {
-                await MainActor.run {
-                    isGeneratingKeyframe = false
-                    errorMessage = "Annotation edit failed: \(error.localizedDescription)"
                 }
             }
         }

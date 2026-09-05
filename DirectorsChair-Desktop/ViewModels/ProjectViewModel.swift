@@ -444,6 +444,20 @@ class ProjectViewModel: ObservableObject {
                     message: "This project is in a read-only location. Changes cannot be auto-saved. Use 'Save As' to save to a writable location."
                 )
             }
+        } catch let ProjectError.unsupportedSchemaVersion(found, supported, savedBy) {
+            // DC-0116: say which version wrote it, which this Mac is, and
+            // offer the update right there.
+            let mine = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "this version"
+            let name = path.deletingLastPathComponent().lastPathComponent
+            let writer = savedBy.map { "Director's Chair \($0)" } ?? "a newer version of Director's Chair"
+            errorAlert = ErrorAlert(
+                title: "Update Director's Chair to open “\(name)”",
+                message: "“\(name)” was saved by \(writer) and uses project format v\(found). "
+                    + "This Mac has Director's Chair \(mine), which reads up to format v\(supported) and would lose newer details if it opened the project. "
+                    + "Update to the latest version, then open it again — the project itself is fine.",
+                primaryButton: .default(Text("Update Now…")) { UpdaterViewModel.shared?.checkForUpdates() },
+                secondaryButton: .cancel(Text("Not Now")))
+            throw ProjectError.unsupportedSchemaVersion(found: found, supported: supported, savedBy: savedBy)
         } catch {
             errorAlert = ErrorAlert(
                 error: error,

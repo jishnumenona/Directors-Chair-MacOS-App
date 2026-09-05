@@ -93,7 +93,7 @@ extension LocationDetailView {
             },
             onEditGenerate: {
                 if effectiveImagePath(for: variation) != nil {
-                    openAnnotationEditor(variation: variation, label: label)
+                    openStudio(variation: variation, label: label)
                 } else {
                     openPromptEditor(variation: variation, defaultPrompt: buildVariationPrompt(override: override))
                 }
@@ -137,52 +137,35 @@ extension LocationDetailView {
         showingPromptEditor = true
     }
 
-    func openAnnotationEditor(variation: String, label: String) {
-        guard let imagePath = effectiveImagePath(for: variation),
-              let basePath = projectBasePath else { return }
-        let fullPath = basePath.appendingPathComponent(imagePath)
-        guard let image = NSImage(contentsOf: fullPath) else { return }
-        annotationEditorImage = image
-        annotationEditorVariation = variation
-        annotationEditorTitle = label
-        showingAnnotationEditor = true
+    func openStudio(variation: String, label: String) {
+        guard effectiveImagePath(for: variation) != nil, projectBasePath != nil else { return }
+        studioVariation = variation
+        studioTitle = label
+        showingStudio = true
     }
 
-    func generateVariationWithAnnotations(variation: String, annotations: [KeyframeAnnotation]) {
-        // DC-0073: the marked picture itself is edited through the one edit
-        // path (the primary plate used to be sent, with a fresh-render brief).
-        guard generatingProgress[variation] == nil,
-              let imagePath = effectiveImagePath(for: variation), let basePath = projectBasePath,
-              let source = try? Data(contentsOf: basePath.appendingPathComponent(imagePath)) else { return }
-        let fullPath = basePath.appendingPathComponent(imagePath)
-        let basePrompt = buildVariationPrompt(override: variationDefaultOverride(variation))
-        let edit = AnnotationEdit(source: source, annotations: annotations,
-                                  context: "location \(variation) image", originalPrompt: basePrompt,
-                                  targetSize: .projectPreview)   // DC-0090
-        generatingProgress[variation] = 0.0
-        Task {
-            do {
-                let newImageData = try await AIServiceClient.shared.editImage(edit)
-                _ = basePath.startAccessingSecurityScopedResource()
-                defer { basePath.stopAccessingSecurityScopedResource() }
-                try newImageData.write(to: fullPath)
-                AnnotationEditRecord(edit: edit, provider: AIProviderSelection.shared.provider(for: .image)).write(besides: fullPath)
-                await MainActor.run {
-                    imageRefreshIds[variation] = UUID()
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        generatingProgress.removeValue(forKey: variation)
-                    }
-                    discoveredImages = DiscoveredLocationImages.discover(
-                        for: location.name,
-                        basePath: projectBasePath
-                    )
-                }
-            } catch {
-                await MainActor.run {
-                    generatingProgress.removeValue(forKey: variation)
-                }
-                debugLog("Location annotation edit failed: \(error.localizedDescription)")
+    /// A Studio result replaces the variation's picture in place (the file
+    /// every reader already points at) — or becomes it, if there was none.
+    func keepStudioResult(_ data: Data, variation: String) {
+        guard let basePath = projectBasePath else { return }
+        do {
+            _ = basePath.startAccessingSecurityScopedResource()
+            defer { basePath.stopAccessingSecurityScopedResource() }
+            if let imagePath = effectiveImagePath(for: variation) {
+                try data.write(to: basePath.appendingPathComponent(imagePath))
+            } else {
+                let sanitizedName = DiscoveredLocationImages.sanitizeName(location.name)
+                let relativePath = try UploadedImage.writePNG(
+                    data, projectBasePath: basePath,
+                    relativeDirectory: "assets/locations/\(sanitizedName)",
+                    filename: "\(variation).png")
+                if variation == "primary" { location.primaryImage = relativePath }
+                if !location.images.contains(relativePath) { location.images.append(relativePath) }
             }
+            imageRefreshIds[variation] = UUID()
+            discoveredImages = DiscoveredLocationImages.discover(for: location.name, basePath: projectBasePath)
+        } catch {
+            debugLog("Location studio keep failed: \(error.localizedDescription)")
         }
     }
 

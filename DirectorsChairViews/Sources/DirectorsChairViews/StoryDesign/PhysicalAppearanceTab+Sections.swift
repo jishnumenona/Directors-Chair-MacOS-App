@@ -432,9 +432,9 @@ extension PhysicalAppearanceTab {
                                     .help("View full size")
 
                                     Button(action: {
-                                        openAnnotationEditor(angle: "base", label: "Base Image", imageType: .base)
+                                        openStudio(angle: "base", label: "Base Image", imageType: .base)
                                     }) {
-                                        Image(systemName: "pencil.and.outline")
+                                        Image(systemName: "sparkles.rectangle.stack")
                                             .font(.system(size: 11, weight: .medium))
                                             .foregroundColor(.white)
                                             .padding(8)
@@ -442,7 +442,7 @@ extension PhysicalAppearanceTab {
                                             .clipShape(Circle())
                                     }
                                     .buttonStyle(.plain)
-                                    .help("Annotate & edit image")
+                                    .help("Studio — sketch, note, edit, generate")
                                     .requiresTier(.creator, feature: "AI character images")
 
                                     Button(action: {
@@ -657,7 +657,7 @@ extension PhysicalAppearanceTab {
                         generateAngleImage(angle: "front", prompt: buildAnglePrompt(angle: "front facing view, looking directly at camera"))
                     },
                     onEditAnnotate: {
-                        openAnnotationEditor(angle: "front", label: "Front", imageType: .front)
+                        openStudio(angle: "front", label: "Front", imageType: .front)
                     },
                     onUpload: {
                         uploadAngleImage(angle: "front", label: "Front")
@@ -682,7 +682,7 @@ extension PhysicalAppearanceTab {
                         generateAngleImage(angle: "three_quarter_left", prompt: buildAnglePrompt(angle: "three-quarter view from the left side, head turned slightly left"))
                     },
                     onEditAnnotate: {
-                        openAnnotationEditor(angle: "three_quarter_left", label: "3/4 Left", imageType: .threeQuarterLeft)
+                        openStudio(angle: "three_quarter_left", label: "3/4 Left", imageType: .threeQuarterLeft)
                     },
                     onUpload: {
                         uploadAngleImage(angle: "three_quarter_left", label: "3/4 Left")
@@ -707,7 +707,7 @@ extension PhysicalAppearanceTab {
                         generateAngleImage(angle: "three_quarter_right", prompt: buildAnglePrompt(angle: "three-quarter view from the right side, head turned slightly right"))
                     },
                     onEditAnnotate: {
-                        openAnnotationEditor(angle: "three_quarter_right", label: "3/4 Right", imageType: .threeQuarterRight)
+                        openStudio(angle: "three_quarter_right", label: "3/4 Right", imageType: .threeQuarterRight)
                     },
                     onUpload: {
                         uploadAngleImage(angle: "three_quarter_right", label: "3/4 Right")
@@ -732,7 +732,7 @@ extension PhysicalAppearanceTab {
                         generateAngleImage(angle: "profile_left", prompt: buildAnglePrompt(angle: "left side profile view, face in complete profile"))
                     },
                     onEditAnnotate: {
-                        openAnnotationEditor(angle: "profile_left", label: "Profile Left", imageType: .profileLeft)
+                        openStudio(angle: "profile_left", label: "Profile Left", imageType: .profileLeft)
                     },
                     onUpload: {
                         uploadAngleImage(angle: "profile_left", label: "Profile Left")
@@ -757,7 +757,7 @@ extension PhysicalAppearanceTab {
                         generateAngleImage(angle: "profile_right", prompt: buildAnglePrompt(angle: "right side profile view, face in complete profile"))
                     },
                     onEditAnnotate: {
-                        openAnnotationEditor(angle: "profile_right", label: "Profile Right", imageType: .profileRight)
+                        openStudio(angle: "profile_right", label: "Profile Right", imageType: .profileRight)
                     },
                     onUpload: {
                         uploadAngleImage(angle: "profile_right", label: "Profile Right")
@@ -782,7 +782,7 @@ extension PhysicalAppearanceTab {
                         generateAngleImage(angle: "back", prompt: buildAnglePrompt(angle: "back view, showing back of head and shoulders"))
                     },
                     onEditAnnotate: {
-                        openAnnotationEditor(angle: "back", label: "Back", imageType: .back)
+                        openStudio(angle: "back", label: "Back", imageType: .back)
                     },
                     onUpload: {
                         uploadAngleImage(angle: "back", label: "Back")

@@ -619,12 +619,26 @@ struct SessionHooks: ViewModifier {
     @EnvironmentObject var coordinator: AppCoordinator
     @EnvironmentObject var projectViewModel: ProjectViewModel
     @ObservedObject var reviewCenter: ImagePromptReviewCenter
+    @State private var trailMonitor: Any?
 
     func body(content: Content) -> some View {
         content
             .onAppear {
                 let center = reviewCenter
                 Task { await AIServiceClient.shared.setPromptReviewer(center) }
+                // DC-0110: ⌘[ / ⌘] walk the element-jump trail from anywhere
+                // (a text field with its own ⌘[ behaviour keeps the event
+                // only when the trail has nowhere to go).
+                if trailMonitor == nil {
+                    trailMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                        guard event.modifierFlags.contains(.command),
+                              !event.modifierFlags.contains(.shift),
+                              let key = event.charactersIgnoringModifiers else { return event }
+                        if key == "[", coordinator.canGoBack { coordinator.goBack(); return nil }
+                        if key == "]", coordinator.canGoForward { coordinator.goForward(); return nil }
+                        return event
+                    }
+                }
             }
             .sheet(item: $reviewCenter.pending) { review in
                 ImagePromptReviewSheet(review: review, center: reviewCenter)
