@@ -1028,6 +1028,25 @@ final class ModelRoundTripTests: XCTestCase {
         XCTAssertEqual(sparse.angles[1].name, "")
     }
 
+    /// DC-0129: an angle may carry a camera placed on one of the location's pictures.
+    func testLocationAngleCameraPlacementRoundTripsAndIsOptional() throws {
+        var angle = LocationAngle(id: "a-1", name: "From the gate")
+        angle.camera = CameraPlacement(basePicture: "assets/locations/pier/floor_plan.png", isFloorPlan: true,
+                                       x: 0.12, y: 0.88, targetX: 0.7, targetY: 0.3)
+        let decoded = try roundTrip(angle)
+        XCTAssertEqual(decoded.camera?.basePicture, "assets/locations/pier/floor_plan.png")
+        XCTAssertEqual(decoded.camera?.isFloorPlan, true)
+        XCTAssertEqual(decoded.camera?.x ?? 0, 0.12, accuracy: 1e-9)
+        XCTAssertEqual(decoded.camera?.targetY ?? 0, 0.3, accuracy: 1e-9)
+        let json = try String(data: encoder.encode(angle), encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"base_picture\":") && json.contains("\"target_x\":") && json.contains("\"is_floor_plan\":true"),
+                      "snake_case on the wire: \(json)")
+        let wordsOnly: LocationAngle = try decodeJSON(#"{"id":"a-2","name":"Reverse"}"#)
+        XCTAssertNil(wordsOnly.camera, "an angle defined by words has no camera")
+        let sparse: CameraPlacement = try decodeJSON(#"{"base_picture":"p.png"}"#)
+        XCTAssertEqual(sparse.x, 0.5); XCTAssertFalse(sparse.isFloorPlan)
+    }
+
     /// DC-0125: a shot remembers the location angle it chose; older shots have none.
     func testShotLocationAngleIdRoundTripsAndDefaultsNil() throws {
         var shot = Shot(shotId: 7)

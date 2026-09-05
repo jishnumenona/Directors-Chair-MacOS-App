@@ -56,6 +56,8 @@ public struct LocationDetailView: View {
     // DC-0125: the Studio for one of this location's angles.
     @State var showingAngleStudio = false
     @State var studioAngleId: String?
+    // DC-0129: the camera-placement panel for one of this location's angles.
+    @State var placingCameraAngleId: String?
 
     public init(
         location: Binding<Location>,

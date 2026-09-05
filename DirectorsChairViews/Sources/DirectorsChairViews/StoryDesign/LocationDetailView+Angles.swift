@@ -46,7 +46,20 @@ extension LocationDetailView {
                 angleStudio(angle)
             }
         }
+        .sheet(item: Binding(get: { placingCameraAngleId.map { CameraAngleItem(id: $0) } },
+                             set: { placingCameraAngleId = $0?.id })) { item in
+            if let angle = location.angles.first(where: { $0.id == item.id }), let base = projectBasePath {
+                LocationCameraPlacementView(location: location, angle: angle, project: project, projectBasePath: base) { data, placement in
+                    keepAngleResult(data, angleId: angle.id)
+                    if let index = location.angles.firstIndex(where: { $0.id == angle.id }) {
+                        location.angles[index].camera = placement
+                    }
+                }
+            }
+        }
     }
+
+    private struct CameraAngleItem: Identifiable { let id: String }
 
     /// Laid out for the gallery column: the picture full-width on top, the
     /// name with its buttons on one line, the description beneath.
@@ -64,6 +77,18 @@ extension LocationDetailView {
                     .font(.system(size: 12, weight: .semibold))
                     .accessibilityIdentifier("location-angle-name-\(angle.wrappedValue.id)")
                 Spacer(minLength: 4)
+                Button {
+                    guard projectBasePath != nil else { return }
+                    placingCameraAngleId = angle.wrappedValue.id
+                } label: {
+                    Label("Camera", systemImage: "camera.viewfinder")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(projectBasePath == nil || (location.primaryImage ?? location.images.first ?? location.floorPlanImage) == nil)
+                .help("Put the camera down on a picture of this place, aim it, and generate what it sees")
+                .accessibilityIdentifier("location-angle-camera-\(angle.wrappedValue.id)")
                 Button {
                     openAngleStudio(angle.wrappedValue)
                 } label: {
@@ -96,6 +121,11 @@ extension LocationDetailView {
                 .padding(6)
                 .background(Color(nsColor: .quaternarySystemFill))
                 .cornerRadius(6)
+            if let camera = angle.wrappedValue.camera {
+                Label(camera.isFloorPlan ? "Camera placed on the floor plan" : "Camera placed on the photo",
+                      systemImage: "camera.viewfinder")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
+            }
         }
         .padding(10)
         .background(Color.white.opacity(0.03))

@@ -19,19 +19,23 @@ public struct LocationAngle: Codable, Identifiable, Hashable, Sendable {
     /// The kept preview, relative to the project directory; nil until the
     /// Studio keeps one.
     public var image: String?
+    /// Where the camera stands and what it looks at, placed on one of the
+    /// location's pictures (DC-0129); nil for an angle defined by words only.
+    public var camera: CameraPlacement?
     public var createdAt: Date
 
     public init(id: String = UUID().uuidString, name: String, description: String = "",
-                image: String? = nil, createdAt: Date = Date()) {
+                image: String? = nil, camera: CameraPlacement? = nil, createdAt: Date = Date()) {
         self.id = id
         self.name = name
         self.description = description
         self.image = image
+        self.camera = camera
         self.createdAt = createdAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, image
+        case id, name, description, image, camera
         case createdAt = "created_at"
     }
 
@@ -41,7 +45,52 @@ public struct LocationAngle: Codable, Identifiable, Hashable, Sendable {
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         image = try container.decodeIfPresent(String.self, forKey: .image)
+        camera = try container.decodeIfPresent(CameraPlacement.self, forKey: .camera)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
+}
+
+/// A camera placed on a picture of the location — its photo or its floor
+/// plan — and aimed at a point of it (DC-0129). Coordinates are fractions
+/// of the picture (0…1, origin top-left), so they survive any resampling.
+/// Position and aim only for now; height and lens may follow.
+public struct CameraPlacement: Codable, Hashable, Sendable {
+    /// The picture the camera was placed on, relative to the project.
+    public var basePicture: String
+    /// True when `basePicture` is the location's floor plan (a top-down
+    /// drawing), which changes how the vantage is described to the model.
+    public var isFloorPlan: Bool
+    public var x: Double
+    public var y: Double
+    public var targetX: Double
+    public var targetY: Double
+
+    public init(basePicture: String, isFloorPlan: Bool = false,
+                x: Double, y: Double, targetX: Double, targetY: Double) {
+        self.basePicture = basePicture
+        self.isFloorPlan = isFloorPlan
+        self.x = x
+        self.y = y
+        self.targetX = targetX
+        self.targetY = targetY
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case basePicture = "base_picture"
+        case isFloorPlan = "is_floor_plan"
+        case x, y
+        case targetX = "target_x"
+        case targetY = "target_y"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        basePicture = try container.decodeIfPresent(String.self, forKey: .basePicture) ?? ""
+        isFloorPlan = try container.decodeIfPresent(Bool.self, forKey: .isFloorPlan) ?? false
+        x = try container.decodeIfPresent(Double.self, forKey: .x) ?? 0.5
+        y = try container.decodeIfPresent(Double.self, forKey: .y) ?? 0.5
+        targetX = try container.decodeIfPresent(Double.self, forKey: .targetX) ?? 0.5
+        targetY = try container.decodeIfPresent(Double.self, forKey: .targetY) ?? 0.5
     }
 }
 
