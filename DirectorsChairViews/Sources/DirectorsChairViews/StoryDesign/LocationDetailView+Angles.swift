@@ -48,29 +48,22 @@ extension LocationDetailView {
         }
     }
 
+    /// Laid out for the gallery column: the picture full-width on top, the
+    /// name with its buttons on one line, the description beneath.
     private func angleRow(_ angle: Binding<LocationAngle>) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             angleThumbnail(angle.wrappedValue)
-                .frame(width: 128, height: 72)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.08)))
 
-            VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
                 TextField("Angle name", text: angle.name)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))
                     .accessibilityIdentifier("location-angle-name-\(angle.wrappedValue.id)")
-                CharacterMentionTextEditor(
-                    text: angle.description, characters: project.characters,
-                    locations: project.locations, props: project.props, continuityShots: [],
-                    placeholder: "What the camera sees from here — composition, lens feel, what is in frame.",
-                    font: .system(size: 11), foregroundColor: .primary, minHeight: 40)
-                    .padding(6)
-                    .background(Color(nsColor: .quaternarySystemFill))
-                    .cornerRadius(6)
-            }
-
-            VStack(alignment: .trailing, spacing: 6) {
+                Spacer(minLength: 4)
                 Button {
                     openAngleStudio(angle.wrappedValue)
                 } label: {
@@ -94,6 +87,15 @@ extension LocationDetailView {
                 .foregroundColor(.secondary)
                 .help("Remove this angle")
             }
+
+            CharacterMentionTextEditor(
+                text: angle.description, characters: project.characters,
+                locations: project.locations, props: project.props, continuityShots: [],
+                placeholder: "What the camera sees from here — composition, lens feel, what is in frame.",
+                font: .system(size: 11), foregroundColor: .primary, minHeight: 40)
+                .padding(6)
+                .background(Color(nsColor: .quaternarySystemFill))
+                .cornerRadius(6)
         }
         .padding(10)
         .background(Color.white.opacity(0.03))
