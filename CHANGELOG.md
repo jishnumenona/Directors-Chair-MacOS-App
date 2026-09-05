@@ -9,6 +9,43 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.12.0] — 2026-09-05
+
+### Added
+- **The Studio, everywhere.** One tool for every AI picture — shots, scenes,
+  locations, characters, costumes, props, the project's hero banner, video
+  keyframes and the vision board: sketch, marker, notes, placed story
+  elements and the prompt in a single workspace. The library on the right
+  lists your cast, costumes, places, props, other shots' previews and scene
+  previews; drag an element onto the canvas as a numbered tag, drop it into
+  the words as a mention, press + to attach it as a plain reference, or
+  right-click to make it the base picture. Paste a picture from the
+  clipboard as the base. Hold Shift (or press ⌘B) to peek at "before";
+  ⌘↩ generates; Generate becomes Update once a picture exists; annotating
+  a picture builds a fresh edit prompt with no inherited words. Placed
+  assets take the scene's light, colour grade and weather.
+- **Location angles.** A location now carries named camera angles — "Wide
+  from the gate", "Reverse toward the bar" — each with a description and a
+  picture composed in the Studio. Every Studio library lists the angles
+  under their location. A shot picks an angle beside its location chip, or
+  by typing `#Place / Angle` in its description; the angle's picture then
+  frames the place for previews and video, and the prompt says so.
+- **Project files say who wrote them.** Projects are saved in format v2 with
+  the app version and platform that saved them. A build that cannot read a
+  newer file says why and offers Update Now instead of failing silently.
+- **The project's poster reaches the cloud.** The hero banner's poster now
+  fronts the web overview and the project cards on the web and iPad.
+  (Sync each project once from this version to publish it.)
+
+### Fixed
+- **Sync integrity.** A file that changes while a sync is in progress is no
+  longer uploaded under its old hash; a damaged file in the cloud copy no
+  longer blocks the whole download — it is skipped and reported, and the
+  message names the cloud copy rather than the network.
+- Multi-line text fields on the location page (Description, Notes) and
+  shot notes start at the top and focus wherever you click, instead of
+  centring their text mid-field.
+
 ## [3.11.0] — 2026-08-31
 
 ### Added
