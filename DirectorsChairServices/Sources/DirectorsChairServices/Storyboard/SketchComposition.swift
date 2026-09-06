@@ -68,6 +68,11 @@ public struct SketchStudioInput: Equatable, Sendable {
         case edit
     }
     public var mode: Mode
+    /// What kind of picture is being made (DC-0130): a photograph — the
+    /// contract every surface was probed on — or a top-down FLOOR PLAN,
+    /// where black lines are the content and "photorealistic" is wrong.
+    public enum Medium: String, Sendable { case photograph, floorPlan }
+    public var medium: Medium = .photograph
     /// The user's own words for the shot (seeded from the shot's style/
     /// framing/camera/description — never the scene bundle).
     public var sceneText: String
@@ -170,6 +175,13 @@ public enum SketchStudioComposer {
         let scene = input.sceneText.trimmingCharacters(in: .whitespacesAndNewlines)
         var image = firstTagNumber(for: input.mode)
         switch input.mode {
+        case .create where input.medium == .floorPlan:
+            if !scene.isEmpty { lines.append(scene); lines.append("") }
+            lines.append("Image 1 is a rough hand-drawn PLANNING sketch of the plan's layout — only a map: each crude shape stands for a wall, an opening or a fixture, seen from above. Image 2 is the same sketch with red numbered tags saying what each shape is; the tags exist ONLY on that annotated copy. Shapes WITHOUT a tag are walls and partitions of the place — read them as its layout. A tag's number is the number of the attached image that shows the real thing.")
+        case .edit where input.medium == .floorPlan:
+            lines.append("Edit the FIRST attached picture. This is an EDIT of an existing floor plan, not a new drawing: keep its layout, scale, orientation and drawing style, and change only what the marks below call for. Image 2 is the same plan with rough hand-drawn pencil marks and red numbered tags showing what to change or add and where — the marks are only a plan: none of the pencil ink or tags may appear in the result.")
+            lines.append("Make exactly these changes and nothing else:")
+            if !scene.isEmpty { lines.append("- \(scene)") }
         case .create:
             if !scene.isEmpty { lines.append(scene); lines.append("") }
             lines.append("Image 1 is a rough hand-drawn PLANNING sketch of this shot's composition — only a map: each crude shape stands for a real thing. Image 2 is the same sketch with red numbered tags saying what each shape is; the tags exist ONLY on that annotated copy. Shapes WITHOUT a tag are loose scenery guides — horizon, ground, roads, walls, masses of the scene described above — read them as the scene's own terrain and architecture, never as new free-standing objects; a line that matches nothing in the scene leaves NO object behind — plain ground or sky continues through it. A tag's number is the number of the attached image that shows the real thing.")
@@ -179,7 +191,9 @@ public enum SketchStudioComposer {
             if !scene.isEmpty { lines.append("- \(scene)") }
         }
         for placement in input.placements {
-            lines.append(placedClause(placement.element, tag: image))
+            lines.append(input.medium == .floorPlan
+                ? "- Tag \(image) marks where what Image \(image) shows (\(placement.element.name)) stands on the plan: draw it there as a labelled outline, to scale with its surroundings."
+                : placedClause(placement.element, tag: image))
             image += 1
         }
         for note in input.notes {
@@ -196,10 +210,19 @@ public enum SketchStudioComposer {
             lines.append("- Where a pencil shape carries no tag and no note, it shows what to add or reshape at that exact spot: render what the shape depicts, at that size and place, photographed in place. A shaded (marker) area marks the region the change applies to.")
         }
         for reference in input.generalReferences {
-            lines.append(generalClause(reference, image: image))
+            lines.append(input.medium == .floorPlan
+                ? "- Image \(image) is a picture of the same place (\(reference.name)): read its walls, openings and fixtures and lay them out on the plan where they belong."
+                : generalClause(reference, image: image))
             image += 1
         }
         switch input.mode {
+        case .create where input.medium == .floorPlan:
+            lines.append("Draw one clean top-down architectural floor plan on a white sheet: walls as thick black lines, doors and windows as standard plan openings, fixed furniture and fixtures as labelled outlines (write each label in small capitals), consistent scale, no perspective, no people, no shading or photographic rendering. Lay out every shape where it sits in Image 1.")
+            lines.append("The sketch's rough pencil strokes are a guide, never content: redraw everything as clean ruled linework, and the finished plan must contain NO red circles and NO numbers anywhere.")
+        case .edit where input.medium == .floorPlan:
+            lines.append("Anything added or changed is drawn in the same linework, scale and orientation as the rest of the plan, labelled like its neighbours.")
+            lines.append("Everything else — the layout, walls, fixtures and drawing style — must stay exactly as in the first picture. Return the edited plan with the same framing.")
+            lines.append("The pencil marks and tags are instructions, never content: the result must contain NO rough pencil marks, NO red circles and NO numbers anywhere.")
         case .create:
             lines.append("Place each real subject where its shape sits in Image 1 and match the sketched framing.")
             lines.append("One physically consistent light AND one colour grade bind the whole frame: every person and object sits in the scene's own light — same direction, colour temperature, softness, shadows, reflections — and takes the scene's colour cast, atmosphere and film grade exactly as the background does, as if photographed together in one exposure and graded as one frame. Anything whose colours or cleanliness look untouched by the scene is wrong; in rain, haze or dust, added people and objects are as wet, hazed or dusty as their surroundings.")
@@ -258,7 +281,7 @@ public enum SketchStudioComposer {
             aspectRatio: input.aspectRatio,
             numberOfImages: 1,
             referenceImages: referenceImages(for: input),
-            brief: VisualBrief(purpose: input.mode == .edit ? .edit : .shot,
+            brief: VisualBrief(purpose: input.mode == .edit ? .edit : (input.medium == .floorPlan ? .location : .shot),
                                subject: input.sceneText.isEmpty
                                    ? "the sketched composition" : input.sceneText),
             isEdit: input.mode == .edit,

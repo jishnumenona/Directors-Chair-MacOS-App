@@ -297,8 +297,8 @@ struct LocationCameraPlacementView: View {
                     maxTokens: SketchStudioComposer.vantageDescribeMaxTokens, temperature: 0.2,
                     imageBase64: marked.base64EncodedString(), imageMimeType: "image/png")
                 let words = (try? await AIServiceClient.shared.generateText(describe))
-                    .flatMap { CameraMarkerWords.parse($0.text) }
-                statusText = words == nil ? "Rendering the view (the picture could not be read; using positions)…"
+                    .flatMap { CameraVantageWords.parse($0.text) }
+                statusText = words == nil ? "Rendering the view (the picture could not be read — using positions)…"
                                           : "Rendering the view…"
                 let input = CameraVantageInput(
                     locationName: location.name, locationDescription: location.description,

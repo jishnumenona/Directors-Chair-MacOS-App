@@ -1,8 +1,8 @@
 // CameraVantageTests.swift
 //
 // DC-0129: a camera placed on a location picture and aimed — the marked copy
-// the model sees, the describe question, and the render words built from
-// its answer (the two-step contract the 2026-09-05 probes settled on).
+// the describe step sees, the words it writes, and the words-only render
+// (the contract the 2026-09-05 probes settled on).
 
 import CoreGraphics
 import ImageIO
@@ -50,7 +50,6 @@ final class CameraVantageTests: XCTestCase {
         let source = CGImageSourceCreateWithData(marked as CFData, nil)!
         let image = CGImageSourceCreateImageAtIndex(source, 0, nil)!
         XCTAssertEqual(image.width, 640); XCTAssertEqual(image.height, 360, "the picture keeps its size")
-
         let atCamera = pixel(marked, x: 0.2, y: 0.8)
         XCTAssertGreaterThan(atCamera.r, 200); XCTAssertLessThan(atCamera.g, 90, "C is a red disc")
         let onArrow = pixel(marked, x: 0.5, y: 0.55)
@@ -67,28 +66,27 @@ final class CameraVantageTests: XCTestCase {
         XCTAssertNotNil(CameraMarkup.pngCopy(of: png(width: 8, height: 8)))
     }
 
-    func testDescribeAnswerParsesAndToleratesNoise() {
-        let words = CameraMarkerWords.parse("C: the tiled floor beside the entrance\nT: the beverage cooler on the far wall\nBEHIND: the glass doors and a display rack")
-        XCTAssertEqual(words, CameraMarkerWords(atCamera: "the tiled floor beside the entrance",
-                                                atTarget: "the beverage cooler on the far wall",
-                                                behindCamera: "the glass doors and a display rack"))
-        XCTAssertEqual(CameraMarkerWords.parse("Sure!\n**C:** the counter.\nt: the window \n")?.atTarget, "the window",
-                       "case, markdown and stray punctuation are tolerated")
-        XCTAssertEqual(CameraMarkerWords.parse("C: the counter")?.atCamera, nil, "no T → no words (the caller falls back)")
-        XCTAssertNil(CameraMarkerWords.parse("camera's standing position"))
+    private let vanWords = "The camera is inside a beige minivan, brightly lit by the afternoon sun. The centre of the frame is filled by the beige passenger seat headrest, with the dashboard and windshield beyond it. On the left edge is the driver's headrest and steering wheel; the right edge shows the passenger window and distant red rocks. The back seats, the child seat and the straw hat are now behind the camera."
+
+    func testDescribeAnswerBecomesOneParagraphOrNothing() {
+        let words = CameraVantageWords.parse("**The camera** is inside a beige minivan.\n\nThe centre of the frame is filled by the passenger headrest; the back seats are behind the camera and out of frame.")
+        XCTAssertEqual(words?.text, "The camera is inside a beige minivan. The centre of the frame is filled by the passenger headrest; the back seats are behind the camera and out of frame.")
+        XCTAssertNil(CameraVantageWords.parse("C: floor\nT: cooler"), "three terse lines cannot carry a composition")
+        XCTAssertNil(CameraVantageWords.parse("   "))
     }
 
-    func testDescribePromptNamesTheMarkersAndTheSurface() {
-        let photo = SketchStudioComposer.vantageDescribePrompt(for: CameraPlacement(basePicture: "p", x: 0.1, y: 0.9, targetX: 0.7, targetY: 0.4))
-        XCTAssertTrue(photo.contains("photograph of a store"), photo)
-        XCTAssertTrue(photo.contains("BEHIND a camera standing at C facing T"), photo)
-        XCTAssertTrue(photo.hasSuffix("BEHIND: <what is behind the camera>"))
-        let plan = SketchStudioComposer.vantageDescribePrompt(for: CameraPlacement(basePicture: "p", isFloorPlan: true, x: 0.1, y: 0.9, targetX: 0.7, targetY: 0.4), placeKind: "harbour pier")
-        XCTAssertTrue(plan.contains("floor plan of a harbour pier"), plan)
+    func testDescribePromptAsksForTheViewNotTheMarkers() {
+        let photo = SketchStudioComposer.vantageDescribePrompt(for: CameraPlacement(basePicture: "p", x: 0.1, y: 0.9, targetX: 0.7, targetY: 0.4), placeKind: "store")
+        XCTAssertTrue(photo.contains("This photograph shows a store"), photo)
+        XCTAssertTrue(photo.contains("WITHOUT seeing this photograph"), photo)
+        XCTAssertTrue(photo.contains("what is now behind the camera"), photo)
+        XCTAssertTrue(photo.contains("no mention of C, T, markers"), photo)
+        let plan = SketchStudioComposer.vantageDescribePrompt(for: CameraPlacement(basePicture: "p", isFloorPlan: true, x: 0.1, y: 0.9, targetX: 0.7, targetY: 0.4))
+        XCTAssertTrue(plan.contains("This floor plan (drawn from above) shows a place"), plan)
         XCTAssertEqual(SketchStudioComposer.vantageDescribeMaxTokens, 1024)
     }
 
-    private func input(floorPlan: Bool, words: CameraMarkerWords?, references: [SketchElement] = []) -> CameraVantageInput {
+    private func input(floorPlan: Bool, words: CameraVantageWords?, references: [SketchElement] = []) -> CameraVantageInput {
         CameraVantageInput(
             locationName: "Pier 9", locationDescription: "A working harbour pier.",
             angleName: "Wide from the gate", angleDescription: "Cranes behind, #Pier 9 water left.",
@@ -96,49 +94,38 @@ final class CameraVantageTests: XCTestCase {
             markedPNG: Data([2]), words: words, references: references)
     }
 
-    func testRenderPromptLeadsWithTheWordsAndSendsOnlyTheMarkedCopy() {
-        let words = CameraMarkerWords(atCamera: "the tiled floor beside the entrance",
-                                      atTarget: "the beverage cooler", behindCamera: "the glass doors and a display rack")
+    func testWordsOnlyRenderAttachesNoPicture() {
         let refs = [SketchElement(kind: "angle", name: "Pier 9 / Reverse toward the bar", imageData: Data([4]))]
-        let prompt = SketchStudioComposer.vantagePrompt(for: input(floorPlan: false, words: words, references: refs))
+        let input = input(floorPlan: false, words: CameraVantageWords(text: vanWords), references: refs)
+        let prompt = SketchStudioComposer.vantagePrompt(for: input)
         let lines = prompt.components(separatedBy: "\n")
-        XCTAssertEqual(lines[0], "A new photograph of Pier 9, taken from the tiled floor beside the entrance, facing the beverage cooler. The glass doors and a display rack — behind the camera — must not appear.")
-        XCTAssertTrue(prompt.contains("Image 1 is the same place seen from a different spot"), prompt)
-        XCTAssertTrue(prompt.contains("must be a DIFFERENT photograph"), prompt)
-        XCTAssertTrue(prompt.contains("the beverage cooler at the centre of the frame"), prompt)
-        XCTAssertTrue(prompt.contains("Image 2 is another picture of the same place (Pier 9 / Reverse toward the bar)"), prompt)
-        XCTAssertTrue(prompt.contains("This angle is called \"Wide from the gate\": Cranes behind, Pier 9 water left."),
-                      "mention sigils are stripped from the angle's words")
-        XCTAssertTrue(lines.last!.contains("annotations only"), "the ink ban goes last")
-        XCTAssertFalse(prompt.contains("FLOOR PLAN"))
-
-        let refsOut = SketchStudioComposer.vantageReferenceImages(for: input(floorPlan: false, words: words, references: refs))
-        XCTAssertEqual(refsOut.map(\.label), ["camera:marked copy", "angle:Pier 9 / Reverse toward the bar"],
-                       "the clean picture is never sent — the model copies it (probe 2026-09-05)")
-    }
-
-    func testRenderPromptFallsBackToGeometryWordsWithoutTheDescribeStep() {
-        let prompt = SketchStudioComposer.vantagePrompt(for: input(floorPlan: false, words: nil))
-        XCTAssertTrue(prompt.hasPrefix("A new photograph of Pier 9, taken from the spot marked C — the left side of the picture, close to where the picture was taken, facing the spot marked T — the right side of the picture, the middle distance."), prompt)
-        XCTAssertFalse(prompt.contains("must not appear"), "nothing is known to be behind the camera")
-    }
-
-    func testFloorPlanRenderDescribesThePlan() {
-        let words = CameraMarkerWords(atCamera: "the loading bay", atTarget: "the harbour master's hut", behindCamera: "the car park")
-        let prompt = SketchStudioComposer.vantagePrompt(for: input(floorPlan: true, words: words))
-        XCTAssertTrue(prompt.contains("Image 1 is the FLOOR PLAN of the place, drawn from above"), prompt)
-        XCTAssertTrue(prompt.contains("standing at C and facing T"), prompt)
-        XCTAssertTrue(prompt.contains("The harbour master's hut at the centre of the frame"), prompt)
-        XCTAssertEqual(SketchStudioComposer.vantageReferenceImages(for: input(floorPlan: true, words: words)).first?.label, "plan:marked floor plan")
-        XCTAssertTrue(SketchStudioComposer.geometryWords(CameraPlacement(basePicture: "p", isFloorPlan: true, x: 0.1, y: 0.1, targetX: 0.9, targetY: 0.9)).at.contains("the top of the plan"))
-    }
-
-    func testVantageRequestIsACreateWithTheLocationPurpose() {
-        let request = SketchStudioComposer.vantageRequest(for: input(floorPlan: false, words: nil))
+        XCTAssertEqual(lines[0], "Photograph the following view of Pier 9 exactly as described. Nothing else is known about the place.")
+        XCTAssertEqual(lines[1], vanWords)
+        XCTAssertTrue(prompt.contains("About the place: A working harbour pier."), prompt)
+        XCTAssertTrue(prompt.contains("The director's note for this angle: Cranes behind, Pier 9 water left."), "mention sigils stripped")
+        XCTAssertTrue(prompt.contains("what is described as behind the camera does not appear at all"), prompt)
+        XCTAssertFalse(prompt.contains("Image 1"), "no picture is referenced")
+        XCTAssertFalse(prompt.contains("markers"), "no marker talk in a words-only render")
+        XCTAssertTrue(SketchStudioComposer.vantageReferenceImages(for: input).isEmpty,
+                      "any picture of the place anchors the framing — probe 2026-09-05")
+        let request = SketchStudioComposer.vantageRequest(for: input)
+        XCTAssertNil(request.referenceImages)
         XCTAssertFalse(request.isEdit)
-        XCTAssertEqual(request.aspectRatio, "16:9")
-        XCTAssertEqual(request.referenceImages?.count, 1)
         XCTAssertEqual(request.brief?.purpose, .location)
-        XCTAssertTrue(request.prompt.hasPrefix("A new photograph of Pier 9"))
+    }
+
+    func testFallbackRenderUsesTheMarkedCopyAndGeometryWords() {
+        let refs = [SketchElement(kind: "location", name: "Pier 9 — night", imageData: Data([3]))]
+        let input = input(floorPlan: false, words: nil, references: refs)
+        let prompt = SketchStudioComposer.vantagePrompt(for: input)
+        XCTAssertTrue(prompt.hasPrefix("A new photograph of Pier 9, taken from the spot marked C — the left side of the picture, close to where the picture was taken, facing the spot marked T — the right side of the picture, the middle distance."), prompt)
+        XCTAssertTrue(prompt.contains("must be a DIFFERENT photograph"), prompt)
+        XCTAssertTrue(prompt.contains("Image 2 is another picture of the same place (Pier 9 — night)"), prompt)
+        XCTAssertTrue(prompt.components(separatedBy: "\n").last!.contains("annotations only"), "the ink ban goes last")
+        XCTAssertEqual(SketchStudioComposer.vantageReferenceImages(for: input).map(\.label),
+                       ["camera:marked copy", "location:Pier 9 — night"])
+        let plan = SketchStudioComposer.vantagePrompt(for: self.input(floorPlan: true, words: nil))
+        XCTAssertTrue(plan.contains("Image 1 is the FLOOR PLAN of the place"), plan)
+        XCTAssertTrue(SketchStudioComposer.geometryWords(CameraPlacement(basePicture: "p", isFloorPlan: true, x: 0.1, y: 0.1, targetX: 0.9, targetY: 0.9)).at.contains("the top of the plan"))
     }
 }

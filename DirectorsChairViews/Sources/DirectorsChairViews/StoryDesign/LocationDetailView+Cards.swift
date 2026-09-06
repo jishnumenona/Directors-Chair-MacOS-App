@@ -667,6 +667,9 @@ extension LocationDetailView {
 
             // DC-0125: the location's named angles live with its pictures
             // (owner 2026-09-05: "below the Location variations section").
+            floorPlanCard
+                .padding(.top, 8)
+
             anglesCard
                 .padding(.top, 8)
 
