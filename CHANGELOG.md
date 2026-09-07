@@ -9,6 +9,25 @@ release-notes history, so write entries for users, not for git archaeologists.
 
 ## [Unreleased]
 
+## [3.13.0] — 2026-09-07
+
+### Added
+- **Place the camera for a location angle.** On a location's photo, one of
+  its variations or its floor plan, put the camera down, drag to aim it,
+  and Generate renders what that camera sees. Keep makes the view the
+  angle's picture and remembers the placement, so it can be adjusted and
+  regenerated. Position and aim for now; height and lens may follow.
+- **Design a location's floor plan in the Studio.** A FLOOR PLAN card on
+  every location: sketch the walls and fixtures, label them with notes,
+  and the Studio draws a clean top-down plan from the place's photos — a
+  line drawing, never a photograph. Edit it the same way, or Import a
+  picture of the real plan. The plan is then one of the pictures the
+  camera can be placed on.
+
+### Changed
+- The ANGLES card sits under the location variations in the gallery
+  column, next to the pictures it belongs with.
+
 ## [3.12.0] — 2026-09-05
 
 ### Added
