@@ -200,6 +200,14 @@ extension TakesSectionView {
                             .id("\(take.id)-\(take.endTimestamp?.timeIntervalSince1970 ?? 0)")
                             .frame(width: 150, height: 84)
                             .clipped()
+                    } else if let still = take.thumbnailPath, let basePath = projectBasePath {
+                        // A frame photographed on set (the iPad's Shooting
+                        // Day, DC-0132) stands in for footage.
+                        AsyncThumbnail(url: basePath.deletingLastPathComponent().appendingPathComponent(still), displaySize: 300) {
+                            Rectangle().fill(Color(hex: "#1E1E1E"))
+                        }
+                        .frame(width: 150, height: 84)
+                        .clipped()
                     } else {
                         Rectangle()
                             .fill(Color(hex: "#1E1E1E"))
@@ -242,6 +250,11 @@ extension TakesSectionView {
                         Image(systemName: "film.fill")
                             .font(.system(size: 7))
                             .foregroundColor(.green.opacity(0.5))
+                    } else if take.thumbnailPath != nil {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 7))
+                            .foregroundColor(.green.opacity(0.5))
+                            .help("A frame photographed on set")
                     }
                 }
                 .padding(.horizontal, 8)
@@ -320,6 +333,26 @@ extension TakesSectionView {
                                      projectBase: basePath
                                          .deletingLastPathComponent()))
                     .id("\(take.id)-\(take.endTimestamp?.timeIntervalSince1970 ?? 0)")
+            } else if let still = take.thumbnailPath, let basePath = projectBasePath {
+                // The frame photographed on set (iPad Shooting Day, DC-0132):
+                // shown where the footage would play, labelled as what it is.
+                ZStack(alignment: .bottomLeading) {
+                    AsyncThumbnail(url: basePath.deletingLastPathComponent().appendingPathComponent(still), displaySize: 1200) {
+                        Rectangle().fill(Color.black)
+                    }
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .frame(maxHeight: 320)
+                    Text("SET FRAME")
+                        .font(.system(size: 8, weight: .bold))
+                        .tracking(1.0)
+                        .foregroundColor(.white.opacity(0.85))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.black.opacity(0.6)))
+                        .padding(8)
+                }
+                .cornerRadius(8)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: "#3A3A3A"), lineWidth: 1))
             } else {
                 // No-video placeholder
                 VStack(spacing: 0) {
