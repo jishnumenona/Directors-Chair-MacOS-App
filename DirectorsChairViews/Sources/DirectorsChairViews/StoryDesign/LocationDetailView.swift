@@ -56,6 +56,10 @@ public struct LocationDetailView: View {
     // DC-0125: the Studio for one of this location's angles.
     @State var showingAngleStudio = false
     @State var studioAngleId: String?
+    // DC-0129: the camera-placement panel for one of this location's angles.
+    @State var placingCameraAngleId: String?
+    // DC-0130: the floor plan designed in the Studio.
+    @State var showingFloorPlanStudio = false
 
     public init(
         location: Binding<Location>,
@@ -85,7 +89,6 @@ public struct LocationDetailView: View {
                         descriptionCard
                         atmosphereCard
                         cinematographyCard
-                        anglesCard
                         scriptContextCard
 
                         HStack(alignment: .top, spacing: 16) {

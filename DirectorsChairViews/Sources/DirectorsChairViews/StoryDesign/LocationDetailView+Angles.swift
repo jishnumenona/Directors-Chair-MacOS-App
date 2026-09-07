@@ -46,31 +46,49 @@ extension LocationDetailView {
                 angleStudio(angle)
             }
         }
+        .sheet(item: Binding(get: { placingCameraAngleId.map { CameraAngleItem(id: $0) } },
+                             set: { placingCameraAngleId = $0?.id })) { item in
+            if let angle = location.angles.first(where: { $0.id == item.id }), let base = projectBasePath {
+                LocationCameraPlacementView(location: location, angle: angle, project: project, projectBasePath: base) { data, placement in
+                    keepAngleResult(data, angleId: angle.id)
+                    if let index = location.angles.firstIndex(where: { $0.id == angle.id }) {
+                        location.angles[index].camera = placement
+                    }
+                }
+            }
+        }
     }
 
+    private struct CameraAngleItem: Identifiable { let id: String }
+
+    /// Laid out for the gallery column: the picture full-width on top, the
+    /// name with its buttons on one line, the description beneath.
     private func angleRow(_ angle: Binding<LocationAngle>) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             angleThumbnail(angle.wrappedValue)
-                .frame(width: 128, height: 72)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.08)))
 
-            VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
                 TextField("Angle name", text: angle.name)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))
                     .accessibilityIdentifier("location-angle-name-\(angle.wrappedValue.id)")
-                CharacterMentionTextEditor(
-                    text: angle.description, characters: project.characters,
-                    locations: project.locations, props: project.props, continuityShots: [],
-                    placeholder: "What the camera sees from here — composition, lens feel, what is in frame.",
-                    font: .system(size: 11), foregroundColor: .primary, minHeight: 40)
-                    .padding(6)
-                    .background(Color(nsColor: .quaternarySystemFill))
-                    .cornerRadius(6)
-            }
-
-            VStack(alignment: .trailing, spacing: 6) {
+                Spacer(minLength: 4)
+                Button {
+                    guard projectBasePath != nil else { return }
+                    placingCameraAngleId = angle.wrappedValue.id
+                } label: {
+                    Label("Camera", systemImage: "camera.viewfinder")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(projectBasePath == nil || (location.primaryImage ?? location.images.first ?? location.floorPlanImage) == nil)
+                .help("Put the camera down on a picture of this place, aim it, and generate what it sees")
+                .accessibilityIdentifier("location-angle-camera-\(angle.wrappedValue.id)")
                 Button {
                     openAngleStudio(angle.wrappedValue)
                 } label: {
@@ -93,6 +111,20 @@ extension LocationDetailView {
                 .buttonStyle(.plain)
                 .foregroundColor(.secondary)
                 .help("Remove this angle")
+            }
+
+            CharacterMentionTextEditor(
+                text: angle.description, characters: project.characters,
+                locations: project.locations, props: project.props, continuityShots: [],
+                placeholder: "What the camera sees from here — composition, lens feel, what is in frame.",
+                font: .system(size: 11), foregroundColor: .primary, minHeight: 40)
+                .padding(6)
+                .background(Color(nsColor: .quaternarySystemFill))
+                .cornerRadius(6)
+            if let camera = angle.wrappedValue.camera {
+                Label(camera.isFloorPlan ? "Camera placed on the floor plan" : "Camera placed on the photo",
+                      systemImage: "camera.viewfinder")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
             }
         }
         .padding(10)

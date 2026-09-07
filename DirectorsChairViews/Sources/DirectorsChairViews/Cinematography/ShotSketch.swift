@@ -299,6 +299,8 @@ public struct ShotSketchStudio: View {
     let keepLabel: String
     /// The picture size the surface delivers — its shape is the canvas shape.
     let targetSize: ImageTargetSize
+    /// A photograph (the default) or a top-down floor plan (DC-0130).
+    let medium: SketchStudioInput.Medium
     let projectDirectory: URL?
     let seedPrompt: String
     let currentPreviewPath: String?
@@ -364,7 +366,9 @@ public struct ShotSketchStudio: View {
                 currentPreviewPath: String?, documentURL: URL?,
                 onKeep: @escaping (Data) -> Void,
                 onSketchSaved: @escaping (Data) -> Void,
-                onOpenElement: ((String, String) -> Void)? = nil) {
+                onOpenElement: ((String, String) -> Void)? = nil,
+                medium: SketchStudioInput.Medium = .photograph) {
+        self.medium = medium
         self.characters = characters
         self.locations = locations
         self.props = props
@@ -1117,7 +1121,7 @@ public struct ShotSketchStudio: View {
         let references = (generals + mentioned).map {
             SketchElement(kind: $0.kind, name: $0.name, imageData: Data())
         }
-        let input = SketchStudioInput(
+        var input = SketchStudioInput(
             mode: mode, sceneText: SketchStudioComposer.stripMentions(promptText),
             taggedSketchPNG: Data(), cleanSketchPNG: nil, basePNG: nil,
             placements: placements,
@@ -1125,6 +1129,7 @@ public struct ShotSketchStudio: View {
                         .map { SketchNote(text: $0.text, x: $0.x, y: $0.y) },
             generalReferences: references,
             aspectRatio: targetSize.aspectRatio, targetSize: targetSize)
+        input.medium = medium
         return SketchStudioComposer.prompt(for: input)
     }
 
@@ -1549,7 +1554,8 @@ public struct ShotSketchStudio: View {
         guard canGenerate else { return }
         // Updating a result: it becomes the base and the words become the change.
         if resultImage != nil { continueOnResult() }
-        guard let input = prepareInput() else { return }
+        guard var input = prepareInput() else { return }
+        input.medium = medium
         run(input, promptOverride: useCustomPrompt ? customPrompt : nil)
     }
 

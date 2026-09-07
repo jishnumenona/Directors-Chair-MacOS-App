@@ -104,4 +104,39 @@ final class SketchCompositionTests: XCTestCase {
             XCTAssertTrue(SketchStudioComposer.generalClause(element, image: 6).contains("Image 6"), kind)
         }
     }
+
+    /// DC-0130: a FLOOR PLAN is a line drawing, not a photograph — the
+    /// medium changes the fixed lines, the placed/general clauses and the
+    /// ink ban (black lines are the content), never the numbering.
+    func testFloorPlanMediumDrawsALineDrawingNotAPhotograph() {
+        var input = SketchStudioInput(
+            mode: .create, sceneText: "A clean top-down floor plan of Pier 9.",
+            taggedSketchPNG: Data([2]), cleanSketchPNG: Data([1]), basePNG: nil,
+            placements: [SketchPlacement(element: SketchElement(kind: "prop", name: "Ticket booth", imageData: Data([3])), x: 0.2, y: 0.3)],
+            notes: [SketchNote(text: "COUNTER", x: 0.5, y: 0.5)],
+            generalReferences: [SketchElement(kind: "location", name: "Pier 9", imageData: Data([4]))])
+        input.medium = .floorPlan
+        let prompt = SketchStudioComposer.prompt(for: input)
+        XCTAssertTrue(prompt.hasPrefix("A clean top-down floor plan of Pier 9."), prompt)
+        XCTAssertTrue(prompt.contains("PLANNING sketch of the plan's layout"), prompt)
+        XCTAssertTrue(prompt.contains("- Tag 3 marks where what Image 3 shows (Ticket booth) stands on the plan"), prompt)
+        XCTAssertTrue(prompt.contains("- Tag 4 marks a spot instruction: COUNTER"), prompt)
+        XCTAssertTrue(prompt.contains("- Image 5 is a picture of the same place (Pier 9): read its walls, openings and fixtures"), prompt)
+        XCTAssertTrue(prompt.contains("Draw one clean top-down architectural floor plan"), prompt)
+        XCTAssertFalse(prompt.contains("photorealistic"), "a plan is never a photograph")
+        XCTAssertFalse(prompt.contains("colour grade"), "no photographic light/grade contract on a drawing")
+        XCTAssertTrue(prompt.components(separatedBy: "\n").last!.contains("NO red circles and NO numbers"), "the ink ban still goes last")
+        XCTAssertEqual(SketchStudioComposer.request(for: input).brief?.purpose, .location)
+
+        var edit = input
+        edit.mode = .edit; edit.basePNG = Data([9]); edit.cleanSketchPNG = nil
+        let editPrompt = SketchStudioComposer.prompt(for: edit)
+        XCTAssertTrue(editPrompt.hasPrefix("Edit the FIRST attached picture. This is an EDIT of an existing floor plan"), editPrompt)
+        XCTAssertTrue(editPrompt.contains("Return the edited plan with the same framing."), editPrompt)
+        XCTAssertFalse(editPrompt.contains("film look"))
+
+        // The default medium is untouched: the probed photograph contract.
+        let photo = SketchStudioComposer.prompt(for: SketchStudioInput(mode: .create, sceneText: "x", taggedSketchPNG: Data([2]), cleanSketchPNG: Data([1]), basePNG: nil, placements: [], notes: [], generalReferences: []))
+        XCTAssertTrue(photo.contains("Render one photorealistic cinematic frame."))
+    }
 }

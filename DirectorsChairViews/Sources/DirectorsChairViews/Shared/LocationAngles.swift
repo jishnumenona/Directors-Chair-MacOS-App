@@ -35,6 +35,15 @@ enum LocationAngles {
         return (path, "angle:" + mention(location: hit.location, angle: hit.angle))
     }
 
+    /// The words a floor plan starts from (DC-0130): the location's mention
+    /// attaches its photo; the description says what the place is.
+    static func floorPlanSeed(location: Location) -> String {
+        let detail = location.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        var words = "A clean top-down architectural floor plan of #\(location.name): walls, doors and windows, and the fixed furniture and fixtures as labelled outlines."
+        if !detail.isEmpty { words += " " + detail }
+        return words
+    }
+
     /// What the prompt says next to the location when the shot chose an angle.
     static func promptClause(for shot: Shot, location: Location) -> String {
         guard let angle = location.angle(withId: shot.locationAngleId) else { return "" }
