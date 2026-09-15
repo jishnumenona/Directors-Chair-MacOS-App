@@ -17,6 +17,7 @@ public enum AccountingDisplayMode: String, CaseIterable {
     case costReport = "Cost Report"
     case expenses = "Expenses"
     case purchaseOrders = "Purchase Orders"
+    case vendors = "Vendors"
     case payroll = "Payroll"
     case aiUsage = "AI Usage"
     case export = "Export"
@@ -37,6 +38,9 @@ public struct BudgetView: View {
     @State var showingEditExpenseSheet = false
     @State var showingAddPOSheet = false
     @State var showingEditPOSheet = false
+    @State var selectedVendor: Vendor?
+    @State var showingAddVendorSheet = false
+    @State var showingEditVendorSheet = false
     @State var expenseDeptFilter = "All"
     @State var poStatusFilter = "All"
     @State var exportStatus: String? = nil
@@ -76,6 +80,8 @@ public struct BudgetView: View {
                 expensesView
             case .purchaseOrders:
                 purchaseOrdersView
+            case .vendors:
+                vendorsView
             case .payroll:
                 payrollView
             case .aiUsage:
@@ -115,6 +121,14 @@ public struct BudgetView: View {
         .sheet(isPresented: $showingEditPOSheet) {
             if let po = selectedPO {
                 POEditorSheet(viewModel: viewModel, po: po)
+            }
+        }
+        .sheet(isPresented: $showingAddVendorSheet) {
+            VendorEditorSheet(viewModel: viewModel, vendor: nil)
+        }
+        .sheet(isPresented: $showingEditVendorSheet) {
+            if let vendor = selectedVendor {
+                VendorEditorSheet(viewModel: viewModel, vendor: vendor)
             }
         }
     }

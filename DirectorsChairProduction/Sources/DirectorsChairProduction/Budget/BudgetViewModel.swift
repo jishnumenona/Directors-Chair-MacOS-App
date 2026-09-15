@@ -69,6 +69,12 @@ public class BudgetViewModel: ObservableObject {
     // Callback for data persistence
     public var onBudgetChanged: ((ProjectBudget) -> Void)?
 
+    // Vendor autodetect from a Google/result link (implemented in the app
+    // target, which owns the AI client and networking). Returns nil on failure.
+    // If it downloads a picture it writes it under the project's
+    // assets/vendors/ and reports the project-relative path in `imagePath`.
+    public var onLookupVendor: ((URL) async -> VendorLookupResult?)?
+
     public init(budget: ProjectBudget = ProjectBudget()) {
         self.budget = budget
     }
@@ -197,6 +203,34 @@ public class BudgetViewModel: ObservableObject {
     public func removePurchaseOrder(_ po: PurchaseOrder) {
         budget.purchaseOrders.removeAll { $0.id == po.id }
         notifyChange()
+    }
+
+    // MARK: - Vendor CRUD
+
+    public var vendors: [Vendor] { budget.vendors }
+
+    public func addVendor(_ vendor: Vendor) {
+        budget.vendors.append(vendor)
+        notifyChange()
+    }
+
+    public func updateVendor(_ vendor: Vendor) {
+        if let index = budget.vendors.firstIndex(where: { $0.id == vendor.id }) {
+            budget.vendors[index] = vendor
+            notifyChange()
+        }
+    }
+
+    public func removeVendor(_ vendor: Vendor) {
+        budget.vendors.removeAll { $0.id == vendor.id }
+        notifyChange()
+    }
+
+    /// Best-effort detection of a Google/result link, deferred to the app
+    /// target's `onLookupVendor`. Returns nil if lookup is unavailable or fails.
+    public func lookupVendor(from url: URL) async -> VendorLookupResult? {
+        guard let lookup = onLookupVendor else { return nil }
+        return await lookup(url)
     }
 
     // MARK: - AI Estimates

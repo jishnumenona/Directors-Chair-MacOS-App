@@ -602,6 +602,92 @@ public struct PurchaseOrder: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - Vendor
+
+/// A supplier the production buys from. Historically `vendor` was only a free
+/// text string on an `Expense`/`PurchaseOrder`; a `Vendor` promotes it to a
+/// directory entry with a picture and contact details, and can be autofilled
+/// from a Google result link. `imagePath` is project-relative (like a receipt),
+/// so it syncs with the rest of the project's `assets/`.
+public struct Vendor: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var category: String        // "Catering", "Equipment rental", "Location", …
+    public var phone: String
+    public var email: String
+    public var website: String
+    public var address: String         // Street address
+    public var city: String
+    public var region: String          // State / province
+    public var country: String
+    public var notes: String
+    public var imagePath: String?      // Project-relative, e.g. "assets/vendors/<uuid>.jpg"
+    public var sourceUrl: String?      // The Google/result link this was detected from
+    public var rating: Double?         // Public rating if detected (0–5)
+
+    public init(
+        id: String = UUID().uuidString,
+        name: String = "",
+        category: String = "",
+        phone: String = "",
+        email: String = "",
+        website: String = "",
+        address: String = "",
+        city: String = "",
+        region: String = "",
+        country: String = "",
+        notes: String = "",
+        imagePath: String? = nil,
+        sourceUrl: String? = nil,
+        rating: Double? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.category = category
+        self.phone = phone
+        self.email = email
+        self.website = website
+        self.address = address
+        self.city = city
+        self.region = region
+        self.country = country
+        self.notes = notes
+        self.imagePath = imagePath
+        self.sourceUrl = sourceUrl
+        self.rating = rating
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, category, phone, email, website, address, city, region, country, notes, rating
+        case imagePath = "image_path"
+        case sourceUrl = "source_url"
+    }
+
+    /// Lenient decode so a hand-written or partial project.json never fails.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        phone = try container.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
+        website = try container.decodeIfPresent(String.self, forKey: .website) ?? ""
+        address = try container.decodeIfPresent(String.self, forKey: .address) ?? ""
+        city = try container.decodeIfPresent(String.self, forKey: .city) ?? ""
+        region = try container.decodeIfPresent(String.self, forKey: .region) ?? ""
+        country = try container.decodeIfPresent(String.self, forKey: .country) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
+        sourceUrl = try container.decodeIfPresent(String.self, forKey: .sourceUrl)
+        rating = try container.decodeIfPresent(Double.self, forKey: .rating)
+    }
+
+    /// A one-line location for the directory list.
+    public var locationLine: String {
+        [city, region, country].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+}
+
 // MARK: - ProjectBudget
 
 /// Complete budget for a project
@@ -615,6 +701,7 @@ public struct ProjectBudget: Codable, Hashable, Sendable {
     public var purchaseOrders: [PurchaseOrder]
     public var contingencyPercentage: Double  // Typically 10% of BTL+Post
     public var fringeRate: Double  // Default fringe percentage (e.g., 0.30 = 30%)
+    public var vendors: [Vendor]  // Vendor directory (picture + contact details)
 
     public var totalSpent: Double {
         categories.reduce(0) { $0 + $1.spent }
@@ -633,7 +720,8 @@ public struct ProjectBudget: Codable, Hashable, Sendable {
         aiProductionEstimates: [String: Double]? = nil,
         purchaseOrders: [PurchaseOrder] = [],
         contingencyPercentage: Double = 0.10,
-        fringeRate: Double = 0.30
+        fringeRate: Double = 0.30,
+        vendors: [Vendor] = []
     ) {
         self.categories = categories
         self.expenses = expenses
@@ -644,10 +732,11 @@ public struct ProjectBudget: Codable, Hashable, Sendable {
         self.purchaseOrders = purchaseOrders
         self.contingencyPercentage = contingencyPercentage
         self.fringeRate = fringeRate
+        self.vendors = vendors
     }
 
     enum CodingKeys: String, CodingKey {
-        case categories, expenses
+        case categories, expenses, vendors
         case totalBudget = "total_budget"
         case currency
         case aiBudgetLimit = "ai_budget_limit"
@@ -672,5 +761,6 @@ public struct ProjectBudget: Codable, Hashable, Sendable {
         purchaseOrders = try container.decodeIfPresent([PurchaseOrder].self, forKey: .purchaseOrders) ?? []
         contingencyPercentage = try container.decodeIfPresent(Double.self, forKey: .contingencyPercentage) ?? 0.10
         fringeRate = try container.decodeIfPresent(Double.self, forKey: .fringeRate) ?? 0.30
+        vendors = try container.decodeIfPresent([Vendor].self, forKey: .vendors) ?? []
     }
 }

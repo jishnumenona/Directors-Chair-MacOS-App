@@ -31,6 +31,9 @@ extension BudgetView {
             ProductionChip(icon: "doc.plaintext", "Purchase Orders", selected: displayMode == .purchaseOrders) {
                 displayMode = .purchaseOrders
             }
+            ProductionChip(icon: "building.2", "Vendors", selected: displayMode == .vendors) {
+                displayMode = .vendors
+            }
             ProductionChip(icon: "person.2", "Payroll", selected: displayMode == .payroll) {
                 displayMode = .payroll
             }
@@ -57,6 +60,11 @@ extension BudgetView {
             case .purchaseOrders:
                 ProductionActionButton(icon: "plus", "New PO", prominent: true) {
                     showingAddPOSheet = true
+                }
+            case .vendors:
+                ProductionActionButton(icon: "plus", "Add Vendor", prominent: true) {
+                    selectedVendor = nil
+                    showingAddVendorSheet = true
                 }
             default:
                 EmptyView()

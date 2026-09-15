@@ -144,6 +144,14 @@ struct ProductionContainer: View {
                                                         categoryNames: categoryNames)
         }
 
+        // Vendor autodetect from a Google/result link (DC-0133) — parses the
+        // business name, asks the AI for its attributes, downloads a picture
+        // into the project's assets/vendors/.
+        budgetViewModel.onLookupVendor = { url in
+            return await VendorLookupService.lookup(googleURL: url,
+                                                    projectBasePath: capturedBudgetVM.projectBasePath)
+        }
+
 
         // Sync equipment changes back to project
         equipmentViewModel.onEquipmentChanged = { equipment in
